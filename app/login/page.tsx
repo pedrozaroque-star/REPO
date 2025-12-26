@@ -16,46 +16,71 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
 
-    // Simulación de login (luego conectaremos con Supabase Auth)
-    setTimeout(() => {
-      if (email && password) {
-        router.push('/')
-      } else {
-        setError('Por favor ingresa email y contraseña')
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password: password
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || 'Error al iniciar sesión')
         setLoading(false)
+        return
       }
-    }, 1000)
+
+      // Guardar token y usuario en localStorage
+      localStorage.setItem('teg_token', data.token)
+      localStorage.setItem('teg_user', JSON.stringify(data.user))
+
+      // Redirigir al dashboard
+      router.push('/dashboard')
+      
+    } catch (err) {
+      console.error('Error inesperado:', err)
+      setError('Error inesperado. Por favor intenta de nuevo.')
+      setLoading(false)
+    }
   }
 
   return (
     <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
       
-      {/* Fondo decorativo sutil (opcional) */}
+      {/* Fondo decorativo sutil */}
       <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
 
       <div className="w-full max-w-md z-10">
         
         {/* LOGO Y ESLOGAN */}
         <div className="text-center mb-8 flex flex-col items-center">
-          {/* Círculo blanco para resaltar el logo si es transparente */}
+          {/* Círculo blanco para resaltar el logo */}
           <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 p-2">
             <div className="relative w-28 h-28">
               <Image 
                 src="/logo.png" 
                 alt="Logo Tacos Gavilan" 
                 fill
+                sizes="112px"
                 className="object-contain"
                 priority
               />
             </div>
           </div>
           
-          {/* Imagen del Eslogan "Ya está" */}
+          {/* Imagen del Eslogan */}
           <div className="relative w-48 h-16 mb-2">
             <Image 
               src="/ya esta.png" 
               alt="Ya está" 
               fill
+              sizes="192px"
               className="object-contain"
             />
           </div>
@@ -87,6 +112,8 @@ export default function LoginPage() {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 placeholder-gray-400"
                   placeholder="ejemplo@tacosgavilan.com"
                   required
+                  disabled={loading}
+                  autoComplete="email"
                 />
               </div>
 
@@ -101,6 +128,8 @@ export default function LoginPage() {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 placeholder-gray-400"
                   placeholder="••••••••"
                   required
+                  disabled={loading}
+                  autoComplete="current-password"
                 />
               </div>
 

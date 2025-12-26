@@ -6,6 +6,7 @@ import Sidebar from '@/components/Sidebar'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ReviewModal from '@/components/ReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA } from '@/lib/checklistPermissions'
+import DetailsModal from '@/components/DetailsModal'
 
 function ChecklistsContent() {
   const router = useRouter()
@@ -25,6 +26,8 @@ function ChecklistsContent() {
   const [storeFilter, setStoreFilter] = useState('all')
   const [stores, setStores] = useState<any[]>([])
   const [showReviewModal, setShowReviewModal] = useState(false)
+  const [detailsModal, setDetailsModal] = useState(false)
+const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
 
   useEffect(() => {
     fetchData()
@@ -129,11 +132,29 @@ function ChecklistsContent() {
     router.push(`/checklists/editar/${item.checklist_type}/${item.id}`)
   }
 
+
+
   const canUserEdit = (item: any) => {
-    if (!user) return false
-    const editCheck = canEditChecklist(item.created_at, user.role, item.user_id, user.id)
-    return editCheck.canEdit
-  }
+  if (!user) return false
+  
+  // 1. Solo el creador
+  if (item.user_id !== user.id) return false
+  
+  // 2. Solo si está pendiente
+  const managerStatus = item.estatus_manager || 'pendiente'
+  if (managerStatus !== 'pendiente') return false
+  
+  // 3. Solo del día actual
+  const checklistDateStr = item.checklist_date
+  
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  const todayStr = `${year}-${month}-${day}`
+  
+  return checklistDateStr === todayStr
+}
 
   if (loading) {
     return (
@@ -243,6 +264,8 @@ function ChecklistsContent() {
             </div>
           </div>
 
+          
+
           {/* Lista de Checklists */}
           <div className="bg-white rounded-xl shadow-md overflow-hidden">
             <div className="overflow-x-auto">
@@ -305,7 +328,16 @@ function ChecklistsContent() {
                                 className="text-blue-600 hover:text-blue-800 font-semibold text-sm">
                                 ✏️ Editar
                               </button>
+                              
                             )}
+                            <button
+                              onClick={() => {
+                                setSelectedChecklist(item)
+                                setDetailsModal(true)
+                              }}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-semibold transition-all">
+                              👁️ Ver Detalles
+                            </button>
                           </td>
                         </tr>
                       )
@@ -337,7 +369,23 @@ function ChecklistsContent() {
           }}
         />
       )}
+
+
+
+      <DetailsModal
+  isOpen={detailsModal}
+  onClose={() => {
+    setDetailsModal(false)
+    setSelectedChecklist(null)
+  }}
+  checklist={selectedChecklist}
+  type="assistant"
+/>
     </div>
+
+
+
+
   )
 }
 

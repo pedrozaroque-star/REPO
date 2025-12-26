@@ -26,9 +26,10 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   const checkAuth = () => {
     try {
+      const token = localStorage.getItem('teg_token')
       const userStr = localStorage.getItem('teg_user')
       
-      if (!userStr) {
+      if (!token || !userStr) {
         router.push('/login')
         return
       }
@@ -37,6 +38,7 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
       
       // Verificar que tenga los campos necesarios
       if (!userData.id || !userData.email || !userData.role) {
+        localStorage.removeItem('teg_token')
         localStorage.removeItem('teg_user')
         router.push('/login')
         return
@@ -57,6 +59,7 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
       setLoading(false)
     } catch (err) {
       console.error('Error verificando autenticación:', err)
+      localStorage.removeItem('teg_token')
       localStorage.removeItem('teg_user')
       router.push('/login')
     }
@@ -79,22 +82,30 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 // Hook para obtener usuario actual
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    loadUser()
+  }, [])
+
+  const loadUser = () => {
     try {
       const userStr = localStorage.getItem('teg_user')
       if (userStr) {
         setUser(JSON.parse(userStr))
       }
+      setLoading(false)
     } catch (err) {
       console.error('Error obteniendo usuario:', err)
+      setLoading(false)
     }
-  }, [])
+  }
 
   const logout = () => {
+    localStorage.removeItem('teg_token')
     localStorage.removeItem('teg_user')
     window.location.href = '/login'
   }
 
-  return { user, logout }
+  return { user, logout, loading }
 }

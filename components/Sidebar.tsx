@@ -13,9 +13,10 @@ export default function Sidebar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const handleLogout = () => {
-    localStorage.removeItem('teg_user')
-    router.push('/')
-  }
+  localStorage.removeItem('teg_token')    // ← AGREGA ESTA LÍNEA
+  localStorage.removeItem('teg_user')
+  router.push('/login')                   // ← CAMBIA '/' por '/login'
+}
 
   const menuItems = [
     { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },

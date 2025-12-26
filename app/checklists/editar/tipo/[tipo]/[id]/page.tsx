@@ -1,15 +1,10 @@
-'use client'
+"use client"
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Sidebar from '@/components/Sidebar'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { canEditChecklist } from '@/lib/checklistPermissions'
-
-// Importar formularios (tendremos que crearlos después)
-// import DailyForm from '@/components/checklists/DailyForm'
-// import TemperaturasForm from '@/components/checklists/TemperaturasForm'
-// etc...
 
 function EditChecklistContent() {
   const params = useParams()

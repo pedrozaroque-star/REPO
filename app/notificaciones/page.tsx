@@ -13,43 +13,84 @@ function NotificacionesContent() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all')
 
+  // Detectar cuando el componente monta
   useEffect(() => {
-    fetchNotifications()
+    console.log('🚀 Componente montado, usuario:', user)
+    if (!user) {
+      console.log('⚠️ No hay usuario, redirigiendo...')
+      setTimeout(() => setLoading(false), 1000)
+    }
+  }, [])
+
+  // Cargar notificaciones cuando cambia el filtro
+  useEffect(() => {
+    if (user) {
+      fetchNotifications()
+    }
   }, [filter])
 
   const fetchNotifications = async () => {
-  if (!user) {
-    console.log('❌ No hay usuario')
-    return
+    console.log('🔍 Fetching notifications para user:', user?.id)
+
+    try {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+      const res = await fetch(
+        `${url}/rest/v1/notifications?user_id=eq.${user?.id}&order=created_at.desc`,
+        {
+          headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
+        }
+      )
+      
+      console.log('🔍 Response status:', res.status)
+      
+      const data = await res.json()
+      console.log('🔍 Data recibida:', data)
+      
+      setNotifications(Array.isArray(data) ? data : [])
+      setLoading(false)
+    } catch (err) {
+      console.error('❌ Error:', err)
+      setLoading(false)
+    }
   }
-
-  console.log('🔍 Fetching notifications para user:', user.id)
-
-  try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    console.log('🔍 URL:', `${url}/rest/v1/notifications?user_id=eq.${user.id}`)
-
-    const res = await fetch(
-      `${url}/rest/v1/notifications?user_id=eq.${user.id}&order=created_at.desc`,
-      {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      }
+  
+  // Agregar esta validación ANTES del loading
+  if (!user && !loading) {
+    return (
+      <div className="flex min-h-screen bg-gray-50">
+        <Sidebar />
+        <div className="flex-1 flex items-center justify-center md:ml-64">
+          <div className="text-center">
+            <div className="text-6xl mb-4">⚠️</div>
+            <p className="text-gray-600">No hay sesión de usuario</p>
+            <button 
+              onClick={() => router.push('/')}
+              className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg">
+              Ir a login
+            </button>
+          </div>
+        </div>
+      </div>
     )
-    
-    console.log('🔍 Response status:', res.status)
-    
-    const data = await res.json()
-    console.log('🔍 Data recibida:', data)
-    
-    setNotifications(Array.isArray(data) ? data : [])
-    setLoading(false)
-  } catch (err) {
-    console.error('❌ Error completo:', err)
-    setLoading(false)
   }
-}
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen bg-gray-50">
+        <Sidebar />
+        <div className="flex-1 flex items-center justify-center md:ml-64">
+          <div className="text-center">
+            <div className="text-6xl mb-4">🔔</div>
+            <p className="text-gray-600">Cargando notificaciones...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Resto del código...
 
   const markAsRead = async (id: number) => {
     try {

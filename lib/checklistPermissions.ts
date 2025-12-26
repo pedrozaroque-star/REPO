@@ -3,52 +3,42 @@
  * Regla: Solo se puede editar el mismo día laboral (hasta 5am del día siguiente)
  */
 
-export function canEditChecklist(createdAt: string | Date, currentUserRole: string, creatorUserId: number, currentUserId: number): {
-  canEdit: boolean
-  reason?: string
-} {
-  // Solo el creador puede editar (o admin override)
-  if (currentUserRole !== 'admin' && creatorUserId !== currentUserId) {
-    return { canEdit: false, reason: 'Solo el creador puede editar' }
+export function canEditChecklist(
+  createdAt: string,
+  userRole: string,
+  checklistUserId: number,
+  currentUserId: number,
+  checklistDate?: string,  // ← NUEVO PARÁMETRO
+  supervisorStatus?: string,  // ← NUEVO PARÁMETRO
+  adminStatus?: string  // ← NUEVO PARÁMETRO
+) {
+  // 1. Solo el creador
+  if (checklistUserId !== currentUserId) {
+    return { canEdit: false, reason: '❌ Solo el creador puede editar este checklist' }
   }
 
-  // Convertir a fecha de Los Angeles manualmente
-  const toLA = (date: Date): Date => {
-    const utc = date.getTime()
-    const offset = -8 * 60 * 60 * 1000 // UTC-8 (PST)
-    return new Date(utc + offset)
+  // 2. Solo si está pendiente (no revisado)
+  const supStatus = supervisorStatus || 'pendiente'
+  const admStatus = adminStatus || 'pendiente'
+  
+  if (supStatus !== 'pendiente' || admStatus !== 'pendiente') {
+    return { canEdit: false, reason: '❌ No se puede editar un checklist que ya ha sido revisado' }
   }
 
-  const created = toLA(new Date(createdAt))
-  const now = toLA(new Date())
-
-  // Función para determinar el día laboral
-  const getLaborDay = (date: Date): string => {
-    // Si es antes de 5am, pertenece al día laboral anterior
-    if (date.getHours() < 5) {
-      date.setDate(date.getDate() - 1)
-    }
-    
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
+  // 3. Solo del día actual - CORRECCIÓN
+  const dateToCheck = checklistDate || createdAt.split('T')[0]
+  
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  const todayStr = `${year}-${month}-${day}`
+  
+  if (dateToCheck !== todayStr) {
+    return { canEdit: false, reason: '❌ Solo se pueden editar checklists del día actual' }
   }
 
-  const createdLaborDay = getLaborDay(new Date(created))
-  const currentLaborDay = getLaborDay(new Date(now))
-
-  // Mismo día laboral = puede editar
-  const canEdit = createdLaborDay === currentLaborDay
-
-  if (!canEdit) {
-    return { 
-      canEdit: false, 
-      reason: `Solo se puede editar el mismo día laboral (hasta 5am del día siguiente). Creado: ${createdLaborDay}, Hoy: ${currentLaborDay}` 
-    }
-  }
-
-  return { canEdit: true }
+  return { canEdit: true, reason: '' }
 }
 
 /**
