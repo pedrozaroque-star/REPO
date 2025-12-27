@@ -195,17 +195,20 @@ export default function TiendasPage() {
                   </div>
 
                   {/* Supervisor */}
-                  {/* Supervisor - Comentado temporalmente
-{store.supervisor && (
-  <div className="mb-4 bg-blue-50 rounded-lg p-3">
-    <p className="text-xs text-gray-600 mb-1">Supervisor</p>
-    <p className="text-sm font-semibold text-gray-900">
-      {store.supervisor.full_name}
-    </p>
-    <p className="text-xs text-gray-600">{store.supervisor.email}</p>
-  </div>
-)}
-*/}
+{/* Supervisor */}
+                  {store.supervisor_name && (
+                    <div className="mb-4 bg-blue-50 rounded-lg p-3 border border-blue-100">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">👮‍♂️</span>
+                        <div>
+                          <p className="text-xs text-blue-600 font-bold uppercase tracking-wider">Supervisor</p>
+                          <p className="text-sm font-bold text-gray-900">
+                            {store.supervisor_name}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Stats */}
                   <div className="grid grid-cols-2 gap-3 mb-4">

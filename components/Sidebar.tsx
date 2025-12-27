@@ -21,6 +21,7 @@ export default function Sidebar() {
   const menuItems = [
     { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
     { name: 'Tiendas', path: '/tiendas', icon: '🏪', roles: ['admin'] },
+    { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
     { name: 'Usuarios', path: '/usuarios', icon: '👥', roles: ['admin'] },
     { name: 'Inspecciones', path: '/inspecciones', icon: '📋', roles: ['supervisor', 'admin'] },
     { name: 'Checklists Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
