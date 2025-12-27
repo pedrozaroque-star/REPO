@@ -2,13 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import Sidebar from '@/components/Sidebar'
+import UserModal from '@/components/UserModal' // Asegúrate de tener este componente creado
+import { supabase } from '@/lib/supabase'
 
 export default function UsuariosPage() {
   const [users, setUsers] = useState<any[]>([])
+  const [stores, setStores] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
-  const [selectedUser, setSelectedUser] = useState<any>(null)
+  
+  // Estado para el Modal
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<any>(null)
 
   useEffect(() => {
     fetchData()
@@ -16,222 +22,170 @@ export default function UsuariosPage() {
 
   const fetchData = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      setLoading(true)
+      const { data: usersData } = await supabase.from('users').select('*').order('full_name')
+      const { data: storesData } = await supabase.from('stores').select('id, name').order('name')
       
-      // Query simple sin foreign keys problemáticas
-      const usersRes = await fetch(
-  `${url}/rest/v1/users?select=*&order=full_name.asc`,
-        {
-          headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-        }
-      )
-      const usersData = await usersRes.json()
-      setUsers(Array.isArray(usersData) ? usersData : [])
-      
-      setLoading(false)
+      setUsers(usersData || [])
+      setStores(storesData || [])
     } catch (err) {
-      console.error('Error:', err)
+      console.error(err)
+    } finally {
       setLoading(false)
     }
   }
 
-  const roleColors: any = {
-    admin: 'bg-red-100 text-red-800',
-    supervisor: 'bg-purple-100 text-purple-800',
-    manager: 'bg-blue-100 text-blue-800',
-    user: 'bg-green-100 text-green-800'
+  // Guardar Usuario (Crear o Editar)
+  const handleSaveUser = async (formData: any, isEdit: boolean) => {
+    try {
+      if (isEdit) {
+        // 1. Editar Datos Visuales
+        const { error } = await supabase.from('users').update({
+          full_name: formData.full_name,
+          role: formData.role,
+          store_id: formData.store_id ? parseInt(formData.store_id) : null
+        }).eq('id', formData.id)
+
+        if (error) throw error
+
+        // 2. Cambiar Contraseña (si se escribió) - Usando la función RPC por Email
+        if (formData.password) {
+          const { error: rpcError } = await supabase.rpc('admin_reset_password_by_email', {
+            target_email: formData.email,
+            new_password: formData.password
+          })
+          if (rpcError) throw rpcError
+        }
+        alert('✅ Usuario actualizado correctamente')
+      } else {
+        // 3. Crear Nuevo (Usando la función RPC Maestra)
+        const { error } = await supabase.rpc('create_new_user', {
+          email: formData.email,
+          password: formData.password,
+          full_name: formData.full_name,
+          role: formData.role,
+          store_id: formData.store_id ? parseInt(formData.store_id) : null
+        })
+        if (error) throw error
+        alert('✅ Usuario creado correctamente')
+      }
+      
+      fetchData()
+      setIsModalOpen(false)
+      setEditingUser(null)
+    } catch (err: any) {
+      console.error(err)
+      alert('❌ Error: ' + err.message)
+    }
   }
 
-  const roleIcons: any = {
-    admin: '👑',
-    supervisor: '👔',
-    manager: '📊',
-    user: '👤'
-  }
-
-  const roleLabels: any = {
-    admin: 'Admin',
-    supervisor: 'Supervisor',
-    manager: 'Manager',
-    user: 'Asistente'
-  }
-
+  // Filtrado
   const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email?.toLowerCase().includes(searchTerm.toLowerCase())
-    
+    const matchesSearch = user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          user.email?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesRole = roleFilter === 'all' || user.role === roleFilter
-    
     return matchesSearch && matchesRole
   })
 
-  const roleStats = {
-    admin: users.filter(u => u.role === 'admin').length,
-    supervisor: users.filter(u => u.role === 'supervisor').length,
-    manager: users.filter(u => u.role === 'manager').length,
-    user: users.filter(u => u.role === 'user').length
-  }
-
-  if (loading) {
-    return (
-      <div className="flex">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-6xl mb-4">👥</div>
-            <p className="text-gray-600">Cargando usuarios...</p>
-          </div>
-        </div>
-      </div>
-    )
+  // Helpers visuales
+  const roleColors: any = {
+    admin: 'bg-red-100 text-red-800',
+    manager: 'bg-blue-100 text-blue-800',
+    supervisor: 'bg-purple-100 text-purple-800',
+    user: 'bg-green-100 text-green-800'
   }
 
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
-      
-      <main className="flex-1 p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-8">
+      <main className="flex-1 p-8 md:ml-64">
+        
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+          <div>
             <h1 className="text-3xl font-bold text-gray-900">Usuarios</h1>
-            <p className="text-gray-600 mt-2">Gestión de cuentas del sistema</p>
+            <p className="text-gray-600">Gestión de accesos y personal</p>
           </div>
+          <button 
+            onClick={() => { setEditingUser(null); setIsModalOpen(true); }}
+            className="bg-gray-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-black shadow-lg hover:-translate-y-1 transition-all"
+          >
+            + Nuevo Usuario
+          </button>
+        </div>
 
-          {/* Stats Summary */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-gray-600">
-              <p className="text-sm font-medium text-gray-600">Total Usuarios</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{users.length}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-red-600">
-              <p className="text-sm font-medium text-gray-600">👑 Admins</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{roleStats.admin}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-purple-600">
-              <p className="text-sm font-medium text-gray-600">👔 Supervisores</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{roleStats.supervisor}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-600">
-              <p className="text-sm font-medium text-gray-600">📊 Managers</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{roleStats.manager}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-green-600">
-              <p className="text-sm font-medium text-gray-600">👤 Asistentes</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{roleStats.user}</p>
-            </div>
+        {/* Filtros */}
+        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col md:flex-row gap-4 border border-gray-100">
+          <div className="flex-1">
+            <input 
+              type="text" placeholder="🔍 Buscar por nombre o email..." 
+              value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+              className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            />
           </div>
-
-          {/* Filters */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Buscar usuario
-                </label>
-                <input
-                  type="text"
-                  placeholder="Nombre o email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Filtrar por rol
-                </label>
-                <select
-                  value={roleFilter}
-                  onChange={(e) => setRoleFilter(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                >
-                  <option value="all">Todos los roles</option>
-                  <option value="admin">👑 Admins</option>
-                  <option value="supervisor">👔 Supervisores</option>
-                  <option value="manager">📊 Managers</option>
-                  <option value="user">👤 Asistentes</option>
-                </select>
-              </div>
-            </div>
+          <div>
+            <select 
+              value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
+              className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+            >
+              <option value="all">Todos los Roles</option>
+              <option value="admin">Admin</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="manager">Manager</option>
+              <option value="user">Asistente</option>
+            </select>
           </div>
+        </div>
 
-          {/* Users Grid */}
+        {/* Grid de Usuarios */}
+        {loading ? (
+          <div className="text-center py-10 text-gray-500">Cargando...</div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredUsers.map((user) => (
-              <div
-                key={user.id}
-                className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow overflow-hidden"
-              >
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900 mb-2">
-                        {user.full_name}
-                      </h3>
-                      <p className="text-sm text-gray-600 mb-3">{user.email}</p>
-                    </div>
+            {filteredUsers.map(user => (
+              <div key={user.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative group hover:shadow-md transition-shadow">
+                <button 
+                  onClick={() => { setEditingUser(user); setIsModalOpen(true); }}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="Editar"
+                >
+                  ✏️
+                </button>
+                
+                <div className="flex items-center gap-4 mb-4">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-sm ${
+                    user.role === 'admin' ? 'bg-red-500' : 
+                    user.role === 'manager' ? 'bg-blue-500' : 'bg-green-500'
+                  }`}>
+                    {user.full_name?.charAt(0).toUpperCase()}
                   </div>
-
-                  {/* Badges */}
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${roleColors[user.role]}`}>
-                      {roleIcons[user.role]} {roleLabels[user.role]}
-                    </span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      user.is_active 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {user.is_active ? 'Activo' : 'Inactivo'}
-                    </span>
+                  <div>
+                    <h3 className="font-bold text-gray-900 leading-tight">{user.full_name}</h3>
+                    <p className="text-xs text-gray-500">{user.email}</p>
                   </div>
+                </div>
 
-                  {/* Info */}
-                  <div className="space-y-2 text-sm mb-4">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Creado:</span>
-                      <span className="font-medium text-gray-900">
-                        {new Date(user.created_at).toLocaleDateString('es-MX')}
-                      </span>
-                    </div>
-                    {user.phone && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Teléfono:</span>
-                        <span className="font-medium text-gray-900">{user.phone}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Details Button */}
-                  <button
-                    onClick={() => setSelectedUser(selectedUser?.id === user.id ? null : user)}
-                    className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition-colors"
-                  >
-                    {selectedUser?.id === user.id ? 'Ocultar' : 'Ver ID'}
-                  </button>
-
-                  {/* Extended Details */}
-                  {selectedUser?.id === user.id && (
-                    <div className="mt-4 pt-4 border-t border-gray-200">
-                      <p className="text-xs text-gray-500 mb-1">ID de Usuario</p>
-                      <p className="font-mono text-xs text-gray-700 break-all">{user.id}</p>
-                    </div>
-                  )}
+                <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-50">
+                  <span className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-wide ${roleColors[user.role] || 'bg-gray-100'}`}>
+                    {user.role}
+                  </span>
+                  <span className="text-xs text-gray-500 font-medium">
+                    {stores.find(s => s.id === user.store_id)?.name || 'Sin Tienda'}
+                  </span>
                 </div>
               </div>
             ))}
           </div>
+        )}
 
-          {filteredUsers.length === 0 && (
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">🔍</div>
-              <p className="text-gray-600">No se encontraron usuarios</p>
-            </div>
-          )}
-        </div>
+        {/* Modal de Creación/Edición */}
+        <UserModal 
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onSave={handleSaveUser}
+          stores={stores}
+          initialData={editingUser}
+        />
       </main>
     </div>
   )
