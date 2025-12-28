@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import Sidebar from '@/components/Sidebar'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ReviewModal from '@/components/ReviewModal'
-import { getStatusColor, getStatusLabel, formatDateLA } from '@/lib/checklistPermissions'
+// ✅ Importamos canEditChecklist para validar la regla de las 5 AM
+import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
 
 function InspeccionesContent() {
   const router = useRouter()
@@ -31,8 +32,8 @@ function InspeccionesContent() {
   const [showReviewModal, setShowReviewModal] = useState(false)
 
   useEffect(() => {
-    fetchData()
-  }, [storeFilter, statusFilter])
+    if (user) fetchData()
+  }, [storeFilter, statusFilter, user])
 
   const fetchData = async () => {
     try {
@@ -157,7 +158,7 @@ function InspeccionesContent() {
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
       
-      <main className="flex-1 p-8">
+      <main className="flex-1 p-4 md:p-8 overflow-hidden">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
@@ -166,59 +167,59 @@ function InspeccionesContent() {
           </div>
 
           {/* Estadísticas */}
-          <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-4 mb-8">
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-indigo-600">
+          <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2 md:gap-4 mb-8">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-indigo-600">
               <p className="text-xs font-medium text-gray-600">Total</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</p>
+              <p className="text-xl md:text-2xl font-bold text-gray-900 mt-1">{stats.total}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-yellow-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-yellow-600">
               <p className="text-xs font-medium text-gray-600">Pendientes</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{stats.pendientes}</p>
+              <p className="text-xl md:text-2xl font-bold text-gray-900 mt-1">{stats.pendientes}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-blue-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-blue-600">
               <p className="text-xs font-medium text-gray-600">Cerrados</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{stats.cerrados}</p>
+              <p className="text-xl md:text-2xl font-bold text-gray-900 mt-1">{stats.cerrados}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-purple-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-purple-600">
               <p className="text-xs font-medium text-gray-600">Promedio</p>
-              <p className={`text-2xl font-bold mt-1 ${getScoreColor(stats.avgOverall)}`}>{stats.avgOverall}</p>
+              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgOverall)}`}>{stats.avgOverall}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-green-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-green-600">
               <p className="text-xs font-medium text-gray-600">Servicio</p>
-              <p className={`text-2xl font-bold mt-1 ${getScoreColor(stats.avgServicio)}`}>{stats.avgServicio}</p>
+              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgServicio)}`}>{stats.avgServicio}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-red-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-red-600">
               <p className="text-xs font-medium text-gray-600">Carnes</p>
-              <p className={`text-2xl font-bold mt-1 ${getScoreColor(stats.avgCarnes)}`}>{stats.avgCarnes}</p>
+              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgCarnes)}`}>{stats.avgCarnes}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-orange-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-orange-600">
               <p className="text-xs font-medium text-gray-600">Alimentos</p>
-              <p className={`text-2xl font-bold mt-1 ${getScoreColor(stats.avgAlimentos)}`}>{stats.avgAlimentos}</p>
+              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgAlimentos)}`}>{stats.avgAlimentos}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-pink-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-pink-600">
               <p className="text-xs font-medium text-gray-600">Tortillas</p>
-              <p className={`text-2xl font-bold mt-1 ${getScoreColor(stats.avgTortillas)}`}>{stats.avgTortillas}</p>
+              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgTortillas)}`}>{stats.avgTortillas}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-teal-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-teal-600">
               <p className="text-xs font-medium text-gray-600">Limpieza</p>
-              <p className={`text-2xl font-bold mt-1 ${getScoreColor(stats.avgLimpieza)}`}>{stats.avgLimpieza}</p>
+              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgLimpieza)}`}>{stats.avgLimpieza}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-4 border-l-4 border-cyan-600">
+            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-cyan-600">
               <p className="text-xs font-medium text-gray-600">Aseo</p>
-              <p className={`text-2xl font-bold mt-1 ${getScoreColor(stats.avgAseo)}`}>{stats.avgAseo}</p>
+              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgAseo)}`}>{stats.avgAseo}</p>
             </div>
           </div>
 
           {/* Filtros y Acciones */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+          <div className="bg-white rounded-xl shadow-md p-4 mb-6">
             <div className="flex flex-wrap gap-4 items-center justify-between">
               <div className="flex flex-wrap gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Sucursal</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Sucursal</label>
                   <select 
                     value={storeFilter} 
                     onChange={(e) => setStoreFilter(e.target.value)}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                     <option value="all">Todas las sucursales</option>
                     {stores.map(store => (
                       <option key={store.id} value={store.id}>{store.name}</option>
@@ -228,11 +229,11 @@ function InspeccionesContent() {
 
                 {canReview() && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
                     <select 
                       value={statusFilter} 
                       onChange={(e) => setStatusFilter(e.target.value)}
-                      className="px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                       <option value="all">Todos los estados</option>
                       <option value="pendiente">Pendientes</option>
                       <option value="cerrado">Cerrados</option>
@@ -241,19 +242,19 @@ function InspeccionesContent() {
                 )}
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex gap-2">
                 {canReview() && inspections.length > 0 && (
                   <button
                     onClick={() => setShowReviewModal(true)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-semibold transition-all shadow-md">
-                    ✓ Revisar Inspecciones
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-md">
+                    ✓ Revisar
                   </button>
                 )}
                 {canCreate() && (
                   <button
                     onClick={() => router.push('/inspecciones/nueva')}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition-all shadow-md">
-                    + Nueva Inspección
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-md">
+                    + Nueva
                   </button>
                 )}
               </div>
@@ -261,75 +262,101 @@ function InspeccionesContent() {
           </div>
 
           {/* Lista de Inspecciones */}
-          <div className="bg-white rounded-xl shadow-md overflow-hidden">
+          <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-max">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Fecha</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Sucursal</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Supervisor</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">General</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Servicio</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Carnes</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Limpieza</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Observaciones</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Fecha</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Sucursal</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Supervisor</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">General</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider hidden md:table-cell">Servicio</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider hidden md:table-cell">Carnes</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider hidden md:table-cell">Limpieza</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Obs</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
+                    <th className="px-3 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {inspections.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
                         No hay inspecciones registradas
                       </td>
                     </tr>
                   ) : (
-                    inspections.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {formatDateLA(item.inspection_date || item.created_at)}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.store_name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.supervisor_name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`text-lg font-bold ${getScoreColor(item.overall_score)}`}>
-                            {item.overall_score}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`text-sm font-semibold ${getScoreColor(item.servicio_score)}`}>
-                            {item.servicio_score}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`text-sm font-semibold ${getScoreColor(item.carnes_score)}`}>
-                            {item.carnes_score}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`text-sm font-semibold ${getScoreColor(item.limpieza_score)}`}>
-                            {item.limpieza_score}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {item.observaciones ? (
-                            <span className="text-xs text-orange-600 font-semibold">⚠️ Sí</span>
-                          ) : (
-                            <span className="text-xs text-gray-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {getStatusBadge(item)}
-                        </td>
-                      </tr>
-                    ))
+                    inspections.map((item) => {
+                      // ✅ Validar permiso de Edición usando la regla de las 5 AM
+                      const permissions = canEditChecklist(
+                        item.inspection_date || item.created_at, 
+                        user.role || '',
+                        item.inspector_id,
+                        user.id
+                      )
+
+                      return (
+                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-3 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {formatDateLA(item.inspection_date || item.created_at)}
+                            </div>
+                          </td>
+                          <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {item.store_name}
+                          </td>
+                          <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {item.supervisor_name}
+                          </td>
+                          <td className="px-3 py-4 whitespace-nowrap">
+                            <span className={`text-lg font-bold ${getScoreColor(item.overall_score)}`}>
+                              {item.overall_score}
+                            </span>
+                          </td>
+                          {/* Columnas ocultas en móvil para evitar scroll horizontal excesivo */}
+                          <td className="px-3 py-4 whitespace-nowrap hidden md:table-cell">
+                            <span className={`text-sm font-semibold ${getScoreColor(item.servicio_score)}`}>
+                              {item.servicio_score}
+                            </span>
+                          </td>
+                          <td className="px-3 py-4 whitespace-nowrap hidden md:table-cell">
+                            <span className={`text-sm font-semibold ${getScoreColor(item.carnes_score)}`}>
+                              {item.carnes_score}
+                            </span>
+                          </td>
+                          <td className="px-3 py-4 whitespace-nowrap hidden md:table-cell">
+                            <span className={`text-sm font-semibold ${getScoreColor(item.limpieza_score)}`}>
+                              {item.limpieza_score}
+                            </span>
+                          </td>
+                          <td className="px-3 py-4 text-center">
+                            {item.observaciones ? (
+                              <span className="text-lg" title="Ver Observaciones">📝</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-4 whitespace-nowrap">
+                            {getStatusBadge(item)}
+                          </td>
+                          <td className="px-3 py-4 whitespace-nowrap text-right">
+                            {permissions.canEdit ? (
+                              <button
+                                onClick={() => router.push(`/inspecciones/editar/${item.id}`)}
+                                className="text-indigo-600 hover:text-indigo-900 font-bold text-sm bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded border border-indigo-200"
+                              >
+                                ✏️ Editar
+                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic cursor-not-allowed" title={permissions.reason}>
+                                🔒 Bloqueado
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>

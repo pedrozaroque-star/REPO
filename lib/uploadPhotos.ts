@@ -1,62 +1,42 @@
-export async function uploadPhotos(
-  files: File[],
-  bucket: 'feedback-photos' | 'staff-photos',
-  prefix: string
-): Promise<string[]> {
+import { supabase } from '@/lib/supabase'
+
+export const uploadPhotos = async (
+  files: File[], 
+  bucket: string, // Ej: 'checklist-photos'
+  folder: string  // Ej: 'inspection'
+) => {
   const urls: string[] = []
-  
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!url || !key) {
-    console.error('Missing Supabase credentials')
-    return []
-  }
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    const timestamp = Date.now()
-    const randomStr = Math.random().toString(36).substring(7)
-    const ext = file.name.split('.').pop() || 'jpg'
-    const fileName = `${prefix}_${timestamp}_${randomStr}.${ext}`
-    
+  for (const file of files) {
     try {
-      // Convert to base64
-      const reader = new FileReader()
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string
-          resolve(result.split(',')[1]) // Remove data:image/...;base64, prefix
-        }
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
+      // 1. Limpiar nombre de archivo y generar ID único
+      const fileExt = file.name.split('.').pop()
+      const cleanFileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
 
-      // Upload to Supabase Storage
-      const uploadRes = await fetch(`${url}/storage/v1/object/${bucket}/${fileName}`, {
-        method: 'POST',
-        headers: {
-          'apikey': key,
-          'Authorization': `Bearer ${key}`,
-          'Content-Type': file.type,
-          'x-upsert': 'false'
-        },
-        body: Buffer.from(base64, 'base64')
-      })
+      // 2. Subir usando el cliente de Supabase
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(cleanFileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        })
 
-      if (uploadRes.ok) {
-        // Get public URL
-        const publicURL = `${url}/storage/v1/object/public/${bucket}/${fileName}`
-        urls.push(publicURL)
-        console.log('✅ Photo uploaded:', publicURL)
-      } else {
-        const error = await uploadRes.text()
-        console.error('❌ Upload failed:', error)
+      if (uploadError) throw uploadError
+
+      // 3. Obtener la URL pública
+      const { data } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(cleanFileName)
+
+      if (data?.publicUrl) {
+        urls.push(data.publicUrl)
+        console.log('✅ Foto subida:', data.publicUrl)
       }
-    } catch (err) {
-      console.error('Error uploading photo:', err)
+
+    } catch (error: any) {
+      console.error('Error subiendo foto:', error.message)
+      // No lanzamos error para que intente subir las siguientes fotos
     }
   }
-
   return urls
 }
