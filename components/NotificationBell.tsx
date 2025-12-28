@@ -1,170 +1,194 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuth } from './ProtectedRoute'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '@/lib/supabase'
+
+// Definir tipo para la notificación
+interface Notification {
+  id: number
+  title: string
+  message: string
+  created_at: string
+  is_read: boolean
+  type: 'alert' | 'info' | 'success' | 'warning'
+}
 
 export default function NotificationBell() {
-  const router = useRouter()
-  const { user } = useAuth()
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const [showDropdown, setShowDropdown] = useState(false)
-  const [notifications, setNotifications] = useState<any[]>([])
+  const [isOpen, setIsOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  
+  // Ref para detectar clics fuera
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
+  // Cargar notificaciones al montar
   useEffect(() => {
-    if (user) {
-      fetchNotifications()
-      const interval = setInterval(fetchNotifications, 30000)
-      return () => clearInterval(interval)
-    }
-  }, [user])
+    fetchNotifications()
 
-  const fetchNotifications = async () => {
-    if (!user) return
-
-    try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-      const res = await fetch(
-        `${url}/rest/v1/notifications?user_id=eq.${user.id}&order=created_at.desc&limit=10`,
-        {
-          headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
+    // Suscribirse a nuevas notificaciones en tiempo real
+    const channel = supabase
+      .channel('notifications_realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          // Si llega una nueva, la agregamos al inicio y subimos el contador
+          const newNotif = payload.new as Notification
+          setNotifications(prev => [newNotif, ...prev])
+          setUnreadCount(prev => prev + 1)
         }
       )
-      const data = await res.json()
-      
-      if (Array.isArray(data)) {
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
+
+  const fetchNotifications = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id) // Asegurarse de que el usuario tiene ID numérico o UUID según tu DB
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (error) throw error
+
+      if (data) {
         setNotifications(data)
         setUnreadCount(data.filter(n => !n.is_read).length)
       }
-    } catch (err) {
-      console.error('Error fetching notifications:', err)
+    } catch (error) {
+      console.error('Error al cargar notificaciones:', error)
     }
   }
 
-  const markAsRead = async (id: number) => {
+  const markAsRead = async () => {
+    if (unreadCount === 0) return
+
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-      await fetch(`${url}/rest/v1/notifications?id=eq.${id}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': key || '',
-          'Authorization': `Bearer ${key}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({ is_read: true, read_at: new Date().toISOString() })
-      })
+      const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id)
+      
+      if (unreadIds.length > 0) {
+        await supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .in('id', unreadIds)
 
-      fetchNotifications()
-    } catch (err) {
-      console.error('Error marking as read:', err)
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+        setUnreadCount(0)
+      }
+    } catch (error) {
+      console.error('Error al marcar como leídas:', error)
     }
   }
 
-  const handleNotificationClick = (notification: any) => {
-    markAsRead(notification.id)
-    setShowDropdown(false)
-    
-    if (notification.reference_type === 'supervisor_inspection') {
-      router.push('/inspecciones')
-    } else if (notification.reference_type === 'manager') {
-      router.push('/checklists-manager')
+  const toggleDropdown = () => {
+    if (!isOpen) {
+      setIsOpen(true)
+      markAsRead()
     } else {
-      router.push('/checklists')
+      setIsOpen(false)
     }
   }
 
-  const formatTimeAgo = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    
-    if (diffMins < 1) return 'Ahora'
-    if (diffMins < 60) return `${diffMins}m`
-    
-    const diffHours = Math.floor(diffMins / 60)
-    if (diffHours < 24) return `${diffHours}h`
-    
-    const diffDays = Math.floor(diffHours / 24)
-    return `${diffDays}d`
+  // Iconos según el tipo de alerta
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'alert': return '🚨';
+      case 'success': return '✅';
+      case 'warning': return '⚠️';
+      default: return 'ℹ️';
+    }
   }
-
-  if (!user) return null
 
   return (
-    <div className="relative">
-      {/* Botón de campana */}
+    <div className="relative" ref={dropdownRef}>
+      {/* Botón de la Campana */}
       <button
-        onClick={() => setShowDropdown(!showDropdown)}
-        className="relative p-2 text-white hover:bg-indigo-500 rounded-lg transition-colors"
-        aria-label="Notificaciones">
-        <span className="text-xl">🔔</span>
+        onClick={toggleDropdown}
+        className="relative p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-red-500"
+      >
+        <span className="text-2xl">🔔</span>
+        
+        {/* Badge de contador */}
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full min-w-[18px] h-[18px] flex items-center justify-center font-bold px-1">
-            {unreadCount > 9 ? '9+' : unreadCount}
+          <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 transform translate-x-1/4 -translate-y-1/4 bg-red-600 rounded-full border-2 border-gray-900">
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Dropdown */}
-      {showDropdown && (
+      {/* VENTANA FLOTANTE MEJORADA 
+         Usa 'fixed' para escapar del Sidebar y z-50 para estar encima de todo
+      */}
+      {isOpen && (
         <>
-          {/* Overlay invisible para cerrar */}
+          {/* Fondo invisible para cerrar al hacer clic fuera */}
           <div 
-            className="fixed inset-0 z-40" 
-            onClick={() => setShowDropdown(false)}
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm md:bg-transparent md:backdrop-blur-none" 
+            onClick={() => setIsOpen(false)}
           />
-          
-          {/* Panel de notificaciones - Aparece ARRIBA del botón */}
-          <div className="absolute bottom-full right-0 mb-2 w-80 bg-white rounded-lg shadow-2xl border border-gray-200 z-50 max-h-[400px] overflow-hidden flex flex-col">
-            {/* Header */}
-            <div className="bg-indigo-600 text-white px-4 py-3 rounded-t-lg flex-shrink-0">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-sm">Notificaciones</h3>
-                {unreadCount > 0 && (
-                  <span className="text-xs bg-indigo-700 px-2 py-1 rounded">
-                    {unreadCount} nueva{unreadCount !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
+
+          <div className="fixed z-50 
+                          /* MÓVIL: Centrado abajo o completo */
+                          bottom-0 left-0 right-0 mx-4 mb-4 
+                          max-h-[70vh] flex flex-col
+                          
+                          /* TABLET/PC: Pegado al sidebar */
+                          md:left-64 md:bottom-20 md:w-96 md:mx-0
+                          
+                          bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden ring-1 ring-black ring-opacity-5 animate-in slide-in-from-bottom-2 fade-in duration-200">
+            
+            {/* Cabecera */}
+            <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+              <h3 className="text-sm font-semibold text-gray-700">Notificaciones</h3>
+              <button 
+                onClick={() => setIsOpen(false)}
+                className="text-gray-400 hover:text-gray-600 md:hidden"
+              >
+                ✕
+              </button>
             </div>
 
-            {/* Lista de notificaciones con scroll */}
-            <div className="flex-1 overflow-y-auto">
+            {/* Lista Scrollable */}
+            <div className="overflow-y-auto overscroll-contain max-h-[60vh] md:max-h-96">
               {notifications.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                  <div className="text-4xl mb-2">📭</div>
-                  <p className="text-sm">No hay notificaciones</p>
+                <div className="px-4 py-8 text-center text-gray-500">
+                  <p className="text-3xl mb-2">🔕</p>
+                  <p className="text-sm">No tienes notificaciones nuevas</p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-200">
-                  {notifications.map((notif) => (
-                    <div
-                      key={notif.id}
-                      onClick={() => handleNotificationClick(notif)}
-                      className={`p-3 hover:bg-gray-50 cursor-pointer transition-colors ${
-                        !notif.is_read ? 'bg-blue-50' : ''
-                      }`}>
-                      <div className="flex gap-2">
+                <div className="divide-y divide-gray-100">
+                  {notifications.map((notification) => (
+                    <div 
+                      key={notification.id} 
+                      className={`px-4 py-3 hover:bg-gray-50 transition-colors ${!notification.is_read ? 'bg-blue-50/50' : ''}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl mt-1 select-none">
+                          {getIcon(notification.type)}
+                        </span>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="font-semibold text-gray-900 text-xs leading-tight">
-                              {notif.title}
-                            </p>
-                            {!notif.is_read && (
-                              <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0 mt-1" />
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                            {notif.message}
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {notification.title}
                           </p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            {formatTimeAgo(notif.created_at)}
+                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                            {notification.message}
+                          </p>
+                          <p className="text-[10px] text-gray-400 mt-1">
+                            {new Date(notification.created_at).toLocaleString('es-MX', {
+                              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                            })}
                           </p>
                         </div>
                       </div>
@@ -173,20 +197,16 @@ export default function NotificationBell() {
                 </div>
               )}
             </div>
-
-            {/* Footer */}
-            {notifications.length > 0 && (
-              <div className="border-t border-gray-200 p-2 bg-gray-50 rounded-b-lg flex-shrink-0">
-                <button
-                  onClick={() => {
-                    setShowDropdown(false)
-                    router.push('/notificaciones')
-                  }}
-                  className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold w-full text-center py-1">
-                  Ver todas →
-                </button>
-              </div>
-            )}
+            
+            {/* Pie de ventana */}
+            <div className="bg-gray-50 px-4 py-2 border-t border-gray-100 text-center">
+              <button 
+                onClick={() => setIsOpen(false)}
+                className="text-xs text-blue-600 font-medium hover:text-blue-800"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </>
       )}

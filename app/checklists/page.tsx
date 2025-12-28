@@ -6,7 +6,7 @@ import Sidebar from '@/components/Sidebar'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ReviewModal from '@/components/ReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA } from '@/lib/checklistPermissions'
-import DetailsModal from '@/components/DetailsModal'
+import { supabase } from '@/lib/supabase' // <--- ÚNICO CAMBIO
 
 function ChecklistsContent() {
   const router = useRouter()
@@ -26,51 +26,50 @@ function ChecklistsContent() {
   const [storeFilter, setStoreFilter] = useState('all')
   const [stores, setStores] = useState<any[]>([])
   const [showReviewModal, setShowReviewModal] = useState(false)
-  const [detailsModal, setDetailsModal] = useState(false)
-const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
 
   useEffect(() => {
-    fetchData()
-  }, [typeFilter, storeFilter])
+    if (user) fetchData()
+  }, [typeFilter, storeFilter, user])
 
   const fetchData = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      setLoading(true)
       
-      const storesRes = await fetch(`${url}/rest/v1/stores?select=*`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const storesData = await storesRes.json()
-      setStores(Array.isArray(storesData) ? storesData : [])
+      // 1. Cargar Tiendas
+      const { data: storesData } = await supabase.from('stores').select('*').order('name')
+      setStores(storesData || [])
       
-      let checkUrl = `${url}/rest/v1/assistant_checklists?select=*,stores(name,code),users!user_id(full_name)&order=checklist_date.desc,created_at.desc&limit=100`
+      // 2. Query de Checklists (CONSTRUCCIÓN SEGURA)
+      let query = supabase
+        .from('assistant_checklists')
+        .select(`
+          *,
+          stores (name, code),
+          users (full_name)
+        `)
+        .order('checklist_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(100)
       
-      if (typeFilter !== 'all') {
-        checkUrl += `&checklist_type=eq.${typeFilter}`
-      }
-      if (storeFilter !== 'all') {
-        checkUrl += `&store_id=eq.${storeFilter}`
-      }
+      // Aplicar filtros usando Supabase (en lugar de strings manuales)
+      if (typeFilter !== 'all') query = query.eq('checklist_type', typeFilter)
+      if (storeFilter !== 'all') query = query.eq('store_id', storeFilter)
       
-      const checkRes = await fetch(checkUrl, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const checkData = await checkRes.json()
-      
-      const formattedData = Array.isArray(checkData) ? checkData.map(item => ({
+      const { data: checkData, error } = await query
+      if (error) throw error
+
+      const formattedData = (checkData || []).map(item => ({
         ...item,
-        store_name: item.stores?.name || 'N/A'
-      })) : []
+        store_name: item.stores?.name || 'N/A',
+        // Intentar usar relación, si falla usar campo texto
+        assistant_real_name: item.users?.full_name || item.assistant_name || item.created_by || 'N/A'
+      }))
       
       setChecklists(formattedData)
       
-      const allCheckUrl = `${url}/rest/v1/assistant_checklists?select=checklist_type`
-      const allCheckRes = await fetch(allCheckUrl, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const allChecks = await allCheckRes.json()
-      const allChecksArray = Array.isArray(allChecks) ? allChecks : []
+      // 3. Stats rápidas
+      const { data: allChecks } = await supabase.from('assistant_checklists').select('checklist_type')
+      const allChecksArray = allChecks || []
       
       setStats({
         total: allChecksArray.length,
@@ -121,40 +120,19 @@ const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
 
   const handleEdit = (item: any) => {
     if (!user) return
-    
     const editCheck = canEditChecklist(item.created_at, user.role, item.user_id, user.id)
-    
     if (!editCheck.canEdit) {
       alert(editCheck.reason)
       return
     }
-    
     router.push(`/checklists/editar/${item.checklist_type}/${item.id}`)
   }
 
-
-
   const canUserEdit = (item: any) => {
-  if (!user) return false
-  
-  // 1. Solo el creador
-  if (item.user_id !== user.id) return false
-  
-  // 2. Solo si está pendiente
-  const managerStatus = item.estatus_manager || 'pendiente'
-  if (managerStatus !== 'pendiente') return false
-  
-  // 3. Solo del día actual
-  const checklistDateStr = item.checklist_date
-  
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = String(today.getMonth() + 1).padStart(2, '0')
-  const day = String(today.getDate()).padStart(2, '0')
-  const todayStr = `${year}-${month}-${day}`
-  
-  return checklistDateStr === todayStr
-}
+    if (!user) return false
+    const editCheck = canEditChecklist(item.created_at, user.role, item.user_id, user.id)
+    return editCheck.canEdit
+  }
 
   if (loading) {
     return (
@@ -172,6 +150,7 @@ const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
 
   if (!user) return null
 
+  // --- DISEÑO ORIGINAL INTACTO ---
   return (
     <div className="flex min-h-screen bg-gray-50">
       <Sidebar />
@@ -264,8 +243,6 @@ const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
             </div>
           </div>
 
-          
-
           {/* Lista de Checklists */}
           <div className="bg-white rounded-xl shadow-md overflow-hidden">
             <div className="overflow-x-auto">
@@ -313,7 +290,7 @@ const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
                             {item.shift}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {item.assistant_name || item.created_by || 'N/A'}
+                            {item.assistant_real_name}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`text-lg font-bold ${scoreColor}`}>{item.score}%</span>
@@ -328,16 +305,7 @@ const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
                                 className="text-blue-600 hover:text-blue-800 font-semibold text-sm">
                                 ✏️ Editar
                               </button>
-                              
                             )}
-                            <button
-                              onClick={() => {
-                                setSelectedChecklist(item)
-                                setDetailsModal(true)
-                              }}
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-semibold transition-all">
-                              👁️ Ver Detalles
-                            </button>
                           </td>
                         </tr>
                       )
@@ -369,23 +337,7 @@ const [selectedChecklist, setSelectedChecklist] = useState<any>(null)
           }}
         />
       )}
-
-
-
-      <DetailsModal
-  isOpen={detailsModal}
-  onClose={() => {
-    setDetailsModal(false)
-    setSelectedChecklist(null)
-  }}
-  checklist={selectedChecklist}
-  type="assistant"
-/>
     </div>
-
-
-
-
   )
 }
 

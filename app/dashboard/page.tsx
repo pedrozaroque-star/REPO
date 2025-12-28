@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Sidebar from '@/components/Sidebar'
+import { supabase } from '@/lib/supabase'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -29,66 +30,47 @@ export default function DashboardPage() {
 
   const fetchStats = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      const [
+        { count: storesCount },
+        { count: usersCount },
+        { data: feedbacks },
+        { data: inspections },
+        { count: assistantCheckCount },
+        { count: managerCheckCount },
+        { data: recentData }
+      ] = await Promise.all([
+        supabase.from('stores').select('*', { count: 'exact', head: true }),
+        supabase.from('users').select('*', { count: 'exact', head: true }),
+        supabase.from('customer_feedback').select('nps_score'),
+        supabase.from('supervisor_inspections').select('overall_score'),
+        supabase.from('assistant_checklists').select('*', { count: 'exact', head: true }),
+        supabase.from('manager_checklists').select('*', { count: 'exact', head: true }),
+        supabase.from('supervisor_inspections')
+          .select('*, stores(name), users(full_name)')
+          .order('inspection_date', { ascending: false })
+          .limit(5)
+      ])
 
-      // Tiendas
-      const storesRes = await fetch(`${url}/rest/v1/stores?select=id`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const stores = await storesRes.json()
+      const validFeedbacks = feedbacks || []
+      const validInspections = inspections || []
 
-      // Usuarios
-      const usersRes = await fetch(`${url}/rest/v1/users?select=id`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const users = await usersRes.json()
-
-      // Feedbacks
-      const feedbacksRes = await fetch(`${url}/rest/v1/customer_feedback?select=nps_score`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const feedbacks = await feedbacksRes.json()
-
-      // Inspecciones
-      const inspectionsRes = await fetch(`${url}/rest/v1/supervisor_inspections?select=overall_score`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const inspections = await inspectionsRes.json()
-
-      // Checklists
-      const checklistsRes = await fetch(`${url}/rest/v1/assistant_checklists?select=id`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const checklists = await checklistsRes.json()
-
-      // Actividad reciente - últimas inspecciones
-      const recentRes = await fetch(
-        `${url}/rest/v1/supervisor_inspections?select=*,stores(name),users(full_name)&order=inspection_date.desc&limit=5`,
-        {
-          headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-        }
-      )
-      const recent = await recentRes.json()
-
-      // Calcular promedios
-      const avgNPS = Array.isArray(feedbacks) && feedbacks.length > 0
-        ? Math.round(feedbacks.reduce((sum, f) => sum + (f.nps_score || 0), 0) / feedbacks.length)
+      const avgNPS = validFeedbacks.length > 0
+        ? Math.round(validFeedbacks.reduce((sum, f) => sum + (f.nps_score || 0), 0) / validFeedbacks.length)
         : 0
 
-      const avgInspectionScore = Array.isArray(inspections) && inspections.length > 0
-        ? Math.round(inspections.reduce((sum, i) => sum + (i.overall_score || 0), 0) / inspections.length)
+      const avgInspectionScore = validInspections.length > 0
+        ? Math.round(validInspections.reduce((sum, i) => sum + (i.overall_score || 0), 0) / validInspections.length)
         : 0
 
       setStats({
-        totalStores: Array.isArray(stores) ? stores.length : 0,
-        totalUsers: Array.isArray(users) ? users.length : 0,
-        totalFeedbacks: Array.isArray(feedbacks) ? feedbacks.length : 0,
-        totalInspections: Array.isArray(inspections) ? inspections.length : 0,
-        totalChecklists: Array.isArray(checklists) ? checklists.length : 0,
+        totalStores: storesCount || 0,
+        totalUsers: usersCount || 0,
+        totalFeedbacks: validFeedbacks.length,
+        totalInspections: validInspections.length,
+        totalChecklists: (assistantCheckCount || 0) + (managerCheckCount || 0),
         avgNPS,
         avgInspectionScore,
-        recentActivity: Array.isArray(recent) ? recent : []
+        recentActivity: recentData || []
       })
 
       setLoading(false)
@@ -139,7 +121,8 @@ export default function DashboardPage() {
               </button>
             </div>
           </div>
-            {/* Quick Search */}
+
+          {/* Quick Search */}
           <div className="bg-white rounded-xl shadow-md p-6 mb-8">
             <div className="flex items-center space-x-4">
               <div className="flex-1">
@@ -207,7 +190,6 @@ export default function DashboardPage() {
             </div>
           </div>
           
-
           {/* Main Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white">
@@ -216,7 +198,8 @@ export default function DashboardPage() {
                   <p className="text-red-100 text-sm font-medium">Tiendas</p>
                   <p className="text-4xl font-bold mt-2">{stats.totalStores}</p>
                 </div>
-                <div className="text-5xl opacity-20">🏪</div>
+                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
+                <div className="text-5xl opacity-80">🏪</div>
               </div>
             </div>
 
@@ -226,7 +209,8 @@ export default function DashboardPage() {
                   <p className="text-blue-100 text-sm font-medium">Usuarios</p>
                   <p className="text-4xl font-bold mt-2">{stats.totalUsers}</p>
                 </div>
-                <div className="text-5xl opacity-20">👥</div>
+                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
+                <div className="text-5xl opacity-80">👥</div>
               </div>
             </div>
 
@@ -236,7 +220,8 @@ export default function DashboardPage() {
                   <p className="text-green-100 text-sm font-medium">Feedbacks</p>
                   <p className="text-4xl font-bold mt-2">{stats.totalFeedbacks}</p>
                 </div>
-                <div className="text-5xl opacity-20">💬</div>
+                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
+                <div className="text-5xl opacity-80">💬</div>
               </div>
             </div>
 
@@ -246,7 +231,8 @@ export default function DashboardPage() {
                   <p className="text-purple-100 text-sm font-medium">Checklists</p>
                   <p className="text-4xl font-bold mt-2">{stats.totalChecklists}</p>
                 </div>
-                <div className="text-5xl opacity-20">✅</div>
+                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
+                <div className="text-5xl opacity-80">✅</div>
               </div>
             </div>
           </div>

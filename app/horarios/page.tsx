@@ -35,29 +35,50 @@ const formatDateNice = (d: Date) => {
 }
 const getDayName = (d: Date) => ['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'][d.getDay()];
 
-// --- SEMÁFORO ---
+// --- SEMÁFORO (LÓGICA OPERATIVA) ---
 const calculateDailyStatus = (dateStr: string, shifts: any[], users: any[]) => {
+    // 1. Filtrar turnos del día
     const dayShifts = shifts.filter(s => s.date === dateStr);
-    const workforce = dayShifts.length;
     
-    const leaders = dayShifts.filter(s => {
-       const u = users.find(user => String(user.id) === String(s.user_id));
-       const r = (u?.role || '').toLowerCase();
-       return r.includes('manager') || r.includes('admin') || r.includes('supervisor') || r.includes('gerente');
-    }).length;
+    // CASO 1: Tienda sola (Nadie programado)
+    if (dayShifts.length === 0) {
+        return { 
+            status: 'empty', 
+            label: 'VACÍO', 
+            color: 'bg-gray-100 text-gray-400 border-gray-200' 
+        };
+    }
 
-    if (workforce === 0) return { status: 'empty', label: 'VACÍO', color: 'bg-gray-100 text-gray-400 border-gray-200' };
-    if (leaders === 0) return { status: 'bad', label: 'DESPROTEGIDO', color: 'bg-red-500 text-white shadow-red-200 shadow-md' };
-
-    const hasMorning = dayShifts.some(s => parseInt(s.start_time?.split(':')[0] || '0') < 13);
+    // 2. Analizar Cobertura de Turnos (Sin importar el rango/rol)
+    // Se considera "AM" si alguien entra temprano (antes de la 1 PM)
+    const hasMorning = dayShifts.some(s => {
+        const startHour = parseInt(s.start_time?.split(':')[0] || '0');
+        return startHour < 13; 
+    });
+    
+    // Se considera "PM" si alguien cubre la tarde/noche
+    // Criterio: Entra tarde (>= 2 PM) O sale tarde (>= 8 PM) O es turno nocturno (cierra otro día)
     const hasEvening = dayShifts.some(s => {
         const start = parseInt(s.start_time?.split(':')[0] || '0');
         const end = parseInt(s.end_time?.split(':')[0] || '0');
-        return start >= 14 || end >= 20 || end < start;
+        return start >= 14 || end >= 20 || end < start; 
     });
 
-    if (hasMorning && hasEvening) return { status: 'ok', label: 'CUBIERTO', color: 'bg-emerald-500 text-white shadow-emerald-200 shadow-md' };
-    return { status: 'warn', label: 'PARCIAL', color: 'bg-amber-400 text-white shadow-amber-100 shadow-md' };
+    // CASO 2: Cobertura Total (Hay alguien en AM y alguien en PM)
+    if (hasMorning && hasEvening) {
+        return { 
+            status: 'ok', 
+            label: 'CUBIERTO', 
+            color: 'bg-emerald-500 text-white shadow-emerald-200 shadow-md' 
+        };
+    }
+
+    // CASO 3: Falta algún turno
+    return { 
+        status: 'bad', 
+        label: !hasMorning ? 'FALTA AM' : 'FALTA PM', 
+        color: 'bg-red-500 text-white shadow-red-200 shadow-md' 
+    };
 }
 
 // --- COMPONENTE PRINCIPAL ---
@@ -79,7 +100,7 @@ function ScheduleManager() {
 
   // --- ESTADOS PARA DRAG & DROP (COPIAR) ---
   const [isDragging, setIsDragging] = useState(false);
-  const [dragSource, setDragSource] = useState<any>(null); // El turno que estamos copiando (o null si es borrar)
+  const [dragSource, setDragSource] = useState<any>(null);
 
   const weekStart = getMonday(currentDate)
   const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i))
@@ -140,35 +161,27 @@ function ScheduleManager() {
       setLocalSchedules(filteredSchedules);
   }
 
-  // --- LÓGICA DE DRAG & DROP (COPIADO RÁPIDO) ---
-  
-  // 1. Iniciar arrastre (MouseDown)
+  // --- DRAG & DROP ---
   const handleCellMouseDown = (e: React.MouseEvent, user: any, date: Date, shift: any) => {
-    // Si presiona Shift, iniciamos modo copiado
     if (e.shiftKey && canEdit) {
-        e.preventDefault(); // Evitar selección de texto
+        e.preventDefault();
         setIsDragging(true);
-        setDragSource(shift); // Puede ser un turno real o null (si queremos borrar)
+        setDragSource(shift);
     } else {
-        // Comportamiento normal: Abrir modal
         openEditModal(user, date, shift);
     }
   };
 
-  // 2. Entrar en una celda mientras arrastramos (MouseEnter)
   const handleCellMouseEnter = async (user: any, date: Date) => {
     if (isDragging && canEdit) {
-        // Duplicar (o borrar) el turno en esta celda
         await duplicateShift(user, date, dragSource);
     }
   };
 
-  // Función interna para copiar/pegar sin modal
   const duplicateShift = async (targetUser: any, targetDate: Date, sourceShift: any) => {
     const dateStr = formatDateISO(targetDate);
-    const isDelete = !sourceShift; // Si el origen era vacío, borramos
+    const isDelete = !sourceShift;
 
-    // Actualización Optimista
     const tempSchedules = allSchedules.filter(s => !(String(s.user_id) === String(targetUser.id) && s.date === dateStr));
     
     if (!isDelete) {
@@ -182,9 +195,8 @@ function ScheduleManager() {
             role: targetUser.role
         });
     }
-    setAllSchedules([...tempSchedules]); // Forzar re-render
+    setAllSchedules([...tempSchedules]);
 
-    // Guardar en BD (Silencioso)
     if (isDelete) {
         await supabase.from('schedules').delete().match({ user_id: targetUser.id, date: dateStr });
     } else {
@@ -200,7 +212,7 @@ function ScheduleManager() {
     }
   };
 
-  // --- GUARDADO NORMAL (MODAL) ---
+  // --- GUARDADO ---
   const saveShift = async () => {
     if (!editingShift || !canEdit) return;
     const dateStr = formatDateISO(editingShift.date);
@@ -239,7 +251,7 @@ function ScheduleManager() {
     })
   }
 
-  // --- RENDERIZADO VISUAL ---
+  // --- RENDERIZADO ---
 
   const renderDashboard = () => (
     <div className="animate-fade-in">
@@ -322,6 +334,31 @@ function ScheduleManager() {
                 <select value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)} className="hidden md:block text-sm bg-gray-50 border-none rounded-lg px-4 py-2 font-bold text-gray-700 cursor-pointer hover:bg-gray-100 focus:ring-0">
                    {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
+            </div>
+
+            {/* 🔥 NUEVA LEYENDA VISUAL 🔥 */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
+                <div className="space-y-2">
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Estatus del Día</h3>
+                    <div className="flex flex-wrap gap-2">
+                        <span className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-500 text-white shadow-sm">CUBIERTO</span>
+                        <span className="px-2 py-1 rounded text-[10px] font-bold bg-red-500 text-white shadow-sm">FALTA AM/PM</span>
+                        <span className="px-2 py-1 rounded text-[10px] font-bold bg-gray-100 text-gray-400 border border-gray-200">VACÍO</span>
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipos de Turno</h3>
+                    <div className="flex flex-wrap gap-2">
+                        {PRESETS.map(p => (
+                            <span key={p.id} className={`px-2 py-1 rounded text-[10px] font-bold border ${p.color}`}>
+                                {p.label}
+                            </span>
+                        ))}
+                        <span className="px-2 py-1 rounded text-[10px] font-bold bg-white border border-blue-200 text-blue-800 shadow-sm">
+                            Personal
+                        </span>
+                    </div>
+                </div>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden select-none">
@@ -435,7 +472,7 @@ function ScheduleManager() {
             viewMode === 'dashboard' ? renderDashboard() : renderEditor()
         )}
 
-        {/* MODAL CLÁSICO (Simple y Funcional) */}
+        {/* MODAL */}
         {editingShift && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
