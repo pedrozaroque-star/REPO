@@ -61,7 +61,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
 
       {/* Fondo decorativo sutil */}
-      <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+      <div className="absolute inset-0 opacity-60 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
 
       <div className="w-full max-w-md z-10">
 
