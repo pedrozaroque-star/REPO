@@ -22,6 +22,7 @@ function ManagerChecklistContent() {
   const [stores, setStores] = useState<Store[]>([])
   const [loading, setLoading] = useState(false)
   const [showThanks, setShowThanks] = useState(false)
+  const startTimeRef = React.useRef<Date>(new Date())
 
   const [formData, setFormData] = useState({
     store_id: '',
@@ -140,6 +141,15 @@ function ManagerChecklistContent() {
       // Add rich photo mapping
       formattedAnswers['__question_photos'] = questionPhotos
 
+      const endTime = new Date()
+      const startTime = startTimeRef.current
+      const durationMs = endTime.getTime() - startTime.getTime()
+      const minutes = Math.floor(durationMs / 60000)
+      const durationStr = `${minutes} min`
+
+      // Format as HH:mm:ss
+      const fmtTime = (d: Date) => d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
       const payload = {
         store_id: parseInt(formData.store_id),
         user_id: user.id,
@@ -147,6 +157,9 @@ function ManagerChecklistContent() {
         created_by: user.name || user.email,
         checklist_date: formData.checklist_date,
         checklist_time: formData.checklist_time,
+        start_time: fmtTime(startTime),
+        end_time: fmtTime(endTime),
+        duration: durationStr,
         shift: formData.shift,
         answers: formattedAnswers,
         score: calculateScore(),
