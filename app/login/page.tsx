@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [showSplash, setShowSplash] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
 
@@ -43,18 +44,61 @@ export default function LoginPage() {
       localStorage.setItem('teg_user', JSON.stringify(data.user))
 
       // Redirigir según el rol
+      // Redirigir según el rol
       const userRole = data.user.role?.toLowerCase()
-      if (userRole === 'asistente') {
-        router.push('/checklists')
-      } else {
-        router.push('/dashboard')
-      }
+      setShowSplash(true)
+
+      setTimeout(() => {
+        if (userRole === 'asistente') {
+          router.push('/checklists')
+        } else {
+          router.push('/dashboard')
+        }
+      }, 3500)
 
     } catch (err) {
       console.error('Error inesperado:', err)
       setError('Error inesperado. Por favor intenta de nuevo.')
       setLoading(false)
     }
+  }
+
+  if (showSplash) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#50050a] overflow-hidden animate-in fade-in duration-500">
+        <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <style dangerouslySetInnerHTML={{
+          __html: `
+          @keyframes dropIn {
+            0% { transform: translateY(-800px) rotateY(0deg); opacity: 0; }
+            60% { transform: translateY(20px) rotateY(1440deg); opacity: 1; }
+            80% { transform: translateY(-10px) rotateY(1440deg); }
+            100% { transform: translateY(0) rotateY(1440deg); }
+          }
+          @keyframes ripple {
+            0% { transform: scale(0); opacity: 0.8; }
+            100% { transform: scale(4); opacity: 0; }
+          }
+        `}} />
+        <div className="relative z-10 flex flex-col items-center">
+          <div
+            className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)]"
+            style={{ animation: 'dropIn 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards' }}
+          >
+            <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-[#fffbeb]">
+              <img src="/logo.png" alt="TAG" className="w-[85%] h-[85%] object-contain" />
+            </div>
+          </div>
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full border border-white/50"
+            style={{ animation: 'ripple 2s infinite linear', animationDelay: '1.2s' }}
+          ></div>
+          <h2 className="mt-8 text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#fdc82f] to-[#fffbeb] animate-pulse tracking-widest uppercase">
+            BIENVENIDO
+          </h2>
+        </div>
+      </div>
+    )
   }
 
   return (
