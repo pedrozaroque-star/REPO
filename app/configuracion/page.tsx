@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
+
 
 export default function ConfiguracionPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  
+
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -100,7 +100,6 @@ export default function ConfiguracionPage() {
   if (loading) {
     return (
       <div className="flex">
-        <Sidebar />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="text-6xl mb-4">⚙️</div>
@@ -112,9 +111,8 @@ export default function ConfiguracionPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
+    <div className="flex min-h-screen">
+
       <main className="flex-1 p-8">
         <div className="max-w-4xl mx-auto">
           <div className="mb-8">
@@ -126,7 +124,7 @@ export default function ConfiguracionPage() {
             {/* Perfil */}
             <div className="bg-white rounded-xl shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-6">👤 Información del Perfil</h2>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -135,7 +133,7 @@ export default function ConfiguracionPage() {
                   <input
                     type="text"
                     value={formData.full_name}
-                    onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
                   />
                 </div>
@@ -160,7 +158,7 @@ export default function ConfiguracionPage() {
                   <input
                     type="tel"
                     value={formData.phone}
-                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
                   />
                 </div>
@@ -190,7 +188,7 @@ export default function ConfiguracionPage() {
             {/* Cambiar Contraseña */}
             <div className="bg-white rounded-xl shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-6">🔒 Cambiar Contraseña</h2>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -199,7 +197,7 @@ export default function ConfiguracionPage() {
                   <input
                     type="password"
                     value={formData.current_password}
-                    onChange={(e) => setFormData({...formData, current_password: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, current_password: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
                   />
                 </div>
@@ -211,7 +209,7 @@ export default function ConfiguracionPage() {
                   <input
                     type="password"
                     value={formData.new_password}
-                    onChange={(e) => setFormData({...formData, new_password: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, new_password: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
                   />
                 </div>
@@ -223,7 +221,7 @@ export default function ConfiguracionPage() {
                   <input
                     type="password"
                     value={formData.confirm_password}
-                    onChange={(e) => setFormData({...formData, confirm_password: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, confirm_password: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900"
                   />
                 </div>
@@ -241,7 +239,7 @@ export default function ConfiguracionPage() {
             {/* Preferencias */}
             <div className="bg-white rounded-xl shadow-md p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-6">🎨 Preferencias</h2>
-              
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                   <div>
@@ -270,7 +268,7 @@ export default function ConfiguracionPage() {
             {/* Zona de Peligro */}
             <div className="bg-white rounded-xl shadow-md p-6 border-2 border-red-200">
               <h2 className="text-xl font-bold text-red-900 mb-6">⚠️ Zona de Peligro</h2>
-              
+
               <div className="space-y-4">
                 <div className="bg-red-50 rounded-lg p-4">
                   <p className="text-sm text-red-800 mb-3">

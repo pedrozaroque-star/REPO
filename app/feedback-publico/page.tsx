@@ -1,45 +1,45 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Heart, Send, CheckCircle2, Gift, MapPin, Globe } from 'lucide-react'
+import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
+import { getSupabaseClient } from '@/lib/supabase'
+import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
 export default function FeedbackPublicoPage() {
   const searchParams = useSearchParams()
   const storeParam = searchParams.get('store')
-  
+
   const [showSplash, setShowSplash] = useState(true)
   const [showThanks, setShowThanks] = useState(false)
   const [lang, setLang] = useState<'es' | 'en'>('es')
   const [stores, setStores] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  
-  const [formData, setFormData] = useState({
-    store_id: storeParam || '',
-    service_rating: 5,
-    speed_rating: 5,
-    food_quality_rating: 5,
-    cleanliness_rating: 5,
-    nps_score: 8,
-    customer_comments: '',
-    customer_name: ''
+  const [selectedStore, setSelectedStore] = useState(storeParam || '')
+
+  const [customerInfo, setCustomerInfo] = useState({
+    customer_name: '',
+    customer_comments: ''
   })
+
+  const [answers, setAnswers] = useState<{ [key: string]: any }>({})
+  const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
+
+  const { data: template, loading: checklistLoading, isCached } = useDynamicChecklist('public_feedback_v1')
 
   useEffect(() => {
     fetchStores()
-    // Splash desaparece después de 3 segundos
-    setTimeout(() => setShowSplash(false), 3000)
+    const timer = setTimeout(() => setShowSplash(false), 2000)
+    return () => clearTimeout(timer)
   }, [])
 
   const fetchStores = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-      const res = await fetch(`${url}/rest/v1/stores?select=*&order=name.asc`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const data = await res.json()
-      setStores(Array.isArray(data) ? data : [])
+      const supabase = await getSupabaseClient()
+      const { data } = await supabase.from('stores').select('*').order('name')
+      setStores(data || [])
     } catch (err) {
       console.error('Error:', err)
     }
@@ -47,322 +47,226 @@ export default function FeedbackPublicoPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!selectedStore) return alert(t.errStore)
+
     setLoading(true)
-
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      const supabase = await getSupabaseClient()
 
-      // Calcular categoría NPS
+      // Calculate NPS category if NPS question exists
+      const npsQ = template?.sections[0]?.questions.find((q: any) => q.type === 'nps_10')
+      let nps_score = npsQ ? (answers[npsQ.id] || 0) : null
       let nps_category = 'passive'
-      if (formData.nps_score >= 9) nps_category = 'promoter'
-      else if (formData.nps_score <= 6) nps_category = 'detractor'
-
-      // Calcular wait_time (simulado)
-      const wait_time_minutes = Math.floor(Math.random() * 15) + 5
-
-      const payload = {
-        store_id: formData.store_id,
-        submission_date: new Date().toISOString(),
-        service_rating: formData.service_rating,
-        speed_rating: formData.speed_rating,
-        food_quality_rating: formData.food_quality_rating,
-        cleanliness_rating: formData.cleanliness_rating,
-        nps_score: formData.nps_score,
-        nps_category,
-        customer_comments: formData.customer_comments,
-        customer_name: formData.customer_name,
-        wait_time_minutes,
-        language: lang
+      if (nps_score !== null) {
+        if (nps_score >= 9) nps_category = 'promoter'
+        else if (nps_score <= 6) nps_category = 'detractor'
       }
 
-      const res = await fetch(`${url}/rest/v1/customer_feedback`, {
-        method: 'POST',
-        headers: {
-          'apikey': key || '',
-          'Authorization': `Bearer ${key}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify(payload)
+      const formattedAnswers: { [key: string]: any } = {}
+      template?.sections[0]?.questions.forEach((q: any) => {
+        formattedAnswers[q.text] = answers[q.id]
       })
 
-      if (res.ok) {
-        setShowThanks(true)
-      } else {
-        alert('Error al enviar feedback')
-      }
-    } catch (err) {
-      console.error('Error:', err)
-      alert('Error al enviar feedback')
-    }
+      // Add rich photo mapping
+      formattedAnswers['__question_photos'] = questionPhotos
 
-    setLoading(false)
+      const payload = {
+        store_id: selectedStore,
+        submission_date: new Date().toISOString(),
+        nps_score,
+        nps_category,
+        customer_comments: customerInfo.customer_comments,
+        customer_name: customerInfo.customer_name,
+        language: lang,
+        answers: formattedAnswers,
+        photo_urls: Object.values(questionPhotos).flat()
+      }
+
+      const { error } = await supabase.from('customer_feedback').insert([payload])
+      if (error) throw error
+      setShowThanks(true)
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const texts = {
     es: {
       title: '¡Tu opinión importa!',
-      store: '¿En qué sucursal estás?',
-      service: 'Atención en caja',
-      speed: 'Tiempo de entrega',
-      quality: 'Calidad de alimentos',
-      cleanliness: 'Limpieza del local',
-      nps: '¿Nos recomendarías?',
-      nps_desc: 'Del 0 al 10, ¿qué tan probable es que nos recomiendes?',
-      comments: 'Comentarios (opcional)',
-      name: 'Tu nombre (opcional)',
-      submit: 'Enviar respuestas',
-      thanks: '¡GRACIAS!',
-      thanks_msg: 'Tu opinión nos ayuda a mejorar cada día',
-      another: 'Dar más feedback',
-      close: 'Cerrar'
+      subtitle: 'Ayúdanos a mejorar tu experiencia.',
+      store: '¿En qué sucursal nos visitas?',
+      storePlaceholder: 'Selecciona una sucursal...',
+      comments: 'Comentarios Adicionales',
+      name: 'Tu Nombre (Opcional)',
+      submit: 'Enviar Feedback',
+      sending: 'Enviando...',
+      thanks: '¡Gracias!',
+      thanksMsg: 'Tu opinión nos ayuda a mejorar cada día.',
+      couponTitle: '¡TENEMOS UN REGALO!',
+      couponCode: 'TG2024',
+      couponDesc: 'Muestra este código en tu próxima visita para un 10% de descuento.',
+      errStore: 'Por favor selecciona una sucursal'
     },
     en: {
       title: 'Your opinion matters!',
-      store: 'Which location are you at?',
-      service: 'Cashier service',
-      speed: 'Delivery time',
-      quality: 'Food quality',
-      cleanliness: 'Restaurant cleanliness',
-      nps: 'Would you recommend us?',
-      nps_desc: 'From 0 to 10, how likely are you to recommend us?',
-      comments: 'Comments (optional)',
-      name: 'Your name (optional)',
-      submit: 'Submit feedback',
-      thanks: 'THANK YOU!',
-      thanks_msg: 'Your feedback helps us improve every day',
-      another: 'Give more feedback',
-      close: 'Close'
+      subtitle: 'Help us improve your experience.',
+      store: 'Which location are you visiting?',
+      storePlaceholder: 'Select a location...',
+      comments: 'Additional Comments',
+      name: 'Your Name (Optional)',
+      submit: 'Submit Feedback',
+      sending: 'Sending...',
+      thanks: 'Thank You!',
+      thanksMsg: 'Your feedback helps us improve every day.',
+      couponTitle: 'WE HAVE A GIFT!',
+      couponCode: 'TG2024',
+      couponDesc: 'Show this code on your next visit for a 10% discount.',
+      errStore: 'Please select a location'
     }
   }
 
   const t = texts[lang]
 
-  // Splash Screen
   if (showSplash) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-        <div className="text-center animate-pulse">
-          <div className="text-9xl mb-6">🌮</div>
-          <h1 className="text-6xl font-bold text-white mb-4">TACOS GAVILAN</h1>
-          <p className="text-2xl text-red-100">Sistema de Feedback</p>
-        </div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-red-600">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center">
+          <div className="w-32 h-32 bg-white rounded-full p-4 mx-auto mb-6 shadow-2xl flex items-center justify-center">
+            <span className="text-6xl text-red-600">🌮</span>
+          </div>
+          <h1 className="text-2xl font-black text-white tracking-widest uppercase italic">Tacos Gavilan</h1>
+          <p className="text-red-100 font-bold mt-2">Feedback System</p>
+        </motion.div>
       </div>
     )
   }
 
-  // Thank You Screen con moneda cayendo
   if (showThanks) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center relative overflow-hidden">
-        {/* Monedas cayendo animadas */}
-        <div className="absolute inset-0 pointer-events-none">
-          {[...Array(20)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute text-6xl animate-bounce"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${-20 - Math.random() * 20}%`,
-                animationDelay: `${Math.random() * 2}s`,
-                animationDuration: `${2 + Math.random() * 2}s`
-              }}
-            >
+      <div className="min-h-screen bg-green-50 flex items-center justify-center p-6 text-center overflow-hidden relative">
+        <div className="absolute inset-0 pointer-events-none opacity-20">
+          {[...Array(12)].map((_, i) => (
+            <motion.div key={i} animate={{ y: [0, 1000] }} transition={{ duration: 5 + Math.random() * 5, repeat: Infinity, ease: 'linear', delay: Math.random() * 5 }}
+              className="absolute text-4xl" style={{ left: `${Math.random() * 100}%`, top: '-50px' }}>
               🪙
-            </div>
+            </motion.div>
           ))}
         </div>
 
-        <div className="text-center z-10 bg-white rounded-3xl p-12 shadow-2xl max-w-2xl mx-4">
-          <div className="text-8xl mb-6">✅</div>
-          <h1 className="text-5xl font-bold text-green-600 mb-4">{t.thanks}</h1>
-          <p className="text-2xl text-gray-700 mb-8">{t.thanks_msg}</p>
-          
-          <div className="bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-2xl p-8 mb-8 text-white">
-            <div className="text-6xl mb-4">🎁</div>
-            <h2 className="text-3xl font-bold mb-2">CUPÓN 10% OFF</h2>
-            <p className="text-xl mb-2">Próxima visita</p>
-            <p className="text-2xl font-mono font-bold">TG2024</p>
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="max-w-md w-full bg-white rounded-[3rem] p-10 shadow-2xl border-4 border-white">
+          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner shadow-green-200/50">
+            <CheckCircle2 size={40} />
+          </div>
+          <h1 className="text-4xl font-black text-gray-900 mb-4">{t.thanks}</h1>
+          <p className="text-gray-500 text-lg mb-10 leading-relaxed font-medium">{t.thanksMsg}</p>
+
+          <div className="bg-gradient-to-br from-yellow-400 to-orange-500 rounded-[2.5rem] p-8 text-white shadow-xl shadow-orange-200/50 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 rotate-12 group-hover:rotate-45 transition-transform duration-700">
+              <Gift size={100} />
+            </div>
+            <h2 className="text-xs font-black uppercase tracking-[0.2em] mb-2">{t.couponTitle}</h2>
+            <div className="text-4xl font-black mb-4 tracking-tighter">10% OFF</div>
+            <div className="bg-white/20 backdrop-blur-md rounded-2xl py-3 px-6 font-black text-2xl tracking-widest inline-block border border-white/30 uppercase">{t.couponCode}</div>
+            <p className="text-[10px] font-bold mt-6 opacity-90 leading-relaxed">{t.couponDesc}</p>
           </div>
 
-          <div className="flex gap-4 justify-center">
-            <button
-              onClick={() => {
-                setShowThanks(false)
-                setFormData({
-                  store_id: storeParam || '',
-                  service_rating: 5,
-                  speed_rating: 5,
-                  food_quality_rating: 5,
-                  cleanliness_rating: 5,
-                  nps_score: 8,
-                  customer_comments: '',
-                  customer_name: ''
-                })
-              }}
-              className="px-8 py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-xl rounded-xl transition-colors"
-            >
-              {t.another}
-            </button>
-            <button
-              onClick={() => window.close()}
-              className="px-8 py-4 bg-gray-600 hover:bg-gray-700 text-white font-bold text-xl rounded-xl transition-colors"
-            >
-              {t.close}
-            </button>
-          </div>
-        </div>
+          <button onClick={() => window.location.reload()} className="mt-10 text-gray-400 font-black text-xs uppercase tracking-widest hover:text-gray-900 transition-colors">Volver al inicio</button>
+        </motion.div>
       </div>
     )
   }
 
-  // Formulario Principal
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 py-8 px-4">
-      <div className="max-w-2xl mx-auto">
-        {/* Header con logo y selector de idioma */}
-        <div className="bg-white rounded-3xl shadow-2xl p-8 mb-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-4">
-              <div className="text-6xl">🌮</div>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">TACOS GAVILAN</h1>
-                <p className="text-red-600 font-semibold">{t.title}</p>
-              </div>
+    <div className="min-h-screen bg-orange-50/30 pb-20 font-sans">
+      <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-gray-100">
+        <div className="max-w-2xl mx-auto px-6 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-red-600 rounded-2xl p-2 shadow-lg shadow-red-100 flex items-center justify-center">
+              <span className="text-2xl">🌮</span>
             </div>
-            
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setLang('es')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
-                  lang === 'es' ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
-                }`}
-              >
-                🇲🇽 ES
-              </button>
-              <button
-                onClick={() => setLang('en')}
-                className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
-                  lang === 'en' ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700'
-                }`}
-              >
-                🇺🇸 EN
-              </button>
+            <div>
+              <h1 className="font-black text-gray-900 tracking-tighter text-xl">TACOS GAVILAN</h1>
+              <p className="text-[10px] font-black uppercase text-red-600 tracking-widest -mt-1">{t.title}</p>
             </div>
           </div>
-        </div>
-
-        {/* Formulario */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Selector de tienda */}
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <label className="block text-lg font-bold text-gray-900 mb-3">
-              📍 {t.store}
-            </label>
-            <select
-              required
-              value={formData.store_id}
-              onChange={(e) => setFormData({...formData, store_id: e.target.value})}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-gray-900 text-lg focus:ring-2 focus:ring-red-500"
-            >
-              <option value="">Seleccionar...</option>
-              {stores.map(store => (
-                <option key={store.id} value={store.id}>{store.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Preguntas con emojis */}
-          {[
-            { key: 'service_rating', label: t.service, emoji: '😊' },
-            { key: 'speed_rating', label: t.speed, emoji: '⚡' },
-            { key: 'food_quality_rating', label: t.quality, emoji: '🌮' },
-            { key: 'cleanliness_rating', label: t.cleanliness, emoji: '✨' }
-          ].map(({ key, label, emoji }) => (
-            <div key={key} className="bg-white rounded-2xl shadow-lg p-6">
-              <label className="block text-lg font-bold text-gray-900 mb-4">
-                {emoji} {label}
-              </label>
-              <div className="flex justify-between items-center">
-                {[1, 2, 3, 4, 5].map(val => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setFormData({...formData, [key]: val})}
-                    className={`text-5xl transition-transform hover:scale-125 ${
-                      formData[key as keyof typeof formData] >= val ? 'opacity-100' : 'opacity-30'
-                    }`}
-                  >
-                    {val === 1 ? '😢' : val === 2 ? '😐' : val === 3 ? '🙂' : val === 4 ? '😃' : '🤩'}
-                  </button>
-                ))}
-              </div>
-              <p className="text-center text-2xl font-bold text-red-600 mt-4">
-                {formData[key as keyof typeof formData]}/5
-              </p>
-            </div>
-          ))}
-
-          {/* NPS */}
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <label className="block text-lg font-bold text-gray-900 mb-2">
-              ⭐ {t.nps}
-            </label>
-            <p className="text-gray-600 mb-4">{t.nps_desc}</p>
-            <input
-              type="range"
-              min="0"
-              max="10"
-              value={formData.nps_score}
-              onChange={(e) => setFormData({...formData, nps_score: parseInt(e.target.value)})}
-              className="w-full h-3 bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 rounded-lg appearance-none cursor-pointer"
-            />
-            <div className="flex justify-between text-sm text-gray-600 mt-2">
-              <span>0</span>
-              <span className="text-4xl font-bold text-red-600">{formData.nps_score}</span>
-              <span>10</span>
-            </div>
-          </div>
-
-          {/* Comentarios */}
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <label className="block text-lg font-bold text-gray-900 mb-3">
-              💬 {t.comments}
-            </label>
-            <textarea
-              value={formData.customer_comments}
-              onChange={(e) => setFormData({...formData, customer_comments: e.target.value})}
-              rows={4}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500"
-              placeholder={lang === 'es' ? 'Cuéntanos más...' : 'Tell us more...'}
-            />
-          </div>
-
-          {/* Nombre */}
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <label className="block text-lg font-bold text-gray-900 mb-3">
-              🎁 {t.name}
-            </label>
-            <input
-              type="text"
-              value={formData.customer_name}
-              onChange={(e) => setFormData({...formData, customer_name: e.target.value})}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500"
-              placeholder={lang === 'es' ? 'Tu nombre' : 'Your name'}
-            />
-          </div>
-
-          {/* Botón enviar */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold text-2xl py-6 rounded-2xl shadow-2xl transition-all transform hover:scale-105 disabled:opacity-50"
-          >
-            {loading ? '⏳ Enviando...' : `🚀 ${t.submit}`}
+          <button onClick={() => setLang(lang === 'es' ? 'en' : 'es')}
+            className="w-12 h-12 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400 hover:text-red-600 transition-colors">
+            <Globe size={20} />
           </button>
+        </div>
+      </nav>
+
+      <main className="max-w-2xl mx-auto px-4 py-10 space-y-12">
+        <header className="text-center space-y-3">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+            <Heart size={12} fill="currentColor" /> Feedback Public
+          </div>
+          <h1 className="text-5xl font-black text-gray-900 tracking-tighter leading-none italic">{t.title}</h1>
+          <p className="text-gray-400 text-lg font-medium">{t.subtitle}</p>
+        </header>
+
+        <form onSubmit={handleSubmit} className="space-y-12">
+          <section className="bg-white rounded-[3rem] p-8 shadow-xl shadow-red-50/50 border border-gray-100 space-y-8">
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2 ml-2">
+                <MapPin size={12} className="text-red-500" /> {t.store}
+              </label>
+              <div className="relative">
+                <select required value={selectedStore} onChange={e => setSelectedStore(e.target.value)}
+                  className="w-full p-6 bg-gray-50 border-gray-100 rounded-[2rem] font-black text-xl text-gray-700 outline-none focus:ring-4 focus:ring-red-50 transition-all appearance-none">
+                  <option value="">{t.storePlaceholder}</option>
+                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300">▼</div>
+              </div>
+            </div>
+          </section>
+
+          {checklistLoading ? (
+            <div className="p-20 text-center animate-pulse">
+              <div className="text-4xl mb-4">🌮</div>
+              <div className="text-[10px] font-black text-gray-300 uppercase tracking-widest">Preparando tu encuesta...</div>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {template?.sections[0]?.questions.map((q: any, idx: number) => (
+                <DynamicQuestion
+                  key={q.id}
+                  question={q}
+                  index={idx}
+                  value={answers[q.id]}
+                  photos={questionPhotos[q.id] || []}
+                  onChange={(val) => setAnswers(prev => ({ ...prev, [q.id]: val }))}
+                  onPhotosChange={(urls) => setQuestionPhotos(prev => ({ ...prev, [q.id]: urls }))}
+                />
+              ))}
+            </div>
+          )}
+
+          <section className="bg-white rounded-[3rem] p-8 shadow-xl shadow-red-50/50 border border-gray-100 space-y-8">
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2 ml-2 italic">{t.comments}</label>
+              <textarea value={customerInfo.customer_comments} onChange={e => setCustomerInfo({ ...customerInfo, customer_comments: e.target.value })} rows={4}
+                className="w-full p-6 bg-gray-50 border-gray-100 rounded-[2rem] font-medium text-gray-700 outline-none focus:ring-4 focus:ring-red-50 transition-all resize-none"
+                placeholder="..." />
+            </div>
+
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2 ml-2 italic">{t.name}</label>
+              <input type="text" value={customerInfo.customer_name} onChange={e => setCustomerInfo({ ...customerInfo, customer_name: e.target.value })}
+                className="w-full p-6 bg-gray-50 border-gray-100 rounded-[2rem] font-black text-xl text-gray-700 outline-none focus:ring-4 focus:ring-red-50 transition-all"
+                placeholder="Ex. Juan P." />
+            </div>
+
+            <button type="submit" disabled={loading}
+              className="w-full py-8 bg-gradient-to-br from-red-600 to-red-800 text-white font-black text-2xl uppercase tracking-widest rounded-[2rem] shadow-2xl shadow-red-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-4 disabled:opacity-50">
+              {loading ? <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Send size={24} /><span>{t.submit}</span></>}
+            </button>
+          </section>
         </form>
-      </div>
+      </main>
     </div>
   )
 }

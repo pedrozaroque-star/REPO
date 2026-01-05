@@ -1,187 +1,193 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import { uploadPhotos } from '@/lib/uploadPhotos'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, MoreHorizontal } from 'lucide-react'
+import { getSupabaseClient } from '@/lib/supabase'
+import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
+import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
-// --- 🎨 COLORES ---
-const COLOR_STYLES: any = {
-  blue:   { bg: 'bg-blue-50',   border: 'border-blue-200', text: 'text-blue-900', badge: 'text-blue-700' },
-  red:    { bg: 'bg-red-50',    border: 'border-red-200',  text: 'text-red-900',  badge: 'text-red-700' },
-  orange: { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-900', badge: 'text-orange-700' },
-  yellow: { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-900', badge: 'text-yellow-700' },
-  green:  { bg: 'bg-green-50',  border: 'border-green-200',  text: 'text-green-900',  badge: 'text-green-700' },
-  purple: { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-900', badge: 'text-purple-700' },
-  cyan:   { bg: 'bg-cyan-50',   border: 'border-cyan-200',   text: 'text-cyan-900',   badge: 'text-cyan-700' },
+interface Store {
+  id: string
+  name: string
+  code?: string
 }
 
-// --- 🕵️‍♂️ PREGUNTAS ---
-const INSPECTION_AREAS = {
-  servicio: {
-    label: '🤝 Servicio al Cliente', color: 'blue', hint: 'Amabilidad, cortesía, rapidez',
-    items: ['Saluda y despide cordialmente', 'Atiende con paciencia y respeto', 'Entrega órdenes con frase de cierre', 'Evita charlas personales en línea']
-  },
-  carnes: {
-    label: '🥩 Procedimiento de Carnes', color: 'red', hint: 'Tiempos/temperaturas, limpieza',
-    items: ['Controla temperatura (450°/300°) y tiempos', 'Utensilios limpios, no golpear espátulas', 'Escurre carnes y rota producto (FIFO)', 'Vigila cebolla asada y porciones']
-  },
-  alimentos: {
-    label: '🌮 Preparación de Alimentos', color: 'orange', hint: 'Recetas, porciones, presentación',
-    items: ['Respeta porciones estándar (cucharas)', 'Quesadillas bien calientes, sin quemar', 'Burritos bien enrollados, sin dorar de más', 'Stickers correctos donde aplica']
-  },
-  tortillas: {
-    label: '🫓 Seguimiento a Tortillas', color: 'yellow', hint: 'Temperatura, textura y reposición',
-    items: ['Tortillas bien calientes (aceite solo en orillas)', 'Máx 5 tacos por plato (presentación)', 'Reponer a tiempo y mantener frescura']
-  },
-  limpieza: {
-    label: '✨ Limpieza General y Baños', color: 'green', hint: 'Estaciones, comedor, baños',
-    items: ['Cubetas rojas con sanitizer tibio', 'Plancha limpia y sin residuos', 'Baños con insumos completos y sin olores', 'Exterior y basureros limpios']
-  },
-  bitacoras: {
-    label: '📝 Checklists y Bitácoras', color: 'purple', hint: 'Registros al día y firmados',
-    items: ['Checklist apertura/cierre completo', 'Bitácora de temperaturas al día', 'Registros de limpieza firmados']
-  },
-  aseo: {
-    label: '🧼 Aseo Personal', color: 'cyan', hint: 'Uniforme, higiene y presentación',
-    items: ['Uniforme limpio y completo', 'Uñas cortas, sin joyas/auriculares', 'Uso correcto de gorra y guantes']
-  }
-}
-
-// --- FECHA LOCAL ---
-const getLocalDate = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-}
-const getLocalTime = () => {
-  const d = new Date()
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-}
-
-export default function InspectionForm({ user, initialData, stores }: { user: any, initialData?: any, stores: any[] }) {
+export default function InspectionForm({ user, initialData, stores }: { user: any, initialData?: any, stores: Store[] }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  
-  // Estado simple para la UI: { servicio: { 0: 100, 1: 60 } }
-  const [answers, setAnswers] = useState<any>({})
-  
+
+  // Dynamic Hooks
+  const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('supervisor_inspection_v1')
+  const sections = template?.sections || []
+  const allQuestions = sections.flatMap((s: any) => s.questions)
+
   const [formData, setFormData] = useState({
-    store_id: initialData?.store_id || '',
-    inspection_date: initialData?.inspection_date ? initialData.inspection_date.substring(0, 10) : getLocalDate(),
-    inspection_time: initialData?.inspection_time || getLocalTime(),
-    shift: initialData?.shift || (new Date().getHours() >= 16 ? 'PM' : 'AM'),
-    observaciones: initialData?.observaciones || '',
-    photos: initialData?.photos || [] 
+    store_id: initialData?.store_id?.toString() || '',
+    inspection_date: initialData?.inspection_date ? initialData.inspection_date.substring(0, 10) : new Date().toISOString().split('T')[0],
+    inspection_time: initialData?.inspection_time || new Date().toTimeString().slice(0, 5),
+    shift: initialData?.shift || (new Date().getHours() >= 17 || new Date().getHours() < 7 ? 'PM' : 'AM'),
+    observaciones: initialData?.observaciones || ''
   })
 
-  // --- CARGA DE DATOS (COMPATIBLE CON TODO) ---
+  const [answers, setAnswers] = useState<{ [key: string]: any }>({})
+  const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
+
   useEffect(() => {
     if (initialData?.answers) {
-      const loaded: any = {}
-      Object.keys(initialData.answers).forEach(areaKey => {
-        loaded[areaKey] = {}
-        const areaData = initialData.answers[areaKey]
-        
-        // Si tiene "items", es estructura NUEVA
-        if (areaData.items) {
-          Object.keys(areaData.items).forEach(k => {
-            const idx = parseInt(k.replace('i', '')) // "i0" -> 0
-            if (!isNaN(idx)) loaded[areaKey][idx] = areaData.items[k].score
-          })
-        } 
-        // Si no, es estructura VIEJA (legacy)
-        else {
-          Object.keys(areaData).forEach(k => {
-            const idx = parseInt(k)
-            if (!isNaN(idx) && typeof areaData[k] === 'number') loaded[areaKey][idx] = areaData[k]
-          })
+      const initialAnswers: { [key: string]: any } = {}
+      allQuestions.forEach((q: any, idx: number) => {
+        const sectionTitle = sections.find(s => s.questions.some((qq: any) => qq.id === q.id))?.title
+        if (sectionTitle && initialData.answers[sectionTitle]) {
+          const itm = initialData.answers[sectionTitle].items?.[`i${idx}`] || initialData.answers[sectionTitle].items?.[idx]
+          if (itm !== undefined) {
+            initialAnswers[q.id] = itm.score !== undefined ? itm.score : itm
+          }
         }
       })
-      setAnswers(loaded)
-    } else if (!initialData) {
-      // Inicializar vacío si es nuevo
-      const init: any = {}
-      Object.keys(INSPECTION_AREAS).forEach(k => init[k] = {})
-      setAnswers(init)
+      setAnswers(initialAnswers)
     }
-  }, [initialData])
+  }, [initialData, allQuestions])
 
-  // --- CÁLCULO ---
+  const handleAnswer = (questionId: string, val: any) => {
+    setAnswers(prev => ({ ...prev, [questionId]: val }))
+  }
+
+  const handlePhotosChange = (questionId: string, urls: string[]) => {
+    setQuestionPhotos(prev => ({ ...prev, [questionId]: urls }))
+  }
+
   const calculateScores = () => {
-    const scores: any = {}
+    const sectionScores: { [key: string]: number } = {}
     let totalScore = 0
-    let totalAreas = 0
+    let scorableSections = 0
 
-    Object.entries(INSPECTION_AREAS).forEach(([key, area]) => {
-      const areaAnswers = answers[key] || {}
-      let sum = 0, count = 0
-      Object.values(areaAnswers).forEach((v: any) => { if(v!==null && v!==undefined){ sum+=parseInt(v); count++ } })
-      
-      const score = count > 0 ? Math.round(sum/count) : 0
-      scores[`${key}_score`] = score
-      totalScore += score
-      totalAreas++
+    sections.forEach((section: any) => {
+      const questionsInSection = section.questions
+      const sectionAnswers = questionsInSection.map((q: any) => answers[q.id]).filter((v: any) => v !== undefined && v !== null)
+
+      if (sectionAnswers.length > 0) {
+        const sum = sectionAnswers.reduce((a: number, b: any) => a + (Number(b) || 0), 0)
+        const score = Math.round(sum / sectionAnswers.length)
+        sectionScores[section.title] = score
+        totalScore += score
+        scorableSections++
+      } else {
+        sectionScores[section.title] = 0
+      }
     })
-    return { scores, overall: totalAreas>0 ? Math.round(totalScore/totalAreas) : 0 }
+
+    const overall = scorableSections > 0 ? Math.round(totalScore / scorableSections) : 0
+    return { sectionScores, overall }
   }
 
-  const handleAnswer = (area: string, idx: number, val: number) => {
-    setAnswers((prev: any) => ({ ...prev, [area]: { ...prev[area], [idx]: val } }))
-  }
-
-  // --- SUBIDA FOTOS ---
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return
-    if (formData.photos.length + e.target.files.length > 10) return alert('⚠️ Máximo 10 fotos.')
-    setLoading(true)
-    try {
-      const urls = await uploadPhotos(Array.from(e.target.files), 'checklist-photos', 'inspection')
-      setFormData(prev => ({ ...prev, photos: [...prev.photos, ...urls] }))
-    } catch (e) { alert('Error subiendo fotos') }
-    finally { setLoading(false); if(fileInputRef.current) fileInputRef.current.value='' }
-  }
-
-  // --- GUARDAR ---
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
-    try {
-      const { scores, overall } = calculateScores()
 
-      // GENERAR ESTRUCTURA "LEGACY COMPATIBLE" (RICA)
+    if (!user) return alert('Sesión expirada')
+    if (!formData.store_id) return alert('Selecciona una sucursal')
+
+    // Validation
+    const missingAnswers = allQuestions.filter(q => {
+      const val = answers[q.id]
+      if (q.type === 'text') return !val || val.trim().length === 0
+      if (q.type === 'photo') return !questionPhotos[q.id] || questionPhotos[q.id].length === 0
+      return val === undefined || val === null
+    })
+
+    if (missingAnswers.length > 0) {
+      alert(`❌ Faltan ${missingAnswers.length} puntos por evaluar.`)
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      const supabase = await getSupabaseClient()
+      const { sectionScores, overall } = calculateScores()
+      const allPhotos = [...(initialData?.photos || []), ...Object.values(questionPhotos).flat()]
+
+      // Map answers back to rich structure for compatibility
       const richAnswers: any = {}
-      Object.entries(INSPECTION_AREAS).forEach(([key, area]: [string, any]) => {
+      sections.forEach((section: any) => {
         const itemsObj: any = {}
-        area.items.forEach((label: string, idx: number) => {
-          const val = answers[key]?.[idx]
-          itemsObj[`i${idx}`] = { label, score: val !== undefined ? val : 0 }
+        section.questions.forEach((q: any, idx: number) => {
+          itemsObj[`i${idx}`] = { label: q.text, score: answers[q.id] }
         })
-        richAnswers[key] = { score: scores[`${key}_score`], items: itemsObj }
+        richAnswers[section.title] = { score: sectionScores[section.title] || 0, items: itemsObj }
       })
+
+      // Add rich photo mapping
+      richAnswers['__question_photos'] = questionPhotos
 
       const payload = {
         store_id: parseInt(formData.store_id),
         inspector_id: user.id,
         supervisor_name: user.name || user.email,
-        inspection_date: formData.inspection_date, // Texto YYYY-MM-DD
-        inspection_time: formData.inspection_time, // Texto HH:MM
+        inspection_date: formData.inspection_date,
+        inspection_time: formData.inspection_time,
         shift: formData.shift,
         overall_score: overall,
-        ...scores,
         answers: richAnswers,
         observaciones: formData.observaciones,
-        photos: formData.photos
+        photos: allPhotos
       }
 
-      const { error } = initialData?.id 
-        ? await supabase.from('supervisor_inspections').update(payload).eq('id', initialData.id)
-        : await supabase.from('supervisor_inspections').insert([payload])
+      // Map section titles to database columns
+      const sectionMapping: { [key: string]: string } = {
+        'Servicio al Cliente': 'service_score',
+        'Procedimiento de Carnes': 'meat_score',
+        'Preparación de Alimentos': 'food_score',
+        'Seguimiento a Tortillas': 'tortilla_score',
+        'Limpieza General y Baños': 'cleaning_score',
+        'Checklists y Bitácoras': 'log_score',
+        'Aseo Personal': 'grooming_score'
+      }
+
+      // Add dynamic scores
+      Object.entries(sectionScores).forEach(([title, score]) => {
+        const colName = sectionMapping[title]
+        if (colName) {
+          (payload as any)[colName] = score
+        }
+      })
+
+      const { data: savedData, error } = initialData?.id
+        ? await supabase.from('supervisor_inspections').update(payload).eq('id', initialData.id).select()
+        : await supabase.from('supervisor_inspections').insert([payload]).select()
 
       if (error) throw error
-      alert('✅ Guardado Exitosamente')
+
+      // Notifications
+      try {
+        const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin')
+        let recipients = admins ? admins.map(a => a.id) : []
+
+        if (overall < 87) {
+          const { data: managers } = await supabase.from('users').select('id').eq('store_id', payload.store_id).in('role', ['manager', 'gerente'])
+          if (managers) recipients = [...new Set([...recipients, ...managers.map(m => m.id)])]
+        }
+
+        if (recipients.length > 0) {
+          const storeName = stores.find(s => s.id.toString() === formData.store_id)?.name || 'Tienda'
+          const notifs = recipients.map(uid => ({
+            user_id: uid,
+            title: overall < 87 ? `⚠️ Alerta: ${storeName}` : `Nueva Inspección: ${storeName}`,
+            message: `El supervisor ${payload.supervisor_name} completó una auditoría con ${overall}%`,
+            type: overall < 87 ? 'alert' : 'info',
+            link: '/inspecciones',
+            reference_id: savedData?.[0]?.id,
+            reference_type: 'supervisor_inspection'
+          }))
+          await supabase.from('notifications').insert(notifs)
+        }
+      } catch (e) {
+        console.error('Notification error:', e)
+      }
+
+      alert('✅ Inspección Guardada')
       router.push('/inspecciones')
-      router.refresh()
     } catch (err: any) {
       alert('Error: ' + err.message)
     } finally {
@@ -189,114 +195,161 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     }
   }
 
+  if (checklistLoading && !initialData) return <div className="min-h-screen grid place-items-center bg-transparent"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+
   const { overall } = calculateScores()
-  const scoreColor = overall >= 90 ? 'text-green-600' : overall >= 75 ? 'text-yellow-600' : 'text-red-600'
+  const scoreColor = overall >= 87 ? 'text-green-600' : overall >= 70 ? 'text-orange-600' : 'text-red-600'
+  const scoreBg = overall >= 87 ? 'bg-green-50 border-green-200' : overall >= 70 ? 'bg-orange-50 border-orange-200' : 'bg-red-50 border-red-200'
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-5xl mx-auto space-y-8 pb-24 animate-in fade-in">
-      {/* HEADER */}
-      <div className="bg-white p-4 rounded-2xl shadow-lg border border-gray-200 sticky top-4 z-30 flex justify-between items-center">
-        <div>
-          <h1 className="text-xl font-black text-gray-900">🕵️ Inspección de Supervisor</h1>
-          <p className="text-gray-500 text-xs">Auditoría completa de 7 puntos.</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-center">
-            <p className="text-[10px] uppercase font-bold text-gray-400">Global</p>
-            <p className={`text-3xl font-black ${scoreColor}`}>{overall}%</p>
-          </div>
-          <button type="submit" disabled={loading} className="bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-bold shadow-lg transition-all text-sm">
-            {loading ? '...' : '💾 Guardar'}
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-transparent pb-32 font-sans selection:bg-blue-200 selection:text-blue-900">
 
-      {/* DATOS GENERALES */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="col-span-2 md:col-span-1">
-          <label className="text-xs font-bold text-gray-900 uppercase block mb-1">Tienda</label>
-          <select required value={formData.store_id} onChange={e => setFormData({...formData, store_id: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white">
-            <option value="">Seleccionar...</option>
-            {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-bold text-gray-900 uppercase block mb-1">Fecha</label>
-          <input type="date" required value={formData.inspection_date} onChange={e => setFormData({...formData, inspection_date: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white" />
-        </div>
-        <div>
-          <label className="text-xs font-bold text-gray-900 uppercase block mb-1">Hora</label>
-          <input type="time" required value={formData.inspection_time} onChange={e => setFormData({...formData, inspection_time: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white" />
-        </div>
-        <div>
-          <label className="text-xs font-bold text-gray-900 uppercase block mb-1">Turno</label>
-          <select value={formData.shift} onChange={e => setFormData({...formData, shift: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white">
-            <option value="AM">☀️ AM</option>
-            <option value="PM">🌙 PM</option>
-          </select>
-        </div>
-      </div>
+      {/* 
+        FLOATING HEADER PILL
+        Detached, floating, clean. Transparent-safe.
+      */}
+      <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
+        <div className="pointer-events-auto bg-white/95 backdrop-blur-xl shadow-[0_4px_20px_rgb(0,0,0,0.12)] rounded-full px-3 py-2 flex items-center gap-4 border border-gray-200/50 max-w-2xl w-full justify-between ring-1 ring-black/5">
 
-      {/* ÁREAS */}
-      <div className="space-y-6">
-        {Object.entries(INSPECTION_AREAS).map(([key, area]: [string, any]) => {
-          const areaAnswers = answers[key] || {}
-          let sum=0, count=0
-          Object.values(areaAnswers).forEach((v:any)=>{ if(v!==null && v!==undefined){sum+=parseInt(v); count++} })
-          const localScore = count>0 ? Math.round(sum/count) : 0
-          const style = COLOR_STYLES[area.color]
-
-          return (
-            <div key={key} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className={`px-6 py-3 ${style.bg} border-b ${style.border} flex justify-between items-center`}>
-                <h3 className={`font-black ${style.text} text-lg`}>{area.label}</h3>
-                <span className={`text-sm font-black px-3 py-1 rounded-full bg-white shadow-sm ${style.badge}`}>{localScore}%</span>
-              </div>
-              <div className="divide-y divide-gray-100">
-                {area.items.map((item: string, idx: number) => {
-                  const val = areaAnswers[idx]
-                  return (
-                    <div key={idx} className="p-3 md:px-6 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-gray-50">
-                      <p className="text-gray-900 font-medium text-sm flex-1">{idx+1}. {item}</p>
-                      <div className="flex bg-gray-100 rounded-lg p-1 shrink-0 gap-1">
-                        {[100, 60, 0].map(score => (
-                          <button key={score} type="button" onClick={() => handleAnswer(key, idx, score)}
-                            className={`px-3 py-1 rounded text-[10px] font-bold transition-all ${val === score 
-                              ? (score===100?'bg-green-600 text-white':score===60?'bg-yellow-500 text-black':'bg-red-600 text-white') + ' shadow' 
-                              : 'text-gray-500 hover:bg-white'}`}>
-                            {score===100?'✅ CUMPLE':score===60?'🟡 PARCIAL':'❌ FALLA'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
+          <div className="flex items-center gap-3 pl-1">
+            <button onClick={() => router.back()} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-700 hover:bg-gray-100 hover:text-black transition-colors border border-gray-200">
+              <ArrowLeft size={20} />
+            </button>
+            <div>
+              <h1 className="text-sm font-black text-gray-900 tracking-tight leading-none">Supervisión</h1>
+              <div className="text-[11px] items-center gap-1 font-bold text-gray-500 uppercase hidden sm:flex">
+                <Store size={12} /> {stores.find(s => s.id.toString() === formData.store_id)?.name || 'Selecciona...'}
               </div>
             </div>
-          )
-        })}
+          </div>
+
+          {/* Progress Pill */}
+          <div className="flex items-center gap-3 pr-1">
+            <div className="text-right hidden sm:block">
+              <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">PUNTAJE</div>
+            </div>
+            <div className={`px-4 py-1.5 rounded-full font-black text-lg shadow-sm border ${scoreBg} ${scoreColor}`}>
+              {overall}%
+            </div>
+            <button className="w-10 h-10 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform">
+              <MoreHorizontal size={20} />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* FOTOS Y COMENTARIOS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-          <div className="flex justify-between mb-4"><h3 className="font-bold text-gray-900">📸 Evidencias</h3><span className="text-xs bg-gray-100 px-2 py-1 rounded font-bold text-gray-700">{formData.photos.length}/10</span></div>
-          <div className="grid grid-cols-4 gap-2 mb-4">
-            {formData.photos.map((url, i) => (
-              <div key={i} className="relative aspect-square rounded-lg overflow-hidden group border border-gray-200">
-                <img src={url} className="w-full h-full object-cover" />
-                <button type="button" onClick={() => setFormData(p => ({...p, photos: p.photos.filter((_,x)=>x!==i)}))} className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">×</button>
-              </div>
-            ))}
-            {formData.photos.length < 10 && <button type="button" onClick={() => fileInputRef.current?.click()} className="aspect-square rounded-lg border-2 border-dashed border-gray-300 text-gray-400 hover:border-blue-500 hover:text-blue-500 text-2xl">+</button>}
+      {/* Main Content Areas - Cards */}
+      <div className="max-w-3xl mx-auto px-4 pt-32 space-y-8">
+
+        {/* Metadata Bubble */}
+        <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] text-center relative overflow-hidden group border border-gray-100 ring-1 ring-black/5">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600" />
+
+          <h2 className="text-2xl font-black text-gray-900 mb-6 tracking-tight">Configuración de Visita</h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-blue-50 group/field text-left border border-gray-200 hover:border-blue-200">
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-blue-700">Sucursal</label>
+              <select
+                value={formData.store_id} onChange={e => setFormData({ ...formData, store_id: e.target.value })}
+                className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg cursor-pointer"
+              >
+                <option value="">Seleccionar...</option>
+                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-purple-50 group/field text-left border border-gray-200 hover:border-purple-200">
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-purple-700">Turno</label>
+              <select
+                value={formData.shift} onChange={e => setFormData({ ...formData, shift: e.target.value })}
+                className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg cursor-pointer"
+              >
+                <option value="AM">Mañana (AM)</option>
+                <option value="PM">Tarde (PM)</option>
+              </select>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-pink-50 group/field text-left border border-gray-200 hover:border-pink-200">
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-pink-700">Fecha</label>
+              <input type="date" value={formData.inspection_date} onChange={e => setFormData({ ...formData, inspection_date: e.target.value })}
+                className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg" />
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-orange-50 group/field text-left border border-gray-200 hover:border-orange-200">
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-orange-700">Hora</label>
+              <input type="time" value={formData.inspection_time} onChange={e => setFormData({ ...formData, inspection_time: e.target.value })}
+                className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg" />
+            </div>
           </div>
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*" multiple onChange={handlePhotoUpload} />
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-          <label className="block text-sm font-bold text-gray-900 mb-2">📝 Comentarios Finales</label>
-          <textarea value={formData.observaciones} onChange={e => setFormData({...formData, observaciones: e.target.value})} rows={5} className="w-full p-4 border border-gray-300 rounded-xl text-gray-900 bg-white text-sm" placeholder="Observaciones..." />
-        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-12">
+          {sections.map((section: any, idx: number) => {
+            const sectionAnswers = section.questions.map((q: any) => answers[q.id]).filter((v: any) => v !== undefined && v !== null)
+            const sum = sectionAnswers.reduce((a: number, b: any) => a + (Number(b) || 0), 0)
+            const sectionScore = sectionAnswers.length > 0 ? Math.round(sum / sectionAnswers.length) : 0
+
+            return (
+              <div key={section.id} className="relative">
+                {/* Section Header with Backdrop Blur for contrast against custom background */}
+                <div className="flex items-center gap-4 mb-6 ml-4 bg-white/80 backdrop-blur-md px-6 py-3 rounded-full shadow-sm w-fit border border-gray-100 ring-1 ring-black/5">
+                  <span className="bg-gray-900 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-md">
+                    {idx + 1}
+                  </span>
+                  <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">{section.title}</h3>
+                </div>
+
+                <div className="space-y-6">
+                  {section.questions.map((question: any, qIdx: number) => (
+                    <DynamicQuestion
+                      key={question.id}
+                      question={question}
+                      index={qIdx}
+                      value={answers[question.id]}
+                      photos={questionPhotos[question.id] || []}
+                      onChange={(val) => handleAnswer(question.id, val)}
+                      onPhotosChange={(urls) => handlePhotosChange(question.id, urls)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Final Observations */}
+          <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 text-center shadow-sm">
+            <h3 className="font-bold text-yellow-700 uppercase tracking-widest text-sm mb-4">Notas Finales</h3>
+            <textarea
+              value={formData.observaciones}
+              onChange={e => setFormData({ ...formData, observaciones: e.target.value })}
+              rows={4}
+              className="w-full bg-gray-50 rounded-2xl p-4 border border-yellow-200 shadow-inner outline-none focus:ring-4 focus:ring-yellow-100 focus:border-yellow-400 transition-all font-medium text-gray-900 resize-none placeholder:text-gray-400"
+              placeholder="Escribe comentarios adicionales..."
+            />
+          </div>
+        </form>
       </div>
-    </form>
+
+      {/* Floating Action Button */}
+      <div className="fixed bottom-8 left-0 right-0 z-50 flex justify-center pointer-events-none">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleSubmit}
+          disabled={loading}
+          className="pointer-events-auto bg-gray-900 text-white px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(0,0,0,0.4)] font-black text-lg flex items-center gap-3 hover:bg-black transition-colors disabled:opacity-50 disabled:scale-100 border-2 border-white/20"
+        >
+          {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> :
+            <>
+              <span>FINALIZAR INSPECCIÓN</span>
+              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                <Send size={14} />
+              </div>
+            </>}
+        </motion.button>
+      </div>
+
+    </div>
   )
 }

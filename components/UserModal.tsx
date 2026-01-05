@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 
 interface UserModalProps {
   isOpen: boolean
@@ -101,21 +102,23 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden transform transition-all scale-100">
-        
+
         {/* Cabecera */}
         <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-900">
             {initialData ? '✏️ Editar Usuario' : '👤 Nuevo Usuario'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 hover:bg-gray-100 rounded-full">
+            <X size={24} />
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          
+
           {/* COLUMNA 1: Datos Personales */}
           <div className="space-y-4">
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b pb-2">Información Personal</h3>
-            
+
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">Nombre Completo</label>
               <input
@@ -206,7 +209,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
             {/* ZONA DINÁMICA DE TIENDAS */}
             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-              
+
               {/* CASO A: ADMIN */}
               {isAdmin && (
                 <div className="text-center py-2">

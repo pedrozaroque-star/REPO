@@ -2,8 +2,24 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase'
+import {
+  LayoutDashboard,
+  Plus,
+  BarChart3,
+  Search,
+  Store,
+  Users,
+  ClipboardList,
+  FileText,
+  MessageSquare,
+  AlertTriangle,
+  CheckCircle,
+  Calendar,
+  Clock,
+  TrendingUp,
+  Activity
+} from 'lucide-react'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -30,36 +46,78 @@ export default function DashboardPage() {
 
   const fetchStats = async () => {
     try {
-      const [
-        { count: storesCount },
-        { count: usersCount },
-        { data: feedbacks },
-        { data: inspections },
-        { count: assistantCheckCount },
-        { count: managerCheckCount },
-        { data: recentData }
-      ] = await Promise.all([
-        supabase.from('stores').select('*', { count: 'exact', head: true }),
-        supabase.from('users').select('*', { count: 'exact', head: true }),
-        supabase.from('customer_feedback').select('nps_score'),
-        supabase.from('supervisor_inspections').select('overall_score'),
-        supabase.from('assistant_checklists').select('*', { count: 'exact', head: true }),
-        supabase.from('manager_checklists').select('*', { count: 'exact', head: true }),
-        supabase.from('supervisor_inspections')
-          .select('*, stores(name), users(full_name)')
-          .order('inspection_date', { ascending: false })
-          .limit(5)
-      ])
+      const token = localStorage.getItem('teg_token')
+      const supabase = await getSupabaseClient()
+
+      if (token) {
+        await supabase.auth.setSession({ access_token: token, refresh_token: '' })
+      }
+
+      // 1. Tiendas
+      const { count: storesCount } = await supabase
+        .from('stores')
+        .select('*', { count: 'exact', head: true })
+
+      // 2. Usuarios
+      const { count: usersCount } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+
+      // 3. Feedback: Obtener conteo y datos
+      const { data: feedbacks } = await supabase
+        .from('customer_feedback')
+        .select('nps_score, submission_date')
+        .order('submission_date', { ascending: false })
+
+      // 4. Inspecciones
+      const { data: inspections } = await supabase
+        .from('supervisor_inspections')
+        .select('overall_score, estatus_admin')
+        .limit(100)
+
+      // 5. Checklists
+      const { count: assistantCheckCount } = await supabase.from('assistant_checklists').select('*', { count: 'exact', head: true })
+      const { count: managerCheckCount } = await supabase.from('manager_checklists').select('*', { count: 'exact', head: true })
+
+      // 6. Actividad Reciente (Manual Join seguro)
+      const { data: recentRaw } = await supabase
+        .from('supervisor_inspections')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      // Enriquecer actividad reciente manualmente para evitar error de foreign keys
+      const recentData = recentRaw ? await Promise.all(recentRaw.map(async (item) => {
+        const { data: store } = await supabase.from('stores').select('name').eq('id', item.store_id).single()
+        const { data: user } = await supabase.from('users').select('full_name').eq('id', item.inspector_id).single()
+        return {
+          ...item,
+          stores: store,
+          users: user
+        }
+      })) : []
+
 
       const validFeedbacks = feedbacks || []
       const validInspections = inspections || []
 
-      const avgNPS = validFeedbacks.length > 0
-        ? Math.round(validFeedbacks.reduce((sum, f) => sum + (f.nps_score || 0), 0) / validFeedbacks.length)
+      // Cálculos NPS reales
+      let promoters = 0
+      let detractors = 0
+
+      validFeedbacks.forEach((f: any) => {
+        const score = f.nps_score || 0
+        if (score >= 9) promoters++
+        else if (score <= 6) detractors++
+      })
+
+      const totalFeedbacks = validFeedbacks.length
+      const avgNPS = totalFeedbacks > 0
+        ? Math.round(((promoters - detractors) / totalFeedbacks) * 100)
         : 0
 
       const avgInspectionScore = validInspections.length > 0
-        ? Math.round(validInspections.reduce((sum, i) => sum + (i.overall_score || 0), 0) / validInspections.length)
+        ? Math.round(validInspections.reduce((sum: number, i: any) => sum + (i.overall_score || 0), 0) / validInspections.length)
         : 0
 
       setStats({
@@ -75,359 +133,298 @@ export default function DashboardPage() {
 
       setLoading(false)
     } catch (err) {
-      console.error('Error:', err)
+      console.error('Error general en Dashboard:', err)
       setLoading(false)
     }
   }
 
   if (loading) {
     return (
-      <div className="flex">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-6xl mb-4">📊</div>
-            <p className="text-gray-600">Cargando dashboard...</p>
-          </div>
+      <div className="flex bg-gray-50 h-screen items-center justify-center">
+        <div className="text-center animate-pulse">
+          <LayoutDashboard size={48} className="mx-auto text-gray-300 mb-4" />
+          <p className="text-gray-900 font-bold">Cargando dashboard...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
-      <main className="flex-1 p-8">
-        <div className="max-w-7xl mx-auto">
-          {/* Header */}
-          <div className="mb-8 flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-              <p className="text-gray-600 mt-2">Vista general del sistema TEG</p>
+    <div className="bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0">
+      {/* STICKY HEADER - Mobile & Desktop */}
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+        <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Title Area */}
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+              <TrendingUp size={18} />
             </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => window.location.href = '/inspecciones/nueva'}
-                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-lg transition-colors"
-              >
-                ➕ Nueva Inspección
-              </button>
-              <button
-                onClick={() => window.location.href = '/reportes'}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg transition-colors"
-              >
-                📊 Ver Reportes
-              </button>
+            <div>
+              <h1 className="text-lg md:text-xl font-black text-gray-900 tracking-tight leading-none">Dashboard</h1>
+              <p className="hidden md:block text-xs text-gray-400 font-medium">Vista general</p>
             </div>
           </div>
 
-          {/* Quick Search */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-            <div className="flex items-center space-x-4">
-              <div className="flex-1">
-                <input
-                  type="text"
-                  placeholder="Búsqueda rápida: tiendas, usuarios, inspecciones..."
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-red-500"
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      const query = (e.target as HTMLInputElement).value
-                      window.location.href = `/buscar?q=${encodeURIComponent(query)}`
-                    }
-                  }}
-                />
-              </div>
-              <button 
-                onClick={(e) => {
-                  const input = (e.currentTarget.previousElementSibling?.querySelector('input') as HTMLInputElement)
-                  if (input?.value) {
-                    window.location.href = `/buscar?q=${encodeURIComponent(input.value)}`
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => window.location.href = '/inspecciones/nueva'}
+              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 md:px-4 md:py-2 rounded-xl font-bold text-xs md:text-sm flex items-center gap-2 shadow-lg shadow-red-200 transition-all active:scale-95"
+            >
+              <Plus size={16} strokeWidth={3} />
+              <span className="hidden sm:inline">NUEVA INSPECCIÓN</span>
+              <span className="sm:hidden">INSP.</span>
+            </button>
+            <button
+              onClick={() => window.location.href = '/reportes'}
+              className="bg-gray-100 text-gray-600 hover:bg-gray-200 p-2 md:px-4 md:py-2 rounded-xl font-bold text-xs md:text-sm flex items-center gap-2 transition-all"
+            >
+              <BarChart3 size={18} />
+              <span className="hidden sm:inline">Reportes</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <main className="flex-1 overflow-y-auto h-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+        {/* Quick Search */}
+        <div className="bg-white rounded-2xl shadow-sm p-4 md:p-6 mb-8 border border-gray-100">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative group flex-1">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 transition-colors" size={20} />
+              <input
+                type="text"
+                placeholder="Búsqueda rápida..."
+                className="w-full pl-11 pr-4 py-3 rounded-xl bg-gray-50 border-none outline-none focus:ring-2 focus:ring-red-100 text-sm font-bold text-gray-900 placeholder:text-gray-400 transition-all"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    const query = (e.target as HTMLInputElement).value
+                    window.location.href = `/buscar?q=${encodeURIComponent(query)}`
                   }
                 }}
-                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg"
-              >
-                🔍 Buscar
-              </button>
+              />
             </div>
-            <div className="flex flex-wrap gap-2 mt-4">
-              <button 
-                onClick={() => window.location.href = '/tiendas'}
-                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-full transition-colors"
-              >
-                🏪 Tiendas
-              </button>
-              <button 
-                onClick={() => window.location.href = '/usuarios'}
-                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-full transition-colors"
-              >
-                👥 Usuarios
-              </button>
-              <button 
-                onClick={() => window.location.href = '/inspecciones'}
-                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-full transition-colors"
-              >
-                📋 Inspecciones
-              </button>
-              <button 
-                onClick={() => window.location.href = '/checklists'}
-                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-full transition-colors"
-              >
-                ✅ Checklists
-              </button>
-              <button 
-                onClick={() => window.location.href = '/feedback'}
-                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-full transition-colors"
-              >
-                💬 Feedback
-              </button>
-              <button 
-                onClick={() => window.location.href = '/reportes'}
-                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-full transition-colors"
-              >
-                📊 Reportes
-              </button>
-            </div>
-          </div>
-          
-          {/* Main Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-red-100 text-sm font-medium">Tiendas</p>
-                  <p className="text-4xl font-bold mt-2">{stats.totalStores}</p>
-                </div>
-                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
-                <div className="text-5xl opacity-80">🏪</div>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-blue-100 text-sm font-medium">Usuarios</p>
-                  <p className="text-4xl font-bold mt-2">{stats.totalUsers}</p>
-                </div>
-                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
-                <div className="text-5xl opacity-80">👥</div>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-green-100 text-sm font-medium">Feedbacks</p>
-                  <p className="text-4xl font-bold mt-2">{stats.totalFeedbacks}</p>
-                </div>
-                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
-                <div className="text-5xl opacity-80">💬</div>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-purple-100 text-sm font-medium">Checklists</p>
-                  <p className="text-4xl font-bold mt-2">{stats.totalChecklists}</p>
-                </div>
-                {/* CAMBIO AQUI: opacity-80 en lugar de opacity-20 */}
-                <div className="text-5xl opacity-80">✅</div>
-              </div>
-            </div>
+            <button
+              onClick={(e) => {
+                const input = (e.currentTarget.previousElementSibling?.querySelector('input') as HTMLInputElement)
+                if (input?.value) {
+                  window.location.href = `/buscar?q=${encodeURIComponent(input.value)}`
+                }
+              }}
+              className="bg-gray-900 text-white p-3 rounded-xl hover:bg-black transition-colors"
+            >
+              <Search size={20} />
+            </button>
           </div>
 
-          {/* Progress Overview */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-            <h3 className="text-lg font-bold text-gray-900 mb-6">📈 Progreso del Mes</h3>
-            <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: 'Tiendas', href: '/tiendas', icon: Store },
+              { label: 'Usuarios', href: '/usuarios', icon: Users },
+              { label: 'Inspecciones', href: '/inspecciones', icon: ClipboardList },
+              { label: 'Checklists', href: '/checklists', icon: FileText },
+              { label: 'Feedback', href: '/feedback', icon: MessageSquare },
+              { label: 'Reportes', href: '/reportes', icon: BarChart3 },
+            ].map((item) => (
+              <button
+                key={item.label}
+                onClick={() => window.location.href = item.href}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-bold rounded-lg border border-gray-100 transition-colors"
+              >
+                <item.icon size={14} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Main Stats Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {[
+            { label: 'Tiendas', value: stats.totalStores, icon: Store, color: 'text-red-600', bg: 'bg-red-50' },
+            { label: 'Usuarios', value: stats.totalUsers, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { label: 'Feedbacks', value: stats.totalFeedbacks, icon: MessageSquare, color: 'text-green-600', bg: 'bg-green-50' },
+            { label: 'Checklists', value: stats.totalChecklists, icon: FileText, color: 'text-purple-600', bg: 'bg-purple-50' },
+          ].map((stat) => (
+            <div key={stat.label} className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100 flex flex-col items-center text-center hover:shadow-md transition-shadow">
+              <div className={`w-10 h-10 ${stat.bg} ${stat.color} rounded-full flex items-center justify-center mb-2`}>
+                <stat.icon size={20} />
+              </div>
+              <div className="text-2xl font-black text-gray-900">{stat.value}</div>
+              <div className="text-xs font-bold text-gray-400 uppercase tracking-wide">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Performance Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100">
+            <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2">
+              <TrendingUp size={20} className="text-indigo-500" />
+              NPS Promedio
+            </h3>
+            <div className="flex items-center justify-center py-4">
+              <div className="relative w-48 h-48">
+                <svg className="transform -rotate-90 w-48 h-48">
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="80"
+                    stroke="#e5e7eb"
+                    strokeWidth="12"
+                    fill="none"
+                    className="bg-gray-100"
+                  />
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="80"
+                    stroke={stats.avgNPS >= 50 ? '#10b981' : stats.avgNPS >= 0 ? '#fbbf24' : '#ef4444'}
+                    strokeWidth="12"
+                    fill="none"
+                    strokeDasharray={`${(stats.avgNPS + 100) * 2.51} 502.4`}
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-5xl font-black text-gray-900">{stats.avgNPS}</span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">SCORE</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-center text-xs font-medium text-gray-400 mt-2 bg-gray-50 py-2 rounded-lg">
+              Basado en {stats.totalFeedbacks} feedbacks
+            </p>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100">
+            <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2">
+              <ClipboardList size={20} className="text-indigo-500" />
+              Score Inspecciones
+            </h3>
+            <div className="flex items-center justify-center py-4">
+              <div className="relative w-48 h-48">
+                <svg className="transform -rotate-90 w-48 h-48">
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="80"
+                    stroke="#e5e7eb"
+                    strokeWidth="12"
+                    fill="none"
+                  />
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="80"
+                    stroke="#8b5cf6"
+                    strokeWidth="12"
+                    fill="none"
+                    strokeDasharray={`${stats.avgInspectionScore * 5.024} 502.4`}
+                    strokeLinecap="round"
+                    className="transition-all duration-1000 ease-out"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-5xl font-black text-gray-900">{stats.avgInspectionScore}<span className="text-2xl text-gray-400">%</span></span>
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">PROMEDIO</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-center text-xs font-medium text-gray-400 mt-2 bg-gray-50 py-2 rounded-lg">
+              Basado en {stats.totalInspections} inspecciones
+            </p>
+          </div>
+        </div>
+
+        {/* Alertas */}
+        <div className="space-y-4 mb-8">
+          {stats.avgNPS < 50 && (
+            <div className="bg-red-50 rounded-2xl p-4 flex items-start gap-4 border border-red-100">
+              <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} />
+              </div>
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Meta de Feedbacks</span>
-                  <span className="text-sm font-bold text-gray-900">{stats.totalFeedbacks}/200</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div 
-                    className="bg-green-600 h-3 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min((stats.totalFeedbacks / 200) * 100, 100)}%` }}
-                  ></div>
-                </div>
+                <h4 className="font-bold text-red-900">NPS Bajo Detectado</h4>
+                <p className="text-sm text-red-700 mt-1">El NPS promedio ({stats.avgNPS}) está por debajo del objetivo de 50. Se requiere atención inmediata.</p>
               </div>
+            </div>
+          )}
 
+          {stats.avgInspectionScore < 85 && (
+            <div className="bg-yellow-50 rounded-2xl p-4 flex items-start gap-4 border border-yellow-100">
+              <div className="w-10 h-10 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} />
+              </div>
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Meta de Inspecciones</span>
-                  <span className="text-sm font-bold text-gray-900">{stats.totalInspections}/150</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div 
-                    className="bg-purple-600 h-3 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min((stats.totalInspections / 150) * 100, 100)}%` }}
-                  ></div>
-                </div>
+                <h4 className="font-bold text-yellow-900">Score de Inspección Bajo</h4>
+                <p className="text-sm text-yellow-700 mt-1">El promedio de inspecciones ({stats.avgInspectionScore}%) está por debajo de 85%.</p>
               </div>
+            </div>
+          )}
 
+          {stats.avgNPS >= 50 && stats.avgInspectionScore >= 85 && (
+            <div className="bg-green-50 rounded-2xl p-4 flex items-start gap-4 border border-green-100">
+              <div className="w-10 h-10 bg-green-100 text-green-600 rounded-full flex items-center justify-center flex-shrink-0">
+                <CheckCircle size={20} />
+              </div>
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Meta de Checklists</span>
-                  <span className="text-sm font-bold text-gray-900">{stats.totalChecklists}/300</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div 
-                    className="bg-blue-600 h-3 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min((stats.totalChecklists / 300) * 100, 100)}%` }}
-                  ></div>
-                </div>
+                <h4 className="font-bold text-green-900">Todo en Orden</h4>
+                <p className="text-sm text-green-700 mt-1">Todas las métricas están dentro de los objetivos establecidos.</p>
               </div>
             </div>
+          )}
+        </div>
+
+        {/* Recent Activity */}
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 border-b border-gray-100 flex items-center gap-2">
+            <Activity size={20} className="text-gray-400" />
+            <h3 className="font-black text-gray-900">Actividad Reciente</h3>
           </div>
-
-          {/* Performance Metrics */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">NPS Promedio</h3>
-              <div className="flex items-center justify-center">
-                <div className="relative w-48 h-48">
-                  <svg className="transform -rotate-90 w-48 h-48">
-                    <circle
-                      cx="96"
-                      cy="96"
-                      r="80"
-                      stroke="#e5e7eb"
-                      strokeWidth="16"
-                      fill="none"
-                    />
-                    <circle
-                      cx="96"
-                      cy="96"
-                      r="80"
-                      stroke={stats.avgNPS >= 50 ? '#10b981' : stats.avgNPS >= 0 ? '#f59e0b' : '#ef4444'}
-                      strokeWidth="16"
-                      fill="none"
-                      strokeDasharray={`${(stats.avgNPS + 100) * 2.51} 502.4`}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-4xl font-bold text-gray-900">{stats.avgNPS}</span>
-                    <span className="text-sm text-gray-600">de 100</span>
+          <div className="divide-y divide-gray-100">
+            {stats.recentActivity.map((activity) => (
+              <div key={activity.id} className="p-4 hover:bg-gray-50 flex flex-col md:flex-row gap-4 items-start md:items-center">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[10px] uppercase font-black tracking-wide border border-indigo-100">
+                      Inspección
+                    </span>
+                    <h4 className="font-bold text-gray-900 text-sm">
+                      {activity.stores?.name || 'Tienda'}
+                    </h4>
                   </div>
-                </div>
-              </div>
-              <p className="text-center text-sm text-gray-600 mt-4">
-                Basado en {stats.totalFeedbacks} feedbacks de clientes
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">Score de Inspecciones</h3>
-              <div className="flex items-center justify-center">
-                <div className="relative w-48 h-48">
-                  <svg className="transform -rotate-90 w-48 h-48">
-                    <circle
-                      cx="96"
-                      cy="96"
-                      r="80"
-                      stroke="#e5e7eb"
-                      strokeWidth="16"
-                      fill="none"
-                    />
-                    <circle
-                      cx="96"
-                      cy="96"
-                      r="80"
-                      stroke="#10b981"
-                      strokeWidth="16"
-                      fill="none"
-                      strokeDasharray={`${stats.avgInspectionScore * 5.024} 502.4`}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-4xl font-bold text-gray-900">{stats.avgInspectionScore}%</span>
-                    <span className="text-sm text-gray-600">promedio</span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-center text-sm text-gray-600 mt-4">
-                Basado en {stats.totalInspections} inspecciones
-              </p>
-            </div>
-          </div>
-
-          {/* Alertas */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">⚠️ Alertas del Sistema</h3>
-            <div className="space-y-3">
-              {stats.avgNPS < 50 && (
-                <div className="flex items-start space-x-3 p-4 bg-red-50 border-l-4 border-red-500 rounded">
-                  <span className="text-2xl">🚨</span>
-                  <div className="flex-1">
-                    <p className="font-semibold text-red-900">NPS Bajo Detectado</p>
-                    <p className="text-sm text-red-700">El NPS promedio ({stats.avgNPS}) está por debajo del objetivo de 50</p>
-                  </div>
-                </div>
-              )}
-              
-              {stats.avgInspectionScore < 85 && (
-                <div className="flex items-start space-x-3 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded">
-                  <span className="text-2xl">⚠️</span>
-                  <div className="flex-1">
-                    <p className="font-semibold text-yellow-900">Score de Inspección Bajo</p>
-                    <p className="text-sm text-yellow-700">El promedio de inspecciones ({stats.avgInspectionScore}%) está por debajo de 85%</p>
-                  </div>
-                </div>
-              )}
-              
-              {stats.avgNPS >= 50 && stats.avgInspectionScore >= 85 && (
-                <div className="flex items-start space-x-3 p-4 bg-green-50 border-l-4 border-green-500 rounded">
-                  <span className="text-2xl">✅</span>
-                  <div className="flex-1">
-                    <p className="font-semibold text-green-900">Todo en Orden</p>
-                    <p className="text-sm text-green-700">Todas las métricas están dentro de los objetivos</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Recent Activity */}
-          <div className="bg-white rounded-xl shadow-md">
-            <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">Actividad Reciente</h3>
-            </div>
-            <div className="divide-y divide-gray-200">
-              {stats.recentActivity.map((activity) => (
-                <div key={activity.id} className="p-6 hover:bg-gray-50">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-2">
-                        <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-semibold">
-                          📋 Inspección
-                        </span>
-                        <h4 className="font-bold text-gray-900">
-                          {activity.stores?.name || 'Tienda'}
-                        </h4>
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          activity.overall_score >= 90 
-                            ? 'bg-green-100 text-green-800' 
-                            : activity.overall_score >= 80 
-                            ? 'bg-yellow-100 text-yellow-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {activity.overall_score}%
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-4 text-sm text-gray-600">
-                        <span>👤 {activity.users?.full_name || 'Supervisor'}</span>
-                        <span>📅 {new Date(activity.inspection_date).toLocaleDateString('es-MX')}</span>
-                        <span>🕐 {activity.shift}</span>
-                      </div>
+                  <div className="flex items-center gap-4 text-xs font-medium text-gray-500">
+                    <div className="flex items-center gap-1">
+                      <Users size={12} />
+                      {activity.users?.full_name || 'Supervisor'}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Calendar size={12} />
+                      {new Date(activity.inspection_date).toLocaleDateString('es-MX')}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Clock size={12} />
+                      {activity.shift}
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+
+                <div className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-black border ${activity.overall_score >= 90
+                  ? 'bg-green-50 text-green-700 border-green-100'
+                  : activity.overall_score >= 80
+                    ? 'bg-yellow-50 text-yellow-700 border-yellow-100'
+                    : 'bg-red-50 text-red-700 border-red-100'
+                  }`}>
+                  {activity.overall_score}% SCORE
+                </div>
+              </div>
+            ))}
+
+            {stats.recentActivity.length === 0 && (
+              <div className="p-8 text-center text-gray-400 text-sm font-medium">No hay actividad reciente</div>
+            )}
           </div>
         </div>
       </main>

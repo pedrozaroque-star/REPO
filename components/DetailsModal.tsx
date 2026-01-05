@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { formatDateLA } from '@/lib/checklistPermissions'
 import { getQuestionText } from '@/lib/managerQuestions'
+import { X } from 'lucide-react'
 
 interface DetailsModalProps {
   isOpen: boolean
@@ -159,7 +160,7 @@ const keyToReadableText = (key: string): string => {
   // Reemplazar guiones bajos con espacios
   let text = key.replace(/_/g, ' ')
   // Capitalizar primera letra de cada palabra
-  text = text.split(' ').map(word => 
+  text = text.split(' ').map(word =>
     word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
   ).join(' ')
   return text
@@ -203,13 +204,13 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
 
   const organizeManagerAnswers = () => {
     const sections: { [key: string]: { title: string; questions: any[] } } = {}
-    
+
     Object.entries(checklist.answers).forEach(([key, answer]: [string, any]) => {
       const match = key.match(/s(\d+)_/)
       if (!match) return
-      
+
       const sectionId = `s${match[1]}`
-      
+
       if (!sections[sectionId]) {
         const sectionTitles: { [key: string]: string } = {
           's0': 'Cookline and Kitchen',
@@ -222,20 +223,20 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
           questions: []
         }
       }
-      
+
       sections[sectionId].questions.push({
         key,
         text: getQuestionText(key),
         value: extractValue(answer)
       })
     })
-    
+
     return Object.values(sections)
   }
 
   const organizeAssistantAnswers = () => {
     const checklistType = checklist.checklist_type
-    
+
     // TEMPERATURAS
     if (checklistType === 'temperaturas') {
       const questions = Object.entries(checklist.answers)
@@ -245,13 +246,13 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
           value: extractValue(answer)
         }))
         .sort((a, b) => a.text.localeCompare(b.text))
-      
+
       return [{
         title: 'Control de Temperaturas',
         questions
       }]
     }
-    
+
     // SOBRANTE
     if (checklistType === 'sobrante') {
       const questions = Object.entries(checklist.answers)
@@ -260,22 +261,22 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
           text: PRODUCT_LABELS[key] || keyToReadableText(key),
           value: extractValue(answer) + ' lbs'
         }))
-      
+
       return [{
         title: 'Producto Sobrante',
         questions
       }]
     }
-    
+
     // DAILY, RECORRIDO, APERTURA, CIERRE
     const questionsList = ASSISTANT_QUESTIONS[checklistType] || []
     const answersArray: any[] = []
-    
+
     Object.keys(checklist.answers).forEach((key) => {
       const answer = checklist.answers[key]
       let questionText: string
       let sortIndex: number
-      
+
       // Intentar convertir a índice numérico
       let index: number
       if (key.startsWith('item_')) {
@@ -283,7 +284,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
       } else {
         index = parseInt(key)
       }
-      
+
       // Si es un índice numérico válido, usar el array de preguntas
       if (!isNaN(index) && questionsList[index]) {
         questionText = questionsList[index]
@@ -293,7 +294,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
         questionText = keyToReadableText(key)
         sortIndex = 9999 // Poner al final
       }
-      
+
       answersArray.push({
         key,
         index: sortIndex,
@@ -301,7 +302,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
         value: extractValue(answer)
       })
     })
-    
+
     // Ordenar por índice
     answersArray.sort((a, b) => {
       if (a.index === 9999 && b.index === 9999) {
@@ -310,14 +311,14 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
       }
       return a.index - b.index
     })
-    
+
     const titles: { [key: string]: string } = {
       'daily': 'Daily Checklist',
       'recorrido': 'Recorrido de Limpieza',
       'apertura': 'Inspección de Apertura',
       'cierre': 'Inspección de Cierre'
     }
-    
+
     return [{
       title: titles[checklistType] || 'Checklist',
       questions: answersArray
@@ -326,12 +327,12 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
 
   const sections = organizeAnswers()
   const photoUrls = checklist.photo_urls || []
-  
-  const reviewLevels = type === 'manager' 
+
+  const reviewLevels = type === 'manager'
     ? ['supervisor', 'admin']
     : type === 'assistant'
-    ? ['manager']
-    : ['admin']
+      ? ['manager']
+      : ['admin']
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -341,14 +342,14 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
             <div>
               <h2 className="text-2xl font-bold">Detalles del Checklist</h2>
               <p className="text-indigo-100 text-sm mt-1">
-                {type === 'manager' ? 'Manager' : type === 'assistant' ? 'Asistente' : 'Supervisor'} • 
+                {type === 'manager' ? 'Manager' : type === 'assistant' ? 'Asistente' : 'Supervisor'} •
                 {formatDateLA(checklist.checklist_date || checklist.inspection_date || checklist.created_at)}
               </p>
             </div>
-            <button 
+            <button
               onClick={onClose}
-              className="text-white hover:bg-indigo-500 rounded-lg p-2 text-3xl">
-              ×
+              className="text-white/80 hover:text-white hover:bg-white/10 rounded-full p-2 transition-colors">
+              <X size={24} />
             </button>
           </div>
         </div>
@@ -367,10 +368,9 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
             </div>
             <div className="bg-white p-4 rounded-lg shadow-sm">
               <p className="text-sm text-gray-600">Score</p>
-              <p className={`text-2xl font-bold ${
-                checklist.score >= 80 ? 'text-green-600' : 
+              <p className={`text-2xl font-bold ${checklist.score >= 80 ? 'text-green-600' :
                 checklist.score >= 60 ? 'text-orange-600' : 'text-red-600'
-              }`}>
+                }`}>
                 {checklist.score}%
               </p>
             </div>
@@ -385,29 +385,26 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
           <div className="flex">
             <button
               onClick={() => setActiveTab('answers')}
-              className={`px-6 py-3 font-semibold transition-all ${
-                activeTab === 'answers'
-                  ? 'border-b-2 border-indigo-600 text-indigo-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}>
+              className={`px-6 py-3 font-semibold transition-all ${activeTab === 'answers'
+                ? 'border-b-2 border-indigo-600 text-indigo-600'
+                : 'text-gray-600 hover:text-gray-900'
+                }`}>
               Respuestas ({sections.reduce((acc, s) => acc + s.questions.length, 0)})
             </button>
             <button
               onClick={() => setActiveTab('photos')}
-              className={`px-6 py-3 font-semibold transition-all ${
-                activeTab === 'photos'
-                  ? 'border-b-2 border-indigo-600 text-indigo-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}>
+              className={`px-6 py-3 font-semibold transition-all ${activeTab === 'photos'
+                ? 'border-b-2 border-indigo-600 text-indigo-600'
+                : 'text-gray-600 hover:text-gray-900'
+                }`}>
               Fotos ({photoUrls.length})
             </button>
             <button
               onClick={() => setActiveTab('reviews')}
-              className={`px-6 py-3 font-semibold transition-all ${
-                activeTab === 'reviews'
-                  ? 'border-b-2 border-indigo-600 text-indigo-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}>
+              className={`px-6 py-3 font-semibold transition-all ${activeTab === 'reviews'
+                ? 'border-b-2 border-indigo-600 text-indigo-600'
+                : 'text-gray-600 hover:text-gray-900'
+                }`}>
               Revisiones
             </button>
           </div>
@@ -440,7 +437,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                   </div>
                 ))
               )}
-              
+
               {checklist.comments && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <h4 className="font-bold text-blue-900 mb-2">Comentarios del Usuario</h4>
@@ -461,8 +458,8 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {photoUrls.map((url: string, idx: number) => (
                     <div key={idx} className="relative group">
-                      <img 
-                        src={url} 
+                      <img
+                        src={url}
                         alt={`Foto ${idx + 1}`}
                         className="w-full h-48 object-cover rounded-lg shadow-md cursor-pointer hover:shadow-xl transition-all"
                         onClick={() => window.open(url, '_blank')}
@@ -486,20 +483,20 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                 const reviewer = checklist[`reviso_${level}`]
                 const comments = checklist[`comentarios_${level}`]
                 const date = checklist[`fecha_revision_${level}`]
-                
+
                 const statusColors: { [key: string]: string } = {
                   'pendiente': 'bg-yellow-100 text-yellow-800',
                   'aprobado': 'bg-green-100 text-green-800',
                   'rechazado': 'bg-red-100 text-red-800',
                   'cerrado': 'bg-blue-100 text-blue-800'
                 }
-                
+
                 const levelNames: { [key: string]: string } = {
                   'manager': 'Manager',
                   'supervisor': 'Supervisor',
                   'admin': 'Admin'
                 }
-                
+
                 return (
                   <div key={level} className="bg-white border border-gray-200 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
@@ -510,7 +507,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                         </span>
                       )}
                     </div>
-                    
+
                     {reviewer ? (
                       <>
                         <div className="grid grid-cols-2 gap-4 mb-3">
@@ -525,7 +522,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                             </div>
                           )}
                         </div>
-                        
+
                         {comments && (
                           <div className="bg-gray-50 rounded p-3">
                             <p className="text-xs text-gray-600 mb-1">Comentarios:</p>

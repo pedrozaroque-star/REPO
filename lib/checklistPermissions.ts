@@ -8,28 +8,28 @@ const isValidDate = (d: any) => {
   return d instanceof Date && !isNaN(d.getTime());
 };
 
-const getSafeLADateISO = (dateInput: any) => {
+export const getSafeLADateISO = (dateInput: any) => {
   try {
     // FECHA DE HOY (AJUSTADA A JORNADA LABORAL)
     // Si la fecha input es HOY, necesitamos ver si son las 3 AM para contar como "ayer"
     if (!dateInput) {
-       const now = new Date();
-       // Convertir a hora LA
-       const laDateString = now.toLocaleString("en-US", { timeZone: TIMEZONE });
-       const laDate = new Date(laDateString);
-       
-       // REGLA DE ORO: Si es antes de las 5am, restamos un día
-       if (laDate.getHours() < 5) {
-         laDate.setDate(laDate.getDate() - 1);
-       }
-       
-       // Formato YYYY-MM-DD
-       const y = laDate.getFullYear();
-       const m = String(laDate.getMonth() + 1).padStart(2, '0');
-       const d = String(laDate.getDate()).padStart(2, '0');
-       return `${y}-${m}-${d}`;
+      const now = new Date();
+      // Convertir a hora LA
+      const laDateString = now.toLocaleString("en-US", { timeZone: TIMEZONE });
+      const laDate = new Date(laDateString);
+
+      // REGLA DE ORO: Si es antes de las 5am, restamos un día
+      if (laDate.getHours() < 5) {
+        laDate.setDate(laDate.getDate() - 1);
+      }
+
+      // Formato YYYY-MM-DD
+      const y = laDate.getFullYear();
+      const m = String(laDate.getMonth() + 1).padStart(2, '0');
+      const d = String(laDate.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     }
-    
+
     // FECHA DEL REPORTE (Input)
     // Si ya viene como YYYY-MM-DD, devolverlo tal cual
     if (typeof dateInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
@@ -72,16 +72,16 @@ export const formatDateLA = (dateString: any) => {
 };
 
 export const formatTimeLA = (dateString: any) => {
-    if (!dateString) return '--:--';
-    try {
-        if (typeof dateString === 'string' && dateString.includes(':')) return dateString;
-        const date = new Date(dateString);
-        if (!isValidDate(date)) return '--:--';
-        return new Intl.DateTimeFormat('es-MX', {
-            timeZone: TIMEZONE,
-            hour: '2-digit', minute: '2-digit', hour12: true
-        }).format(date);
-    } catch { return '--:--' }
+  if (!dateString) return '--:--';
+  try {
+    if (typeof dateString === 'string' && dateString.includes(':')) return dateString;
+    const date = new Date(dateString);
+    if (!isValidDate(date)) return '--:--';
+    return new Intl.DateTimeFormat('es-MX', {
+      timeZone: TIMEZONE,
+      hour: '2-digit', minute: '2-digit', hour12: true
+    }).format(date);
+  } catch { return '--:--' }
 };
 
 export const getStatusColor = (status: string) => {
@@ -105,34 +105,43 @@ export const canEditChecklist = (
   checklistDateInput: any,
   userRole: string,
   ownerId: string | number,
-  currentUserId: string | number
+  currentUserId: string | number,
+  checklistStatus?: string // [NEW] Optional status parameter
 ) => {
   try {
     const role = (userRole || '').toLowerCase();
+    const status = (checklistStatus || '').toLowerCase();
+
+    // 0. RECHAZADO: Excepción de Regla (Puede editar sin importar fecha)
+    if (status === 'rechazado') {
+      // Solo el dueño puede editarlo
+      if (String(ownerId) !== String(currentUserId)) {
+        return { canEdit: false, reason: 'Solo el dueño puede corregir su rechazo' };
+      }
+      return { canEdit: true };
+    }
 
     // 1. ADMIN: Puede editar todo
     if (role === 'admin') return { canEdit: true };
 
-    // 2. MANAGER: Puede editar todo lo suyo
-    if (role === 'manager' || role === 'gerente') return { canEdit: true };
+    // 2. MANAGER y SUPERVISOR: Reglas Estrictas (Solo Dueño y Fecha)
+    if (['manager', 'gerente', 'supervisor', 'asistente', 'assistant'].includes(role)) {
 
-    // 3. SUPERVISOR y ASISTENTE: Reglas Estrictas
-    if (['supervisor', 'asistente', 'assistant'].includes(role)) {
-      
-      // A. Validar Dueño
+      // A. Validar Dueño (CRÍTICO: Managers no pueden editar inspecciones de supervisores)
       if (String(ownerId) !== String(currentUserId)) {
         return { canEdit: false, reason: 'Solo puedes editar tus propios registros' };
       }
 
       // B. Validar Fecha (JORNADA LABORAL HASTA 5 AM)
-      // getSafeLADateISO sin argumentos devuelve "HOY LABORAL" (restando 1 día si es < 5am)
-      const todayLaboral = getSafeLADateISO(null); 
+      const todayLaboral = getSafeLADateISO(null); // Fecha turnada (ej. Ayer si es < 5am)
+      const todayCalendar = getSafeLADateISO(new Date()); // Fecha real de calendario (ej. Hoy)
       const checkDate = getSafeLADateISO(checklistDateInput);
 
       if (checkDate === 'Error') return { canEdit: false, reason: 'Error de fecha' };
 
-      if (checkDate !== todayLaboral) {
-        return { canEdit: false, reason: `Cerrado. Solo editable durante la jornada del ${checkDate}` };
+      // [FIX] Permitir si es el día laboral O el día natural (para evitar bloqueos de madrugada)
+      if (checkDate !== todayLaboral && checkDate !== todayCalendar) {
+        return { canEdit: false, reason: `Cerrado. Solo editable durante la jornada del ${todayLaboral}` };
       }
 
       return { canEdit: true };
@@ -153,10 +162,10 @@ export const canReviewChecklist = (
   currentStatus?: string
 ) => {
   const role = (userRole || '').toLowerCase();
-  
+
   if (role === 'admin') return { canReview: true, reviewLevel: 'admin' };
   if (role === 'supervisor' && checklistType === 'manager') {
-      return { canReview: true, reviewLevel: 'supervisor' };
+    return { canReview: true, reviewLevel: 'supervisor' };
   }
   return { canReview: false };
 };
@@ -170,4 +179,18 @@ export const canChangeStatus = (
   if (role === 'admin') return { canChange: true };
   if (fromStatus === 'cerrado') return { canChange: false, reason: 'Ya está cerrado' };
   return { canChange: true };
+};
+
+export const isOverdue = (dateString: string, status: string) => {
+  if (!dateString) return false;
+  if (['aprobado', 'cerrado', 'revisado'].includes((status || '').toLowerCase())) return false;
+
+  const created = new Date(dateString);
+  const now = new Date();
+
+  // Diferencia en días
+  const diffTime = Math.abs(now.getTime() - created.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  return diffDays > 2;
 };

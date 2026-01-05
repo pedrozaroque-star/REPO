@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Sidebar from '@/components/Sidebar'
+
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 export default function EstadisticasPage() {
@@ -115,7 +115,6 @@ export default function EstadisticasPage() {
   if (loading) {
     return (
       <div className="flex">
-        <Sidebar />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="text-6xl mb-4">📊</div>
@@ -127,10 +126,9 @@ export default function EstadisticasPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
-      <main className="flex-1 p-8">
+    <div className="flex bg-transparent h-screen overflow-hidden pt-16 md:pt-0">
+
+      <main className="flex-1 overflow-y-auto p-8 w-full">
         <div className="max-w-7xl mx-auto">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900">Estadísticas Avanzadas</h1>
@@ -181,7 +179,7 @@ export default function EstadisticasPage() {
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }: any) => `${name}: ${(percent * 100).toFixed(0)}%`}
                       outerRadius={100}
                       fill="#8884d8"
                       dataKey="value"
@@ -205,7 +203,7 @@ export default function EstadisticasPage() {
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      label={({ category, percent }) => `${category.split(' ')[0]}: ${(percent * 100).toFixed(0)}%`}
+                      label={({ category, percent }: any) => `${category?.split(' ')[0]}: ${(percent * 100).toFixed(0)}%`}
                       outerRadius={100}
                       fill="#8884d8"
                       dataKey="value"

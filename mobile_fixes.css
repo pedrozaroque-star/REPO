@@ -1,0 +1,35 @@
+/* MOBILE RESPONSIVE TWEAKS */
+/* Add this to globals.css to fix common mobile issues */
+
+@layer utilities {
+
+    /* Fix horizontal overflow on mobile */
+    .safe-x-padding {
+        @apply px-4 sm:px-6 md:px-8;
+    }
+
+    /* Ensure cards fit on small screens */
+    .responsive-card {
+        @apply w-full max-w-[100vw] overflow-x-hidden;
+    }
+
+    /* Better font sizing for mobile */
+    .responsive-text {
+        @apply text-sm sm:text-base;
+    }
+
+    /* Safe Area for iPhone Notch/Home Bar */
+    .safe-area-bottom {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}
+
+/* Hide scrollbars on mobile for cleaner look */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}

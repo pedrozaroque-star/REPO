@@ -2,34 +2,25 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
-import ReviewModal from '@/components/ReviewModal'
-// ✅ Importamos canEditChecklist para validar la regla de las 5 AM
+import ChecklistReviewModal from '@/components/ChecklistReviewModal'
+import { getSupabaseClient } from '@/lib/supabase'
 import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
 
 function InspeccionesContent() {
   const router = useRouter()
   const { user } = useAuth()
   const [inspections, setInspections] = useState<any[]>([])
-  const [stats, setStats] = useState({
-    total: 0,
-    pendientes: 0,
-    cerrados: 0,
-    avgOverall: 0,
-    avgServicio: 0,
-    avgCarnes: 0,
-    avgAlimentos: 0,
-    avgTortillas: 0,
-    avgLimpieza: 0,
-    avgBitacoras: 0,
-    avgAseo: 0
-  })
   const [loading, setLoading] = useState(true)
   const [storeFilter, setStoreFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [stores, setStores] = useState<any[]>([])
-  const [showReviewModal, setShowReviewModal] = useState(false)
+
+  // Modal State
+  const [selectedInspection, setSelectedInspection] = useState<any>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
     if (user) fetchData()
@@ -37,353 +28,321 @@ function InspeccionesContent() {
 
   const fetchData = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      
-      // Obtener tiendas
-      const storesRes = await fetch(`${url}/rest/v1/stores?select=*&order=name.asc`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const storesData = await storesRes.json()
-      setStores(Array.isArray(storesData) ? storesData : [])
-      
-      // Obtener inspecciones
-      let inspUrl = `${url}/rest/v1/supervisor_inspections?select=*,stores(name,code),users(full_name)&order=inspection_date.desc,created_at.desc&limit=100`
-      
+      setLoading(true)
+      setErrorMsg(null)
+
+      const supabase = await getSupabaseClient()
+
+      // Asegurar que el cliente reconozca el token antes de la primera petición RLS
+      const token = localStorage.getItem('teg_token')
+      if (token) {
+        await supabase.auth.setSession({ access_token: token, refresh_token: '' })
+      }
+
+      // 1. Obtener tiendas y usuarios para mapeo manual
+      const { data: storesList, error: storesListError } = await supabase.from('stores').select('*').order('name', { ascending: true })
+      if (storesListError) console.error('❌ Error fetching stores list:', storesListError);
+
+      const { data: usersList, error: usersListError } = await supabase.from('users').select('id, full_name')
+      if (usersListError) console.error('❌ Error fetching users list:', usersListError);
+
+      setStores(storesList || [])
+
+
+      // 2. Obtener inspecciones básicas (Sin Joins complejos que puedan fallar por RLS o FKs)
+
+      let query = supabase
+        .from('supervisor_inspections')
+        .select('*')
+        .order('inspection_date', { ascending: false })
+        .limit(100)
+
       if (storeFilter !== 'all') {
-        inspUrl += `&store_id=eq.${storeFilter}`
+        query = query.eq('store_id', storeFilter)
+      } else if (user?.role === 'manager' || user?.role === 'gerente') {
+        // [FIX] Managers solo ven SU tienda
+        if (user.store_id) query = query.eq('store_id', user.store_id)
+      } else {
+
       }
-      
-      const inspRes = await fetch(inspUrl, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const inspData = await inspRes.json()
-      
-      let formattedData = Array.isArray(inspData) ? inspData.map(item => ({
-        ...item,
-        store_name: item.stores?.name || 'N/A',
-        supervisor_name: item.users?.full_name || item.supervisor_name
-      })) : []
-      
-      // Filtrar por estado si aplica
-      if (statusFilter !== 'all') {
-        formattedData = formattedData.filter(item => {
-          const status = item.estatus_admin || 'pendiente'
-          return status === statusFilter
-        })
+
+      const { data: rawData, error: rawError } = await query
+
+      if (rawError) {
+        console.error('❌ Error de consulta de inspecciones:', rawError)
+        throw rawError
       }
-      
-      setInspections(formattedData)
-      
-      // Calcular estadísticas
-      const allInspUrl = `${url}/rest/v1/supervisor_inspections?select=overall_score,servicio_score,carnes_score,alimentos_score,tortillas_score,limpieza_score,bitacoras_score,aseo_score,estatus_admin`
-      const allInspRes = await fetch(allInspUrl, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
+
+
+      // 3. Mapeo manual de datos
+      const mappedData = (rawData || []).map(item => {
+        const store = (storesList || []).find(s => s.id === item.store_id)
+        const user = (usersList || []).find(u => u.id === item.inspector_id)
+
+        return {
+          ...item,
+          store_name: store?.name || 'N/A',
+          supervisor_name: user?.full_name || item.supervisor_name || 'Desconocido',
+          checklist_type: 'supervisor',
+          checklist_date: item.inspection_date,
+          score: item.overall_score,
+          photo_urls: item.photos || []
+        }
       })
-      const allInsp = await allInspRes.json()
-      const allInspArray = Array.isArray(allInsp) ? allInsp : []
-      
-      const calcAvg = (field: string) => 
-        allInspArray.length > 0 
-          ? Math.round((allInspArray.reduce((sum: number, i: any) => sum + (i[field] || 0), 0) / allInspArray.length) * 10) / 10
-          : 0
-      
-      setStats({
-        total: allInspArray.length,
-        pendientes: allInspArray.filter(i => (i.estatus_admin || 'pendiente') === 'pendiente').length,
-        cerrados: allInspArray.filter(i => (i.estatus_admin || 'pendiente') === 'cerrado').length,
-        avgOverall: calcAvg('overall_score'),
-        avgServicio: calcAvg('servicio_score'),
-        avgCarnes: calcAvg('carnes_score'),
-        avgAlimentos: calcAvg('alimentos_score'),
-        avgTortillas: calcAvg('tortillas_score'),
-        avgLimpieza: calcAvg('limpieza_score'),
-        avgBitacoras: calcAvg('bitacoras_score'),
-        avgAseo: calcAvg('aseo_score')
-      })
-      
-      setLoading(false)
-    } catch (err) {
-      console.error('Error:', err)
+
+      // 4. Filtrar por estado si aplica
+      const finalData = statusFilter !== 'all'
+        ? mappedData.filter(item => (item.estatus_admin || 'pendiente') === statusFilter)
+        : mappedData
+
+      setInspections(finalData)
+    } catch (error: any) {
+      console.error('Error fetching data:', error)
+
+      // Manejo específico de error de sesión (JWT Inválido)
+      if (error?.code === 'PGRST301' || error?.message?.includes('JWT')) {
+        setErrorMsg('Tu sesión ha expirado. Redirigiendo al login...')
+        setTimeout(() => {
+          localStorage.removeItem('teg_token')
+          localStorage.removeItem('teg_user')
+          window.location.href = '/login'
+        }, 2000)
+        return
+      }
+
+      setErrorMsg(error.message || 'Error al cargar inspecciones')
+    } finally {
       setLoading(false)
     }
   }
 
-  const getScoreColor = (score: number) => {
-    if (score >= 90) return 'text-green-600'
-    if (score >= 80) return 'text-yellow-600'
-    if (score >= 70) return 'text-orange-600'
-    return 'text-red-600'
+  const handleRowClick = (inspection: any) => {
+    setSelectedInspection(inspection)
+    setIsModalOpen(true)
   }
 
-  const getStatusBadge = (item: any) => {
-    const status = item.estatus_admin || 'pendiente'
-    const colorClass = getStatusColor(status)
-    const label = getStatusLabel(status)
-    
-    return (
-      <span className={`px-2 py-1 rounded text-xs font-semibold border ${colorClass}`}>
-        {label}
-      </span>
-    )
-  }
-
-  const canReview = () => {
-    const role = user?.role?.toLowerCase()
-    return role === 'admin'
-  }
-
-  const canCreate = () => {
-    const role = user?.role?.toLowerCase()
-    return role === 'supervisor' || role === 'admin'
-  }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen bg-gray-50">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-6xl mb-4">📋</div>
-            <p className="text-gray-600">Cargando inspecciones...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) return null
+  // --- RENDER ---
+  if (loading) return <div className="flex h-screen items-center justify-center">Cargando inspecciones...</div>
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
-      <main className="flex-1 p-4 md:p-8 overflow-hidden">
-        <div className="max-w-7xl mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Inspecciones de Supervisor</h1>
-            <p className="text-gray-600 mt-2">Inspecciones realizadas por supervisores en diferentes tiendas</p>
+    <div className="flex bg-transparent h-screen overflow-hidden pt-16 md:pt-0 font-sans">
+      <div className="flex-1 flex flex-col h-full w-full relative">
+
+        {/* 1. STICKY HEADER (Matches Reportes Design) */}
+        <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-20 shadow-sm shrink-0">
+          <div className="w-full md:w-auto">
+            <h1 className="text-xl md:text-2xl font-black text-gray-900 leading-none">Inspecciones de Supervisor</h1>
+            <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wide">Auditoría y control de calidad</p>
           </div>
 
-          {/* Estadísticas */}
-          <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-2 md:gap-4 mb-8">
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-indigo-600">
-              <p className="text-xs font-medium text-gray-600">Total</p>
-              <p className="text-xl md:text-2xl font-bold text-gray-900 mt-1">{stats.total}</p>
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <button
+              onClick={() => router.push('/inspecciones/nueva')}
+              className="bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 w-full md:w-auto text-sm"
+            >
+              <span>+</span> Nueva Inspección
+            </button>
+          </div>
+        </div>
+
+        {/* 2. SCROLLABLE CONTENT (Stats + Filters + List) */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
+
+          {/* STATS CARDS */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl shadow-sm p-4 border border-indigo-100 border-l-4 border-l-indigo-500">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
+              <p className="text-2xl font-black text-gray-900 mt-0.5">{inspections.length}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-yellow-600">
-              <p className="text-xs font-medium text-gray-600">Pendientes</p>
-              <p className="text-xl md:text-2xl font-bold text-gray-900 mt-1">{stats.pendientes}</p>
+            <div className="bg-white rounded-xl shadow-sm p-4 border border-green-100 border-l-4 border-l-green-500">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Promedio</p>
+              <p className="text-2xl font-black text-gray-900 mt-0.5">
+                {inspections.length > 0
+                  ? Math.round(inspections.reduce((acc, curr) => acc + (curr.overall_score || 0), 0) / inspections.length) + '%'
+                  : 'N/A'}
+              </p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-blue-600">
-              <p className="text-xs font-medium text-gray-600">Cerrados</p>
-              <p className="text-xl md:text-2xl font-bold text-gray-900 mt-1">{stats.cerrados}</p>
+            <div className="bg-white rounded-xl shadow-sm p-4 border border-yellow-100 border-l-4 border-l-yellow-500">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Pendientes</p>
+              <p className="text-2xl font-black text-gray-900 mt-0.5">
+                {inspections.filter(i => (i.estatus_admin || 'pendiente') === 'pendiente').length}
+              </p>
             </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-purple-600">
-              <p className="text-xs font-medium text-gray-600">Promedio</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgOverall)}`}>{stats.avgOverall}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-green-600">
-              <p className="text-xs font-medium text-gray-600">Servicio</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgServicio)}`}>{stats.avgServicio}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-red-600">
-              <p className="text-xs font-medium text-gray-600">Carnes</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgCarnes)}`}>{stats.avgCarnes}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-orange-600">
-              <p className="text-xs font-medium text-gray-600">Alimentos</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgAlimentos)}`}>{stats.avgAlimentos}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-pink-600">
-              <p className="text-xs font-medium text-gray-600">Tortillas</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgTortillas)}`}>{stats.avgTortillas}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-teal-600">
-              <p className="text-xs font-medium text-gray-600">Limpieza</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgLimpieza)}`}>{stats.avgLimpieza}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-3 md:p-4 border-l-4 border-cyan-600">
-              <p className="text-xs font-medium text-gray-600">Aseo</p>
-              <p className={`text-xl md:text-2xl font-bold mt-1 ${getScoreColor(stats.avgAseo)}`}>{stats.avgAseo}</p>
+            <div className="bg-white rounded-xl shadow-sm p-4 border border-blue-100 border-l-4 border-l-blue-500">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Aprobados</p>
+              <p className="text-2xl font-black text-gray-900 mt-0.5">
+                {inspections.filter(i => i.estatus_admin === 'aprobado').length}
+              </p>
             </div>
           </div>
 
-          {/* Filtros y Acciones */}
-          <div className="bg-white rounded-xl shadow-md p-4 mb-6">
-            <div className="flex flex-wrap gap-4 items-center justify-between">
-              <div className="flex flex-wrap gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Sucursal</label>
-                  <select 
-                    value={storeFilter} 
-                    onChange={(e) => setStoreFilter(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                    <option value="all">Todas las sucursales</option>
-                    {stores.map(store => (
-                      <option key={store.id} value={store.id}>{store.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {canReview() && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-                    <select 
-                      value={statusFilter} 
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                      <option value="all">Todos los estados</option>
-                      <option value="pendiente">Pendientes</option>
-                      <option value="cerrado">Cerrados</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                {canReview() && inspections.length > 0 && (
-                  <button
-                    onClick={() => setShowReviewModal(true)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-md">
-                    ✓ Revisar
-                  </button>
-                )}
-                {canCreate() && (
-                  <button
-                    onClick={() => router.push('/inspecciones/nueva')}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-md">
-                    + Nueva
-                  </button>
-                )}
-              </div>
-            </div>
+          {/* FILTERS */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'}`}
+            >
+              Todos
+            </button>
+            <button
+              onClick={() => setStatusFilter('pendiente')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-yellow-50 hover:text-yellow-600'}`}
+            >
+              Pendientes
+            </button>
+            <button
+              onClick={() => setStatusFilter('aprobado')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-green-50 hover:text-green-600'}`}
+            >
+              Aprobados
+            </button>
+            <button
+              onClick={() => setStatusFilter('rechazado')}
+              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-red-50 hover:text-red-600'}`}
+            >
+              Rechazados
+            </button>
           </div>
 
-          {/* Lista de Inspecciones */}
-          <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
+
+          {/* DESKTOP TABLE VIEW (HIDDEN ON MOBILE) */}
+          <div className="hidden md:flex bg-white rounded-xl shadow-sm border border-gray-200 flex-col overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-max">
-                <thead className="bg-gray-50 border-b border-gray-200">
+              <table className="w-full text-left border-collapse relative">
+                <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-bold">
                   <tr>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Fecha</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Sucursal</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Supervisor</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">General</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider hidden md:table-cell">Servicio</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider hidden md:table-cell">Carnes</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider hidden md:table-cell">Limpieza</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Obs</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
-                    <th className="px-3 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
+                    <th className="p-4">Tienda</th>
+                    <th className="p-4">Supervisor</th>
+                    <th className="p-4 text-center">Fecha</th>
+                    <th className="p-4 text-center">Turno</th>
+                    <th className="p-4 text-center">Score</th>
+                    <th className="p-4 text-center">Estado</th>
+                    <th className="p-4 text-center">Evidencia</th>
+                    <th className="p-4 text-center">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {inspections.length === 0 ? (
+                <tbody className="text-sm divide-y divide-gray-100">
+                  {errorMsg ? (
                     <tr>
-                      <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
-                        No hay inspecciones registradas
+                      <td colSpan={8} className="p-8 text-center text-red-500 font-bold">
+                        {errorMsg}
                       </td>
                     </tr>
+                  ) : inspections.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-gray-400 italic">No se encontraron inspecciones.</td>
+                    </tr>
                   ) : (
-                    inspections.map((item) => {
-                      // ✅ Validar permiso de Edición usando la regla de las 5 AM
-                      const permissions = canEditChecklist(
-                        item.inspection_date || item.created_at, 
-                        user.role || '',
-                        item.inspector_id,
-                        user.id
-                      )
-
-                      return (
-                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-3 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {formatDateLA(item.inspection_date || item.created_at)}
-                            </div>
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {item.store_name}
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {item.supervisor_name}
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap">
-                            <span className={`text-lg font-bold ${getScoreColor(item.overall_score)}`}>
-                              {item.overall_score}
+                    inspections.map((item) => (
+                      <tr
+                        key={item.id}
+                        onClick={() => handleRowClick(item)}
+                        className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
+                      >
+                        <td className="p-4 font-bold text-gray-900">{item.store_name}</td>
+                        <td className="p-4 text-gray-600 text-xs font-semibold">{item.supervisor_name}</td>
+                        <td className="p-4 text-center text-gray-500 text-xs font-semibold">{formatDateLA(item.inspection_date)}</td>
+                        <td className="p-4 text-center">
+                          <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${item.shift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {item.shift}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className={`text-base font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
+                            {item.overall_score}%
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
+                            {getStatusLabel(item.estatus_admin || 'pendiente')}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          {(item.photos && item.photos.length > 0) ? (
+                            <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-full text-xs font-bold" title={`${item.photos.length} fotos`}>
+                              📷
                             </span>
-                          </td>
-                          {/* Columnas ocultas en móvil para evitar scroll horizontal excesivo */}
-                          <td className="px-3 py-4 whitespace-nowrap hidden md:table-cell">
-                            <span className={`text-sm font-semibold ${getScoreColor(item.servicio_score)}`}>
-                              {item.servicio_score}
-                            </span>
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap hidden md:table-cell">
-                            <span className={`text-sm font-semibold ${getScoreColor(item.carnes_score)}`}>
-                              {item.carnes_score}
-                            </span>
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap hidden md:table-cell">
-                            <span className={`text-sm font-semibold ${getScoreColor(item.limpieza_score)}`}>
-                              {item.limpieza_score}
-                            </span>
-                          </td>
-                          <td className="px-3 py-4 text-center">
-                            {item.observaciones ? (
-                              <span className="text-lg" title="Ver Observaciones">📝</span>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap">
-                            {getStatusBadge(item)}
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap text-right">
-                            {permissions.canEdit ? (
-                              <button
-                                onClick={() => router.push(`/inspecciones/editar/${item.id}`)}
-                                className="text-indigo-600 hover:text-indigo-900 font-bold text-sm bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded border border-indigo-200"
-                              >
-                                ✏️ Editar
-                              </button>
-                            ) : (
-                              <span className="text-xs text-gray-400 italic cursor-not-allowed" title={permissions.reason}>
-                                🔒 Bloqueado
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          <button className="text-gray-400 hover:text-blue-600 font-bold text-xs underline opacity-0 group-hover:opacity-100 transition-opacity">
+                            Ver Detalle
+                          </button>
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
             </div>
           </div>
-        </div>
-      </main>
 
-      {/* Modal de Revisiones */}
-      {showReviewModal && user && (
-        <ReviewModal
-          isOpen={showReviewModal}
-          onClose={() => setShowReviewModal(false)}
-          checklists={inspections}
-          checklistType="supervisor"
-          currentUser={{
-            id: user.id,
-            name: user.name || user.email,
-            email: user.email,
-            role: user.role
-          }}
-          onSave={() => {
-            setShowReviewModal(false)
-            fetchData()
-          }}
-        />
-      )}
+          {/* MOBILE CARDS VIEW (VISIBLE ONLY ON MOBILE) */}
+          <div className="md:hidden space-y-4">
+            {inspections.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => handleRowClick(item)}
+                className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200 active:scale-[0.98] transition-transform"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex flex-col">
+                    <h3 className="text-base font-black text-gray-900 leading-tight">{item.store_name}</h3>
+                    <span className="text-xs font-bold text-gray-500 mt-1">{formatDateLA(item.inspection_date)}</span>
+                  </div>
+                  <span className={`text-xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
+                    {item.overall_score}%
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
+                      {getStatusLabel(item.estatus_admin || 'pendiente')}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.shift === 'AM' ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'}`}>
+                      {item.shift}
+                    </span>
+                  </div>
+
+                  {item.photos && item.photos.length > 0 && (
+                    <div className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+                      <span>📷</span>
+                      <span>{item.photos.length}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {inspections.length === 0 && !loading && (
+              <div className="text-center text-gray-400 py-10 font-bold">No hay inspecciones.</div>
+            )}
+          </div>
+
+          <div className="h-16"></div> {/* Bottom Spacer */}
+        </div>
+
+      </div>
+
+      {/* Review Modal */}
+      {
+        selectedInspection && user && (
+          <ChecklistReviewModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            checklist={selectedInspection}
+            currentUser={{
+              id: user.id || 0,
+              name: user.name || user.email || 'Usuario',
+              email: user.email || '',
+              role: user.role || 'viewer'
+            }}
+            onUpdate={fetchData}
+          />
+        )
+      }
     </div>
   )
 }

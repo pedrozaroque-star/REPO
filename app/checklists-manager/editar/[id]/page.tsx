@@ -1,147 +1,91 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
+import { motion } from 'framer-motion'
+import { ChevronLeft } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
-
-// 53 Preguntas (las mismas del formulario de creación)
-const SECTIONS = [
-  {
-    title: 'Cookline and Kitchen',
-    items: [
-      'No trash or oil under all grills equipment',
-      'All products are at proper temperature',
-      'Sneeze Guards are cleaned (fingerprints etc)',
-      'All stainless steel is clean and polished',
-      'All hoods are clean and in working order',
-      'Grills are clean (panels on side no buildup)',
-      'All trash cans are clean (inside out)',
-      'Walls and all doors are clean',
-      'Nacho cheese machine is clean',
-      'Food is fresh and looks appetizing to guest',
-      'Buckets @200ppm, are being utilized; towels not sitting on line',
-      'Walk-in walls, floors and baseboards are clean and swept',
-      'All items are 6" above ground (boxes, mops, etc.)',
-      'Prep Stations are cleaned and sanitized',
-      'All equipment is in working order',
-      'Delivery is put away and is organized',
-      'All lighting and vents are working and clean',
-      'Gaskets are clean and not ripped',
-      'Soda nozzles are clean (no mildew)',
-      'Ice machine is free of mildew and wiped down',
-      'Scissors/Tomato/Lime clean and working',
-      'All drains are clean',
-      'Employee restroom is clean and stocked',
-      'All open bags are stored properly'
-    ]
-  },
-  {
-    title: 'Dining Room & Guest Areas',
-    items: [
-      "Clean/dust furniture, TV's, etc.",
-      'Windows and window seals are clean',
-      'Restrooms are clean and in working order',
-      '5 Second greeting and upsell (welcoming guests)',
-      'Music and AC at appropriate level',
-      'Dining room is clean / Parking Lot',
-      'Walls, drink stations are clean',
-      'Vents and ceiling tiles are clean and in working order',
-      'Uniforms are clean and free of stains',
-      'Menuboards are working',
-      'Trash can area clean and wiped down',
-      'Table touching guest in dining room',
-      'Parking Lot and trash cans clean',
-      'Entry doors clean (No smudges)'
-    ]
-  },
-  {
-    title: 'Checklist and Reports',
-    items: [
-      'Food handlers cards are on file',
-      'Is store fully staffed',
-      'What is labor % for week',
-      'How many assistants? Shift leaders',
-      'Are all checklists being utilized? Complete',
-      'Schedule posted and clear to read',
-      'Are managers aware of employees time clock errors? (Ronos/Toast)',
-      'Action plans in place for any team members (WHO)',
-      'Are sales up from prior weeks',
-      'Does everyone have at least one day off',
-      'Is everyone trained on new processes',
-      'Has all repairs been reported on Basecamp',
-      'Cash handling procedures are being followed'
-    ]
-  },
-  {
-    title: 'Additional',
-    items: [
-      'Temperature is taken of each employee on shift',
-      'Any employee issues reported to DM',
-      'Soda CO2 is 1/4 or less, let manager know'
-    ]
-  }
-]
+import { canEditChecklist } from '@/lib/checklistPermissions'
+import { getSupabaseClient } from '@/lib/supabase'
+import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
+import DynamicQuestion from '@/components/checklists/DynamicQuestion'
+import '@/app/checklists/checklists.css'
 
 function EditManagerChecklistContent() {
   const router = useRouter()
   const params = useParams()
   const { user } = useAuth()
-  const checklistId = params?.id
-  
+  const checklistId = params?.id as string
+
   const [checklist, setChecklist] = useState<any>(null)
-  const [answers, setAnswers] = useState<{[key: string]: string}>({})
+  const [answers, setAnswers] = useState<{ [key: string]: any }>({})
+  const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
   const [comments, setComments] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [canEdit, setCanEdit] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
+  // Dynamic Hooks
+  const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('manager_checklist_v1')
+  const sections = template?.sections || []
+  const questions = sections.flatMap((s: any) => s.questions)
+
   useEffect(() => {
-    if (user && checklistId) {
+    if (user && checklistId && template) {
       loadChecklist()
     }
-  }, [user, checklistId])
+  }, [user, checklistId, template])
 
   const loadChecklist = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      const supabase = await getSupabaseClient()
+      const { data, error } = await supabase
+        .from('manager_checklists')
+        .select('*')
+        .eq('id', checklistId)
+        .single()
 
-      const res = await fetch(
-        `${url}/rest/v1/manager_checklists?id=eq.${checklistId}&select=*`,
-        {
-          headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-        }
-      )
-      const data = await res.json()
-
-      if (!Array.isArray(data) || data.length === 0) {
+      if (error || !data) {
         setErrorMessage('Checklist no encontrado')
         setLoading(false)
         return
       }
 
-      const checklistData = data[0]
-      setChecklist(checklistData)
+      setChecklist(data)
 
-      // Validar permisos de edición
-      const validation = validateEditPermissions(checklistData)
+      const validation = canEditChecklist(
+        data.created_at,
+        user?.role || '',
+        data.user_id,
+        user?.id || '',
+        data.estatus_supervisor
+      )
+
       setCanEdit(validation.canEdit)
-      setErrorMessage(validation.message)
+      setErrorMessage(validation.reason || '')
 
       if (validation.canEdit) {
-        // Cargar respuestas existentes
-        if (checklistData.answers) {
-          const loadedAnswers: {[key: string]: string} = {}
-          Object.entries(checklistData.answers).forEach(([key, answer]: [string, any]) => {
-            loadedAnswers[key] = answer.value || answer
+        const initialAnswers: { [key: string]: any } = {}
+        const initialPhotos: { [key: string]: string[] } = {}
+
+        if (data.answers) {
+          questions.forEach((q: any, idx: number) => {
+            // Try matching by text (new format) or legacy key (s0_0)
+            const val = data.answers[q.text] || data.answers[`s${q.section_idx || 0}_${q.order_index || idx}`]
+            if (val !== undefined) {
+              initialAnswers[q.id] = typeof val === 'object' ? val.value : val
+            }
           })
-          setAnswers(loadedAnswers)
         }
-        
-        // Cargar comentarios
-        setComments(checklistData.comments || '')
+
+        // Photos are currently stored as a single array in manager_checklists.photo_urls
+        // We might not be able to easily map them back to specific questions if they weren't stored that way.
+        // For now, if we have photo_urls, we just keep them but it might be hard to edit them per-question.
+        // However, we want to allow ADDING photos to questions that require them.
+
+        setAnswers(initialAnswers)
+        setComments(data.comments || '')
       }
 
       setLoading(false)
@@ -152,278 +96,189 @@ function EditManagerChecklistContent() {
     }
   }
 
-  const validateEditPermissions = (checklistData: any) => {
-  // 1. Validar que sea el creador
-  if (checklistData.user_id !== user?.id) {
-    return {
-      canEdit: false,
-      message: '❌ Solo el creador puede editar este checklist'
-    }
+  const handleAnswer = (questionId: string, val: any) => {
+    setAnswers(prev => ({ ...prev, [questionId]: val }))
   }
 
-  // 2. Validar que NO esté revisado
-  const supervisorStatus = checklistData.estatus_supervisor || 'pendiente'
-  const adminStatus = checklistData.estatus_admin || 'pendiente'
-  
-  if (supervisorStatus !== 'pendiente' || adminStatus !== 'pendiente') {
-    return {
-      canEdit: false,
-      message: '❌ No se puede editar un checklist que ya ha sido revisado'
-    }
+  const handlePhotosChange = (questionId: string, urls: string[]) => {
+    setQuestionPhotos(prev => ({ ...prev, [questionId]: urls }))
   }
 
-  // 3. Validar que sea del día actual - CORRECCIÓN
-  const checklistDateStr = checklistData.checklist_date
-  
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = String(today.getMonth() + 1).padStart(2, '0')
-  const day = String(today.getDate()).padStart(2, '0')
-  const todayStr = `${year}-${month}-${day}`
-  
-  console.log('🔍 DEBUG - Validación de fechas:')
-  console.log('  Checklist date:', checklistDateStr)
-  console.log('  Today:', todayStr)
-  console.log('  Match:', checklistDateStr === todayStr)
-  
-  if (checklistDateStr !== todayStr) {
-    return {
-      canEdit: false,
-      message: `❌ Solo se pueden editar checklists del día actual`
-    }
-  }
+  const calculateScore = (): number => {
+    const yesNoQuestions = questions.filter(q => q.type === 'yes_no')
+    if (yesNoQuestions.length === 0) return 100
+    const validAnswers = yesNoQuestions.map(q => answers[q.id]).filter(v => v !== undefined && v !== null && v !== 'NA')
+    const siCount = validAnswers.filter(v => v === 'SI').length
 
-  console.log('✅ Todas las validaciones pasaron')
-  return { canEdit: true, message: '' }
-}
-
-  const handleAnswerChange = (sectionIdx: number, itemIdx: number, value: string) => {
-    const key = `s${sectionIdx}_${itemIdx}`
-    setAnswers(prev => ({ ...prev, [key]: value }))
-  }
-
-  const calculateScore = () => {
-    const totalQuestions = SECTIONS.reduce((sum, section) => sum + section.items.length, 0)
-    const answeredYes = Object.values(answers).filter(v => v === 'SI').length
-    return totalQuestions > 0 ? Math.round((answeredYes / totalQuestions) * 100) : 0
+    if (validAnswers.length > 0) return Math.round((siCount / validAnswers.length) * 100)
+    return 100
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!canEdit) {
-      alert('No tienes permisos para editar este checklist')
+
+    if (!user || !canEdit) {
+      alert('Error: No tienes permisos o sesión expirada')
+      return
+    }
+
+    // Validation
+    const missingAnswers = questions.filter(q => {
+      const val = answers[q.id]
+      if (q.type === 'text') return !val || val.trim().length === 0
+      if (q.type === 'photo') return !questionPhotos[q.id] || (questionPhotos[q.id].length === 0 && (!checklist.photo_urls || checklist.photo_urls.length === 0))
+      return val === undefined || val === null
+    })
+
+    if (missingAnswers.length > 0) {
+      alert(`⚠️ Faltan ${missingAnswers.length} tareas por responder.`)
       return
     }
 
     setSaving(true)
 
     try {
-      const score = calculateScore()
+      const supabase = await getSupabaseClient()
+      const newPhotos = Object.values(questionPhotos).flat()
+      // Merge with existing photo_urls if we want to keep them, or replace them.
+      // Usually, editing might involve adding new photos.
+      const allPhotos = [...(checklist.photo_urls || []), ...newPhotos]
 
-      // Convertir answers a formato JSONB con {value: 'SI'}
-      const formattedAnswers: {[key: string]: {value: string}} = {}
-      Object.entries(answers).forEach(([key, value]) => {
-        formattedAnswers[key] = { value }
+      const formattedAnswers: { [key: string]: any } = {}
+      questions.forEach(q => {
+        formattedAnswers[q.text] = answers[q.id]
       })
 
-      const payload = {
+      // Add rich photo mapping
+      formattedAnswers['__question_photos'] = questionPhotos
+
+      const payload: any = {
         answers: formattedAnswers,
-        score: score,
-        comments: comments || null
+        score: calculateScore(),
+        comments: comments || null,
+        photo_urls: allPhotos.length > 0 ? allPhotos : null
       }
 
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      if (checklist.estatus_supervisor === 'rechazado') {
+        payload.estatus_supervisor = 'corregido'
+        if (checklist.supervisor_id) {
+          await supabase.from('notifications').insert([{
+            user_id: checklist.supervisor_id,
+            title: '✅ Checklist Corregido',
+            message: `El Manager ${user?.name || 'Gerente'} ha corregido su checklist de ${checklist.store_name || 'Tienda'}.`,
+            type: 'info',
+            link: `/checklists-manager?id=${checklistId}`,
+            is_read: false,
+            reference_id: checklistId,
+            reference_type: 'manager_checklist'
+          }])
+        }
+      }
 
-      const res = await fetch(`${url}/rest/v1/manager_checklists?id=eq.${checklistId}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': key || '',
-          'Authorization': `Bearer ${key}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify(payload)
-      })
+      const { error } = await supabase.from('manager_checklists').update(payload).eq('id', checklistId)
 
-      if (res.ok) {
-        alert(`✅ Checklist actualizado exitosamente!\n\nNuevo Score: ${score}%`)
+      if (!error) {
+        alert(`✅ Checklist actualizado!\n\nNuevo Score: ${calculateScore()}%`)
         router.push('/checklists-manager')
       } else {
-        const error = await res.text()
-        console.error('Error response:', error)
-        alert('Error al actualizar el checklist')
+        alert('Error: ' + error.message)
       }
-    } catch (err) {
-      console.error('Error:', err)
-      alert('Error al actualizar el checklist')
+    } catch (err: any) {
+      alert('Error inesperado: ' + err.message)
     } finally {
       setSaving(false)
     }
   }
 
-  if (loading) {
+  if (loading || checklistLoading) return <div className="min-h-screen grid place-items-center bg-gray-50"><div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" /></div>
+
+  if (checklistError || errorMessage) {
     return (
-      <div className="flex min-h-screen bg-gray-50">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center md:ml-64">
-          <div className="text-center">
-            <div className="text-6xl mb-4">⏳</div>
-            <p className="text-gray-600">Cargando checklist...</p>
-          </div>
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
+        <div className="bg-white rounded-3xl shadow-xl p-8 max-w-md text-center border border-gray-100">
+          <div className="text-6xl mb-6">🔒</div>
+          <h2 className="text-2xl font-black text-gray-900 mb-2">No se puede editar</h2>
+          <p className="text-gray-500 font-medium mb-8">{errorMessage || checklistError}</p>
+          <button onClick={() => router.push('/checklists-manager')} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg transition-transform active:scale-95">
+            Volver a la lista
+          </button>
         </div>
       </div>
     )
   }
 
-  if (!canEdit || errorMessage) {
-    return (
-      <div className="flex min-h-screen bg-gray-50">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center md:ml-64 p-4">
-          <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
-            <div className="text-6xl mb-4">🔒</div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">No se puede editar</h2>
-            <p className="text-gray-700 mb-6">{errorMessage}</p>
-            <div className="space-y-3">
-              <button
-                onClick={() => router.push('/checklists-manager')}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-semibold transition-all">
-                ← Volver a la lista
-              </button>
-              {checklist && (
-                <button
-                  onClick={() => router.push(`/checklists-manager/ver/${checklistId}`)}
-                  className="w-full bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold transition-all">
-                  👁️ Ver detalles
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
+  const score = calculateScore()
   const answeredCount = Object.keys(answers).length
-  const totalQuestions = SECTIONS.reduce((sum, section) => sum + section.items.length, 0)
-  const currentScore = calculateScore()
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
-      <main className="flex-1 p-4 md:p-8 md:ml-64 mt-16 md:mt-0">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <div className="mb-6">
-            <button
-              onClick={() => router.push('/checklists-manager')}
-              className="text-blue-600 hover:text-blue-800 mb-4 font-semibold">
-              ← Volver
+    <div className="min-h-screen bg-gray-50 pb-32">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <button onClick={() => router.back()} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors text-gray-600">
+              <ChevronLeft size={24} />
             </button>
-            <h1 className="text-3xl font-bold text-gray-900">Editar Checklist Manager</h1>
-            <p className="text-gray-600 mt-2">
-              {checklist?.store_name} • {checklist?.checklist_date}
-            </p>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">
-                Progreso: {answeredCount}/{totalQuestions} preguntas
-              </span>
-              <span className={`text-lg font-bold ${
-                currentScore >= 80 ? 'text-green-600' : 
-                currentScore >= 60 ? 'text-orange-600' : 'text-red-600'
-              }`}>
-                Score: {currentScore}%
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
-              <div 
-                className="bg-indigo-600 h-3 rounded-full transition-all duration-300"
-                style={{ width: `${(answeredCount / totalQuestions) * 100}%` }}
-              />
+            <div>
+              <h1 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                Editar Manager Checklist
+                {isCached && (
+                  <span className="bg-yellow-500/10 text-yellow-600 text-[10px] px-2 py-0.5 rounded-full border border-yellow-400/20 font-bold uppercase tracking-widest">
+                    Offline
+                  </span>
+                )}
+              </h1>
+              <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{checklist?.store_name} • {checklist?.checklist_date}</div>
             </div>
           </div>
+          <div className="bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg shadow-indigo-100 flex flex-col items-center min-w-[80px]">
+            <div className="text-xl font-black leading-none">{score}%</div>
+            <div className="text-[10px] font-bold uppercase opacity-80 mt-1">{answeredCount}/{questions.length}</div>
+          </div>
+        </div>
+      </header>
 
-          {/* Formulario */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Secciones de preguntas */}
-            {SECTIONS.map((section, sIdx) => (
-              <div key={sIdx} className="bg-white rounded-xl shadow-md overflow-hidden">
-                <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 px-6 py-4">
-                  <h2 className="text-xl font-bold text-white">{section.title}</h2>
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="space-y-12">
+            {sections.map((section: any) => (
+              <div key={section.id} className="space-y-6">
+                <div className="flex items-center gap-4 px-2">
+                  <div className="h-[2px] flex-1 bg-gray-100" />
+                  <h2 className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">{section.title}</h2>
+                  <div className="h-[2px] flex-1 bg-gray-100" />
                 </div>
-                <div className="p-6 space-y-4">
-                  {section.items.map((item, iIdx) => {
-                    const key = `s${sIdx}_${iIdx}`
-                    const value = answers[key] || ''
-                    
-                    return (
-                      <div key={iIdx} className="border-b border-gray-200 pb-4 last:border-0">
-                        <p className="text-sm text-gray-700 mb-3 font-medium">{item}</p>
-                        <div className="flex gap-3">
-                          {['SI', 'NO', 'N/A'].map(option => (
-                            <button
-                              key={option}
-                              type="button"
-                              onClick={() => handleAnswerChange(sIdx, iIdx, option)}
-                              className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-all ${
-                                value === option
-                                  ? option === 'SI' 
-                                    ? 'bg-green-600 text-white' 
-                                    : option === 'NO'
-                                    ? 'bg-red-600 text-white'
-                                    : 'bg-gray-600 text-white'
-                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                              }`}>
-                              {option}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  })}
+                <div className="space-y-4">
+                  {section.questions.map((question: any, idx: number) => (
+                    <DynamicQuestion
+                      key={question.id}
+                      question={question}
+                      index={idx}
+                      value={answers[question.id]}
+                      photos={questionPhotos[question.id] || []}
+                      onChange={(val) => handleAnswer(question.id, val)}
+                      onPhotosChange={(urls) => handlePhotosChange(question.id, urls)}
+                    />
+                  ))}
                 </div>
               </div>
             ))}
+          </div>
 
-            {/* Comentarios */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Comentarios (Opcional)
-              </label>
-              <textarea
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                placeholder="Agrega cualquier observación adicional..."
-              />
-            </div>
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 space-y-3">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Observaciones del Manager</label>
+            <textarea value={comments} onChange={(e) => setComments(e.target.value)} rows={4}
+              className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
+              placeholder="Agrega cualquier observación adicional..." />
+          </div>
 
-            {/* Botones */}
-            <div className="flex gap-4">
-              <button
-                type="button"
-                onClick={() => router.push('/checklists-manager')}
-                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-3 rounded-lg font-semibold transition-all">
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={saving || answeredCount < totalQuestions}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                {saving ? 'Guardando...' : '✅ Guardar Cambios'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </main>
+          <div className="pt-4">
+            <button type="submit" disabled={saving}
+              className="w-full bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-700 hover:to-violet-800 text-white font-black text-lg py-5 rounded-3xl shadow-xl shadow-indigo-100 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3">
+              {saving ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : '✅ Guardar Cambios'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

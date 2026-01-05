@@ -1,143 +1,175 @@
-/* Estilos solo para checklists */
+/* Estilos solo para checklists - ENCAPSULADOS */
 
-/* Inputs y Selects */
-input[type="text"],
-input[type="date"],
-input[type="number"],
-input[type="time"],
-select,
-textarea {
+/* Contenedor principal para aplicar estilos */
+.checklist-container input[type="text"],
+.checklist-container input[type="date"],
+.checklist-container input[type="number"],
+.checklist-container input[type="time"],
+.checklist-container select,
+.checklist-container textarea {
   background-color: #f8fafc !important;
   border: 2px solid #1e40af !important;
   color: #1e293b !important;
   font-weight: 500 !important;
 }
 
-input:focus,
-select:focus,
-textarea:focus {
+.checklist-container input:focus,
+.checklist-container select:focus,
+.checklist-container textarea:focus {
   background-color: #ffffff !important;
   border-color: #f97316 !important;
   outline: none !important;
   box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1) !important;
 }
 
-/* Labels */
-label,
-.font-semibold,
-.font-bold {
+/* Labels - Solo dentro del contenedor */
+.checklist-container label,
+.checklist-container .checklist-label,
+.checklist-container .font-semibold,
+.checklist-container .font-bold {
   color: #1e3a8a !important;
 }
 
-::placeholder {
+.checklist-container ::placeholder {
   color: #64748b !important;
   opacity: 0.7 !important;
 }
 
-/* Textos */
-.text-gray-600 {
+/* Color base para todo el texto dentro del contenedor */
+.checklist-container {
+  color: #1e293b;
+  /* Slate-800 */
+}
+
+/* Textos - Solo dentro del contenedor */
+.checklist-container .text-gray-600 {
   color: #475569 !important;
 }
 
-.text-gray-700 {
+.checklist-container .text-gray-700 {
   color: #334155 !important;
 }
 
-.text-gray-900 {
+.checklist-container .text-gray-900 {
   color: #1e293b !important;
 }
 
 /* Botón SI - Azul navy */
-.bg-green-600 {
+.checklist-container .bg-green-600 {
   background-color: #1e40af !important;
 }
 
-.bg-green-600:hover {
+.checklist-container .bg-green-600:hover {
   background-color: #1e3a8a !important;
 }
 
-.border-green-500 {
+.checklist-container .border-green-500 {
   border-color: #2563eb !important;
 }
 
-.bg-green-50 {
+.checklist-container .bg-green-50 {
   background-color: #eff6ff !important;
 }
 
 /* Botón NO - Naranja */
-.bg-red-600 {
+.checklist-container .bg-red-600 {
   background-color: #f97316 !important;
 }
 
-.bg-red-600:hover {
+.checklist-container .bg-red-600:hover {
   background-color: #ea580c !important;
 }
 
-.border-red-500 {
+.checklist-container .border-red-500 {
   border-color: #fb923c !important;
 }
 
-.bg-red-50 {
+.checklist-container .bg-red-50 {
   background-color: #fff7ed !important;
 }
 
 /* Botón NA - Gris */
-.bg-gray-600 {
+.checklist-container .bg-gray-600 {
   background-color: #475569 !important;
 }
 
-.bg-gray-600:hover {
+.checklist-container .bg-gray-600:hover {
   background-color: #334155 !important;
 }
 
 /* Botones sin seleccionar */
-.bg-gray-100 {
+.checklist-container .bg-gray-100 {
   background-color: #f1f5f9 !important;
   color: #1e293b !important;
   border: 2px solid #cbd5e1 !important;
 }
 
-.bg-gray-100:hover {
+.checklist-container .bg-gray-100:hover {
   background-color: #e2e8f0 !important;
 }
 
-.border-gray-200 {
+.checklist-container .border-gray-200 {
   border-color: #cbd5e1 !important;
 }
 
-.border-gray-300 {
+.checklist-container .border-gray-300 {
   border-color: #94a3b8 !important;
 }
 
-.bg-white {
+.checklist-container .bg-white {
   background-color: #ffffff !important;
 }
 
-.bg-gray-50 {
+.checklist-container .bg-gray-50 {
   background-color: #f8fafc !important;
 }
 
-.text-indigo-600,
-.text-blue-600,
-.text-purple-600,
-.text-green-600 {
+.checklist-container .text-indigo-600,
+.checklist-container .text-blue-600,
+.checklist-container .text-purple-600,
+.checklist-container .text-green-600 {
   color: #1e40af !important;
 }
 
-.text-orange-600,
-.text-red-600 {
+.checklist-container .text-orange-600,
+.checklist-container .text-red-600 {
   color: #f97316 !important;
 }
 
-.bg-gray-200 {
+.checklist-container .bg-gray-200 {
   background-color: #e2e8f0 !important;
   color: #1e293b !important;
 }
 
-.bg-gray-200:hover {
+.checklist-container .bg-gray-200:hover {
   background-color: #cbd5e1 !important;
 }
 
-button {
+.checklist-container button {
   font-weight: 600 !important;
+}
+
+/* FIX: Ensure white text is actually white, overriding the generic font-bold color rule */
+.checklist-container .text-white {
+  color: #ffffff !important;
+}
+
+/* Background Pattern */
+.bg-cubes {
+  background-image: url('https://www.transparenttextures.com/patterns/cubes.png');
+  background-color: #f8fafc;
+  /* Fallback/Base color */
+}
+
+/* HEADER CONTRAST FIX: Override global dark blue rule for headers */
+.checklist-container header,
+.checklist-container header .font-bold,
+.checklist-container header .font-semibold,
+.checklist-container header .text-2xl,
+.checklist-container header .text-xl,
+.checklist-container header .text-xs,
+.checklist-container header strong,
+.checklist-container header span,
+.checklist-container header div {
+  color: #ffffff !important;
 }

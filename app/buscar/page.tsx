@@ -2,13 +2,13 @@
 
 import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
+
 import Link from 'next/link'
 
 export default function BuscarPage() {
   const searchParams = useSearchParams()
   const initialQuery = searchParams.get('q') || ''
-  
+
   const [query, setQuery] = useState(initialQuery)
   const [results, setResults] = useState<any>({
     stores: [],
@@ -22,10 +22,10 @@ export default function BuscarPage() {
 
   const handleSearch = async () => {
     if (!query.trim()) return
-    
+
     setLoading(true)
     setSearched(true)
-    
+
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL
       const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -75,18 +75,17 @@ export default function BuscarPage() {
     } catch (err) {
       console.error('Error:', err)
     }
-    
+
     setLoading(false)
   }
 
-  const totalResults = results.stores.length + results.users.length + 
-                       results.inspections.length + results.feedbacks.length + 
-                       results.checklists.length
+  const totalResults = results.stores.length + results.users.length +
+    results.inspections.length + results.feedbacks.length +
+    results.checklists.length
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
+
       <main className="flex-1 p-8">
         <div className="max-w-5xl mx-auto">
           <div className="mb-8">

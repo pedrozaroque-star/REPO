@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
+
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 
 type ChecklistType = 'daily' | 'temperaturas' | 'sobrante' | 'recorrido' | 'cierre' | 'apertura'
@@ -77,7 +77,7 @@ function CreateChecklistContent() {
   const userRole = user.role.toLowerCase()
 
   // Filtrar checklists según rol
-  const availableChecklists = ASSISTANT_CHECKLISTS.filter(checklist => 
+  const availableChecklists = ASSISTANT_CHECKLISTS.filter(checklist =>
     checklist.roles.includes(userRole)
   )
 
@@ -90,10 +90,9 @@ function CreateChecklistContent() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
-      <div className="flex-1 ml-64">
+    <div className="flex min-h-screen">
+
+      <div className="flex-1">
         <div className="p-8">
           {/* Header */}
           <div className="mb-8">

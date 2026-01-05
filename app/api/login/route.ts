@@ -4,7 +4,9 @@ import jwt from 'jsonwebtoken'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production'
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET || 'your-secret-key-change-this-in-production'
+
+
 
 export async function POST(request: Request) {
   try {
@@ -57,16 +59,32 @@ export async function POST(request: Request) {
       )
     }
 
-    // Generar JWT token
+    // Generar JWT token compatible con Supabase Auth
+    // Los secretos de Supabase que miden 88 caracteres son Base64 (HS256 64 bytes)
+    const rawSecret = JWT_SECRET.trim().replace(/^"(.*)"$/, '$1')
+    const secret = rawSecret.length === 88 || rawSecret.includes('+') || rawSecret.includes('/')
+      ? Buffer.from(rawSecret, 'base64')
+      : rawSecret
+
     const token = jwt.sign(
       {
-        userId: user.id,
+        sub: String(user.id),    // Asegurar que sea string (estándar Supabase)
+        aud: 'authenticated',    // Audience
+        role: 'authenticated',   // Postgres Role
         email: user.email,
-        role: user.role,
-        name: user.full_name
+        user_role: user.role,
+        user_metadata: {
+          full_name: user.full_name,
+          role: user.role,
+          store_scope: user.store_scope,
+          store_id: user.store_id
+        }
       },
-      JWT_SECRET,
-      { expiresIn: '7d' }
+      secret,
+      {
+        algorithm: 'HS256',
+        expiresIn: '7d'
+      }
     )
 
     // Actualizar last_login
@@ -85,13 +103,16 @@ export async function POST(request: Request) {
     )
 
     // Retornar datos del usuario y token
+    // Retornar datos del usuario y token
     return NextResponse.json({
       success: true,
       user: {
         id: user.id,
         email: user.email,
         name: user.full_name,
-        role: user.role
+        role: user.role,
+        store_scope: user.store_scope,  // ✅ AGREGADO
+        store_id: user.store_id         // ✅ AGREGADO
       },
       token
     })

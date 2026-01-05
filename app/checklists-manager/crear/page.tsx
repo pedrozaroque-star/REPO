@@ -1,487 +1,297 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
+import { motion } from 'framer-motion'
+import { ChevronLeft } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
-import { uploadPhotos } from '@/lib/uploadPhotos'
+import '@/app/checklists/checklists.css'
+import { getSupabaseClient } from '@/lib/supabase'
+import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
+import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
-// 53 Preguntas organizadas por sección
-const SECTIONS = [
-  {
-    title: 'Cookline and Kitchen',
-    items: [
-      'No trash or oil under all grills equipment',
-      'All products are at proper temperature',
-      'Sneeze Guards are cleaned (fingerprints etc)',
-      'All stainless steel is clean and polished',
-      'All hoods are clean and in working order',
-      'Grills are clean (panels on side no buildup)',
-      'All trash cans are clean (inside out)',
-      'Walls and all doors are clean',
-      'Nacho cheese machine is clean',
-      'Food is fresh and looks appetizing to guest',
-      'Buckets @200ppm, are being utilized; towels not sitting on line',
-      'Walk-in walls, floors and baseboards are clean and swept',
-      'All items are 6" above ground (boxes, mops, etc.)',
-      'Prep Stations are cleaned and sanitized',
-      'All equipment is in working order',
-      'Delivery is put away and is organized',
-      'All lighting and vents are working and clean',
-      'Gaskets are clean and not ripped',
-      'Soda nozzles are clean (no mildew)',
-      'Ice machine is free of mildew and wiped down',
-      'Scissors/Tomato/Lime clean and working',
-      'All drains are clean',
-      'Employee restroom is clean and stocked',
-      'All open bags are stored properly'
-    ]
-  },
-  {
-    title: 'Dining Room & Guest Areas',
-    items: [
-      "Clean/dust furniture, TV's, etc.",
-      'Windows and window seals are clean',
-      'Restrooms are clean and in working order',
-      '5 Second greeting and upsell (welcoming guests)',
-      'Music and AC at appropriate level',
-      'Dining room is clean / Parking Lot',
-      'Walls, drink stations are clean',
-      'Vents and ceiling tiles are clean and in working order',
-      'Uniforms are clean and free of stains',
-      'Menuboards are working',
-      'Trash can area clean and wiped down',
-      'Table touching guest in dining room',
-      'Parking Lot and trash cans clean',
-      'Entry doors clean (No smudges)'
-    ]
-  },
-  {
-    title: 'Checklist and Reports',
-    items: [
-      'Food handlers cards are on file',
-      'Is store fully staffed',
-      'What is labor % for week',
-      'How many assistants? Shift leaders',
-      'Are all checklists being utilized? Complete',
-      'Schedule posted and clear to read',
-      'Are managers aware of employees time clock errors? (Ronos/Toast)',
-      'Action plans in place for any team members (WHO)',
-      'Are sales up from prior weeks',
-      'Does everyone have at least one day off',
-      'Is everyone trained on new processes',
-      'Has all repairs been reported on Basecamp',
-      'Cash handling procedures are being followed'
-    ]
-  },
-  {
-    title: 'Temperature is taken of each employee on shift',
-    items: [
-      'Any employee issues reported to DM',
-      'Soda CO2 is 1/4 or less, let manager know'
-    ]
-  }
-]
+interface Store {
+  id: string
+  name: string
+  code?: string
+}
 
-function CreateManagerChecklistContent() {
+function ManagerChecklistContent() {
   const router = useRouter()
   const { user } = useAuth()
-  
+  const [stores, setStores] = useState<Store[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showThanks, setShowThanks] = useState(false)
+
   const [formData, setFormData] = useState({
-    checklist_date: new Date().toISOString().split('T')[0],
-    start_time: '',
-    end_time: '',
-    shift: 'AM',
     store_id: '',
+    checklist_date: (() => {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    })(),
+    checklist_time: new Date().toTimeString().slice(0, 5),
+    shift: (() => {
+      const h = new Date().getHours()
+      return (h >= 7 && h < 17) ? 'AM' : 'PM'
+    })(),
     comments: ''
   })
-  
-  const [answers, setAnswers] = useState<{[key: string]: string}>({})
-  const [stores, setStores] = useState<any[]>([])
-  const [photos, setPhotos] = useState<File[]>([])
-  const [uploading, setUploading] = useState(false)
-  const [loading, setLoading] = useState(false)
+
+  // Dynamic Hooks
+  const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('manager_checklist_v1')
+  const sections = template?.sections || []
+  const questions = sections.flatMap((s: any) => s.questions)
+
+  const [answers, setAnswers] = useState<{ [key: string]: any }>({})
+  const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
 
   useEffect(() => {
-    fetchStores()
-    
-    // Set start time to now
-    const now = new Date()
-    const hours = String(now.getHours()).padStart(2, '0')
-    const minutes = String(now.getMinutes()).padStart(2, '0')
-    setFormData(prev => ({ ...prev, start_time: `${hours}:${minutes}` }))
-  }, [])
+    if (user) fetchStores()
+  }, [user])
 
   const fetchStores = async () => {
     try {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      
-      const res = await fetch(`${url}/rest/v1/stores?select=*&order=name.asc`, {
-        headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
-      })
-      const data = await res.json()
-      setStores(Array.isArray(data) ? data : [])
+      const supabase = await getSupabaseClient()
+      const { data, error } = await supabase
+        .from('stores')
+        .select('id,name,code')
+        .order('name', { ascending: true })
+
+      if (error) throw error
+      const loadedStores = (data as any[]) || []
+
+      const userScope = (user as any)?.store_scope
+      if (user?.role === 'asistente' && Array.isArray(userScope) && userScope.length > 0) {
+        const filtered = loadedStores.filter(s => userScope.includes(s.code) || userScope.includes(s.name))
+        setStores(filtered)
+        if (filtered.length > 0) {
+          setFormData(prev => ({ ...prev, store_id: filtered[0].id.toString() }))
+        }
+      } else {
+        setStores(loadedStores)
+        if ((user as any)?.store_id) {
+          setFormData(prev => ({ ...prev, store_id: (user as any).store_id.toString() }))
+        } else if (Array.isArray(userScope) && userScope.length > 0) {
+          const match = loadedStores.find(s => userScope.includes(s.code) || userScope.includes(s.name))
+          if (match) {
+            setFormData(prev => ({ ...prev, store_id: match.id.toString() }))
+          }
+        }
+      }
     } catch (err) {
-      console.error('Error loading stores:', err)
+      console.error('Error fetching stores:', err)
     }
   }
 
-  const handleAnswerChange = (sectionIdx: number, itemIdx: number, value: string) => {
-    const key = `s${sectionIdx}_${itemIdx}`
-    setAnswers(prev => ({ ...prev, [key]: value }))
+  const handleAnswer = (questionId: string, val: any) => {
+    setAnswers(prev => ({ ...prev, [questionId]: val }))
   }
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files)
-      setPhotos(prev => [...prev, ...newFiles].slice(0, 5)) // Max 5 photos
-    }
+  const handlePhotosChange = (questionId: string, urls: string[]) => {
+    setQuestionPhotos(prev => ({ ...prev, [questionId]: urls }))
   }
 
-  const removePhoto = (index: number) => {
-    setPhotos(prev => prev.filter((_, i) => i !== index))
-  }
+  const calculateScore = (): number => {
+    const yesNoQuestions = questions.filter(q => q.type === 'yes_no')
+    if (yesNoQuestions.length === 0) return 100
+    const validAnswers = yesNoQuestions.map(q => answers[q.id]).filter(v => v !== undefined && v !== null && v !== 'NA')
+    const siCount = validAnswers.filter(v => v === 'SI').length
 
-  const calculateScore = () => {
-    const totalQuestions = SECTIONS.reduce((sum, section) => sum + section.items.length, 0)
-    const answeredYes = Object.values(answers).filter(v => v === 'SI').length
-    return totalQuestions > 0 ? Math.round((answeredYes / totalQuestions) * 100) : 0
-  }
-
-  const validateForm = () => {
-    if (!formData.store_id) {
-      alert('Por favor selecciona una sucursal')
-      return false
-    }
-    if (!formData.start_time) {
-      alert('Por favor ingresa la hora de inicio')
-      return false
-    }
-    
-    const totalQuestions = SECTIONS.reduce((sum, section) => sum + section.items.length, 0)
-    const answeredQuestions = Object.keys(answers).length
-    
-    if (answeredQuestions < totalQuestions) {
-      alert(`Por favor responde todas las preguntas. Respondidas: ${answeredQuestions}/${totalQuestions}`)
-      return false
-    }
-    
-    return true
+    if (validAnswers.length > 0) return Math.round((siCount / validAnswers.length) * 100)
+    return 100
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault()
-  
-  if (!validateForm()) return
-  if (!user) return
+    e.preventDefault()
 
-  setLoading(true)
+    if (!user) return alert('Sesión expirada')
+    if (!formData.store_id) return alert('Selecciona una sucursal')
 
-  try {
-    // Calcular end_time
-    const now = new Date()
-    const endTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-    
-    // Upload photos
-    let photoUrls: string[] = []
-    if (photos.length > 0) {
-      setUploading(true)
-      photoUrls = await uploadPhotos(photos, 'staff-photos', `manager_${user.id}`)
-      setUploading(false)
-    }
-
-    const score = calculateScore()
-
-    const payload = {
-  store_id: parseInt(formData.store_id),
-  user_id: user.id,
-  manager_name: user.name || user.email,
-  checklist_date: formData.checklist_date,
-  checklist_time: formData.start_time, // ← CAMBIAR A endTime (formato HH:MM)
-  start_time: formData.start_time,
-  end_time: endTime,
-  shift: formData.shift,
-  answers: answers,
-  score: score,
-  comments: formData.comments || null,
-  photo_urls: photoUrls.length > 0 ? photoUrls : null,
-  created_by: user.email
-}
-
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    const res = await fetch(`${url}/rest/v1/manager_checklists`, {
-      method: 'POST',
-      headers: {
-        'apikey': key || '',
-        'Authorization': `Bearer ${key}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify(payload)
+    // Validation
+    const missingAnswers = questions.filter(q => {
+      const val = answers[q.id]
+      if (q.type === 'text') return !val || val.trim().length === 0
+      if (q.type === 'photo') return !questionPhotos[q.id] || questionPhotos[q.id].length === 0
+      return val === undefined || val === null
     })
 
-    if (res.ok) {
-      alert(`✅ Checklist guardado exitosamente!\n\nScore: ${score}%`)
-      router.push('/checklists-manager')
-    } else {
-      const error = await res.text()
-      console.error('Error response:', error)
-      alert('Error al guardar el checklist')
+    if (missingAnswers.length > 0) {
+      alert(`⚠️ Faltan ${missingAnswers.length} tareas por reportar.`)
+      return
     }
-  } catch (err) {
-    console.error('Error:', err)
-    alert('Error al guardar el checklist')
-  } finally {
-    setLoading(false)
+
+    const missingRequiredPhotos = questions.filter(q => q.required_photo && (!questionPhotos[q.id] || questionPhotos[q.id].length === 0))
+    if (missingRequiredPhotos.length > 0) {
+      alert(`📸 Hay ${missingRequiredPhotos.length} preguntas que requieren foto obligatoria.`)
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      const supabase = await getSupabaseClient()
+      const allPhotos = Object.values(questionPhotos).flat()
+
+      const formattedAnswers: { [key: string]: any } = {}
+      questions.forEach(q => {
+        formattedAnswers[q.text] = answers[q.id]
+      })
+
+      // Add rich photo mapping
+      formattedAnswers['__question_photos'] = questionPhotos
+
+      const payload = {
+        store_id: parseInt(formData.store_id),
+        user_id: user.id,
+        manager_name: user.name || user.email,
+        created_by: user.name || user.email,
+        checklist_date: formData.checklist_date,
+        checklist_time: formData.checklist_time,
+        shift: formData.shift,
+        answers: formattedAnswers,
+        score: calculateScore(),
+        comments: formData.comments || null,
+        photo_urls: allPhotos.length > 0 ? allPhotos : null
+      }
+
+      const { error } = await supabase.from('manager_checklists').insert([payload])
+
+      if (!error) {
+        setShowThanks(true)
+      } else {
+        alert('Error: ' + error.message)
+      }
+    } catch (err: any) {
+      alert('Error inesperado: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   if (!user) return null
+  if (checklistLoading) return <div className="min-h-screen grid place-items-center bg-gray-50"><div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" /></div>
+  if (checklistError) return <div className="min-h-screen grid place-items-center text-red-600 font-bold">Error: {checklistError}</div>
 
+  if (showThanks) {
+    return (
+      <div className="min-h-screen bg-gray-50 grid place-items-center animate-in zoom-in duration-500">
+        <div className="text-center p-8 bg-white rounded-3xl shadow-2xl border border-gray-100 max-w-sm mx-auto">
+          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-8xl mb-6">👔</motion.div>
+          <h1 className="text-4xl font-black text-gray-900 mb-2">¡Todo Listo!</h1>
+          <p className="text-gray-500 font-medium mb-8">El checklist de manager ha sido registrado correctamente.</p>
+          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-100 transition-transform active:scale-95">
+            Volver al Inicio
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const score = calculateScore()
   const answeredCount = Object.keys(answers).length
-  const totalQuestions = SECTIONS.reduce((sum, section) => sum + section.items.length, 0)
-  const currentScore = calculateScore()
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
-      <main className="flex-1 p-8">
-        <div className="max-w-5xl mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <button
-              onClick={() => router.push('/checklists-manager')}
-              className="text-blue-600 hover:text-blue-800 mb-4 font-semibold">
-              ← Volver a Manager Checklists
+    <div className="min-h-screen bg-gray-50 pb-32">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <button onClick={() => router.back()} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors text-gray-600">
+              <ChevronLeft size={24} />
             </button>
-            <h1 className="text-3xl font-bold text-gray-900">Crear Manager Checklist</h1>
-            <p className="text-gray-600 mt-2">Checklist de supervisión (53 preguntas)</p>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">
-                Progreso: {answeredCount} / {totalQuestions} preguntas
-              </span>
-              <span className="text-sm font-bold text-indigo-600">Score actual: {currentScore}%</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
-              <div
-                className="bg-indigo-600 h-3 rounded-full transition-all duration-300"
-                style={{ width: `${(answeredCount / totalQuestions) * 100}%` }}
-              />
+            <div>
+              <h1 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                {template?.title || 'Manager Checklist'}
+                {isCached && (
+                  <span className="bg-yellow-500/10 text-yellow-600 text-[10px] px-2 py-0.5 rounded-full border border-yellow-400/20 font-bold uppercase tracking-widest">
+                    Offline
+                  </span>
+                )}
+              </h1>
+              <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{user.name || user.email}</div>
             </div>
           </div>
+          <div className="bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg shadow-indigo-100 flex flex-col items-center min-w-[80px]">
+            <div className="text-xl font-black leading-none">{score}%</div>
+            <div className="text-[10px] font-bold uppercase opacity-80 mt-1">{answeredCount}/{questions.length}</div>
+          </div>
+        </div>
+      </header>
 
-          <form onSubmit={handleSubmit}>
-            {/* Basic Info */}
-            <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">Información General</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sucursal *
-                  </label>
-                  <select
-                    value={formData.store_id}
-                    onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    required>
-                    <option value="">Selecciona una sucursal</option>
-                    {stores.map(store => (
-                      <option key={store.id} value={store.id}>{store.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Turno
-                  </label>
-                  <select
-                    value={formData.shift}
-                    onChange={(e) => setFormData({ ...formData, shift: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                    <option value="AM">AM</option>
-                    <option value="PM">PM</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Fecha
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.checklist_date}
-                    onChange={(e) => setFormData({ ...formData, checklist_date: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Hora de Inicio *
-                  </label>
-                  <input
-                    type="time"
-                    value={formData.start_time}
-                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-              </div>
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sucursal *</label>
+              <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
+                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all">
+                <option value="">Selecciona...</option>
+                {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
+              </select>
             </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha *</label>
+              <input type="date" required value={formData.checklist_date}
+                onChange={(e) => setFormData({ ...formData, checklist_date: e.target.value })}
+                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno *</label>
+              <select value={formData.shift} onChange={(e) => setFormData({ ...formData, shift: e.target.value as 'AM' | 'PM' })}
+                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all">
+                <option value="AM">AM (Mañana)</option>
+                <option value="PM">PM (Tarde)</option>
+              </select>
+            </div>
+          </div>
 
-            {/* Questions by Section */}
-            {SECTIONS.map((section, sIdx) => (
-              <div key={sIdx} className="bg-white rounded-xl shadow-md p-6 mb-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-4">{section.title}</h2>
-                
-                <div className="space-y-3">
-                  {section.items.map((question, qIdx) => {
-                    const key = `s${sIdx}_${qIdx}`
-                    const value = answers[key]
-                    
-                    return (
-                      <div key={qIdx} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors">
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                          <div className="flex-1">
-                            <span className="font-medium text-gray-900">{question}</span>
-                          </div>
-                          
-                          <div className="flex gap-4">
-                            <label className="flex items-center cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`q_${key}`}
-                                value="SI"
-                                checked={value === 'SI'}
-                                onChange={(e) => handleAnswerChange(sIdx, qIdx, e.target.value)}
-                                className="mr-2 w-4 h-4 text-green-600 focus:ring-2 focus:ring-green-500"
-                              />
-                              <span className="text-green-700 font-semibold">Sí</span>
-                            </label>
-                            
-                            <label className="flex items-center cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`q_${key}`}
-                                value="NO"
-                                checked={value === 'NO'}
-                                onChange={(e) => handleAnswerChange(sIdx, qIdx, e.target.value)}
-                                className="mr-2 w-4 h-4 text-red-600 focus:ring-2 focus:ring-red-500"
-                              />
-                              <span className="text-red-700 font-semibold">No</span>
-                            </label>
-                            
-                            <label className="flex items-center cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`q_${key}`}
-                                value="NA"
-                                checked={value === 'NA'}
-                                onChange={(e) => handleAnswerChange(sIdx, qIdx, e.target.value)}
-                                className="mr-2 w-4 h-4 text-gray-600 focus:ring-2 focus:ring-gray-500"
-                              />
-                              <span className="text-gray-700 font-semibold">N/A</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
+          <div className="space-y-12">
+            {sections.map((section: any) => (
+              <div key={section.id} className="space-y-6">
+                <div className="flex items-center gap-4 px-2">
+                  <div className="h-[2px] flex-1 bg-gray-100" />
+                  <h2 className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">{section.title}</h2>
+                  <div className="h-[2px] flex-1 bg-gray-100" />
+                </div>
+                <div className="space-y-4">
+                  {section.questions.map((question: any, idx: number) => (
+                    <DynamicQuestion
+                      key={question.id}
+                      question={question}
+                      index={idx}
+                      value={answers[question.id]}
+                      photos={questionPhotos[question.id] || []}
+                      onChange={(val) => handleAnswer(question.id, val)}
+                      onPhotosChange={(urls) => handlePhotosChange(question.id, urls)}
+                    />
+                  ))}
                 </div>
               </div>
             ))}
+          </div>
 
-            {/* Photos */}
-            <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">Fotos (Opcional)</h2>
-              
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handlePhotoChange}
-                className="hidden"
-                id="photo-upload"
-              />
-              
-              <label
-                htmlFor="photo-upload"
-                className="inline-block bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold cursor-pointer transition-all">
-                📷 Seleccionar Fotos (máx. 5)
-              </label>
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 space-y-3">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Observaciones del Manager</label>
+            <textarea value={formData.comments} onChange={(e) => setFormData({ ...formData, comments: e.target.value })} rows={3}
+              className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
+              placeholder="Escribe aquí cualquier observación relevante..." />
+          </div>
 
-              {photos.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
-                  {photos.map((photo, idx) => (
-                    <div key={idx} className="relative">
-                      <img
-                        src={URL.createObjectURL(photo)}
-                        alt={`Photo ${idx + 1}`}
-                        className="w-full h-32 object-cover rounded-lg border-2 border-gray-300"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removePhoto(idx)}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-700">
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Comments */}
-            <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">Comentarios (Opcional)</h2>
-              <textarea
-                value={formData.comments}
-                onChange={(e) => setFormData({ ...formData, comments: e.target.value })}
-                rows={4}
-                placeholder="Observaciones generales..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              />
-            </div>
-
-            {/* Submit */}
-            <div className="flex gap-4">
-              <button
-                type="button"
-                onClick={() => router.push('/checklists-manager')}
-                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-4 rounded-lg font-semibold text-lg transition-all shadow-md">
-                Cancelar
-              </button>
-              
-              <button
-                type="submit"
-                disabled={loading || uploading}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-lg font-semibold text-lg transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-                {uploading ? 'Subiendo fotos...' : loading ? 'Guardando...' : `Guardar Checklist (${currentScore}%)`}
-              </button>
-            </div>
-          </form>
-        </div>
-      </main>
+          <div className="pt-4">
+            <button type="submit" disabled={loading}
+              className="w-full bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-700 hover:to-violet-800 text-white font-black text-lg py-5 rounded-3xl shadow-xl shadow-indigo-100 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3">
+              {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : 'Finalizar Checklist'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
 
-export default function CreateManagerChecklistPage() {
+export default function ManagerChecklistPage() {
   return (
-    <ProtectedRoute>
-      <CreateManagerChecklistContent />
+    <ProtectedRoute allowedRoles={['manager', 'admin']}>
+      <ManagerChecklistContent />
     </ProtectedRoute>
   )
 }

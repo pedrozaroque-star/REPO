@@ -1,0 +1,12 @@
+Reading from respuestas Inspecciones, manager y asistentes.csv...
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Skipping row 108: No UUID found.
+Generated SQL for 108 records in migrate_supervisor_legacy.sql

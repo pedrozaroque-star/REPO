@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Sidebar from '@/components/Sidebar'
+import { Bell, AlertTriangle, Inbox, CheckCheck, Trash2, Eye, Check, BellOff } from 'lucide-react'
+
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { formatDateLA } from '@/lib/checklistPermissions'
 
@@ -15,9 +16,7 @@ function NotificacionesContent() {
 
   // Detectar cuando el componente monta
   useEffect(() => {
-    console.log('🚀 Componente montado, usuario:', user)
     if (!user) {
-      console.log('⚠️ No hay usuario, redirigiendo...')
       setTimeout(() => setLoading(false), 1000)
     }
   }, [])
@@ -30,24 +29,27 @@ function NotificacionesContent() {
   }, [filter])
 
   const fetchNotifications = async () => {
-    console.log('🔍 Fetching notifications para user:', user?.id)
-
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL
       const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
+      if (!url || !key) {
+        console.error('❌ Error: Falta configuración de Supabase (URL o Key)')
+        setLoading(false)
+        return
+      }
+
       const res = await fetch(
         `${url}/rest/v1/notifications?user_id=eq.${user?.id}&order=created_at.desc`,
         {
-          headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
+          headers: {
+            'apikey': key,
+            'Authorization': `Bearer ${key}`
+          }
         }
       )
-      
-      console.log('🔍 Response status:', res.status)
-      
+
       const data = await res.json()
-      console.log('🔍 Data recibida:', data)
-      
       setNotifications(Array.isArray(data) ? data : [])
       setLoading(false)
     } catch (err) {
@@ -55,42 +57,26 @@ function NotificacionesContent() {
       setLoading(false)
     }
   }
-  
+
   // Agregar esta validación ANTES del loading
   if (!user && !loading) {
     return (
-      <div className="flex min-h-screen bg-gray-50">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center md:ml-64">
-          <div className="text-center">
-            <div className="text-6xl mb-4">⚠️</div>
-            <p className="text-gray-600">No hay sesión de usuario</p>
-            <button 
-              onClick={() => router.push('/')}
-              className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg">
-              Ir a login
-            </button>
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
+            <AlertTriangle size={40} />
           </div>
+          <p className="text-gray-900 font-bold mb-4">No hay sesión de usuario</p>
+          <button
+            onClick={() => router.push('/')}
+            className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 transition"
+          >
+            Ir a login
+          </button>
         </div>
       </div>
     )
   }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen bg-gray-50">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center md:ml-64">
-          <div className="text-center">
-            <div className="text-6xl mb-4">🔔</div>
-            <p className="text-gray-600">Cargando notificaciones...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Resto del código...
 
   const markAsRead = async (id: number) => {
     try {
@@ -165,7 +151,7 @@ function NotificacionesContent() {
     if (!notification.is_read) {
       markAsRead(notification.id)
     }
-    
+
     if (notification.reference_type === 'supervisor_inspection') {
       router.push('/inspecciones')
     } else if (notification.reference_type === 'manager') {
@@ -180,26 +166,23 @@ function NotificacionesContent() {
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffMins = Math.floor(diffMs / 60000)
-    
+
     if (diffMins < 1) return 'Justo ahora'
     if (diffMins < 60) return `Hace ${diffMins} min`
-    
+
     const diffHours = Math.floor(diffMins / 60)
     if (diffHours < 24) return `Hace ${diffHours}h`
-    
+
     const diffDays = Math.floor(diffHours / 24)
     return `Hace ${diffDays}d`
   }
 
   if (loading) {
     return (
-      <div className="flex min-h-screen bg-gray-50">
-        <Sidebar />
-        <div className="flex-1 flex items-center justify-center md:ml-64">
-          <div className="text-center">
-            <div className="text-6xl mb-4">🔔</div>
-            <p className="text-gray-600">Cargando notificaciones...</p>
-          </div>
+      <div className="flex bg-transparent h-screen items-center justify-center">
+        <div className="text-center animate-pulse">
+          <Bell size={48} className="mx-auto text-gray-300 mb-4" />
+          <p className="text-gray-900 font-bold">Cargando notificaciones...</p>
         </div>
       </div>
     )
@@ -208,142 +191,139 @@ function NotificacionesContent() {
   if (!user) return null
 
   const unreadCount = notifications.filter(n => !n.is_read).length
+  const filteredNotifications = notifications.filter(n => {
+    if (filter === 'unread') return !n.is_read
+    if (filter === 'read') return n.is_read
+    return true
+  })
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
-      
-      <main className="flex-1 p-4 md:p-8 md:ml-64 mt-16 md:mt-0">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <div className="mb-6">
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Notificaciones</h1>
-            <p className="text-gray-600 mt-2 text-sm md:text-base">
-              {unreadCount > 0 
-                ? `Tienes ${unreadCount} notificación${unreadCount > 1 ? 'es' : ''} sin leer`
-                : 'No tienes notificaciones sin leer'
-              }
-            </p>
-          </div>
-
-          {/* Filtros y Acciones */}
-          <div className="bg-white rounded-xl shadow-md p-4 md:p-6 mb-4 md:mb-6">
-            <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between">
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => setFilter('all')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-all text-sm ${
-                    filter === 'all'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}>
-                  Todas
-                </button>
-                <button
-                  onClick={() => setFilter('unread')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-all text-sm ${
-                    filter === 'unread'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}>
-                  No leídas ({unreadCount})
-                </button>
-                <button
-                  onClick={() => setFilter('read')}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-all text-sm ${
-                    filter === 'read'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}>
-                  Leídas
-                </button>
-              </div>
-
-              {unreadCount > 0 && (
-                <button
-                  onClick={markAllAsRead}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold transition-all text-sm whitespace-nowrap">
-                  ✓ Marcar todas como leídas
-                </button>
-              )}
+    <div className="bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0 flex flex-col">
+      {/* STICKY HEADER - Mobile & Desktop */}
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+        <div className="max-w-4xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Title Area */}
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+              <Bell size={18} />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-black text-gray-900 tracking-tight leading-none">Notificaciones</h1>
+              <p className="hidden md:block text-xs text-gray-400 font-medium">Alertas y avisos</p>
             </div>
           </div>
 
-          {/* Lista de Notificaciones */}
-          <div className="space-y-3">
-            {notifications.length === 0 ? (
-              <div className="bg-white rounded-xl shadow-md p-8 md:p-12 text-center">
-                <div className="text-5xl md:text-6xl mb-4">📭</div>
-                <p className="text-gray-600 text-base md:text-lg">
-                  {filter === 'all' ? 'No tienes notificaciones' :
-                   filter === 'unread' ? 'No tienes notificaciones sin leer' :
-                   'No tienes notificaciones leídas'}
-                </p>
-              </div>
-            ) : (
-              notifications.map((notif) => (
-                <div
-                  key={notif.id}
-                  className={`bg-white rounded-xl shadow-md p-4 md:p-6 transition-all hover:shadow-lg ${
-                    !notif.is_read ? 'border-l-4 border-blue-600' : ''
-                  }`}>
-                  <div className="flex items-start gap-3 md:gap-4">
-                    {/* Icono */}
-                    <div className={`flex-shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center ${
-                      !notif.is_read ? 'bg-blue-100' : 'bg-gray-100'
+          {/* Actions */}
+          <div className="flex items-center gap-3">
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllAsRead}
+                className="bg-green-100 text-green-700 hover:bg-green-200 px-3 py-1.5 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                <CheckCheck size={14} />
+                <span className="hidden sm:inline">Marcar todo leído</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <main className="flex-1 overflow-y-auto max-w-4xl mx-auto px-4 md:px-8 py-8 pb-24 w-full">
+
+        {/* Filtros Mobile-First */}
+        <div className="bg-white rounded-2xl shadow-sm p-2 mb-6 border border-gray-100 flex gap-1 sticky top-0 z-10 w-fit mx-auto md:w-full md:mx-0 justify-center md:justify-start">
+          <button
+            onClick={() => setFilter('all')}
+            className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-xs font-bold transition-all ${filter === 'all'
+              ? 'bg-gray-900 text-white shadow-md'
+              : 'bg-transparent text-gray-500 hover:bg-gray-50'
+              }`}>
+            Todas
+          </button>
+          <button
+            onClick={() => setFilter('unread')}
+            className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-xs font-bold transition-all ${filter === 'unread'
+              ? 'bg-gray-900 text-white shadow-md'
+              : 'bg-transparent text-gray-500 hover:bg-gray-50'
+              }`}>
+            No leídas ({unreadCount})
+          </button>
+          <button
+            onClick={() => setFilter('read')}
+            className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-xs font-bold transition-all ${filter === 'read'
+              ? 'bg-gray-900 text-white shadow-md'
+              : 'bg-transparent text-gray-500 hover:bg-gray-50'
+              }`}>
+            Leídas
+          </button>
+        </div>
+
+        {/* Lista de Notificaciones */}
+        <div className="space-y-4">
+          {filteredNotifications.length === 0 ? (
+            <div className="text-center py-20 opacity-50">
+              <BellOff size={48} className="mx-auto text-gray-300 mb-4" />
+              <p className="text-gray-900 font-bold">
+                {filter === 'all' ? 'No tienes notificaciones' :
+                  filter === 'unread' ? 'No tienes notificaciones sin leer' :
+                    'No tienes notificaciones leídas'}
+              </p>
+            </div>
+          ) : (
+            filteredNotifications.map((notif) => (
+              <div
+                key={notif.id}
+                className={`bg-white rounded-3xl shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] hover:shadow-lg transition-transform hover:-translate-y-0.5 border border-gray-100 p-5 ${!notif.is_read ? 'bg-gradient-to-r from-blue-50/50 to-white' : ''}`}
+              >
+                <div className="flex gap-4">
+                  {/* Icono */}
+                  <div className={`flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center ${notif.type === 'observacion_supervisor' ? 'bg-orange-100 text-orange-600' :
+                    !notif.is_read ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
                     }`}>
-                      <span className="text-xl md:text-2xl">
-                        {notif.type === 'observacion_supervisor' ? '⚠️' : '🔔'}
+                    {notif.type === 'observacion_supervisor' ? <AlertTriangle size={20} /> : <Bell size={20} />}
+                  </div>
+
+                  {/* Contenido */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-4 mb-1">
+                      <h3 className={`font-black text-sm md:text-base leading-tight ${!notif.is_read ? 'text-gray-900' : 'text-gray-600'}`}>
+                        {notif.title}
+                      </h3>
+                      <span className="text-[10px] font-bold text-gray-400 whitespace-nowrap bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
+                        {formatTimeAgo(notif.created_at)}
                       </span>
                     </div>
 
-                    {/* Contenido */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-4 mb-2">
-                        <h3 className={`font-bold text-base md:text-lg ${
-                          !notif.is_read ? 'text-gray-900' : 'text-gray-600'
-                        }`}>
-                          {notif.title}
-                        </h3>
-                        {!notif.is_read && (
-                          <div className="w-2 h-2 md:w-3 md:h-3 bg-blue-600 rounded-full flex-shrink-0 mt-1" />
-                        )}
-                      </div>
+                    <p className="text-sm text-gray-500 mb-3 leading-relaxed">{notif.message}</p>
 
-                      <p className="text-gray-700 mb-3 text-sm md:text-base">{notif.message}</p>
-
-                      <div className="flex items-center gap-2 md:gap-4 text-xs md:text-sm text-gray-500">
-                        <span>{formatTimeAgo(notif.created_at)}</span>
-                        <span>•</span>
-                        <span>{formatDateLA(notif.created_at)}</span>
-                      </div>
-
-                      {/* Acciones */}
-                      <div className="flex flex-wrap gap-2 mt-4">
+                    {/* Acciones */}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleNotificationClick(notif)}
+                        className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors"
+                      >
+                        <Eye size={12} /> VER DETALLES
+                      </button>
+                      {!notif.is_read && (
                         <button
-                          onClick={() => handleNotificationClick(notif)}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 md:px-4 py-2 rounded-lg font-semibold text-xs md:text-sm transition-all">
-                          Ver detalles
+                          onClick={() => markAsRead(notif.id)}
+                          className="bg-green-50 text-green-700 hover:bg-green-100 px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors"
+                        >
+                          <Check size={12} /> MARCAR LEÍDA
                         </button>
-                        {!notif.is_read && (
-                          <button
-                            onClick={() => markAsRead(notif.id)}
-                            className="bg-green-600 hover:bg-green-700 text-white px-3 md:px-4 py-2 rounded-lg font-semibold text-xs md:text-sm transition-all">
-                            Marcar como leída
-                          </button>
-                        )}
-                        <button
-                          onClick={() => deleteNotification(notif.id)}
-                          className="bg-red-600 hover:bg-red-700 text-white px-3 md:px-4 py-2 rounded-lg font-semibold text-xs md:text-sm transition-all">
-                          Eliminar
-                        </button>
-                      </div>
+                      )}
+                      <button
+                        onClick={() => deleteNotification(notif.id)}
+                        className="bg-red-50 text-red-700 hover:bg-red-100 px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors ml-auto"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              </div>
+            ))
+          )}
         </div>
       </main>
     </div>

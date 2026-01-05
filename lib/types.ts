@@ -40,13 +40,13 @@ export interface AssistantChecklist {
   score: number | null;
   photo_urls: string[] | null; // ARRAY
   comments: string | null;
-  
+
   // Revisión del Manager
   estatus_manager: string | null;
   reviso_manager: string | null;
   fecha_revision_manager: string | null;
   comentarios_manager: string | null;
-  
+
   created_at: string;
 }
 
@@ -55,19 +55,19 @@ export interface CustomerFeedback {
   visit_date: string | null; // date
   store_code: string | null; // Posible relación manual
   order_type: string | null;
-  
+
   nps_score: number | null;
   nps_category: string | null; // Promoter, Passive, Detractor
   speed_rating: number | null;
-  
+
   complaint_type: string | null;
   comments: string | null;
   photo_urls: string[] | null;
-  
+
   customer_name: string | null;
   customer_email: string | null;
   customer_phone: string | null;
-  
+
   requires_follow_up: boolean; // Inferido del contexto, aunque no lo vi explícito en el snippet corto
   follow_up_notes: string | null;
   created_at: string;
@@ -78,7 +78,7 @@ export interface SupervisorInspection {
   inspector_id: number | null;
   store_id: number | null;
   inspection_date: string;
-  
+
   // Puntajes por categoría
   overall_score: number | null;
   limpieza_score: number | null;
@@ -88,10 +88,23 @@ export interface SupervisorInspection {
   tortillas_score: number | null;
   aseo_score: number | null;
   bitacoras_score: number | null;
-  
+
   observaciones: string | null;
-  photos_drive_folder: string | null;
-  photos_count: number | null;
-  
+  photos_drive_folder: string | null; // Legacy
+  photos_count: number | null; // Legacy
+
+  // New Fields for Modern Inspection
+  answers: Record<string, any> | null; // JSONB
+  photos: string[] | null; // Array of URLs
+  shift: string | null;
+  inspection_time: string | null;
+  supervisor_name: string | null;
+
+  // Admin Review
+  estatus_admin: string | null;
+  reviso_admin: string | null;
+  fecha_revision_admin: string | null;
+  comentarios_admin: string | null;
+
   created_at: string;
 }

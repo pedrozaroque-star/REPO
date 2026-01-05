@@ -1,0 +1,12 @@
+Reading from respuestas Inspecciones, manager y asistentes.csv...
+Warning: Row 108 (Store: Downey) missing ID. Generated new UUID: 6f2bc0d4-1657-4716-a6ac-0f0b08baf0dd
+Warning: Row 109 (Store: Lynwood) missing ID. Generated new UUID: cd970ee9-d82d-431c-99ba-758427e5273d
+Warning: Row 110 (Store: Bell) missing ID. Generated new UUID: 2161dafa-de0b-46f5-adc4-084dedd35e32
+Warning: Row 111 (Store: Bell) missing ID. Generated new UUID: 9238b6f2-9ea4-4330-8afa-239124e4508a
+Warning: Row 112 (Store: Lynwood) missing ID. Generated new UUID: ede5696e-6392-4321-8c37-58d9f41c4063
+Warning: Row 113 (Store: South Gate) missing ID. Generated new UUID: 51172df1-00b8-42ed-bdda-3641a886444c
+Warning: Row 114 (Store: Downey) missing ID. Generated new UUID: b1c25a43-845d-42c4-85b2-d1072144d2d9
+Warning: Row 115 (Store: Downey) missing ID. Generated new UUID: 1b4127ec-ba7a-4387-9dde-02b6b946de3e
+Warning: Row 116 (Store: Lynwood) missing ID. Generated new UUID: fc0f9b9e-af51-4cd2-82fe-e0f8df66f89f
+Warning: Row 117 (Store: Downey) missing ID. Generated new UUID: fb7988f0-80e6-4f94-804d-ce03bcdc4202
+Generated SQL for 118 records in migrate_supervisor_final.sql

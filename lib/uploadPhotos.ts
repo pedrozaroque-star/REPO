@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase'
 
 export const uploadPhotos = async (
-  files: File[], 
+  files: File[],
   bucket: string, // Ej: 'checklist-photos'
   folder: string  // Ej: 'inspection'
 ) => {
@@ -30,7 +30,7 @@ export const uploadPhotos = async (
 
       if (data?.publicUrl) {
         urls.push(data.publicUrl)
-        console.log('✅ Foto subida:', data.publicUrl)
+
       }
 
     } catch (error: any) {
