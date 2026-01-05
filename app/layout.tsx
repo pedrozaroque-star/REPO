@@ -18,6 +18,10 @@ export const metadata: Metadata = {
   title: "Tacos Gavilan System",
   description: "Sistema de gestión interna",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

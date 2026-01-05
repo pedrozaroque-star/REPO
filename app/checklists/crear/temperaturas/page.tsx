@@ -42,7 +42,7 @@ function TemperaturasContent() {
   const temperatureItems = template?.sections.flatMap((s: any) =>
     s.questions.map((q: any) => {
       const textToCheck = `${q.text} ${s.title}`.toLowerCase()
-      const isRefrig = textToCheck.includes('refrig') || textToCheck.includes('frio')
+      const isRefrig = textToCheck.includes('refrig') || textToCheck.includes('frio') || textToCheck.includes('walking') || textToCheck.includes('hiel')
       return {
         ...q,
         type: isRefrig ? 'cold' : 'hot' as 'cold' | 'hot'
@@ -283,7 +283,8 @@ function TemperaturasContent() {
                   {section.questions.map((item: any) => {
                     const status = getTempStatus(item.id)
                     const currentTemp = temperatures[item.id] || 0
-                    const itemType = item.text.toLowerCase().includes('refrig') ? 'cold' : 'hot'
+                    const textToCheck = (item.text + ' ' + section.title).toLowerCase()
+                    const itemType = (textToCheck.includes('refrig') || textToCheck.includes('frio') || textToCheck.includes('walking') || textToCheck.includes('hiel')) ? 'cold' : 'hot'
 
                     return (
                       <motion.div
