@@ -440,7 +440,7 @@ function ChecklistsContent() {
 
                   return (
                     <div
-                      key={item.id}
+                      key={`card-${item.id}-${item.checklist_type}`}
                       onClick={() => handleRowClick(item)}
                       className={`bg-white rounded-3xl p-5 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border transition-all active:scale-[0.98] ${isItemOverdue ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}
                     >
@@ -495,6 +495,7 @@ function ChecklistsContent() {
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Sucursal</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Turno</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Usuario</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Duración</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Score</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Estado</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Acciones</th>
@@ -506,9 +507,27 @@ function ChecklistsContent() {
                         const isItemOverdue = isOverdue(item.created_at, item.estatus_admin || item.estatus_manager)
                         const canEdit = canUserEdit(item)
 
+                        // Calculate Duration
+                        let duration = 'N/A'
+                        if (item.start_time && item.end_time) {
+                          try {
+                            const startParts = item.start_time.split(':').map(Number)
+                            const endParts = item.end_time.split(':').map(Number)
+                            if (startParts.length >= 2 && endParts.length >= 2) {
+                              const startMinutes = startParts[0] * 60 + startParts[1]
+                              const endMinutes = endParts[0] * 60 + endParts[1]
+                              let diff = endMinutes - startMinutes
+                              if (diff < 0) diff += 24 * 60
+                              const hours = Math.floor(diff / 60)
+                              const mins = diff % 60
+                              duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`
+                            }
+                          } catch (e) { }
+                        }
+
                         return (
                           <tr
-                            key={item.id}
+                            key={`row-${item.id}-${item.checklist_type}`}
                             className={`hover:bg-gray-50/80 transition-colors cursor-pointer ${isItemOverdue ? 'bg-red-50/50' : ''}`}
                             onClick={() => handleRowClick(item)}
                           >
@@ -529,6 +548,9 @@ function ChecklistsContent() {
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 truncate max-w-[150px]">{item.users?.full_name || 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
+                            </td>
                             <td className="px-6 py-4 whitespace-nowrap text-center">
                               <span className={`text-lg font-black ${item.score >= 87 ? 'text-green-600' : item.score >= 70 ? 'text-orange-600' : 'text-red-600'}`}>{item.score}%</span>
                             </td>

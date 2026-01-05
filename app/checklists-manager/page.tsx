@@ -394,6 +394,7 @@ function ManagerChecklistsContent() {
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Sucursal</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Turno</th>
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Manager</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Duración</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Score</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Estado</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Acciones</th>
@@ -404,6 +405,24 @@ function ManagerChecklistsContent() {
                         const scoreColor = item.score >= 87 ? 'text-green-600' : item.score >= 70 ? 'text-orange-600' : 'text-red-600'
                         const canEdit = canUserEdit(item)
                         const isItemOverdue = isOverdue(item.created_at, item.estatus_admin || item.estatus_supervisor)
+
+                        // Calculate Duration
+                        let duration = 'N/A'
+                        if (item.start_time && item.end_time) {
+                          try {
+                            const startParts = item.start_time.split(':').map(Number)
+                            const endParts = item.end_time.split(':').map(Number)
+                            if (startParts.length >= 2 && endParts.length >= 2) {
+                              const startMinutes = startParts[0] * 60 + startParts[1]
+                              const endMinutes = endParts[0] * 60 + endParts[1]
+                              let diff = endMinutes - startMinutes
+                              if (diff < 0) diff += 24 * 60
+                              const hours = Math.floor(diff / 60)
+                              const mins = diff % 60
+                              duration = hours > 0 ? `${hours}h ${mins}m` : `${mins} min`
+                            }
+                          } catch (e) { }
+                        }
 
                         return (
                           <tr
@@ -427,6 +446,9 @@ function ManagerChecklistsContent() {
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{item.manager_real_name}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
+                            </td>
                             <td className="px-6 py-4 whitespace-nowrap text-center">
                               <span className={`text-lg font-black ${scoreColor}`}>{item.score}%</span>
                             </td>

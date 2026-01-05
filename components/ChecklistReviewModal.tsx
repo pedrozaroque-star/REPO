@@ -458,12 +458,14 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         <AnimatePresence>
             {isOpen && (
                 <motion.div
+                    key="modal-overlay"
                     className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-end md:items-center justify-center p-0 md:p-4"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                 >
                     <motion.div
+                        key="modal-content"
                         className="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[90vh] md:h-[90vh] flex flex-col md:flex-row overflow-hidden relative"
                         initial={{ y: "100%" }}
                         animate={{ y: 0 }}
@@ -522,10 +524,34 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                     <span className="font-medium">{formatDateLA(checklist.checklist_date || checklist.inspection_date)}</span>
                                 </div>
                                 {(checklist.start_time || checklist.inspection_time) && (
-                                    <div className="flex items-center gap-3 text-gray-600">
-                                        <Clock size={16} className="text-gray-400" />
-                                        <span className="font-medium">{checklist.shift === 'AM' ? '🌅 AM' : '🌙 PM'} • {checklist.inspection_time || checklist.start_time}</span>
-                                    </div>
+                                    <>
+                                        <div className="flex items-center gap-3 text-gray-600">
+                                            <Clock size={16} className="text-gray-400" />
+                                            <span className="font-medium">
+                                                Inicio: {checklist.inspection_time || checklist.start_time}
+                                                <span className="mx-2 text-gray-300">|</span>
+                                                Turno: {checklist.shift === 'AM' ? '🌅 AM' : '🌙 PM'}
+                                            </span>
+                                        </div>
+
+                                        {checklist.end_time ? (
+                                            <>
+                                                <div className="flex items-center gap-3 text-gray-600">
+                                                    <Clock size={16} className="text-gray-400" />
+                                                    <span className="font-medium">Fin: {checklist.end_time}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3 text-gray-600">
+                                                    <Timer size={16} className="text-gray-400" />
+                                                    <span className="font-medium">Duración: {getDuration()}</span>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="flex items-center gap-3 text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-100">
+                                                <AlertCircle size={14} />
+                                                <span className="font-medium text-xs">Sin hora de finalización</span>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </div>
 
@@ -615,13 +641,13 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                 <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
                                             </div>
                                         ) : template ? (
-                                            template.sections.map((section: any) => (
-                                                <div key={section.id} className="bg-gray-50 rounded-2xl p-4 md:p-5 border border-gray-100">
+                                            template.sections.map((section: any, sIdx: number) => (
+                                                <div key={`section-${sIdx}`} className="bg-gray-50 rounded-2xl p-4 md:p-5 border border-gray-100">
                                                     <h3 className="text-xs md:text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 pb-2 border-b border-gray-200">
                                                         {section.title}
                                                     </h3>
                                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                        {section.questions.map((q: any) => {
+                                                        {section.questions.map((q: any, qIdx: number) => {
                                                             // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
                                                             let value: any = undefined
 
@@ -702,7 +728,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                             const qPhotos = questionPhotosMap[q.id] || []
 
                                                             return (
-                                                                <div key={q.id} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
+                                                                <div key={`q-${sIdx}-${qIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
                                                                     <div className="flex justify-between items-start gap-3">
                                                                         <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{q.text}</span>
                                                                         <div className="shrink-0">{renderAnswerValue(q, value, section.title)}</div>
@@ -710,7 +736,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                     {qPhotos.length > 0 && (
                                                                         <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                                                                             {qPhotos.map((url: string, idx: number) => (
-                                                                                <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 hover:scale-105 transition-transform">
+                                                                                <a key={`q-evidence-${sIdx}-${qIdx}-${idx}`} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 hover:scale-105 transition-transform">
                                                                                     <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                                                                 </a>
                                                                             ))}
@@ -734,12 +760,12 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                     </h3>
                                                 </div>
                                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                    {orphanedAnswers.map((key) => {
+                                                    {orphanedAnswers.map((key, oIdx) => {
                                                         const rawValue = checklist.answers[key]
                                                         const qPhotos = questionPhotosMap[key] || []
 
                                                         return (
-                                                            <div key={key} className="bg-white p-3 md:p-4 rounded-xl border border-amber-100 hover:shadow-md transition-shadow">
+                                                            <div key={`orphaned-${oIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-amber-100 hover:shadow-md transition-shadow">
                                                                 <div className="flex justify-between items-start gap-3">
                                                                     <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{key}</span>
                                                                     <div className="shrink-0">{renderAnswerValue({ text: key }, rawValue)}</div>
@@ -747,7 +773,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                 {qPhotos.length > 0 && (
                                                                     <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                                                                         {qPhotos.map((url: string, idx: number) => (
-                                                                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200">
+                                                                            <a key={`orphaned-evidence-${oIdx}-${idx}`} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200">
                                                                                 <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" />
                                                                             </a>
                                                                         ))}
@@ -782,7 +808,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         ) : (
                                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                                 {[...(checklist.photos || []), ...Object.values(questionPhotosMap).flat()].map((url: string, i: number) => (
-                                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="aspect-square rounded-xl overflow-hidden border border-gray-200 hover:scale-105 hover:shadow-lg transition-all">
+                                                    <a key={`gallery-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="aspect-square rounded-xl overflow-hidden border border-gray-200 hover:scale-105 hover:shadow-lg transition-all">
                                                         <img src={getEmbeddableImageUrl(url)} className="w-full h-full object-cover" alt="Evidence" referrerPolicy="no-referrer" />
                                                     </a>
                                                 ))}
