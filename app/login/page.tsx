@@ -42,8 +42,13 @@ export default function LoginPage() {
       localStorage.setItem('teg_token', data.token)
       localStorage.setItem('teg_user', JSON.stringify(data.user))
 
-      // Redirigir al dashboard
-      router.push('/dashboard')
+      // Redirigir según el rol
+      const userRole = data.user.role?.toLowerCase()
+      if (userRole === 'asistente') {
+        router.push('/checklists')
+      } else {
+        router.push('/dashboard')
+      }
 
     } catch (err) {
       console.error('Error inesperado:', err)
