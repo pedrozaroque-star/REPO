@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 
     // Buscar usuario en la base de datos
     const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/users?email=eq.${email}&select=*&limit=1`,
+      `${SUPABASE_URL}/rest/v1/users?email=eq.${encodeURIComponent(email)}&select=*&limit=1`,
       {
         headers: {
           'apikey': SUPABASE_KEY,
