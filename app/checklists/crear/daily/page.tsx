@@ -223,7 +223,7 @@ function DailyChecklistContent() {
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Metadata Card */}
           {/* Metadata Card */}
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sucursal *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}

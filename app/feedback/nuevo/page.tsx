@@ -177,7 +177,7 @@ function NuevoFeedbackContent() {
           {/* Metadata Section */}
           <section className="form-section">
             <h3 className="section-title">Información de la Visita</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="input-group">
                 <label className="input-label">Tienda *</label>
                 <select
@@ -206,7 +206,7 @@ function NuevoFeedbackContent() {
           {/* Customer Info */}
           <section className="form-section">
             <h3 className="section-title">Datos del Cliente (Opcional)</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="input-group">
                 <label className="input-label">Nombre</label>
                 <input

@@ -307,7 +307,7 @@ function ScheduleManager() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                 {stores.map(store => {
                     const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id));
                     const weekStatuses = weekDays.map(d => calculateDailyStatus(formatDateISO(d), storeShifts, allUsers));
@@ -496,91 +496,95 @@ function ScheduleManager() {
     }
 
     return (
-        <div className="flex h-screen overflow-hidden bg-transparent font-sans text-gray-900 pt-16 md:pt-0">
-            <main className="flex-1 overflow-y-auto p-6 w-full transition-all duration-300">
-                {/* Selector eliminado de aquí */}
+        <div className="flex h-screen overflow-hidden bg-transparent font-sans text-gray-900 pt-20 lg:pt-0">
+            <main className="flex-1 flex flex-col h-full w-full relative overflow-hidden transition-all duration-300">
 
-                {loading ? (
-                    <div className="flex flex-col items-center justify-center h-64 gap-4">
-                        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-gray-400 font-medium">Sincronizando horarios...</p>
-                    </div>
-                ) : (
-                    viewMode === 'dashboard' ? renderDashboard() : renderEditor()
-                )}
+                {/* CONTENIDO PRINCIPAL SCROLLABLE */}
+                <div className="flex-1 overflow-y-auto p-4 md:p-6 w-full">
+                    {loading ? (
+                        <div className="flex flex-col items-center justify-center h-64 gap-4">
+                            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                            <p className="text-gray-400 font-medium">Sincronizando horarios...</p>
+                        </div>
+                    ) : (
+                        viewMode === 'dashboard' ? renderDashboard() : renderEditor()
+                    )}
+                </div>
 
                 {/* MODAL */}
-                {editingShift && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
-                            <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-                                <div>
-                                    <h3 className="text-lg font-bold text-gray-900">{editingShift.userName}</h3>
-                                    <p className="text-sm text-gray-500 capitalize">{formatDateNice(editingShift.date)} - {getDayName(editingShift.date)}</p>
+                {
+                    editingShift && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+                                <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900">{editingShift.userName}</h3>
+                                        <p className="text-sm text-gray-500 capitalize">{formatDateNice(editingShift.date)} - {getDayName(editingShift.date)}</p>
+                                    </div>
+                                    <button onClick={() => setEditingShift(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                                 </div>
-                                <button onClick={() => setEditingShift(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
-                            </div>
 
-                            <div className="p-6 space-y-5">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button
-                                        onClick={() => setEditingShift({ ...editingShift, start: '', end: '', presetId: 'off' })}
-                                        className={`p-3 rounded-lg border text-sm font-bold transition-all ${!editingShift.start ? 'bg-gray-800 text-white ring-2 ring-offset-2 ring-gray-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                                    >
-                                        OFF (Descanso)
-                                    </button>
-
-                                    {PRESETS.map(p => (
+                                <div className="p-6 space-y-5">
+                                    <div className="grid grid-cols-2 gap-3">
                                         <button
-                                            key={p.id}
-                                            onClick={() => setEditingShift({ ...editingShift, start: p.start, end: p.end, presetId: p.id })}
-                                            className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1
-                               ${editingShift.start === p.start && editingShift.end === p.end
-                                                    ? `ring-2 ring-offset-1 border-transparent ${p.color.replace('bg-', 'bg-opacity-100 bg-').replace('text-', 'text-black ')} ring-blue-500`
-                                                    : `${p.color} hover:brightness-95`
-                                                }`}
+                                            onClick={() => setEditingShift({ ...editingShift, start: '', end: '', presetId: 'off' })}
+                                            className={`p-3 rounded-lg border text-sm font-bold transition-all ${!editingShift.start ? 'bg-gray-800 text-white ring-2 ring-offset-2 ring-gray-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                                         >
-                                            <span>{p.label}</span>
-                                            <span className="opacity-70 text-[10px] font-normal">{p.start} - {p.end}</span>
+                                            OFF (Descanso)
                                         </button>
-                                    ))}
-                                </div>
 
-                                <div className="pt-4 border-t border-gray-100">
-                                    <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Horario Personalizado</label>
-                                    <div className="flex gap-4">
-                                        <div className="flex-1">
-                                            <span className="text-xs text-gray-400 mb-1 block">Entrada</span>
-                                            <input
-                                                type="time"
-                                                value={editingShift.start}
-                                                onChange={(e) => setEditingShift({ ...editingShift, start: e.target.value })}
-                                                className="w-full p-2 border border-gray-300 rounded-lg text-lg font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                                            />
-                                        </div>
-                                        <div className="flex items-center text-gray-400 pt-5">➜</div>
-                                        <div className="flex-1">
-                                            <span className="text-xs text-gray-400 mb-1 block">Salida</span>
-                                            <input
-                                                type="time"
-                                                value={editingShift.end}
-                                                onChange={(e) => setEditingShift({ ...editingShift, end: e.target.value })}
-                                                className="w-full p-2 border border-gray-300 rounded-lg text-lg font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                                            />
+                                        {PRESETS.map(p => (
+                                            <button
+                                                key={p.id}
+                                                onClick={() => setEditingShift({ ...editingShift, start: p.start, end: p.end, presetId: p.id })}
+                                                className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1
+                               ${editingShift.start === p.start && editingShift.end === p.end
+                                                        ? `ring-2 ring-offset-1 border-transparent ${p.color.replace('bg-', 'bg-opacity-100 bg-').replace('text-', 'text-black ')} ring-blue-500`
+                                                        : `${p.color} hover:brightness-95`
+                                                    }`}
+                                            >
+                                                <span>{p.label}</span>
+                                                <span className="opacity-70 text-[10px] font-normal">{p.start} - {p.end}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="pt-4 border-t border-gray-100">
+                                        <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Horario Personalizado</label>
+                                        <div className="flex gap-4">
+                                            <div className="flex-1">
+                                                <span className="text-xs text-gray-400 mb-1 block">Entrada</span>
+                                                <input
+                                                    type="time"
+                                                    value={editingShift.start}
+                                                    onChange={(e) => setEditingShift({ ...editingShift, start: e.target.value })}
+                                                    className="w-full p-2 border border-gray-300 rounded-lg text-lg font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                />
+                                            </div>
+                                            <div className="flex items-center text-gray-400 pt-5">➜</div>
+                                            <div className="flex-1">
+                                                <span className="text-xs text-gray-400 mb-1 block">Salida</span>
+                                                <input
+                                                    type="time"
+                                                    value={editingShift.end}
+                                                    onChange={(e) => setEditingShift({ ...editingShift, end: e.target.value })}
+                                                    className="w-full p-2 border border-gray-300 rounded-lg text-lg font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                />
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
-                                <button onClick={() => setEditingShift(null)} className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-lg">Cancelar</button>
-                                <button onClick={saveShift} className="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition-colors">
-                                    Guardar Cambios
-                                </button>
+                                <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+                                    <button onClick={() => setEditingShift(null)} className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-lg">Cancelar</button>
+                                    <button onClick={saveShift} className="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition-colors">
+                                        Guardar Cambios
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )
+                }
             </main>
         </div>
     )

@@ -188,8 +188,8 @@ function FeedbackContent() {
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0">
-      <div className="flex-1 flex flex-col h-full w-full relative">
+    <div className="flex bg-transparent h-screen overflow-hidden font-sans pt-20 lg:pt-0">
+      <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* 🚨 BANNER DE DEBUG DE EMERGENCIA */}
         {tokenIdentity && user && tokenIdentity.email !== user.email && (
@@ -268,7 +268,7 @@ function FeedbackContent() {
           </div>
 
           {/* Stats Cards - Adaptive Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4 mb-6 lg:mb-8">
             <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-gray-800 border-y border-r border-gray-100">
               <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Total</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.total}</p>
@@ -445,19 +445,20 @@ function FeedbackContent() {
           )}
 
         </div>
-      </div>
-
+      </main>
       {/* Detail Modal */}
-      {selectedFeedback && user && (
-        <FeedbackReviewModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          feedback={selectedFeedback}
-          currentUser={user}
-          onUpdate={fetchData}
-        />
-      )}
-    </div>
+      {
+        selectedFeedback && user && (
+          <FeedbackReviewModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            feedback={selectedFeedback}
+            currentUser={user}
+            onUpdate={fetchData}
+          />
+        )
+      }
+    </div >
   )
 }
 

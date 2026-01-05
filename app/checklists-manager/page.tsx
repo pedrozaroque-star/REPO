@@ -211,11 +211,11 @@ function ManagerChecklistsContent() {
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0">
+    <div className="flex bg-transparent min-h-screen font-sans pt-20 lg:pt-0">
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* STICKY HEADER - Mobile & Desktop */}
-        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-30 shrink-0">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
             {/* Title Area */}
             <div className="flex items-center gap-3">
@@ -297,7 +297,7 @@ function ManagerChecklistsContent() {
           </div>
 
           {/* Stats Cards - Adaptive Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4 mb-6 lg:mb-8">
             <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-indigo-500 border-y border-r border-gray-100">
               <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Total</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.total}</p>
@@ -329,7 +329,7 @@ function ManagerChecklistsContent() {
           ) : (
             <>
               {/* MOBILE CARDS (Hidden on Desktop) */}
-              <div className="md:hidden space-y-4">
+              <div className="lg:hidden space-y-4">
                 {checklists.map((item) => {
                   const scoreColor = item.score >= 87 ? 'text-green-600' : item.score >= 70 ? 'text-orange-600' : 'text-red-600'
                   const canEdit = canUserEdit(item)
@@ -385,7 +385,7 @@ function ManagerChecklistsContent() {
               </div>
 
               {/* DESKTOP TABLE (Hidden on Mobile) */}
-              <div className="hidden md:block bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+              <div className="hidden lg:block bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-200">

@@ -203,7 +203,7 @@ function SobranteContent() {
 
       <div className="max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sucursal *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
@@ -236,7 +236,7 @@ function SobranteContent() {
                   <h2 className="text-[10px] font-black text-orange-600 uppercase tracking-[0.3em]">{section.title}</h2>
                   <div className="h-[2px] flex-1 bg-gray-100" />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {section.questions.map((question: any, idx: number) => (
                     <DynamicQuestion
                       key={question.id}

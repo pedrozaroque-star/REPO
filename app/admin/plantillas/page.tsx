@@ -65,9 +65,9 @@ export default function TemplatesPage() {
     }
 
     return (
-        <div className="bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0">
+        <div className="bg-transparent h-screen overflow-hidden font-sans pt-20 lg:pt-0">
             {/* STICKY HEADER - Mobile & Desktop */}
-            <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+            <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
                 <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
                     {/* Title Area */}
                     <div className="flex items-center gap-3">
@@ -126,7 +126,7 @@ export default function TemplatesPage() {
                         <p className="text-gray-900 font-bold">Cargando plantillas...</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {filteredTemplates.map((template) => (
                             <motion.div
                                 key={template.id}

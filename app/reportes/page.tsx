@@ -217,11 +217,11 @@ function ReportesContent() {
     }
 
     return (
-        <div className="flex bg-transparent h-screen overflow-hidden text-gray-900 font-sans pt-16 md:pt-0">
+        <div className="flex bg-transparent h-screen overflow-hidden text-gray-900 font-sans pt-20 lg:pt-0">
             <div className="flex-1 flex flex-col h-full w-full relative pl-0 md:pl-0">
 
                 {/* 1. COMPACT HEADER BAR */}
-                <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-20 shadow-sm">
+                <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-14 lg:top-0 z-20 shadow-sm">
                     <div className="flex items-center gap-3 w-full md:w-auto">
                         <div className="p-2 bg-slate-900 text-white rounded-lg">
                             <TrendingUp size={20} />

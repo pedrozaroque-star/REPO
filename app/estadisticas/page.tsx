@@ -168,7 +168,7 @@ export default function EstadisticasPage() {
               </ResponsiveContainer>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Checklists por Tipo */}
               <div className="bg-white rounded-xl shadow-md p-6">
                 <h2 className="text-xl font-bold text-gray-900 mb-6">Checklists por Tipo</h2>

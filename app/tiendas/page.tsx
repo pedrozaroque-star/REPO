@@ -164,7 +164,7 @@ export default function TiendasPage() {
           </div>
 
           {/* Stats Summary - Now Scrollable */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100">
               <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Total</p>
               <p className="text-2xl md:text-3xl font-black text-gray-900">{stores.length}</p>
@@ -184,7 +184,7 @@ export default function TiendasPage() {
           </div>
 
           {/* Stores Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {filteredStores.map((store) => (
               <div
                 key={store.id}

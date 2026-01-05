@@ -337,7 +337,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Performance Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100">
             <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2">
               <TrendingUp size={20} className="text-indigo-500" />

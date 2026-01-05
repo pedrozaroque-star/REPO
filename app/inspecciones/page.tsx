@@ -124,11 +124,11 @@ function InspeccionesContent() {
   if (loading) return <div className="flex h-screen items-center justify-center">Cargando inspecciones...</div>
 
   return (
-    <div className="flex bg-transparent h-screen overflow-hidden pt-16 md:pt-0 font-sans">
+    <div className="flex bg-transparent h-screen overflow-hidden pt-16 lg:pt-0 font-sans">
       <div className="flex-1 flex flex-col h-full w-full relative">
 
         {/* 1. STICKY HEADER (Matches Reportes Design) */}
-        <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 z-20 shadow-sm shrink-0">
+        <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-14 lg:top-0 z-20 shadow-sm shrink-0">
           <div className="w-full md:w-auto">
             <h1 className="text-xl md:text-2xl font-black text-gray-900 leading-none">Inspecciones de Supervisor</h1>
             <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wide">Auditoría y control de calidad</p>
@@ -205,7 +205,7 @@ function InspeccionesContent() {
 
 
           {/* DESKTOP TABLE VIEW (HIDDEN ON MOBILE) */}
-          <div className="hidden md:flex bg-white rounded-xl shadow-sm border border-gray-200 flex-col overflow-hidden">
+          <div className="hidden lg:flex bg-white rounded-xl shadow-sm border border-gray-200 flex-col overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse relative">
                 <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-bold">
@@ -303,7 +303,7 @@ function InspeccionesContent() {
           </div>
 
           {/* MOBILE CARDS VIEW (VISIBLE ONLY ON MOBILE) */}
-          <div className="md:hidden space-y-4">
+          <div className="lg:hidden space-y-4">
             {inspections.map((item) => (
               <div
                 key={item.id}

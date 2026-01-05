@@ -182,11 +182,11 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent font-sans pt-16 md:pt-0">
+    <div className="flex h-screen overflow-hidden bg-transparent font-sans pt-20 lg:pt-0">
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* STICKY HEADER - Mobile & Desktop */}
-        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
 
             {/* Title Area */}
@@ -274,13 +274,13 @@ export default function UsuariosPage() {
 
           {/* Grid de Tarjetas */}
           {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 animate-pulse">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-pulse">
               {[1, 2, 3, 4, 5, 6].map(i => (
                 <div key={i} className="h-40 bg-gray-200 rounded-3xl"></div>
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {filteredUsers.map(user => (
                 <div
                   key={user.id}

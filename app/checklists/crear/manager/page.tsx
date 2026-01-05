@@ -225,7 +225,7 @@ function ManagerChecklistContent() {
       <div className="flex-1 overflow-y-auto max-w-6xl mx-auto px-4 py-6 w-full">
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-bold text-gray-900 mb-2">Sucursal *</label>
                 <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}

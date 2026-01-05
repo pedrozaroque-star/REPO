@@ -227,8 +227,8 @@ export default function StaffEvaluationPage() {
   }
 
   return (
-    <div className="bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0 flex flex-col">
-      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+    <div className="flex bg-transparent h-screen overflow-hidden font-sans pt-20 lg:pt-0 flex flex-col">
+      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Logo" className="h-8" />
@@ -250,7 +250,7 @@ export default function StaffEvaluationPage() {
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <MapPin size={12} /> {t.store}
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)}
                   className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none">
                   <option value="">{t.storePlaceholder}</option>
@@ -325,7 +325,7 @@ export default function StaffEvaluationPage() {
           )}
 
           <section className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic">{t.fortalezas}</label>
                 <textarea value={formData.fortalezas} onChange={e => setFormData({ ...formData, fortalezas: e.target.value })} rows={3}
@@ -367,6 +367,6 @@ export default function StaffEvaluationPage() {
           </section>
         </form>
       </main>
-    </div>
+    </div >
   )
 }
