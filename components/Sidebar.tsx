@@ -158,7 +158,8 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
   return (
     <>
       {/* Sidebar para Desktop */}
-      <div className={`hidden md:flex ${isCollapsed ? 'md:w-20' : 'md:w-64'} md:flex-col md:fixed md:inset-y-0 transition-all duration-300 z-50`}>
+      {/* Sidebar para Desktop */}
+      <div className={`hidden lg:flex ${isCollapsed ? 'lg:w-20' : 'lg:w-64'} lg:flex-col lg:fixed lg:inset-y-0 transition-all duration-300 z-50`}>
         {/* Disparador Circular Minimalista - FUERA del overflow-hidden */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
@@ -320,7 +321,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
       </div>
 
       {/* Mobile Menu Button - Ajustado al nuevo tema */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-gradient-to-r from-red-600 to-red-900 px-4 py-3 flex items-center justify-between shadow-lg">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-gradient-to-r from-red-600 to-red-900 px-4 py-3 flex items-center justify-between shadow-lg">
         <div className="h-8 w-8 relative">
           <Image src="/logo.png" alt="Logo" fill sizes="32px" className="object-contain" />
         </div>
@@ -337,7 +338,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
 
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-30 bg-black/80 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)}>
+        <div className="lg:hidden fixed inset-0 z-30 bg-black/80 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)}>
           <div className="fixed inset-y-0 left-0 w-72 bg-gradient-to-b from-red-600 via-red-800 to-red-950 overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="pt-20 pb-4 flex flex-col h-full">
 

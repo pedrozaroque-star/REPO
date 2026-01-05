@@ -32,7 +32,7 @@ export default function ClientLayout({
 
             <Sidebar isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
 
-            <main className={`flex-1 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'} min-h-screen p-8 transition-all duration-300 relative z-10`}>
+            <main className={`flex-1 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'} min-h-screen p-8 transition-all duration-300 relative z-10`}>
                 {children}
             </main>
         </div>
