@@ -99,7 +99,9 @@ export default function AdminPage() {
         headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
       })
       const storesData = await storesRes.json()
-      const storeMap = new Map(storesData.map((s: any) => [s.id, s.name]))
+      const storeMap = new Map<string, string>(
+        storesData.map((s: any) => [String(s.id), String(s.name)])
+      )
 
       // Merge store names
       const feedbacksWithNames = data.map((f: any) => ({
