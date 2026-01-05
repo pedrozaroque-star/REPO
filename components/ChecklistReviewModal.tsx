@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDateLA } from '@/lib/checklistPermissions'
 import { getManagerQuestionText, getAssistantQuestionText, getChecklistTitle } from '@/lib/legacyQuestions'
@@ -139,6 +139,191 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
     const { data: template, loading: templateLoading } = useDynamicChecklist(templateCode || '')
     const questionPhotosMap = checklist?.answers?.['__question_photos'] || {}
 
+    const handlePrint = () => {
+        window.print()
+    }
+
+    // -- MOVE HELPERS HERE --
+    const getTempValidation = (questionText: string, value: number, sectionTitle?: string) => {
+        const textToCheck = `${questionText} ${sectionTitle || ''}`.toLowerCase()
+        const isRefrig = textToCheck.includes('refrig') || textToCheck.includes('frio')
+        const isValid = isRefrig ? (value >= 34 && value <= 41) : (value >= 165)
+        return { isValid, isRefrig }
+    }
+
+    const renderAnswerValue = (question: any, rawValue: any, sectionTitle?: string) => {
+        let value = rawValue
+        if (value && typeof value === 'object' && value.value !== undefined) {
+            value = value.value
+        }
+        const displayValue = String(value ?? 'N/A')
+        const numValue = Number(value)
+
+        if (type === 'supervisor' && !isNaN(numValue) && value !== null && value !== '' && value !== undefined) {
+            if (numValue === 100) {
+                return (
+                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200">
+                        <CheckCircle size={14} /> CUMPLE
+                    </span>
+                )
+            }
+            if (numValue === 60) {
+                return (
+                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-100 text-amber-700 font-bold text-xs border border-amber-200">
+                        <AlertCircle size={14} /> CUMPLE PARCIAL
+                    </span>
+                )
+            }
+            if (numValue === 0) {
+                return (
+                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-100 text-red-700 font-bold text-xs border border-red-200">
+                        <XCircle size={14} /> NO CUMPLE
+                    </span>
+                )
+            }
+        }
+
+        if (type === 'temperaturas' && !isNaN(numValue) && value !== null && value !== '') {
+            const { isValid } = getTempValidation(question.text, numValue, sectionTitle)
+            return (
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 font-bold text-sm ${isValid
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    : 'bg-red-50 text-red-700 border-red-300'
+                    }`}>
+                    <span>{displayValue}°F</span>
+                    {isValid ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                </div>
+            )
+        }
+
+        const upperVal = displayValue.toUpperCase()
+        if (upperVal === 'SI' || upperVal === 'SÍ') {
+            return (
+                <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200">
+                    <CheckCircle size={14} /> SÍ
+                </span>
+            )
+        }
+        if (upperVal === 'NO') {
+            return (
+                <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-100 text-red-700 font-bold text-xs border border-red-200">
+                    <XCircle size={14} /> NO
+                </span>
+            )
+        }
+        if (upperVal === 'N/A' || upperVal === 'NA') {
+            return (
+                <span className="px-3 py-1 rounded-lg bg-gray-100 text-gray-500 font-bold text-xs border border-gray-200">
+                    N/A
+                </span>
+            )
+        }
+
+        if (type === 'sobrante' && !isNaN(numValue) && value !== null && value !== '') {
+            const isAlarm = numValue > 2
+            return (
+                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-semibold text-sm border ${isAlarm
+                    ? 'bg-red-50 text-red-700 border-red-200 animate-pulse'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    }`}>
+                    {displayValue} Lbs {isAlarm && <AlertCircle size={14} />}
+                </span>
+            )
+        }
+
+        return (
+            <span className="px-3 py-1 rounded-lg bg-gray-100 text-gray-700 font-semibold text-sm border border-gray-200">
+                {displayValue}{type === 'sobrante' && !isNaN(numValue) && value !== null && value !== '' ? ' Lbs' : ''}
+            </span>
+        )
+    }
+    // -- END HELPERS --
+
+    // Dynamic Score Calculation (especially for Sobrantes/Temperaturas with rules changing)
+    const finalScore = useMemo(() => {
+        if (!template || !checklist) return checklist?.score || checklist?.overall_score || 0
+        if (type !== 'sobrante' && type !== 'temperaturas') return checklist?.score || checklist?.overall_score || 0
+
+        const allQuestions = template.sections.flatMap((s: any) =>
+            s.questions.map((q: any) => ({ ...q, sectionTitle: s.title }))
+        )
+        if (allQuestions.length === 0) return 0
+
+        let validCount = 0
+        let capturedCount = 0
+
+        allQuestions.forEach((q: any) => {
+            let value: any = undefined
+            if (checklist.answers?.[q.id] !== undefined) value = checklist.answers[q.id]
+            else if (checklist.answers?.[q.text] !== undefined) value = checklist.answers[q.text]
+            else {
+                const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+                for (const key of Object.keys(checklist.answers || {})) {
+                    if (key === '__question_photos') continue
+                    const keyLower = key.toLowerCase()
+                    const matchCount = questionWords.filter((w: string) => keyLower.includes(w)).length
+                    if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                        value = checklist.answers[key]
+                        break
+                    }
+                }
+            }
+
+            const numVal = Number(value)
+            const isCaptured = !isNaN(numVal) && value !== null && value !== '' && value !== undefined
+
+            if (isCaptured) {
+                capturedCount++
+                if (type === 'sobrante') {
+                    if (numVal <= 2) validCount++
+                } else if (type === 'temperaturas') {
+                    const { isValid } = getTempValidation(q.text, numVal, q.sectionTitle)
+                    if (isValid) validCount++
+                }
+            } else {
+                // For scoring, non-captured items in new templates act as neutral or pending
+                // but if and only if they were never answered.
+                // However, for sobrante we previously did 'withinLimit++'.
+                // Let's stick to (Valid / Captured) for Temperatures, and (<=2 / Total) for Sobrante as requested.
+                if (type === 'sobrante') validCount++
+            }
+        })
+
+        if (type === 'temperaturas') {
+            return capturedCount === 0 ? 100 : Math.round((validCount / capturedCount) * 100)
+        }
+        return Math.round((validCount / allQuestions.length) * 100)
+    }, [template, checklist, type])
+
+    // Identify answers that were NOT matched by any template question (Legacy Data)
+    const orphanedAnswers = useMemo(() => {
+        if (!template || !checklist?.answers) return []
+        const usedKeys = new Set<string>()
+        const allQuestions = template.sections.flatMap((s: any) => s.questions)
+
+        allQuestions.forEach((q: any) => {
+            // Check direct ID or Text match
+            if (checklist.answers[q.id] !== undefined) { usedKeys.add(q.id); return }
+            if (checklist.answers[q.text] !== undefined) { usedKeys.add(q.text); return }
+
+            // Check Fuzzy logic (mirroring the render loop)
+            const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+            for (const key of Object.keys(checklist.answers)) {
+                if (key === '__question_photos') continue
+                const keyLower = key.toLowerCase().replace(/\(lbs\)/g, '').trim()
+                const matchCount = questionWords.filter((w: string) => keyLower.includes(w)).length
+                if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                    usedKeys.add(key)
+                    break
+                }
+            }
+        })
+
+        return Object.keys(checklist.answers).filter(key =>
+            key !== '__question_photos' && !usedKeys.has(key) && checklist.answers[key] !== undefined && checklist.answers[key] !== null
+        )
+    }, [template, checklist])
+
     const getEmbeddableImageUrl = (url: string) => {
         if (!url) return ''
         if (url.includes('lh3.googleusercontent.com')) return url
@@ -269,108 +454,6 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         }
     }
 
-    if (!isOpen || !checklist) return null
-
-    // Temperature validation helper
-    const getTempValidation = (questionText: string, value: number) => {
-        const isRefrig = questionText.toLowerCase().includes('refrig')
-        const isValid = isRefrig ? (value >= 34 && value <= 41) : (value >= 165)
-        return { isValid, isRefrig }
-    }
-
-    // Render answer value with appropriate styling
-    const renderAnswerValue = (question: any, rawValue: any) => {
-        // Extract value if it's an object wrapping the answer (legacy format)
-        let value = rawValue
-        if (value && typeof value === 'object' && value.value !== undefined) {
-            value = value.value
-        }
-
-        const displayValue = String(value ?? 'N/A')
-        const numValue = Number(value)
-
-        // Supervisor score mapping (100 -> CUMPLE, 60 -> CUMPLE PARCIAL, 0 -> NO CUMPLE)
-        if (type === 'supervisor' && !isNaN(numValue) && value !== null && value !== '' && value !== undefined) {
-            if (numValue === 100) {
-                return (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200">
-                        <CheckCircle size={14} /> CUMPLE
-                    </span>
-                )
-            }
-            if (numValue === 60) {
-                return (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-100 text-amber-700 font-bold text-xs border border-amber-200">
-                        <AlertCircle size={14} /> CUMPLE PARCIAL
-                    </span>
-                )
-            }
-            if (numValue === 0) {
-                return (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-100 text-red-700 font-bold text-xs border border-red-200">
-                        <XCircle size={14} /> NO CUMPLE
-                    </span>
-                )
-            }
-        }
-
-        // Temperature checklist - special validation
-        if (type === 'temperaturas' && !isNaN(numValue)) {
-            const { isValid, isRefrig } = getTempValidation(question.text, numValue)
-            return (
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 font-bold text-sm ${isValid
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                    : 'bg-red-50 text-red-700 border-red-300'
-                    }`}>
-                    <span>{displayValue}°F</span>
-                    {isValid ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-                </div>
-            )
-        }
-
-        // Yes/No answers
-        const upperVal = displayValue.toUpperCase()
-        if (upperVal === 'SI' || upperVal === 'SÍ') {
-            return (
-                <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200">
-                    <CheckCircle size={14} /> SÍ
-                </span>
-            )
-        }
-        if (upperVal === 'NO') {
-            return (
-                <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-100 text-red-700 font-bold text-xs border border-red-200">
-                    <XCircle size={14} /> NO
-                </span>
-            )
-        }
-        if (upperVal === 'NA' || upperVal === 'N/A') {
-            return (
-                <span className="px-3 py-1 rounded-lg bg-gray-100 text-gray-500 font-medium text-xs border border-gray-200">
-                    N/A
-                </span>
-            )
-        }
-
-        // Rating (stars)
-        if (question.type === 'rating_5' && !isNaN(numValue)) {
-            return (
-                <div className="flex gap-0.5">
-                    {[1, 2, 3, 4, 5].map(s => (
-                        <Star key={s} size={16} fill={s <= numValue ? '#fbbf24' : 'none'} className={s <= numValue ? 'text-amber-400' : 'text-gray-300'} />
-                    ))}
-                </div>
-            )
-        }
-
-        // Default - text/number display
-        return (
-            <span className="px-3 py-1 rounded-lg bg-gray-100 text-gray-700 font-semibold text-sm border border-gray-200">
-                {displayValue}
-            </span>
-        )
-    }
-
     return (
         <AnimatePresence>
             {isOpen && (
@@ -406,9 +489,14 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                             <h2 className="text-lg font-bold leading-tight">{checklist.store_name}</h2>
                                         </div>
                                     </div>
-                                    <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition text-white/80 hover:text-white">
-                                        <X size={24} />
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={handlePrint} className="p-2 hover:bg-white/20 rounded-full transition text-white/80 hover:text-white" title="Imprimir / Guardar PDF">
+                                            <Printer size={22} />
+                                        </button>
+                                        <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition text-white/80 hover:text-white">
+                                            <X size={24} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Status Badge */}
@@ -420,7 +508,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                             {/* Score Gauge */}
                             <div className="flex justify-center py-6 border-b border-gray-200 bg-gray-50">
-                                <ScoreGauge score={checklist.score || checklist.overall_score || 0} />
+                                <ScoreGauge score={finalScore} />
                             </div>
 
                             {/* Metadata */}
@@ -595,13 +683,16 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                     }
 
                                                                     const keyLower = keyText.toLowerCase()
+                                                                        .replace(/\(lbs\)/g, '') // Clean units for better matching
+                                                                        .trim()
 
-                                                                    // Check if key contains at least 2 significant words from the question
+                                                                    // Check if key contains significant words from the question
                                                                     const matchCount = questionWords.filter((word: string) =>
                                                                         keyLower.includes(word) && word.length > 2
                                                                     ).length
 
-                                                                    if (matchCount >= 2) {
+                                                                    // If at least 2 significant words match or 100% of small questions (like ChecklistForm)
+                                                                    if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
                                                                         value = checklist.answers[answerKey]
                                                                         break
                                                                     }
@@ -614,7 +705,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                 <div key={q.id} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
                                                                     <div className="flex justify-between items-start gap-3">
                                                                         <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{q.text}</span>
-                                                                        <div className="shrink-0">{renderAnswerValue(q, value)}</div>
+                                                                        <div className="shrink-0">{renderAnswerValue(q, value, section.title)}</div>
                                                                     </div>
                                                                     {qPhotos.length > 0 && (
                                                                         <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
@@ -631,20 +722,37 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                     </div>
                                                 </div>
                                             ))
-                                        ) : (
-                                            // Fallback for legacy data
-                                            <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
-                                                <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 pb-2 border-b border-gray-200">
-                                                    Respuestas
-                                                </h3>
-                                                <div className="space-y-2">
-                                                    {Object.entries(checklist.answers || {}).map(([key, val]: [string, any]) => {
-                                                        if (key === '__question_photos' || key.includes('_score')) return null
-                                                        const valueStr = typeof val === 'object' ? (val.value || JSON.stringify(val)) : String(val)
+                                        ) : null}
+
+                                        {/* SECTION FOR ORPHANED / LEGACY DATA (Answers found in DB but not in current template) */}
+                                        {orphanedAnswers.length > 0 && (
+                                            <div className="bg-amber-50 rounded-2xl p-4 md:p-5 border border-amber-100 mt-6">
+                                                <div className="flex items-center gap-2 mb-4 pb-2 border-b border-amber-200">
+                                                    <History size={16} className="text-amber-600" />
+                                                    <h3 className="text-xs md:text-sm font-bold text-amber-700 uppercase tracking-wider">
+                                                        Información Histórica (Preguntas Anteriores)
+                                                    </h3>
+                                                </div>
+                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                    {orphanedAnswers.map((key) => {
+                                                        const rawValue = checklist.answers[key]
+                                                        const qPhotos = questionPhotosMap[key] || []
+
                                                         return (
-                                                            <div key={key} className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100">
-                                                                <span className="text-sm text-gray-700">{key}</span>
-                                                                {renderAnswerValue({ text: key }, valueStr)}
+                                                            <div key={key} className="bg-white p-3 md:p-4 rounded-xl border border-amber-100 hover:shadow-md transition-shadow">
+                                                                <div className="flex justify-between items-start gap-3">
+                                                                    <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{key}</span>
+                                                                    <div className="shrink-0">{renderAnswerValue({ text: key }, rawValue)}</div>
+                                                                </div>
+                                                                {qPhotos.length > 0 && (
+                                                                    <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                                                                        {qPhotos.map((url: string, idx: number) => (
+                                                                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200">
+                                                                                <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" />
+                                                                            </a>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         )
                                                     })}
@@ -687,6 +795,58 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     </motion.div>
                 </motion.div>
             )}
+            <style jsx global>{`
+                @media print {
+                    body * {
+                        visibility: hidden;
+                    }
+                    .fixed.inset-0, .fixed.inset-0 * {
+                        visibility: visible;
+                    }
+                    .fixed.inset-0 {
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        margin: 0;
+                        padding: 0;
+                        width: 100%;
+                        background: white !important;
+                    }
+                    .rounded-t-3xl, .rounded-3xl {
+                        border-radius: 0 !important;
+                    }
+                    .shadow-2xl, .shadow-lg {
+                        box-shadow: none !important;
+                    }
+                    button, .md\\:hidden, .hidden.md\\:flex {
+                        display: none !important;
+                    }
+                    .max-h-\\[90vh\\], .overflow-y-auto {
+                        max-height: none !important;
+                        overflow: visible !important;
+                    }
+                    .flex-col.md\\:flex-row {
+                        flex-direction: column !important;
+                    }
+                    .md\\:w-\\[340px\\] {
+                        width: 100% !important;
+                        border-right: none !important;
+                        border-bottom: 2px solid #eee;
+                    }
+                    .sticky {
+                        position: static !important;
+                    }
+                    .p-6, .p-8 {
+                        padding: 1rem !important;
+                    }
+                    .bg-gray-50, .bg-white {
+                        background: white !important;
+                    }
+                    .no-scrollbar::-webkit-scrollbar {
+                        display: none;
+                    }
+                }
+            `}</style>
         </AnimatePresence>
     )
 }

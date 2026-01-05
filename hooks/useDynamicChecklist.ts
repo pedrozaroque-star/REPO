@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
 
 export interface Question {
@@ -35,10 +35,14 @@ export function useDynamicChecklist(templateCode: string) {
     const [error, setError] = useState<string | null>(null)
     const [isCached, setIsCached] = useState(false)
 
-    const fetchTemplate = useCallback(async () => {
-        try {
-            // 0. Cache-First Strategy
-            // Try to load from local storage immediately to unblock UI
+    // Helper to log with prefix
+    const log = (msg: string) => { } // console.log(`[useDynamicChecklist:${templateCode}] ${msg}`)
+
+    const fetchTemplate = useCallback(async (isRefresh = false) => {
+        if (!templateCode) return
+
+        if (!isRefresh) {
+            // 0. Cache-First Strategy (Immediate)
             const cacheKey = `${CACHE_PREFIX}${templateCode}`
             if (typeof window !== 'undefined') {
                 const cached = localStorage.getItem(cacheKey)
@@ -47,18 +51,21 @@ export function useDynamicChecklist(templateCode: string) {
                         const parsed = JSON.parse(cached)
                         setData(parsed)
                         setIsCached(true)
-                        setLoading(false) // Data is ready, no need to show spinner
-                        console.log(`📦 Loaded ${templateCode} from cache`)
+                        setLoading(false)
+                        log('📦 Loaded from cache')
                     } catch (e) {
                         console.error('Error parsing cache:', e)
                     }
                 }
             }
+        }
 
-            // Only show spinner if we didn't find anything in cache
-            if (!data) setLoading(true)
+        try {
+            // Only show spinner if we don't have data yet
+            // We use a functional query or just rely on the fact that setLoading(true) 
+            // won't hurt if it's already true, but we want to avoid unnecessary flashes.
+            setLoading(prev => data ? prev : true)
 
-            // 1. Fetch Fresh Data (Background Update)
             const supabase = await getSupabaseClient()
 
             // A. Get Template
@@ -80,12 +87,10 @@ export function useDynamicChecklist(templateCode: string) {
 
             if (sectionsError) throw sectionsError
 
-            // C. Get Questions (if there are sections)
+            // C. Get Questions
             let allQuestions: Question[] = []
-
             if (sectionsData && sectionsData.length > 0) {
                 const sectionIds = sectionsData.map(s => s.id)
-
                 const { data: questionsData, error: questionsError } = await supabase
                     .from('template_questions')
                     .select('*')
@@ -96,7 +101,7 @@ export function useDynamicChecklist(templateCode: string) {
                 allQuestions = questionsData || []
             }
 
-            // D. Assemble Data (Nest questions into sections)
+            // D. Assemble
             const assembledSections: Section[] = (sectionsData || []).map(section => ({
                 ...section,
                 questions: allQuestions.filter(q => q.section_id === section.id)
@@ -107,36 +112,44 @@ export function useDynamicChecklist(templateCode: string) {
                 sections: assembledSections
             }
 
-            // Update State & Cache
+            // Update State
             setData(finalData)
-            setIsCached(false) // Data is now fresh from network
+            setIsCached(false)
             setError(null)
 
+            // Update Cache
             if (typeof window !== 'undefined') {
-                localStorage.setItem(cacheKey, JSON.stringify(finalData))
-                console.log(`🔄 Updated cache for ${templateCode}`)
+                localStorage.setItem(`${CACHE_PREFIX}${templateCode}`, JSON.stringify(finalData))
+                log('🔄 Updated cache from network')
             }
 
         } catch (err: any) {
             console.error('Error fetching dynamic checklist:', err)
-
-            // If we have data (from cache), don't break the UI with an error, just log/warn
-            if (data) {
-                console.warn('⚠️ Network failed, using cached data.')
-                setIsCached(true) // Confirmed running on cache
-            } else {
-                setError(err.message || 'Error desconocido al cargar la plantilla')
+            // Error handling: if we have data (from cache), keep it but set error null to not show error UI
+            // unless we strictly want to know the fetch failed.
+            if (!data) {
+                setError(err.message || 'Error al cargar la plantilla')
             }
         } finally {
             setLoading(false)
         }
-    }, [templateCode]) // Fixed: Removed 'data' from dependency to avoid infinite loop
+    }, [templateCode]) // data removed to avoid identity change loop
 
     useEffect(() => {
+        let isMounted = true
         if (templateCode) {
             fetchTemplate()
         }
-    }, [templateCode, fetchTemplate])
+        return () => { isMounted = false }
+    }, [templateCode]) // fetchTemplate dependency removed to avoid identity-based infinite loops
 
-    return { data, loading, error, isCached, refresh: fetchTemplate }
+    const refresh = useCallback(() => fetchTemplate(true), [fetchTemplate])
+
+    return useMemo(() => ({
+        data,
+        loading,
+        error,
+        isCached,
+        refresh
+    }), [data, loading, error, isCached, refresh])
 }

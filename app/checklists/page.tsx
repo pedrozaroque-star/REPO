@@ -309,7 +309,7 @@ function ChecklistsContent() {
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0">
+    <div className="flex bg-transparent min-h-screen font-sans pt-16 md:pt-0">
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* STICKY HEADER - Mobile & Desktop */}
@@ -354,7 +354,7 @@ function ChecklistsContent() {
         </div>
 
         {/* SCROLLABLE CONTENT */}
-        <div className="flex-1 overflow-y-auto w-full max-w-7xl mx-auto p-4 md:p-8 pb-24">
+        <div className="w-full max-w-7xl mx-auto p-4 md:p-8 pb-24">
 
           {/* Mobile Filters */}
           <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3">

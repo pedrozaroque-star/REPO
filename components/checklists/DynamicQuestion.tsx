@@ -17,9 +17,10 @@ interface QuestionProps {
     photos: string[]
     onChange: (val: any) => void
     onPhotosChange: (urls: string[]) => void
+    checklistType?: string
 }
 
-export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange }: QuestionProps) {
+export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType }: QuestionProps) {
     const [uploading, setUploading] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -108,6 +109,8 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                 )
 
             case 'number':
+                const numVal = Number(value)
+                const isOverLimit = checklistType === 'sobrante' && !isNaN(numVal) && numVal > 2
                 return (
                     <div className="relative">
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">#</span>
@@ -116,8 +119,15 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                             value={value || ''}
                             onChange={(e) => onChange(e.target.value)}
                             placeholder="0"
-                            className="w-full pl-8 p-4 bg-gray-50 border-2 border-transparent focus:bg-white focus:border-blue-500 rounded-xl outline-none text-gray-900 font-black text-xl transition-all placeholder:text-gray-300"
+                            className={`w-full pl-8 p-4 bg-gray-50 border-2 rounded-xl outline-none text-gray-900 font-black text-xl transition-all placeholder:text-gray-300 ${isOverLimit
+                                ? 'border-red-500 bg-red-50 focus:bg-white'
+                                : 'border-transparent focus:bg-white focus:border-blue-500'}`}
                         />
+                        {isOverLimit && (
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-red-600 font-bold text-[10px] animate-pulse">
+                                ⚠️ {'>'} 2 Lbs
+                            </div>
+                        )}
                     </div>
                 )
 
@@ -146,8 +156,8 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                                     type="button"
                                     onClick={() => onChange(opt.val)}
                                     className={`flex-1 py-3 px-2 rounded-xl flex flex-col items-center justify-center gap-1 transition-all duration-200 border-2 ${isSelected
-                                            ? `${opt.color} border-transparent text-white shadow-lg scale-105`
-                                            : `bg-white ${opt.border} ${opt.text} hover:bg-gray-50`
+                                        ? `${opt.color} border-transparent text-white shadow-lg scale-105`
+                                        : `bg-white ${opt.border} ${opt.text} hover:bg-gray-50`
                                         }`}
                                 >
                                     <span className="text-[10px] font-black tracking-widest leading-none">{opt.label}</span>

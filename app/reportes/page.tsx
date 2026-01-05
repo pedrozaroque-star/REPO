@@ -26,6 +26,17 @@ interface StoreData {
     name: string
 }
 
+interface AssistantChecklist {
+    id: number
+    store_id: number
+    store_name: string
+    checklist_type: string
+    score: number
+    created_at: string
+    user_name: string
+    answers: any
+}
+
 export default function ReportesPage() {
     return (
         <ProtectedRoute>
@@ -37,6 +48,7 @@ export default function ReportesPage() {
 function ReportesContent() {
     const [loading, setLoading] = useState(true)
     const [inspections, setInspections] = useState<Inspection[]>([])
+    const [assistantChecks, setAssistantChecks] = useState<AssistantChecklist[]>([])
     const [stores, setStores] = useState<StoreData[]>([])
     const [timeRange, setTimeRange] = useState('month')
     const [searchTerm, setSearchTerm] = useState('')
@@ -63,9 +75,15 @@ function ReportesContent() {
         if (timeRange === 'year') start.setFullYear(now.getFullYear() - 1)
 
         if (timeRange !== 'all') query = query.gte('inspection_date', start.toISOString())
+        const { data: inspData } = await query
+        setInspections(inspData || [])
 
-        const { data } = await query
-        setInspections(data || [])
+        // Fetch Assistant Checklists
+        let aQuery = supabase.from('assistant_checklists').select('*').order('created_at', { ascending: false })
+        if (timeRange !== 'all') aQuery = aQuery.gte('created_at', start.toISOString())
+        const { data: assistData } = await aQuery
+        setAssistantChecks(assistData || [])
+
         setLoading(false)
     }
 
@@ -76,23 +94,36 @@ function ReportesContent() {
         const matrix: any[] = []
         stores.forEach(store => {
             const storeInsps = inspections.filter(i => i.store_id === store.id)
-            if (storeInsps.length === 0) return
+            const storeAssist = assistantChecks.filter(a => a.store_id === store.id)
 
-            const avg = Math.round(storeInsps.reduce((acc, curr) => acc + curr.overall_score, 0) / storeInsps.length)
+            if (storeInsps.length === 0 && storeAssist.length === 0) return
 
-            // Trend (Last vs Avg)
-            const lastScore = storeInsps[0]?.overall_score || 0
+            const totalScoreSum = storeInsps.reduce((acc, curr) => acc + curr.overall_score, 0) +
+                storeAssist.reduce((acc, curr) => acc + (curr.score || 0), 0)
+            const totalCount = storeInsps.length + storeAssist.length
+            const avg = Math.round(totalScoreSum / totalCount)
+
+            // Trend Estimate (Supervisor scores are usually more stable for trends)
+            const lastScore = storeInsps[0]?.overall_score || storeAssist[0]?.score || 0
             const trend = lastScore - avg
 
-            // Cat Averages
-            const service = Math.round(storeInsps.reduce((acc, curr) => acc + (curr.service_score || 0), 0) / storeInsps.length)
-            const hygiene = Math.round(storeInsps.reduce((acc, curr) => acc + (curr.cleaning_score || 0), 0) / storeInsps.length)
-            const product = Math.round(storeInsps.reduce((acc, curr) => acc + (curr.food_score || 0), 0) / storeInsps.length) // Using food_score for product
+            // Cat Averages (Weighted towards Supervisor inspections for specific categories)
+            const service = Math.round(storeInsps.reduce((acc, curr) => acc + (curr.service_score || 0), 0) / (storeInsps.length || 1))
+            const hygiene = Math.round(storeInsps.reduce((acc, curr) => acc + (curr.cleaning_score || 0), 0) / (storeInsps.length || 1))
+
+            // For product, we can blend in temperature compliance
+            const tempCompliant = storeAssist.filter(a => a.checklist_type === 'temperaturas' && a.score === 100).length
+            const tempTotal = storeAssist.filter(a => a.checklist_type === 'temperaturas').length
+            const tempScore = tempTotal > 0 ? Math.round((tempCompliant / tempTotal) * 100) : 100
+
+            const product = Math.round((
+                storeInsps.reduce((acc, curr) => acc + (curr.food_score || 0), 0) + (tempTotal > 0 ? tempScore : 0)
+            ) / ((storeInsps.length || 0) + (tempTotal > 0 ? 1 : 0) || 1))
 
             matrix.push({
                 id: store.id,
                 name: store.name,
-                inspections: storeInsps.length,
+                inspections: totalCount,
                 avgScore: avg,
                 trend,
                 service,
@@ -101,30 +132,22 @@ function ReportesContent() {
             })
         })
         return matrix.sort((a, b) => b.avgScore - a.avgScore)
-    }, [inspections, stores])
+    }, [inspections, assistantChecks, stores])
 
     // 2. Failure Analysis (Top Failed Questions)
     const failureAnalysis = useMemo(() => {
         const failures: Record<string, { count: number, section: string }> = {}
 
+        // 1. Scan Supervisor Inspections
         inspections.forEach(insp => {
             if (!insp.answers) return
-
-            // Check answers JSON for "NO" or low scores
             Object.entries(insp.answers).forEach(([sectionKey, sectionData]: [string, any]) => {
-                if (keyIsSystem(sectionKey)) return // Skip meta keys
-
+                if (keyIsSystem(sectionKey)) return
                 if (sectionData.items) {
                     Object.values(sectionData.items).forEach((item: any) => {
                         const label = item.label || 'Pregunta desconocida'
-                        // Detect failure: Value is 0 (score) or "NO"
                         const val = item.score !== undefined ? item.score : item
-
-                        let isFail = false
-                        if (typeof val === 'number' && val === 0) isFail = true
-                        if (typeof val === 'string' && val === 'NO') isFail = true
-
-                        if (isFail) {
+                        if (val === 0 || val === 'NO') {
                             if (!failures[label]) failures[label] = { count: 0, section: sectionKey }
                             failures[label].count++
                         }
@@ -133,11 +156,34 @@ function ReportesContent() {
             })
         })
 
+        // 2. Scan Assistant Checklists (Temps & Daily)
+        assistantChecks.forEach(check => {
+            if (!check.answers) return
+            Object.entries(check.answers).forEach(([key, val]: [string, any]) => {
+                if (keyIsSystem(key)) return
+                const rawVal = typeof val === 'object' ? val.value : val
+
+                let isFail = false
+                if (check.checklist_type === 'temperaturas') {
+                    const num = Number(rawVal)
+                    const isRefrig = key.toLowerCase().includes('refrig') || key.toLowerCase().includes('frio')
+                    isFail = isRefrig ? (num < 34 || num > 41) : (num < 165)
+                } else {
+                    if (rawVal === 'NO') isFail = true
+                }
+
+                if (isFail) {
+                    if (!failures[key]) failures[key] = { count: 0, section: check.checklist_type || 'Assistant' }
+                    failures[key].count++
+                }
+            })
+        })
+
         return Object.entries(failures)
             .map(([label, data]) => ({ label, ...data }))
             .sort((a, b) => b.count - a.count)
-            .slice(0, 5) // Top 5
-    }, [inspections])
+            .slice(0, 5)
+    }, [inspections, assistantChecks])
 
     // 3. Supervisor Audit
     const supervisorStats = useMemo(() => {
@@ -204,7 +250,7 @@ function ReportesContent() {
                     </div>
                 </div>
 
-                <div className="p-4 md:p-8 space-y-4 md:space-y-8 overflow-y-auto pb-24">
+                <div className="p-4 md:p-8 space-y-4 md:space-y-8 overflow-y-auto pb-24 no-scrollbar">
 
                     {/* 2. STORE PERFORMANCE MATRIX (THE CORE REPORT) */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -230,12 +276,12 @@ function ReportesContent() {
                                 <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-xs">
                                     <tr>
                                         <th className="px-6 py-3">Sucursal</th>
-                                        <th className="px-6 py-3 text-center">Score Global</th>
-                                        <th className="px-6 py-3 text-center">Tendencia</th>
-                                        <th className="px-6 py-3 text-center">Servicio</th>
-                                        <th className="px-6 py-3 text-center">Limpieza</th>
-                                        <th className="px-6 py-3 text-center">Producto</th>
-                                        <th className="px-6 py-3 text-center"># Visitas</th>
+                                        <th className="px-6 py-3 text-center text-xs">Score Global</th>
+                                        <th className="px-6 py-3 text-center text-xs">Tendencia</th>
+                                        <th className="px-6 py-3 text-center text-xs text-blue-500">Servicio</th>
+                                        <th className="px-6 py-3 text-center text-xs text-purple-500">Limpieza</th>
+                                        <th className="px-6 py-3 text-center text-xs text-orange-500">Producto/Temps</th>
+                                        <th className="px-6 py-3 text-center text-xs"># Auditorías</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">

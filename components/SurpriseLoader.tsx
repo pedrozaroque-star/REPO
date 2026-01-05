@@ -35,11 +35,14 @@ export default function SurpriseLoader() {
                             : 'opacity-0 scale-75 rotate-12'
                             }`}
                     >
-                        <img
+                        <Image
                             src={img.src}
                             alt={img.alt}
-                            style={{ width: img.width, height: 'auto', objectFit: 'contain' }}
-                            className="drop-shadow-xl"
+                            width={img.width}
+                            height={150}
+                            style={{ width: 'auto', height: 'auto' }}
+                            priority={index === 0}
+                            className="drop-shadow-xl object-contain"
                         />
                     </div>
                 ))}

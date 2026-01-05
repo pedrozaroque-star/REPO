@@ -39,12 +39,16 @@ function TemperaturasContent() {
   const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('temperaturas_v1')
 
   // Flatten and Derive Logic
-  const rawQuestions = template?.sections.flatMap((s: any) => s.questions) || []
-  const temperatureItems = rawQuestions.map((q: any) => ({
-    ...q,
-    // Heuristic: Refrig = cold, Vapor = hot
-    type: q.text.toLowerCase().includes('refrig') ? 'cold' : 'hot'
-  }))
+  const temperatureItems = template?.sections.flatMap((s: any) =>
+    s.questions.map((q: any) => {
+      const textToCheck = `${q.text} ${s.title}`.toLowerCase()
+      const isRefrig = textToCheck.includes('refrig') || textToCheck.includes('frio')
+      return {
+        ...q,
+        type: isRefrig ? 'cold' : 'hot' as 'cold' | 'hot'
+      }
+    })
+  ) || []
 
   const [temperatures, setTemperatures] = useState<{ [key: string]: number }>({})
 
@@ -213,7 +217,7 @@ function TemperaturasContent() {
   const capturedCount = Object.keys(temperatures).length
 
   return (
-    <div className="h-screen overflow-hidden checklist-container pt-16 md:pt-0 flex flex-col">
+    <div className="min-h-screen checklist-container pt-16 md:pt-0 flex flex-col">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm shrink-0">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -239,9 +243,9 @@ function TemperaturasContent() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
+      <div className="max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6 sticky top-0 z-30">
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sucursal *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
@@ -266,89 +270,95 @@ function TemperaturasContent() {
             </div>
           </div>
 
-          <div className="space-y-6">
-            <div className="flex items-center gap-4 px-2">
-              <div className="h-[2px] flex-1 bg-gray-100" />
-              <h3 className="text-[10px] font-black text-red-600 uppercase tracking-[0.3em]">Lecturas</h3>
-              <div className="h-[2px] flex-1 bg-gray-100" />
-            </div>
+          <div className="space-y-12">
+            {template?.sections.map((section: any) => (
+              <div key={section.id} className="space-y-6">
+                <div className="flex items-center gap-4 px-2">
+                  <div className="h-[2px] flex-1 bg-gray-100" />
+                  <h3 className="text-[10px] font-black text-red-600 uppercase tracking-[0.3em]">{section.title}</h3>
+                  <div className="h-[2px] flex-1 bg-gray-100" />
+                </div>
 
-            <div className="grid grid-cols-1 gap-4">
-              {temperatureItems.map((item: any) => {
-                const status = getTempStatus(item.id)
-                const currentTemp = temperatures[item.id] || 0
-                return (
-                  <motion.div
-                    layout
-                    key={item.id}
-                    className={`bg-white rounded-3xl shadow-sm p-6 border transition-all ${status === 'good' ? 'border-green-200 bg-green-50/30' :
-                      status === 'bad' ? 'border-red-200 bg-red-50/30' :
-                        'border-gray-100'
-                      }`}
-                  >
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.type === 'cold' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'
-                          }`}>
-                          {item.type === 'cold' ? <Snowflake size={20} /> : <Flame size={20} />}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-gray-900">{item.text}</h4>
-                          <span className="text-[10px] font-black uppercase tracking-widest opacity-40">
-                            {item.type === 'cold' ? 'Rango: 34-41°F' : 'Rango: ≥165°F'}
-                          </span>
-                        </div>
-                      </div>
-                      {status !== 'none' && (
-                        <div className={`text-xs font-black uppercase px-3 py-1 rounded-full ${status === 'good' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}>
-                          {status === 'good' ? 'Correcto' : 'Alerta'}
-                        </div>
-                      )}
-                    </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {section.questions.map((item: any) => {
+                    const status = getTempStatus(item.id)
+                    const currentTemp = temperatures[item.id] || 0
+                    const itemType = item.text.toLowerCase().includes('refrig') ? 'cold' : 'hot'
 
-                    <div className="flex flex-col md:flex-row gap-4 items-center">
-                      <div className="flex gap-2 w-full md:w-auto">
-                        {item.type === 'cold' ? (
-                          [35, 38, 40].map(v => (
-                            <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
-                              className="flex-1 md:w-16 h-10 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-xl font-bold text-xs transition-colors">
-                              {v}°F
+                    return (
+                      <motion.div
+                        layout
+                        key={item.id}
+                        className={`bg-white rounded-3xl shadow-sm p-6 border transition-all ${status === 'good' ? 'border-green-200 bg-green-50/30' :
+                          status === 'bad' ? 'border-red-200 bg-red-50/30' :
+                            'border-gray-100'
+                          }`}
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${itemType === 'cold' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'
+                              }`}>
+                              {itemType === 'cold' ? <Snowflake size={20} /> : <Flame size={20} />}
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-gray-900">{item.text}</h4>
+                              <span className="text-[10px] font-black uppercase tracking-widest opacity-40">
+                                {itemType === 'cold' ? 'Rango: 34-41°F' : 'Rango: ≥165°F'}
+                              </span>
+                            </div>
+                          </div>
+                          {status !== 'none' && (
+                            <div className={`text-xs font-black uppercase px-3 py-1 rounded-full ${status === 'good' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                              {status === 'good' ? 'Correcto' : 'Alerta'}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col md:flex-row gap-4 items-center">
+                          <div className="flex gap-2 w-full md:w-auto">
+                            {itemType === 'cold' ? (
+                              [35, 38, 40].map(v => (
+                                <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
+                                  className="flex-1 md:w-16 h-10 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-xl font-bold text-xs transition-colors">
+                                  {v}°F
+                                </button>
+                              ))
+                            ) : (
+                              [165, 175, 185].map(v => (
+                                <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
+                                  className="flex-1 md:w-16 h-10 bg-gray-100 hover:bg-orange-600 hover:text-white rounded-xl font-bold text-xs transition-colors">
+                                  {v}°F
+                                </button>
+                              ))
+                            )}
+                          </div>
+
+                          <div className="flex-1 flex items-center gap-2 w-full">
+                            <button type="button" onClick={() => adjustTemp(item.id, -1)}
+                              className="w-12 h-12 bg-gray-100 hover:bg-gray-200 rounded-xl font-black text-xl flex items-center justify-center transition-colors">
+                              -
                             </button>
-                          ))
-                        ) : (
-                          [165, 175, 185].map(v => (
-                            <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
-                              className="flex-1 md:w-16 h-10 bg-gray-100 hover:bg-orange-600 hover:text-white rounded-xl font-bold text-xs transition-colors">
-                              {v}°F
+                            <div className="flex-1 relative">
+                              <input type="number" step="0.1"
+                                value={currentTemp || ''}
+                                onChange={(e) => handleManualInput(item.id, e.target.value)}
+                                placeholder="--"
+                                className="w-full h-12 bg-gray-50 border-none rounded-xl text-center font-black text-2xl text-gray-900 focus:ring-2 focus:ring-red-100" />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">°F</span>
+                            </div>
+                            <button type="button" onClick={() => adjustTemp(item.id, 1)}
+                              className="w-12 h-12 bg-gray-100 hover:bg-gray-200 rounded-xl font-black text-xl flex items-center justify-center transition-colors">
+                              +
                             </button>
-                          ))
-                        )}
-                      </div>
-
-                      <div className="flex-1 flex items-center gap-2 w-full">
-                        <button type="button" onClick={() => adjustTemp(item.id, -1)}
-                          className="w-12 h-12 bg-gray-100 hover:bg-gray-200 rounded-xl font-black text-xl flex items-center justify-center transition-colors">
-                          -
-                        </button>
-                        <div className="flex-1 relative">
-                          <input type="number" step="0.1"
-                            value={currentTemp || ''}
-                            onChange={(e) => handleManualInput(item.id, e.target.value)}
-                            placeholder="--"
-                            className="w-full h-12 bg-gray-50 border-none rounded-xl text-center font-black text-2xl text-gray-900 focus:ring-2 focus:ring-red-100" />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">°F</span>
+                          </div>
                         </div>
-                        <button type="button" onClick={() => adjustTemp(item.id, 1)}
-                          className="w-12 h-12 bg-gray-100 hover:bg-gray-200 rounded-xl font-black text-xl flex items-center justify-center transition-colors">
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                )
-              })}
-            </div>
+                      </motion.div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 space-y-3">

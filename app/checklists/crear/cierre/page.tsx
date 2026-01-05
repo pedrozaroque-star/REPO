@@ -187,7 +187,7 @@ function CierreContent() {
   const answeredCount = Object.keys(answers).length
 
   return (
-    <div className="h-screen overflow-hidden checklist-container pt-16 md:pt-0 flex flex-col">
+    <div className="min-h-screen checklist-container pt-16 md:pt-0 flex flex-col">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm shrink-0">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -213,9 +213,9 @@ function CierreContent() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
+      <div className="max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6 sticky top-0 z-30">
+          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sucursal *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}

@@ -726,7 +726,17 @@ sigue igual
 **Feedbacks: 171** (¡Ya se arregló!)
 **Checklists: 0** (Este sigue fallando)
 
-Esto confirma que el cambio de cliente Supabase **SÍ funcionó** (porque los Feedbacks pasaron de 0 a 171). El problema con los Checklists debe ser que las tablas `checklists_asistentes` y `checklists_gerentes` tienen políticas RLS que **NO** están usando el nuevo claim `user_role` que cree hace un momento.
+Esto confirma que el cambio de cliente Supabase **SÍ- [x] Synchronize: Apertura
+  - [x] Confirm no changes needed in template
+  - [x] Verify mapping in `ChecklistForm`
+
+# UI & Polish
+- [x] Improve contrast and fix missing colors in `ChecklistForm`
+- [x] Stabilize `useDynamicChecklist` hook
+
+# Project Status: COMPLETED (Synchronization & Loop Fixes)
+All checklists are now synchronized with DB templates and stable.
+ **NO** están usando el nuevo claim `user_role` que cree hace un momento.
 
 Solo actualicé `customer_feedback` y `staff_evaluations`. Me faltó actualizar las de checklists.
 

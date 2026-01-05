@@ -103,7 +103,18 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
       if (error) throw error
 
       if (data) {
-        const notifs = data as unknown as Notification[]
+        let notifs = data as unknown as Notification[]
+
+        // 🏁 FILTRO DE LUNES 6:00 AM
+        // No mostrar nada anterior al último lunes a las 6am
+        const now = new Date()
+        const day = now.getDay()
+        const diffSinceMonday = (day === 0 ? 6 : day - 1)
+        const monday6AM = new Date(now)
+        monday6AM.setDate(now.getDate() - diffSinceMonday)
+        monday6AM.setHours(6, 0, 0, 0)
+
+        notifs = notifs.filter(n => new Date(n.created_at) >= monday6AM)
         const unread = notifs.filter(n => !n.is_read).length
 
         setNotifications(notifs)

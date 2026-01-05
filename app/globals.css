@@ -12,10 +12,29 @@
   --font-mono: var(--font-geist-mono);
 }
 
-
-
 body {
   background-color: #ffffff !important;
   color: #171717 !important;
   font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Utilities to hide scrollbars while keeping functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

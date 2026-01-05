@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ChevronLeft, Save } from 'lucide-react'
@@ -10,32 +10,81 @@ import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
 const TEMPLATE_MAP: { [key: string]: string } = {
   daily: 'daily_checklist_v1',
-  cierre: 'checklist_cierre',
-  apertura: 'checklist_apertura',
+  cierre: 'cierre_v1',
+  apertura: 'apertura_v1',
   recorrido: 'recorrido_v1',
   temperaturas: 'temperaturas_v1',
   sobrante: 'sobrante_v1'
 }
 
-const COLOR_MAP: { [key: string]: string } = {
-  daily: 'blue',
-  cierre: 'purple',
-  apertura: 'orange',
-  recorrido: 'green',
-  temperaturas: 'red',
-  sobrante: 'yellow'
+const THEME_STYLES: { [key: string]: { text: string, bg: string, shadow: string, border: string, ring: string, iconBg: string } } = {
+  daily: {
+    text: 'text-blue-600',
+    bg: 'bg-blue-600',
+    shadow: 'shadow-blue-100',
+    border: 'border-blue-100',
+    ring: 'focus:ring-blue-100',
+    iconBg: 'bg-blue-600'
+  },
+  cierre: {
+    text: 'text-purple-600',
+    bg: 'bg-purple-600',
+    shadow: 'shadow-purple-100',
+    border: 'border-purple-100',
+    ring: 'focus:ring-purple-100',
+    iconBg: 'bg-purple-600'
+  },
+  apertura: {
+    text: 'text-orange-600',
+    bg: 'bg-orange-600',
+    shadow: 'shadow-orange-100',
+    border: 'border-orange-100',
+    ring: 'focus:ring-orange-100',
+    iconBg: 'bg-orange-600'
+  },
+  recorrido: {
+    text: 'text-green-600',
+    bg: 'bg-green-600',
+    shadow: 'shadow-green-100',
+    border: 'border-green-100',
+    ring: 'focus:ring-green-100',
+    iconBg: 'bg-green-600'
+  },
+  temperaturas: {
+    text: 'text-red-600',
+    bg: 'bg-red-600',
+    shadow: 'shadow-red-100',
+    border: 'border-red-100',
+    ring: 'focus:ring-red-100',
+    iconBg: 'bg-red-600'
+  },
+  sobrante: {
+    text: 'text-amber-600',
+    bg: 'bg-amber-600',
+    shadow: 'shadow-amber-100',
+    border: 'border-amber-100',
+    ring: 'focus:ring-amber-100',
+    iconBg: 'bg-amber-600'
+  }
 }
 
 export default function ChecklistForm({ user, initialData, type = 'daily' }: { user: any, initialData?: any, type: string }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
 
-  const templateCode = TEMPLATE_MAP[type] || 'daily_checklist_v1'
-  const themeColor = COLOR_MAP[type] || 'blue'
+  const templateCode = TEMPLATE_MAP[type] || type
+  const styles = THEME_STYLES[type] || THEME_STYLES.daily
 
-  const { data: template, loading: checklistLoading, isCached } = useDynamicChecklist(templateCode)
-  const sections = template?.sections || []
-  const allQuestions = sections.flatMap((s: any) => s.questions)
+  const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist(templateCode)
+
+  useEffect(() => {
+    // console.log(`[ChecklistForm] Type: ${type}, TemplateCode: ${templateCode}`)
+    // if (template) console.log(`[ChecklistForm] Template loaded:`, template)
+    if (checklistError) console.error(`[ChecklistForm] Error:`, checklistError)
+  }, [type, templateCode, template, checklistError])
+
+  const sections = useMemo(() => template?.sections || [], [template])
+  const allQuestions = useMemo(() => sections.flatMap((s: any) => s.questions), [sections])
 
   const [formData, setFormData] = useState({
     checklist_date: initialData?.checklist_date || new Date().toISOString().split('T')[0],
@@ -49,11 +98,38 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
   useEffect(() => {
     if (initialData?.answers && allQuestions.length > 0) {
       const initialAnswers: { [key: string]: any } = {}
+
       allQuestions.forEach((q: any) => {
-        // Attempt to find by text or legacy key
-        const val = initialData.answers[q.text]
-        if (val !== undefined) {
-          initialAnswers[q.id] = val
+        // 1. Try match by ID (new format)
+        if (initialData.answers[q.id] !== undefined) {
+          initialAnswers[q.id] = initialData.answers[q.id]
+          return
+        }
+
+        // 2. Try match by exact text (legacy format)
+        if (initialData.answers[q.text] !== undefined) {
+          initialAnswers[q.id] = initialData.answers[q.text]
+          return
+        }
+
+        // 3. Fuzzy match for legacy data (robust)
+        const questionWords = q.text.toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .split(/\s+/)
+          .filter((w: string) => w.length > 2)
+
+        if (questionWords.length > 0) {
+          for (const [key, val] of Object.entries(initialData.answers)) {
+            if (key === '__question_photos') continue
+            const keyLower = key.toLowerCase()
+            const matchCount = questionWords.filter((word: string) => keyLower.includes(word)).length
+
+            // If at least 2 significant words match or 60% of small questions
+            if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+              initialAnswers[q.id] = val
+              break
+            }
+          }
         }
       })
       setAnswers(initialAnswers)
@@ -69,22 +145,36 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
   }
 
   const calculateScore = () => {
-    if (type === 'temperaturas' || type === 'sobrante') {
-      // For these, score is usually % of items captured if they are all weight/temp
-      // But if they are yes_no, use normal logic.
-      const scorable = allQuestions.filter(q => q.type === 'yes_no')
+    if (type === 'temperaturas') {
+      const scorable = allQuestions.filter((q: any) => q.type === 'yes_no')
       if (scorable.length === 0) {
-        // If all are numbers, maybe score is just 100 if all answered
-        const answered = allQuestions.filter(q => answers[q.id] !== undefined && answers[q.id] !== null).length
+        const answered = allQuestions.filter((q: any) => answers[q.id] !== undefined && answers[q.id] !== null).length
         return Math.round((answered / allQuestions.length) * 100) || 0
       }
     }
 
-    const yesNo = allQuestions.filter(q => q.type === 'yes_no')
+    if (type === 'sobrante') {
+      if (allQuestions.length === 0) return 100
+
+      const withinLimit = allQuestions.filter((q: any) => {
+        const rawVal = answers[q.id]
+        const val = Number(rawVal)
+        // Only penalize if it's a valid number. 
+        // If it's empty or non-numeric (legacy SI/NO), we don't penalize it as "excess waste".
+        if (!isNaN(val) && rawVal !== null && rawVal !== '' && rawVal !== undefined) {
+          return val <= 2
+        }
+        return true;
+      }).length
+
+      return Math.round((withinLimit / allQuestions.length) * 100)
+    }
+
+    const yesNo = allQuestions.filter((q: any) => q.type === 'yes_no')
     if (yesNo.length === 0) return 100
 
-    const valid = yesNo.map(q => answers[q.id]).filter(v => v !== undefined && v !== null && v !== 'NA')
-    const si = valid.filter(v => v === 'SI').length
+    const valid = yesNo.map((q: any) => answers[q.id]).filter((v: any) => v !== undefined && v !== null && v !== 'NA')
+    const si = valid.filter((v: any) => v === 'SI').length
 
     return valid.length > 0 ? Math.round((si / valid.length) * 100) : 100
   }
@@ -93,8 +183,7 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
     e.preventDefault()
     if (!user) return alert('No user')
 
-    // Validation
-    const missing = allQuestions.filter(q => {
+    const missing = allQuestions.filter((q: any) => {
       const val = answers[q.id]
       if (q.type === 'text') return !val || val.trim().length === 0
       if (q.type === 'photo') return !questionPhotos[q.id] || questionPhotos[q.id].length === 0
@@ -114,18 +203,17 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
       const allPhotos = [...(initialData?.photos || []), ...newPhotos]
 
       const formattedAnswers: { [key: string]: any } = {}
-      allQuestions.forEach(q => {
+      allQuestions.forEach((q: any) => {
         formattedAnswers[q.text] = answers[q.id]
       })
 
-      // Add rich photo mapping
       formattedAnswers['__question_photos'] = questionPhotos
 
       const payload = {
         checklist_type: type,
         user_id: user.id,
         user_name: user.name || user.email,
-        store_id: user.store_id || null,
+        store_id: user.store_id || initialData?.store_id || null,
         checklist_date: formData.checklist_date,
         shift: formData.shift,
         comments: formData.comments,
@@ -150,17 +238,14 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
     }
   }
 
-  if (checklistLoading && !initialData) return <div className="p-12 text-center animate-pulse font-black text-gray-400 uppercase tracking-widest">Cargando Plantilla...</div>
-
   const score = calculateScore()
-  const answeredCount = Object.keys(answers).length
 
   return (
     <div className="max-w-4xl mx-auto pb-24">
       <header className={`bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm rounded-t-3xl overflow-hidden`}>
         <div className="px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-${themeColor}-100 bg-${themeColor === 'yellow' ? 'yellow-500' : themeColor === 'orange' ? 'orange-500' : themeColor === 'purple' ? 'purple-600' : themeColor === 'green' ? 'green-500' : themeColor === 'red' ? 'red-600' : 'blue-600'}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg ${styles.shadow} ${styles.bg}`}>
               <Save size={20} />
             </div>
             <div>
@@ -168,13 +253,13 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
                 {template?.title || 'Checklist'}
                 {isCached && <span className="text-[9px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full border border-yellow-200">Offline</span>}
               </h1>
-              <div className={`text-[10px] font-black uppercase tracking-widest text-${themeColor}-600`}>{user?.name || user?.email}</div>
+              <div className={`text-[10px] font-black uppercase tracking-widest ${styles.text}`}>{user?.name || user?.email}</div>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className="bg-gray-50 px-4 py-2 rounded-2xl border border-gray-100 flex flex-col items-center min-w-[70px]">
-              <div className="text-xl font-black text-gray-900 leading-none">{score}%</div>
-              <div className="text-[10px] font-bold text-gray-400 uppercase mt-1">Score</div>
+            <div className={`px-4 py-2 rounded-2xl flex flex-col items-center min-w-[80px] text-white shadow-lg ${styles.bg} ${styles.shadow}`}>
+              <div className="text-xl font-black leading-none">{score}%</div>
+              <div className="text-[10px] font-bold uppercase opacity-80 mt-1">Score</div>
             </div>
           </div>
         </div>
@@ -185,12 +270,12 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</label>
             <input type="date" value={formData.checklist_date} onChange={e => setFormData({ ...formData, checklist_date: e.target.value })}
-              className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100 transition-all" />
+              className={`w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 ${styles.ring} transition-all`} />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno</label>
             <select value={formData.shift} onChange={e => setFormData({ ...formData, shift: e.target.value })}
-              className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100 transition-all">
+              className={`w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 ${styles.ring} transition-all`}>
               <option value="AM">☀️ AM (Mañana)</option>
               <option value="PM">🌙 PM (Tarde)</option>
             </select>
@@ -198,11 +283,33 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         </div>
 
         <div className="space-y-12">
+          {checklistLoading && (
+            <div className="py-12 text-center animate-pulse">
+              <div className="text-4xl mb-4">⏳</div>
+              <p className="font-black text-gray-400 uppercase tracking-widest text-xs">Cargando preguntas...</p>
+            </div>
+          )}
+
+          {checklistError && (
+            <div className="p-8 bg-red-50 border border-red-100 rounded-3xl text-center">
+              <div className="text-red-500 font-bold mb-2">⚠️ Error al cargar la plantilla</div>
+              <p className="text-red-400 text-xs font-medium">{checklistError}</p>
+              <button type="button" onClick={() => window.location.reload()} className="mt-4 text-[10px] font-black uppercase text-red-600 underline">Reintentar</button>
+            </div>
+          )}
+
+          {!checklistLoading && !checklistError && sections.length === 0 && (
+            <div className="py-12 text-center opacity-50">
+              <div className="text-4xl mb-4">📭</div>
+              <p className="font-black text-gray-400 uppercase tracking-widest text-xs">No se encontraron preguntas para esta plantilla ({templateCode})</p>
+            </div>
+          )}
+
           {sections.map((section: any) => (
             <div key={section.id} className="space-y-6">
               <div className="flex items-center gap-4 px-2">
                 <div className="h-[2px] flex-1 bg-gray-100" />
-                <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em]">{section.title}</h2>
+                <h2 className={`text-[10px] font-black uppercase tracking-[0.3em] ${styles.text}`}>{section.title}</h2>
                 <div className="h-[2px] flex-1 bg-gray-100" />
               </div>
               <div className="space-y-4">
@@ -215,6 +322,7 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
                     photos={questionPhotos[question.id] || []}
                     onChange={(val) => handleAnswer(question.id, val)}
                     onPhotosChange={(urls) => handlePhotosChange(question.id, urls)}
+                    checklistType={type}
                   />
                 ))}
               </div>
@@ -225,15 +333,15 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         <div className="space-y-3">
           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Comentarios</label>
           <textarea value={formData.comments} onChange={e => setFormData({ ...formData, comments: e.target.value })} rows={4}
-            className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-100 transition-all resize-none"
+            className={`w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 ${styles.ring} transition-all resize-none`}
             placeholder="Notas adicionales..." />
         </div>
 
         <div className="pt-4 flex gap-4">
           <button type="button" onClick={() => router.back()} className="flex-1 py-4 bg-gray-100 text-gray-500 font-bold rounded-2xl hover:bg-gray-200 transition-all">Cancelar</button>
           <button onClick={handleSubmit} disabled={loading}
-            className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 bg-${themeColor === 'yellow' ? 'yellow-600' : themeColor === 'orange' ? 'orange-600' : themeColor === 'purple' ? 'purple-600' : themeColor === 'green' ? 'green-600' : themeColor === 'red' ? 'red-600' : 'blue-600'}`}>
-            {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Save size={20} /><span>{initialData ? 'Guardar Cambios' : 'Finalizar'}</span></>}
+            className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 ${styles.bg}`}>
+            {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Save size={20} /><span>{initialData?.id ? 'Guardar Cambios' : 'Finalizar'}</span></>}
           </button>
         </div>
       </div>

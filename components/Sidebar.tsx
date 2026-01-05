@@ -109,21 +109,23 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
 
       const now = new Date()
       const isMonday = now.getDay() === 1
+      const isAfter6AM = now.getHours() >= 6
       const todayStr = now.toISOString().split('T')[0]
       const lastCleanup = localStorage.getItem('last_week_cleanup')
 
-      if (isMonday && lastCleanup !== todayStr) {
+      if (isMonday && isAfter6AM && lastCleanup !== todayStr) {
         try {
-          const supabase = await getSupabaseClient()
-          // Borrar notificaciones de más de 7 días
-          const limitDate = new Date()
-          limitDate.setDate(limitDate.getDate() - 7)
+          // 🧹 LIMPIEZA TOTAL DE LUNES (PRE-6AM)
+          // El usuario quiere empezar los lunes de cero, borrando todo lo anterior a las 6am
+          const monday6AM = new Date(now)
+          monday6AM.setHours(6, 0, 0, 0)
 
+          const supabase = await getSupabaseClient()
           await supabase
             .from('notifications')
             .delete()
             .eq('user_id', user.id)
-            .lt('created_at', limitDate.toISOString())
+            .lt('created_at', monday6AM.toISOString())
 
           localStorage.setItem('last_week_cleanup', todayStr)
           // console.log('🧹 Limpieza semanal de notificaciones ejecutada.')
@@ -188,7 +190,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
                 fill
                 sizes="(max-width: 768px) 100vw, 224px"
                 className="object-contain"
-                priority
               />
             </div>
 

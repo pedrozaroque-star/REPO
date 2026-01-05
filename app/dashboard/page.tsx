@@ -31,6 +31,7 @@ export default function DashboardPage() {
     totalChecklists: 0,
     avgNPS: 0,
     avgInspectionScore: 0,
+    criticalAlerts: [] as any[],
     recentActivity: [] as any[]
   })
   const [loading, setLoading] = useState(true)
@@ -75,33 +76,107 @@ export default function DashboardPage() {
         .select('overall_score, estatus_admin')
         .limit(100)
 
-      // 5. Checklists
-      const { count: assistantCheckCount } = await supabase.from('assistant_checklists').select('*', { count: 'exact', head: true })
+      // 5. Checklists (Assistant)
+      const { data: assistantChecklists } = await supabase
+        .from('assistant_checklists')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100)
+
+      // 6. Manager Checklists
       const { count: managerCheckCount } = await supabase.from('manager_checklists').select('*', { count: 'exact', head: true })
 
-      // 6. Actividad Reciente (Manual Join seguro)
-      const { data: recentRaw } = await supabase
+      // 7. Recent Activity (Unified)
+      const { data: recentSups } = await supabase
         .from('supervisor_inspections')
-        .select('*')
+        .select('*, stores(name, code), users!inspector_id(full_name)')
         .order('created_at', { ascending: false })
         .limit(10)
 
-      // Enriquecer actividad reciente manualmente para evitar error de foreign keys
-      const recentData = recentRaw ? await Promise.all(recentRaw.map(async (item) => {
-        const { data: store } = await supabase.from('stores').select('name').eq('id', item.store_id).single()
-        const { data: user } = await supabase.from('users').select('full_name').eq('id', item.inspector_id).single()
-        return {
-          ...item,
-          stores: store,
-          users: user
-        }
-      })) : []
+      const { data: recentAssist } = await supabase
+        .from('assistant_checklists')
+        .select('*, stores(name, code)')
+        .order('created_at', { ascending: false })
+        .limit(10)
 
+      // Merge and Sort
+      const combinedActivity = [
+        ...(recentSups || []).map(s => ({
+          ...s,
+          activityType: 'Inspección',
+          userLabel: (s as any).users?.full_name || 'Supervisor',
+          storeLabel: (s as any).stores?.name || 'Tienda',
+          date: s.inspection_date || s.created_at,
+          scoreLabel: s.overall_score
+        })),
+        ...(recentAssist || []).map(a => ({
+          ...a,
+          activityType: `Checklist: ${a.checklist_type?.toUpperCase()}`,
+          userLabel: a.user_name || 'Asistente',
+          storeLabel: (a as any).stores?.name || a.store_name || 'Tienda',
+          date: a.checklist_date || a.created_at,
+          scoreLabel: a.score
+        }))
+      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10)
 
       const validFeedbacks = feedbacks || []
       const validInspections = inspections || []
+      const validAssistant = assistantChecklists || []
 
-      // Cálculos NPS reales
+      const now = new Date()
+      const day = now.getDay() // 0 Sun, 1 Mon
+      const diffSinceMonday = (day === 0 ? 6 : day - 1)
+      const monday6AM = new Date(now)
+      monday6AM.setDate(now.getDate() - diffSinceMonday)
+      monday6AM.setHours(6, 0, 0, 0)
+
+      const alerts: any[] = []
+      validAssistant
+        .filter(check => new Date(check.created_at) >= monday6AM)
+        .forEach(check => {
+          const type = check.checklist_type?.toLowerCase()
+          const answers = check.answers || {}
+
+          if (type === 'sobrante') {
+            Object.entries(answers).forEach(([key, val]: [string, any]) => {
+              if (key === '__question_photos') return
+              const num = Number(typeof val === 'object' ? val.value : val)
+              if (!isNaN(num) && num > 2) {
+                alerts.push({
+                  id: `waste-${check.id}-${key}`,
+                  type: 'waste',
+                  store: check.store_name,
+                  msg: `Exceso de sobrante: ${key} (${num} Lbs)`,
+                  date: check.created_at
+                })
+              }
+            })
+          }
+
+          if (type === 'temperaturas') {
+            Object.entries(answers).forEach(([key, val]: [string, any]) => {
+              if (key === '__question_photos') return
+              const num = Number(typeof val === 'object' ? val.value : val)
+              if (isNaN(num)) return
+
+              const isRefrig = key.toLowerCase().includes('refrig') || key.toLowerCase().includes('frio')
+              const isFail = isRefrig ? (num < 34 || num > 41) : (num < 165)
+
+              if (isFail) {
+                alerts.push({
+                  id: `temp-${check.id}-${key}`,
+                  type: 'temp',
+                  store: check.store_name,
+                  msg: `Temp Fuera de Rango: ${key} (${num}°F)`,
+                  date: check.created_at
+                })
+              }
+            })
+          }
+        })
+
+      // Calculations
       let promoters = 0
       let detractors = 0
 
@@ -116,8 +191,12 @@ export default function DashboardPage() {
         ? Math.round(((promoters - detractors) / totalFeedbacks) * 100)
         : 0
 
-      const avgInspectionScore = validInspections.length > 0
-        ? Math.round(validInspections.reduce((sum: number, i: any) => sum + (i.overall_score || 0), 0) / validInspections.length)
+      const inspSum = validInspections.reduce((sum: number, i: any) => sum + (i.overall_score || 0), 0)
+      const assistSum = validAssistant.reduce((sum: number, i: any) => sum + (i.score || 0), 0)
+      const totalScoreCount = validInspections.length + validAssistant.length
+
+      const avgInspectionScore = totalScoreCount > 0
+        ? Math.round((inspSum + assistSum) / totalScoreCount)
         : 0
 
       setStats({
@@ -125,10 +204,11 @@ export default function DashboardPage() {
         totalUsers: usersCount || 0,
         totalFeedbacks: validFeedbacks.length,
         totalInspections: validInspections.length,
-        totalChecklists: (assistantCheckCount || 0) + (managerCheckCount || 0),
+        totalChecklists: validAssistant.length + (managerCheckCount || 0),
         avgNPS,
         avgInspectionScore,
-        recentActivity: recentData || []
+        criticalAlerts: alerts.slice(0, 5),
+        recentActivity: combinedActivity
       })
 
       setLoading(false)
@@ -186,7 +266,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto h-full max-w-7xl mx-auto px-4 md:px-8 py-8">
+      <main className="flex-1 overflow-y-auto h-full max-w-7xl mx-auto px-4 md:px-8 py-8 no-scrollbar">
         {/* Quick Search */}
         <div className="bg-white rounded-2xl shadow-sm p-4 md:p-6 mb-8 border border-gray-100">
           <div className="flex items-center gap-2 mb-4">
@@ -338,9 +418,30 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Alertas */}
+        {/* Critical Alerts */}
         <div className="space-y-4 mb-8">
-          {stats.avgNPS < 50 && (
+          {stats.criticalAlerts.map((alert) => (
+            <div key={alert.id} className={`rounded-2xl p-4 flex items-start gap-4 border shadow-sm ${alert.type === 'waste' ? 'bg-orange-50 border-orange-200' : 'bg-red-50 border-red-200'} animate-in fade-in slide-in-from-top-4 duration-500`}>
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${alert.type === 'waste' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600'}`}>
+                <AlertTriangle size={20} />
+              </div>
+              <div className="flex-1">
+                <div className="flex justify-between items-start">
+                  <h4 className={`font-black text-sm uppercase tracking-tight ${alert.type === 'waste' ? 'text-orange-900' : 'text-red-900'}`}>
+                    {alert.type === 'waste' ? 'Alerta de Desperdicio' : 'Alerta de Inocuidad'}
+                  </h4>
+                  <span className="text-[10px] font-bold text-gray-400">
+                    {new Date(alert.date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <p className={`text-sm font-bold mt-0.5 ${alert.type === 'waste' ? 'text-orange-800' : 'text-red-800'}`}>
+                  {alert.store}: <span className="font-medium">{alert.msg}</span>
+                </p>
+              </div>
+            </div>
+          ))}
+
+          {stats.avgNPS < 50 && stats.criticalAlerts.length === 0 && (
             <div className="bg-red-50 rounded-2xl p-4 flex items-start gap-4 border border-red-100">
               <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full flex items-center justify-center flex-shrink-0">
                 <AlertTriangle size={20} />
@@ -348,30 +449,6 @@ export default function DashboardPage() {
               <div>
                 <h4 className="font-bold text-red-900">NPS Bajo Detectado</h4>
                 <p className="text-sm text-red-700 mt-1">El NPS promedio ({stats.avgNPS}) está por debajo del objetivo de 50. Se requiere atención inmediata.</p>
-              </div>
-            </div>
-          )}
-
-          {stats.avgInspectionScore < 85 && (
-            <div className="bg-yellow-50 rounded-2xl p-4 flex items-start gap-4 border border-yellow-100">
-              <div className="w-10 h-10 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center flex-shrink-0">
-                <AlertTriangle size={20} />
-              </div>
-              <div>
-                <h4 className="font-bold text-yellow-900">Score de Inspección Bajo</h4>
-                <p className="text-sm text-yellow-700 mt-1">El promedio de inspecciones ({stats.avgInspectionScore}%) está por debajo de 85%.</p>
-              </div>
-            </div>
-          )}
-
-          {stats.avgNPS >= 50 && stats.avgInspectionScore >= 85 && (
-            <div className="bg-green-50 rounded-2xl p-4 flex items-start gap-4 border border-green-100">
-              <div className="w-10 h-10 bg-green-100 text-green-600 rounded-full flex items-center justify-center flex-shrink-0">
-                <CheckCircle size={20} />
-              </div>
-              <div>
-                <h4 className="font-bold text-green-900">Todo en Orden</h4>
-                <p className="text-sm text-green-700 mt-1">Todas las métricas están dentro de los objetivos establecidos.</p>
               </div>
             </div>
           )}
@@ -384,40 +461,45 @@ export default function DashboardPage() {
             <h3 className="font-black text-gray-900">Actividad Reciente</h3>
           </div>
           <div className="divide-y divide-gray-100">
-            {stats.recentActivity.map((activity) => (
-              <div key={activity.id} className="p-4 hover:bg-gray-50 flex flex-col md:flex-row gap-4 items-start md:items-center">
+            {stats.recentActivity.map((activity, idx) => (
+              <div key={idx} className="p-4 hover:bg-gray-50 flex flex-col md:flex-row gap-4 items-start md:items-center">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[10px] uppercase font-black tracking-wide border border-indigo-100">
-                      Inspección
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase font-black tracking-wide border ${activity.activityType?.includes('Inspección')
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                      }`}>
+                      {activity.activityType}
                     </span>
                     <h4 className="font-bold text-gray-900 text-sm">
-                      {activity.stores?.name || 'Tienda'}
+                      {activity.storeLabel}
                     </h4>
                   </div>
                   <div className="flex items-center gap-4 text-xs font-medium text-gray-500">
                     <div className="flex items-center gap-1">
                       <Users size={12} />
-                      {activity.users?.full_name || 'Supervisor'}
+                      {activity.userLabel}
                     </div>
                     <div className="flex items-center gap-1">
                       <Calendar size={12} />
-                      {new Date(activity.inspection_date).toLocaleDateString('es-MX')}
+                      {new Date(activity.date).toLocaleDateString('es-MX')}
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Clock size={12} />
-                      {activity.shift}
-                    </div>
+                    {activity.shift && (
+                      <div className="flex items-center gap-1">
+                        <Clock size={12} />
+                        {activity.shift}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-black border ${activity.overall_score >= 90
+                <div className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-black border ${activity.scoreLabel >= 90
                   ? 'bg-green-50 text-green-700 border-green-100'
-                  : activity.overall_score >= 80
+                  : activity.scoreLabel >= 80
                     ? 'bg-yellow-50 text-yellow-700 border-yellow-100'
                     : 'bg-red-50 text-red-700 border-red-100'
                   }`}>
-                  {activity.overall_score}% SCORE
+                  {activity.scoreLabel}% SCORE
                 </div>
               </div>
             ))}
