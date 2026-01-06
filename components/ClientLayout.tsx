@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import Sidebar from './Sidebar'
+import TopNav from './TopNav'
 import { useState } from 'react'
 
 export default function ClientLayout({
@@ -10,7 +10,8 @@ export default function ClientLayout({
     children: React.ReactNode
 }) {
     const pathname = usePathname()
-    const [isCollapsed, setIsCollapsed] = useState(false)
+    // Ya no necesitamos state de collapsed porque TopNav es horizontal
+
 
     // Lista de rutas donde NO queremos mostrar el sidebar (paginas publicas / login)
     const publicRoutes = ['/login', '/', '/auth/login']
@@ -21,20 +22,22 @@ export default function ClientLayout({
         return <>{children}</>
     }
 
-    // Si es página privada, renderizar con Sidebar persistente
+    // Si es página privada, renderizar con TopNav (Option A: SaaS Style)
     return (
-        <div className="flex min-h-screen bg-transparent relative isolate">
-            {/* Fondo decorativo global: Cubos (Invertido: Oscuros sobre Claro) */}
+        <div className="min-h-screen bg-gray-50/50 relative">
+            {/* Fondo decorativo global: Cubos (Invertido: Oscuros sobre Claro) - Opcional, se ve bien con el glass */}
             <div
                 className="fixed inset-0 z-0 opacity-[0.3] invert pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
                 aria-hidden="true"
             />
 
-            <Sidebar isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
+            <div className="relative z-10 flex flex-col min-h-screen">
+                <TopNav />
 
-            <main className={`flex-1 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'} min-h-screen p-8 transition-all duration-300 relative z-10`}>
-                {children}
-            </main>
+                <main className="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 animate-in fade-in duration-500">
+                    {children}
+                </main>
+            </div>
         </div>
     )
 }

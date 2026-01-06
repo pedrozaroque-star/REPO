@@ -182,11 +182,11 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent font-sans pt-20 lg:pt-0">
+    <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* STICKY HEADER - Mobile & Desktop */}
-        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
+        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0 transition-all top-[63px]">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
 
             {/* Title Area */}
@@ -241,10 +241,10 @@ export default function UsuariosPage() {
         </div>
 
         {/* MAIN CONTENT */}
-        <div className="p-4 md:p-8 max-w-7xl mx-auto pb-24">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto pb-24 w-full">
 
           {/* Mobile Search & Filter */}
-          <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3">
+          <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3 w-full max-w-[calc(100vw-2rem)] overflow-hidden">
             <div className="relative group shadow-lg shadow-gray-200/50 rounded-full">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
@@ -256,7 +256,7 @@ export default function UsuariosPage() {
               />
             </div>
 
-            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar w-full">
               {['all', 'admin', 'supervisor', 'manager', 'asistente'].map(role => (
                 <button
                   key={role}
@@ -296,13 +296,14 @@ export default function UsuariosPage() {
                   `}
                 >
                   {/* Botón Editar Flotante (Desktop only) */}
+                  {/* Botón Editar Flotante (Visible siempre) */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setEditingUser(user);
                       setIsModalOpen(true);
                     }}
-                    className="hidden md:block absolute top-4 right-4 text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-xl transition-colors opacity-0 group-hover:opacity-100"
+                    className="absolute top-4 right-4 text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-xl transition-colors md:opacity-0 md:group-hover:opacity-100"
                     title="Editar Usuario"
                   >
                     <MoreHorizontal size={20} />

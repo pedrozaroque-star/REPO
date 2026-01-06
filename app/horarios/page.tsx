@@ -496,8 +496,8 @@ function ScheduleManager() {
     }
 
     return (
-        <div className="flex h-screen overflow-hidden bg-transparent font-sans text-gray-900 pt-20 lg:pt-0">
-            <main className="flex-1 flex flex-col h-full w-full relative overflow-hidden transition-all duration-300">
+        <div className="flex bg-transparent font-sans text-gray-900 w-full animate-in fade-in duration-500">
+            <main className="flex-1 flex flex-col w-full relative transition-all duration-300">
 
                 {/* CONTENIDO PRINCIPAL SCROLLABLE */}
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 w-full">

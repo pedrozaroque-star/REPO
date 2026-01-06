@@ -211,7 +211,7 @@ function ManagerChecklistsContent() {
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent min-h-screen font-sans pt-20 lg:pt-0">
+    <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* STICKY HEADER - Mobile & Desktop */}

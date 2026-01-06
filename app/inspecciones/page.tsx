@@ -83,7 +83,7 @@ function InspeccionesContent() {
           store_name: store?.name || 'N/A',
           supervisor_name: user?.full_name || item.supervisor_name || 'Desconocido',
           checklist_type: 'supervisor',
-          checklist_date: item.inspection_date,
+          checklist_date: item.inspection_date || item.created_at,
           score: item.overall_score,
           photo_urls: item.photos || []
         }
@@ -124,11 +124,11 @@ function InspeccionesContent() {
   if (loading) return <div className="flex h-screen items-center justify-center">Cargando inspecciones...</div>
 
   return (
-    <div className="flex bg-transparent h-screen overflow-hidden pt-16 lg:pt-0 font-sans">
+    <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
       <div className="flex-1 flex flex-col h-full w-full relative">
 
         {/* 1. STICKY HEADER (Matches Reportes Design) */}
-        <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-14 lg:top-0 z-20 shadow-sm shrink-0">
+        <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shadow-sm shrink-0">
           <div className="w-full md:w-auto">
             <h1 className="text-xl md:text-2xl font-black text-gray-900 leading-none">Inspecciones de Supervisor</h1>
             <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wide">Auditoría y control de calidad</p>
@@ -260,7 +260,7 @@ function InspeccionesContent() {
                         >
                           <td className="p-4 font-bold text-gray-900">{item.store_name}</td>
                           <td className="p-4 text-gray-600 text-xs font-semibold">{item.supervisor_name}</td>
-                          <td className="p-4 text-center text-gray-500 text-xs font-semibold">{formatDateLA(item.inspection_date)}</td>
+                          <td className="p-4 text-center text-gray-500 text-xs font-semibold">{formatDateLA(item.checklist_date)}</td>
                           <td className="p-4 text-center">
                             <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${item.shift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
                               {item.shift}
@@ -313,7 +313,7 @@ function InspeccionesContent() {
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex flex-col">
                     <h3 className="text-base font-black text-gray-900 leading-tight">{item.store_name}</h3>
-                    <span className="text-xs font-bold text-gray-500 mt-1">{formatDateLA(item.inspection_date)}</span>
+                    <span className="text-xs font-bold text-gray-500 mt-1">{formatDateLA(item.checklist_date)}</span>
                   </div>
                   <span className={`text-xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
                     {item.overall_score}%

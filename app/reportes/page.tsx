@@ -217,7 +217,7 @@ function ReportesContent() {
     }
 
     return (
-        <div className="flex bg-transparent h-screen overflow-hidden text-gray-900 font-sans pt-20 lg:pt-0">
+        <div className="flex bg-transparent text-gray-900 font-sans w-full animate-in fade-in duration-500">
             <div className="flex-1 flex flex-col h-full w-full relative pl-0 md:pl-0">
 
                 {/* 1. COMPACT HEADER BAR */}

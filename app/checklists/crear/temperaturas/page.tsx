@@ -217,7 +217,7 @@ function TemperaturasContent() {
   const capturedCount = Object.keys(temperatures).length
 
   return (
-    <div className="min-h-screen checklist-container pt-16 md:pt-0 flex flex-col">
+    <div className="min-h-screen checklist-container flex flex-col animate-in fade-in duration-500">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm shrink-0">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">

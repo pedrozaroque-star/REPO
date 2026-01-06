@@ -37,6 +37,10 @@ export default function FeedbackReviewModal({
     const [adminNotes, setAdminNotes] = useState(feedback.follow_up_notes || '')
     const [isSending, setIsSending] = useState(false)
 
+    // -- DYNAMIC TEMPLATE (Moved up) --
+    const { data: template } = useDynamicChecklist('public_feedback_v1')
+    const questions = template?.sections?.flatMap(s => s.questions) || []
+
     if (!isOpen || !feedback) return null
 
     // Helper para transformar URLs de Google Drive en imágenes visibles
@@ -67,9 +71,6 @@ export default function FeedbackReviewModal({
 
     const isAdmin = currentUser.role === 'admin'
 
-    // -- DYNAMIC TEMPLATE --
-    const { data: template } = useDynamicChecklist('public_feedback_v1')
-    const questions = template?.sections?.flatMap(s => s.questions) || []
     const questionPhotosMap = feedback.answers?.['__question_photos'] || {}
 
     // Categoría de colores

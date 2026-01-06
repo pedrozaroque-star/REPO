@@ -153,8 +153,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
     const renderAnswerValue = (question: any, rawValue: any, sectionTitle?: string) => {
         let value = rawValue
-        if (value && typeof value === 'object' && value.value !== undefined) {
-            value = value.value
+        if (value && typeof value === 'object') {
+            if (value.value !== undefined) value = value.value
+            else if (value.score !== undefined) value = value.score
+            else if (value.response !== undefined) value = value.response
         }
         const displayValue = String(value ?? 'N/A')
         const numValue = Number(value)
@@ -636,133 +638,62 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">
                                 {activeTab === 'answers' && (
                                     <div className="space-y-6">
-                                        {templateLoading ? (
-                                            <div className="flex justify-center py-20">
-                                                <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                                            </div>
-                                        ) : template ? (
-                                            template.sections.map((section: any, sIdx: number) => (
-                                                <div key={`section-${sIdx}`} className="bg-gray-50 rounded-2xl p-4 md:p-5 border border-gray-100">
-                                                    <h3 className="text-xs md:text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 pb-2 border-b border-gray-200">
-                                                        {section.title}
-                                                    </h3>
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                        {section.questions.map((q: any, qIdx: number) => {
-                                                            // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
-                                                            let value: any = undefined
-
-                                                            // Strategy 1: Direct ID match (for new dynamic templates)
-                                                            if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) {
-                                                                value = checklist.answers[q.id]
-                                                            }
-
-                                                            // Strategy 2: Direct text match (for legacy templates stored by question text)
-                                                            if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) {
-                                                                value = checklist.answers[q.text]
-                                                            }
-
-                                                            // Strategy 3: Fuzzy match on old descriptive IDs (e.g. "refrig1_papelitos_mayo")
-                                                            // This is critical for old checklists created before template refactoring
-                                                            if ((value === undefined || value === null) && checklist.answers) {
-                                                                // Convert question text to potential old ID format
-                                                                // "Refrig 1 - Papelitos con mayo" -> look for keys containing "refrig" and "papelito"
-                                                                const questionWords = q.text.toLowerCase()
-                                                                    .replace(/[^a-z0-9\s]/g, '') // Remove special chars
-                                                                    .split(/\s+/)
-                                                                    .filter((w: string) => w.length > 2) // Only keep meaningful words
-
-                                                                // Try to find answer key that matches these words
-                                                                for (const answerKey of Object.keys(checklist.answers)) {
-                                                                    if (answerKey === '__question_photos') continue
-
-                                                                    // Resolve the answer key to its text representation if possible
-                                                                    let keyText = answerKey
-                                                                    const answerVal = checklist.answers[answerKey]
-
-                                                                    // Handle Supervisor Nested Structure
-                                                                    if (type === 'supervisor' && answerVal && typeof answerVal === 'object' && answerVal.items) {
-                                                                        // If it's a supervisor section object, look inside its items
-                                                                        for (const subKey of Object.keys(answerVal.items)) {
-                                                                            const subItem = answerVal.items[subKey]
-                                                                            const subLabel = subItem.label || subKey
-
-                                                                            // Fuzzy match the sub-item label against current question text
-                                                                            const subLabelLower = subLabel.toLowerCase()
-                                                                            const subMatchCount = questionWords.filter((word: string) =>
-                                                                                subLabelLower.includes(word)
-                                                                            ).length
-
-                                                                            if (subMatchCount >= 2) {
-                                                                                value = subItem.score !== undefined ? subItem.score : subItem
-                                                                                break
-                                                                            }
-                                                                        }
-                                                                        if (value !== undefined) break
-                                                                        continue // Skip top-level matching for section objects
-                                                                    }
-
-                                                                    if (type === 'manager') {
-                                                                        keyText = getManagerQuestionText(answerKey)
-                                                                    } else {
-                                                                        // For daily/recorrido/etc
-                                                                        keyText = getAssistantQuestionText(type, answerKey)
-                                                                    }
-
-                                                                    const keyLower = keyText.toLowerCase()
-                                                                        .replace(/\(lbs\)/g, '') // Clean units for better matching
-                                                                        .trim()
-
-                                                                    // Check if key contains significant words from the question
-                                                                    const matchCount = questionWords.filter((word: string) =>
-                                                                        keyLower.includes(word) && word.length > 2
-                                                                    ).length
-
-                                                                    // If at least 2 significant words match or 100% of small questions (like ChecklistForm)
-                                                                    if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
-                                                                        value = checklist.answers[answerKey]
-                                                                        break
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            const qPhotos = questionPhotosMap[q.id] || []
-
-                                                            return (
-                                                                <div key={`q-${sIdx}-${qIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
-                                                                    <div className="flex justify-between items-start gap-3">
-                                                                        <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{q.text}</span>
-                                                                        <div className="shrink-0">{renderAnswerValue(q, value, section.title)}</div>
-                                                                    </div>
-                                                                    {qPhotos.length > 0 && (
-                                                                        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                                                                            {qPhotos.map((url: string, idx: number) => (
-                                                                                <a key={`q-evidence-${sIdx}-${qIdx}-${idx}`} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 hover:scale-105 transition-transform">
-                                                                                    <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                                                                </a>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            ))
-                                        ) : null}
-
-                                        {/* SECTION FOR ORPHANED / LEGACY DATA (Answers found in DB but not in current template) */}
-                                        {orphanedAnswers.length > 0 && (
-                                            <div className="bg-amber-50 rounded-2xl p-4 md:p-5 border border-amber-100 mt-6">
-                                                <div className="flex items-center gap-2 mb-4 pb-2 border-b border-amber-200">
-                                                    <History size={16} className="text-amber-600" />
-                                                    <h3 className="text-xs md:text-sm font-bold text-amber-700 uppercase tracking-wider">
-                                                        Información Histórica (Preguntas Anteriores)
-                                                    </h3>
-                                                </div>
+                                        {/* 
+                                           LOGIC CHANGE: 
+                                           If orphanedAnswers (Historical) exist, show ONLY them.
+                                           Hide Current Template sections in that case.
+                                           Also remove the "Información Histórica" header.
+                                        */}
+                                        {orphanedAnswers.length > 0 ? (
+                                            // --- HISTORICAL DATA ONLY ---
+                                            <div className="bg-amber-50 rounded-2xl p-4 md:p-5 border border-amber-100">
                                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                                                     {orphanedAnswers.map((key, oIdx) => {
                                                         const rawValue = checklist.answers[key]
                                                         const qPhotos = questionPhotosMap[key] || []
+
+                                                        // LOGIC: Handle Supervisor Nested Objects (Section -> Items)
+                                                        if (rawValue && typeof rawValue === 'object' && rawValue.items) {
+                                                            // It is a section with sub-items
+                                                            const items = rawValue.items
+                                                            const subItems = Object.values(items).map((item: any) => ({
+                                                                label: item.label || item.text || 'Sin etiqueta',
+                                                                score: item.score !== undefined ? item.score : item.value
+                                                            }))
+
+                                                            return (
+                                                                <div key={`orphaned-group-${oIdx}`} className="col-span-1 lg:col-span-2 bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                                                                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 border-b border-gray-100 pb-2">
+                                                                        {key.replace(/_/g, ' ')}
+                                                                    </h4>
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                        {subItems.map((sub, sIdx) => (
+                                                                            <div key={`sub-${oIdx}-${sIdx}`} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+                                                                                <span className="text-sm text-gray-700 font-medium leading-snug">{sub.label}</span>
+                                                                                <div className="shrink-0 ml-2">
+                                                                                    {renderAnswerValue({ text: sub.label }, sub.score)}
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                    {qPhotos.length > 0 && (
+                                                                        <div className="mt-4 pt-3 border-t border-gray-100">
+                                                                            <span className="text-xs font-bold text-gray-400 block mb-2">Evidencias de Sección:</span>
+                                                                            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                                                                                {qPhotos.map((url: string, idx: number) => (
+                                                                                    <a key={`orphaned-evidence-${oIdx}-${idx}`} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200">
+                                                                                        <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" />
+                                                                                    </a>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )
+                                                        }
+
+                                                        // Legacy Helper for Supervisor indices (0, 1, 2 keys) if mixed
+                                                        // (Not typically orphaned main keys, but good safety)
 
                                                         return (
                                                             <div key={`orphaned-${oIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-amber-100 hover:shadow-md transition-shadow">
@@ -784,6 +715,109 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                     })}
                                                 </div>
                                             </div>
+                                        ) : (
+                                            // --- CURRENT TEMPLATE DATA ---
+                                            templateLoading ? (
+                                                <div className="flex justify-center py-20">
+                                                    <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                                                </div>
+                                            ) : template ? (
+                                                template.sections.map((section: any, sIdx: number) => (
+                                                    <div key={`section-${sIdx}`} className="bg-gray-50 rounded-2xl p-4 md:p-5 border border-gray-100">
+                                                        <h3 className="text-xs md:text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 pb-2 border-b border-gray-200">
+                                                            {section.title}
+                                                        </h3>
+                                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                            {section.questions.map((q: any, qIdx: number) => {
+                                                                // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
+                                                                let value: any = undefined
+
+                                                                // Strategy 1: Direct ID match (for new dynamic templates)
+                                                                if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) {
+                                                                    value = checklist.answers[q.id]
+                                                                }
+
+                                                                // Strategy 2: Direct text match (for legacy templates stored by question text)
+                                                                if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) {
+                                                                    value = checklist.answers[q.text]
+                                                                }
+
+                                                                // Strategy 3: Fuzzy match on old descriptive IDs (e.g. "refrig1_papelitos_mayo")
+                                                                if ((value === undefined || value === null) && checklist.answers) {
+                                                                    const questionWords = q.text.toLowerCase()
+                                                                        .replace(/[^a-z0-9\s]/g, '')
+                                                                        .split(/\s+/)
+                                                                        .filter((w: string) => w.length > 2)
+
+                                                                    for (const answerKey of Object.keys(checklist.answers)) {
+                                                                        if (answerKey === '__question_photos') continue
+
+                                                                        let keyText = answerKey
+                                                                        const answerVal = checklist.answers[answerKey]
+
+                                                                        if (type === 'supervisor' && answerVal && typeof answerVal === 'object' && answerVal.items) {
+                                                                            for (const subKey of Object.keys(answerVal.items)) {
+                                                                                const subItem = answerVal.items[subKey]
+                                                                                const subLabel = subItem.label || subKey
+                                                                                const subLabelLower = subLabel.toLowerCase()
+                                                                                const subMatchCount = questionWords.filter((word: string) =>
+                                                                                    subLabelLower.includes(word)
+                                                                                ).length
+
+                                                                                if (subMatchCount >= 2) {
+                                                                                    value = subItem.score !== undefined ? subItem.score : subItem
+                                                                                    break
+                                                                                }
+                                                                            }
+                                                                            if (value !== undefined) break
+                                                                            continue
+                                                                        }
+
+                                                                        if (type === 'manager') {
+                                                                            keyText = getManagerQuestionText(answerKey)
+                                                                        } else {
+                                                                            keyText = getAssistantQuestionText(type, answerKey)
+                                                                        }
+
+                                                                        const keyLower = keyText.toLowerCase()
+                                                                            .replace(/\(lbs\)/g, '')
+                                                                            .trim()
+
+                                                                        const matchCount = questionWords.filter((word: string) =>
+                                                                            keyLower.includes(word) && word.length > 2
+                                                                        ).length
+
+                                                                        if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                                                                            value = checklist.answers[answerKey]
+                                                                            break
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                const qPhotos = questionPhotosMap[q.id] || []
+
+                                                                return (
+                                                                    <div key={`q-${sIdx}-${qIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
+                                                                        <div className="flex justify-between items-start gap-3">
+                                                                            <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{q.text}</span>
+                                                                            <div className="shrink-0">{renderAnswerValue(q, value, section.title)}</div>
+                                                                        </div>
+                                                                        {qPhotos.length > 0 && (
+                                                                            <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                                                                                {qPhotos.map((url: string, idx: number) => (
+                                                                                    <a key={`q-evidence-${sIdx}-${qIdx}-${idx}`} href={url} target="_blank" rel="noopener noreferrer" className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 hover:scale-105 transition-transform">
+                                                                                        <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                                                    </a>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : null
                                         )}
 
                                         {/* Comments Section */}

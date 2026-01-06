@@ -126,7 +126,7 @@ export default function EstadisticasPage() {
   }
 
   return (
-    <div className="flex bg-transparent h-screen overflow-hidden pt-16 md:pt-0">
+    <div className="flex bg-transparent w-full animate-in fade-in duration-500">
 
       <main className="flex-1 overflow-y-auto p-8 w-full">
         <div className="max-w-7xl mx-auto">

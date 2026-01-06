@@ -7,6 +7,7 @@ import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCir
 import { getSupabaseClient } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
+import { getSafeLADateISO } from '@/lib/checklistPermissions'
 
 interface Store {
   id: string
@@ -25,7 +26,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   const [formData, setFormData] = useState({
     store_id: initialData?.store_id?.toString() || '',
-    inspection_date: initialData?.inspection_date ? initialData.inspection_date.substring(0, 10) : new Date().toISOString().split('T')[0],
+    inspection_date: initialData?.inspection_date ? initialData.inspection_date.substring(0, 10) : getSafeLADateISO(null),
     inspection_time: initialData?.inspection_time || new Date().toTimeString().slice(0, 5),
     shift: initialData?.shift || (new Date().getHours() >= 17 || new Date().getHours() < 7 ? 'PM' : 'AM'),
     observaciones: initialData?.observaciones || ''
@@ -33,6 +34,17 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   const [answers, setAnswers] = useState<{ [key: string]: any }>({})
   const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
+  const [startTime, setStartTime] = useState<string>('')
+
+  useEffect(() => {
+    // Set start time on mount if not already set
+    if (!initialData?.start_time) {
+      const now = new Date()
+      setStartTime(now.toTimeString().slice(0, 5))
+    } else {
+      setStartTime(initialData.start_time)
+    }
+  }, [initialData])
 
   useEffect(() => {
     if (initialData?.answers) {
@@ -121,12 +133,33 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
       // Add rich photo mapping
       richAnswers['__question_photos'] = questionPhotos
 
+      // Calculate duration
+      const now = new Date()
+      const endTime = now.toTimeString().slice(0, 5)
+
+      let duration = '0 min'
+      if (startTime) {
+        const [startH, startM] = startTime.split(':').map(Number)
+        const [endH, endM] = endTime.split(':').map(Number)
+        const startMinutes = startH * 60 + startM
+        const endMinutes = endH * 60 + endM
+        let diff = endMinutes - startMinutes
+        if (diff < 0) diff += 24 * 60 // Handle midnight crossing
+
+        const hours = Math.floor(diff / 60)
+        const minutes = diff % 60
+        duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes} min`
+      }
+
       const payload = {
         store_id: parseInt(formData.store_id),
         inspector_id: user.id,
         supervisor_name: user.name || user.email,
         inspection_date: formData.inspection_date,
-        inspection_time: formData.inspection_time,
+        inspection_time: formData.inspection_time, // Kept for legacy compatibility if needed
+        start_time: startTime, // New Field
+        end_time: endTime, // New Field
+        duration: duration, // New Field
         shift: formData.shift,
         overall_score: overall,
         answers: richAnswers,

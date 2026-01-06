@@ -227,7 +227,7 @@ export default function StaffEvaluationPage() {
   }
 
   return (
-    <div className="flex bg-transparent h-screen overflow-hidden font-sans pt-20 lg:pt-0 flex flex-col">
+    <div className="flex bg-transparent font-sans w-full flex-col animate-in fade-in duration-500">
       <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">

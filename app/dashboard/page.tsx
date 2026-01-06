@@ -230,9 +230,9 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="bg-transparent h-screen overflow-hidden font-sans pt-16 md:pt-0">
+    <div className="bg-transparent font-sans w-full">
       {/* STICKY HEADER - Mobile & Desktop */}
-      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0 transition-all top-[63px]">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
           {/* Title Area */}
           <div className="flex items-center gap-3">
@@ -266,7 +266,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto h-full max-w-7xl mx-auto px-4 md:px-8 py-8 no-scrollbar">
+      <main className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         {/* Quick Search */}
         <div className="bg-white rounded-2xl shadow-sm p-4 md:p-6 mb-8 border border-gray-100">
           <div className="flex items-center gap-2 mb-4">

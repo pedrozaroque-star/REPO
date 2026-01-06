@@ -198,7 +198,7 @@ function NotificacionesContent() {
   })
 
   return (
-    <div className="bg-transparent h-screen overflow-hidden font-sans pt-20 lg:pt-0 flex flex-col">
+    <div className="bg-transparent font-sans w-full flex flex-col animate-in fade-in duration-500">
       <div className="flex-1 w-full relative flex flex-col">
         {/* STICKY HEADER - Mobile & Desktop */}
         <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
