@@ -108,6 +108,7 @@ function ScheduleManager() {
     const [localSchedules, setLocalSchedules] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [editingShift, setEditingShift] = useState<any>(null);
+    const [selectedDayIndex, setSelectedDayIndex] = useState(0); // For Mobile View switching
 
     // --- ESTADOS PARA DRAG & DROP (COPIAR) ---
     const [isDragging, setIsDragging] = useState(false);
@@ -284,25 +285,25 @@ function ScheduleManager() {
 
     const renderDashboard = () => (
         <div className="animate-fade-in">
-            <div className="flex justify-between items-end mb-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
                 <div>
                     <h2 className="text-3xl font-black text-gray-900 tracking-tight">Centro de Control</h2>
                     <p className="text-gray-500 mt-1">
                         {canEdit ? '👋 Hola Admin. Selecciona una tienda para gestionar.' : '👀 Modo Lectura. Visualización de cobertura.'}
                     </p>
                 </div>
-                <div className="hidden md:flex items-center gap-3">
-                    <div className="flex items-center bg-white rounded-full p-1 shadow-sm border border-gray-200">
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="flex items-center justify-between md:justify-start bg-white rounded-full p-1 shadow-sm border border-gray-200 w-full md:w-auto">
                         <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">◀</button>
-                        <span className="px-4 font-mono font-bold text-xs text-gray-700">
+                        <span className="px-4 font-mono font-bold text-xs text-gray-700 whitespace-nowrap">
                             {formatDateNice(weekStart)} — {formatDateNice(addDays(weekStart, 6))}
                         </span>
                         <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">▶</button>
                     </div>
 
-                    <div className="bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm flex items-center gap-2">
+                    <div className="hidden md:flex bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                        <span className="text-xs font-bold text-gray-600">Alerta de Cobertura</span>
+                        <span className="text-xs font-bold text-gray-600">Alerta</span>
                     </div>
                 </div>
             </div>
@@ -382,8 +383,8 @@ function ScheduleManager() {
                     </div>
                 </div>
 
-                {/* 🔥 NUEVA LEYENDA VISUAL 🔥 */}
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
+                {/* 🔥 LEYENDA VISUAL (Desktop Only) 🔥 */}
+                <div className="hidden md:flex bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex-col md:flex-row gap-6 justify-between items-start md:items-center">
                     <div className="space-y-2">
                         <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Estatus del Día</h3>
                         <div className="flex flex-wrap gap-2">
@@ -407,7 +408,107 @@ function ScheduleManager() {
                     </div>
                 </div>
 
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden select-none">
+                {/* 📱 MOBILE EDITOR VIEW (Day Tabs + List) */}
+                <div className="md:hidden space-y-4">
+                    {/* Day Selector Tabs */}
+                    <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide snap-x">
+                        {weekDays.map((date, idx) => {
+                            const isSelected = selectedDayIndex === idx;
+                            const dateStr = formatDateISO(date);
+                            const status = calculateDailyStatus(dateStr, localSchedules, localUsers);
+
+                            return (
+                                <button
+                                    key={idx}
+                                    onClick={() => setSelectedDayIndex(idx)}
+                                    className={`flex-none snap-start flex flex-col items-center justify-center w-[4.5rem] h-20 rounded-2xl border-2 transition-all duration-200 ${isSelected
+                                            ? 'bg-gray-900 border-gray-900 text-white shadow-lg scale-105 z-10'
+                                            : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'
+                                        }`}
+                                >
+                                    <span className="text-[10px] font-bold uppercase tracking-wider">{getDayName(date)}</span>
+                                    <span className={`text-xl font-black ${isSelected ? 'text-white' : 'text-gray-800'}`}>{date.getDate()}</span>
+                                    <div className={`w-1.5 h-1.5 rounded-full mt-1 ${status.status === 'ok' ? 'bg-emerald-500' :
+                                            status.status === 'bad' ? 'bg-red-500' : 'bg-gray-200'
+                                        }`}></div>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Day Status Header */}
+                    {(() => {
+                        const currentDayDate = weekDays[selectedDayIndex];
+                        const dateStr = formatDateISO(currentDayDate);
+                        const status = calculateDailyStatus(dateStr, localSchedules, localUsers);
+
+                        return (
+                            <div className={`p-3 rounded-xl flex items-center justify-between shadow-sm ${status.color}`}>
+                                <span className="text-xs font-bold uppercase tracking-wider opacity-90">Estatus del Día</span>
+                                <span className="text-sm font-black">{status.label}</span>
+                            </div>
+                        );
+                    })()}
+
+                    {/* Users List for Selected Day */}
+                    <div className="space-y-3 pb-24">
+                        {localUsers.map(user => {
+                            const currentDayDate = weekDays[selectedDayIndex];
+                            const dateStr = formatDateISO(currentDayDate);
+                            const currentShift = localSchedules.find(s => String(s.user_id) === String(user.id) && s.date === dateStr);
+
+                            let preset = null;
+                            if (currentShift) {
+                                preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
+                            }
+
+                            return (
+                                <div
+                                    key={user.id}
+                                    onClick={() => openEditModal(user, currentDayDate, currentShift)}
+                                    className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-all flex items-center justify-between"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold text-white shadow-sm
+                                            ${['manager', 'admin', 'sup'].some(r => user.role.toLowerCase().includes(r))
+                                                ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
+                                            {user.full_name.substring(0, 1).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <h4 className="font-bold text-gray-900 leading-tight">
+                                                {user.full_name}
+                                                {['manager', 'sup'].some(r => user.role.toLowerCase().includes(r)) && <span className="ml-1 text-amber-500 text-xs">👑</span>}
+                                            </h4>
+                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{user.role}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Shift Pill */}
+                                    <div className="text-right">
+                                        {currentShift ? (
+                                            <div className={`flex flex-col items-end`}>
+                                                <span className={`px-3 py-1 rounded-lg text-xs font-bold shadow-sm mb-1 ${preset ? preset.color : 'bg-white border text-blue-800 border-blue-200'
+                                                    }`}>
+                                                    {preset ? preset.label : 'Personal'}
+                                                </span>
+                                                <span className="text-[10px] font-mono font-medium text-gray-400">
+                                                    {currentShift.start_time?.slice(0, 5)} - {currentShift.end_time?.slice(0, 5)}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <span className="px-3 py-1 rounded-lg bg-gray-50 text-gray-400 text-xs font-bold border border-gray-100">
+                                                OFF
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* 💻 DESKTOP TABLE (Hidden on Mobile) */}
+                <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden select-none">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm border-collapse">
                             <thead>
