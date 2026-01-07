@@ -59,6 +59,11 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         }
       })
       setAnswers(initialAnswers)
+
+      // Load photos from __question_photos if available
+      if (initialData.answers['__question_photos']) {
+        setQuestionPhotos(initialData.answers['__question_photos'])
+      }
     }
   }, [initialData, allQuestions])
 

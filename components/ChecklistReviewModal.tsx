@@ -300,9 +300,11 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         }
     }
 
+
     const templateCode = getTemplateCode(type)
     const { data: template, loading: templateLoading } = useDynamicChecklist(templateCode || '')
     const questionPhotosMap = checklist?.answers?.['__question_photos'] || {}
+
 
     const handlePrint = () => {
         window.print()
@@ -666,7 +668,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     >
                         <motion.div
                             key="modal-content"
-                            className="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[90vh] md:h-[90vh] flex flex-col md:flex-row overflow-hidden relative"
+                            className="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-7xl h-[90vh] md:h-[90vh] flex flex-col md:flex-row overflow-hidden relative"
                             initial={{ y: "100%" }}
                             animate={{ y: 0 }}
                             exit={{ y: "100%" }}
@@ -1152,7 +1154,29 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                         }
                                                                     }
 
-                                                                    const qPhotos = questionPhotosMap[q.id] || []
+                                                                    // Try to find photos for this question using multiple strategies
+                                                                    let qPhotos: string[] = []
+
+                                                                    // Strategy 1: Direct ID match
+                                                                    if (questionPhotosMap[q.id]) {
+                                                                        qPhotos = questionPhotosMap[q.id]
+                                                                    }
+                                                                    // Strategy 2: Try question text as key
+                                                                    else if (questionPhotosMap[q.text]) {
+                                                                        qPhotos = questionPhotosMap[q.text]
+                                                                    }
+                                                                    // Strategy 3: Fuzzy match by question text words
+                                                                    else {
+                                                                        const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+                                                                        for (const photoKey of Object.keys(questionPhotosMap)) {
+                                                                            const keyLower = photoKey.toLowerCase()
+                                                                            const matchCount = questionWords.filter((word: string) => keyLower.includes(word)).length
+                                                                            if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                                                                                qPhotos = questionPhotosMap[photoKey]
+                                                                                break
+                                                                            }
+                                                                        }
+                                                                    }
 
                                                                     return (
                                                                         <div key={`q-${sIdx}-${qIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
@@ -1177,6 +1201,32 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                     )
                                                                 })}
                                                             </div>
+
+                                                            {/* LEGACY SUPPORT: Show all photos at end of section if no question-specific photos exist */}
+                                                            {Object.keys(questionPhotosMap).length === 0 && checklist.photos && checklist.photos.length > 0 && (
+                                                                <div className="mt-6 bg-blue-50 rounded-xl p-4 border border-blue-100">
+                                                                    <div className="flex items-center gap-2 mb-3">
+                                                                        <Camera size={16} className="text-blue-600" />
+                                                                        <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wider">
+                                                                            Evidencias de esta Inspección
+                                                                        </h4>
+                                                                        <span className="text-xs text-blue-500 ml-auto">
+                                                                            ({checklist.photos.length} fotos)
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                                                                        {checklist.photos.map((url: string, idx: number) => (
+                                                                            <div
+                                                                                key={`legacy-photo-${sIdx}-${idx}`}
+                                                                                onClick={() => openViewer(idx, checklist.photos)}
+                                                                                className="aspect-square rounded-lg overflow-hidden border border-blue-200 hover:scale-105 transition-transform cursor-pointer"
+                                                                            >
+                                                                                <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     ))
                                                 ) : null
@@ -1203,16 +1253,21 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                 </div>
                                             ) : (
                                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                                    {[...(checklist.photos || []), ...Object.values(questionPhotosMap).flat()].map((url: string, i: number, arr: string[]) => (
-                                                        <div
-                                                            key={`gallery-${i}`}
-                                                            onClick={() => openViewer(i, arr)}
-                                                            className="aspect-square rounded-xl overflow-hidden border border-gray-200 hover:scale-105 hover:shadow-lg transition-all cursor-pointer group relative"
-                                                        >
-                                                            <img src={getEmbeddableImageUrl(url)} className="w-full h-full object-cover" alt="Evidence" referrerPolicy="no-referrer" />
-                                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                                                        </div>
-                                                    ))}
+                                                    {(() => {
+                                                        // Combine both photo sources and remove duplicates
+                                                        const allPhotos = [...(checklist.photos || []), ...Object.values(questionPhotosMap).flat()];
+                                                        const uniquePhotos = Array.from(new Set(allPhotos));
+                                                        return uniquePhotos.map((url: string, i: number) => (
+                                                            <div
+                                                                key={`gallery-${i}`}
+                                                                onClick={() => openViewer(i, uniquePhotos)}
+                                                                className="aspect-square rounded-xl overflow-hidden border border-gray-200 hover:scale-105 hover:shadow-lg transition-all cursor-pointer group relative"
+                                                            >
+                                                                <img src={getEmbeddableImageUrl(url)} className="w-full h-full object-cover" alt="Evidence" referrerPolicy="no-referrer" />
+                                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                                                            </div>
+                                                        ));
+                                                    })()}
                                                 </div>
                                             )}
                                         </div>
