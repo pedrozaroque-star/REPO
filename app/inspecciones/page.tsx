@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
 
 function InspeccionesContent() {
@@ -55,6 +55,7 @@ function InspeccionesContent() {
         .from('supervisor_inspections')
         .select('*')
         .order('inspection_date', { ascending: false })
+        .order('created_at', { ascending: false })
 
       if (storeFilter !== 'all') {
         query = query.eq('store_id', storeFilter)
@@ -80,7 +81,7 @@ function InspeccionesContent() {
 
         return {
           ...item,
-          store_name: store?.name || 'N/A',
+          store_name: formatStoreName(store?.name) || 'N/A',
           supervisor_name: user?.full_name || item.supervisor_name || 'Desconocido',
           checklist_type: 'supervisor',
           checklist_date: item.inspection_date || item.created_at,
@@ -235,8 +236,10 @@ function InspeccionesContent() {
                   ) : (
                     inspections.map((item) => {
                       // Calculate Duration
-                      let duration = 'N/A'
-                      if (item.start_time && item.end_time) {
+                      let duration = item.duration || 'N/A'
+
+                      // Si no viene la duración explícita pero hay tiempos, calcularla
+                      if (duration === 'N/A' && item.start_time && item.end_time) {
                         try {
                           const startParts = item.start_time.split(':').map(Number)
                           const endParts = item.end_time.split(':').map(Number)

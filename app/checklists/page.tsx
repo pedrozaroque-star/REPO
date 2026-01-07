@@ -6,7 +6,7 @@ import { FileText, Plus, Filter } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA, isOverdue } from '@/lib/checklistPermissions'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 
 function ChecklistsContent() {
   const router = useRouter()
@@ -68,7 +68,7 @@ function ChecklistsContent() {
               // Estandarizar objeto para el Modal (igual que fetchData)
               const formatted = {
                 ...data,
-                store_name: (data as any).stores?.name || 'N/A'
+                store_name: formatStoreName((data as any).stores?.name) || 'N/A'
               }
               setSelectedChecklist(formatted)
               setShowReviewModal(true)
@@ -100,7 +100,7 @@ function ChecklistsContent() {
           if (data && !error) {
             const formatted = {
               ...data,
-              store_name: (data as any).stores?.name || 'N/A'
+              store_name: formatStoreName((data as any).stores?.name) || 'N/A'
             }
             setSelectedChecklist(formatted)
             setShowReviewModal(true)
@@ -184,7 +184,7 @@ function ChecklistsContent() {
 
       const formattedData = Array.isArray(checkData) ? checkData.map(item => ({
         ...item,
-        store_name: item.stores?.name || 'N/A'
+        store_name: formatStoreName(item.stores?.name) || 'N/A'
       })) : []
 
       // 🔍 Filtrado Frontend por Status (más rápido que backend dinámico por ahora)
@@ -337,7 +337,7 @@ function ChecklistsContent() {
                 >
                   <option value="all">Todas las sucursales</option>
                   {stores.map(store => (
-                    <option key={store.id} value={store.id}>{store.name}</option>
+                    <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>
                   ))}
                 </select>
               </div>
@@ -366,7 +366,7 @@ function ChecklistsContent() {
               >
                 <option value="all">Todas las sucursales</option>
                 {stores.map(store => (
-                  <option key={store.id} value={store.id}>{store.name}</option>
+                  <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>
                 ))}
               </select>
               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">

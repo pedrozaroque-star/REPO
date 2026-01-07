@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Store, MapPin, Search, Plus, X, Save, Trash2, Edit } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 
 export default function TiendasPage() {
   const [stores, setStores] = useState<any[]>([])
@@ -247,7 +247,7 @@ export default function TiendasPage() {
                         )}
                       </div>
                       <h3 className="text-lg font-black text-gray-900 leading-tight truncate">
-                        {store.name}
+                        {formatStoreName(store.name)}
                       </h3>
                       <div className="flex items-center gap-1.5 text-gray-500 mt-1">
                         <MapPin size={12} className="shrink-0" />

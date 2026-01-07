@@ -24,7 +24,7 @@ function NuevaInspeccionContent() {
 
   return (
     <div className="flex min-h-screen">
-      <div className="flex-1 p-8 overflow-auto">
+      <div className="flex-1 overflow-auto">
         <InspectionForm user={user} stores={stores} />
       </div>
     </div>

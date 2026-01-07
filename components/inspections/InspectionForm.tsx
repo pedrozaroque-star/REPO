@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, MoreHorizontal } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import { getSafeLADateISO } from '@/lib/checklistPermissions'
@@ -241,7 +241,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         FLOATING HEADER PILL
         Detached, floating, clean. Transparent-safe.
       */}
-      <div className="fixed top-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
+      <div className="fixed top-[76px] left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
         <div className="pointer-events-auto bg-white/95 backdrop-blur-xl shadow-[0_4px_20px_rgb(0,0,0,0.12)] rounded-full px-3 py-2 flex items-center gap-4 border border-gray-200/50 max-w-2xl w-full justify-between ring-1 ring-black/5">
 
           <div className="flex items-center gap-3 pl-1">
@@ -251,7 +251,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             <div>
               <h1 className="text-sm font-black text-gray-900 tracking-tight leading-none">Supervisión</h1>
               <div className="text-[11px] items-center gap-1 font-bold text-gray-500 uppercase hidden sm:flex">
-                <Store size={12} /> {stores.find(s => s.id.toString() === formData.store_id)?.name || 'Selecciona...'}
+                <Store size={12} /> {formatStoreName(stores.find(s => s.id.toString() === formData.store_id)?.name) || 'Selecciona...'}
               </div>
             </div>
           </div>
@@ -272,7 +272,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
       </div>
 
       {/* Main Content Areas - Cards */}
-      <div className="max-w-3xl mx-auto px-4 pt-32 space-y-8">
+      <div className="max-w-3xl mx-auto px-4 pt-36 space-y-8">
 
         {/* Metadata Bubble */}
         <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] text-center relative overflow-hidden group border border-gray-100 ring-1 ring-black/5">
@@ -288,7 +288,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                 className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg cursor-pointer"
               >
                 <option value="">Seleccionar...</option>
-                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
               </select>
             </div>
 

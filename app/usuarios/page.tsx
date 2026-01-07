@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin } from 'lucide-react'
 
 import UserModal from '@/components/UserModal'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 
 export default function UsuariosPage() {
   const [users, setUsers] = useState<any[]>([])
@@ -172,13 +172,13 @@ export default function UsuariosPage() {
 
     if (user.role === 'supervisor') {
       if (!user.store_scope || user.store_scope.length === 0) return 'Sin asignación'
-      if (user.store_scope.length === 1) return user.store_scope[0]
+      if (user.store_scope.length === 1) return formatStoreName(user.store_scope[0])
       return `${user.store_scope.length} Tiendas` // Ej: "3 Tiendas"
     }
 
     // Para managers y asistentes
     const store = stores.find(s => s.id === user.store_id)
-    return store ? store.name : 'Sin Tienda'
+    return store ? formatStoreName(store.name) : 'Sin Tienda'
   }
 
   return (

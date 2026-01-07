@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 
+import { formatStoreName } from '@/lib/supabase'
 type Language = 'es' | 'en'
 
 interface Store {
@@ -404,7 +405,7 @@ export default function ClientesFeedbackPage() {
                 >
                   <option value="" className="bg-[#3a0305] text-white/50">{t.storePlaceholder}</option>
                   {stores.map(s => (
-                    <option key={s.id} value={s.id} className="bg-[#3a0305] text-white">{s.name}</option>
+                    <option key={s.id} value={s.id} className="bg-[#3a0305] text-white">{formatStoreName(s.name)}</option>
                   ))}
                 </select>
                 <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-white/50">▼</div>

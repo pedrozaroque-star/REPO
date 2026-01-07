@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Star, MapPin, Send, CheckCircle2, User, UserCheck, Briefcase } from 'lucide-react'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
 const ROLES = ['Cajero(a)', 'Cocinero', 'Shift Leader', 'Asistente', 'Manager', 'Supervisor']
@@ -254,7 +254,7 @@ export default function StaffEvaluationPage() {
                 <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)}
                   className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none">
                   <option value="">{t.storePlaceholder}</option>
-                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
                 </select>
                 <button type="button" onClick={detectLocation} disabled={detectingLocation}
                   className="p-4 bg-red-50 text-red-600 font-black text-xs uppercase tracking-widest rounded-2xl border border-red-100 hover:bg-red-100 transition-all disabled:opacity-50">

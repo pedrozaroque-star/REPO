@@ -52,3 +52,11 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
     headers
   })
 }
+
+// ============================================================================
+// FORMATTERS
+// ============================================================================
+export const formatStoreName = (name: string | null | undefined): string => {
+  if (!name) return ''
+  return name.replace(/^Tacos Gavilan\s+/i, '').trim()
+}

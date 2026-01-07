@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 import Link from 'next/link'
+import { formatStoreName } from '@/lib/supabase'
 
 export default function BuscarPage() {
   const searchParams = useSearchParams()
@@ -143,7 +144,7 @@ export default function BuscarPage() {
                             href="/tiendas"
                             className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                           >
-                            <p className="font-semibold text-gray-900">{store.name}</p>
+                            <p className="font-semibold text-gray-900">{formatStoreName(store.name)}</p>
                             <p className="text-sm text-gray-600">{store.address}, {store.city}</p>
                           </Link>
                         ))}
@@ -186,7 +187,7 @@ export default function BuscarPage() {
                             className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <p className="font-semibold text-gray-900">
-                              {insp.stores?.name} - {insp.overall_score}%
+                              {formatStoreName(insp.stores?.name)} - {insp.overall_score}%
                             </p>
                             <p className="text-sm text-gray-600">
                               {new Date(insp.inspection_date).toLocaleDateString('es-MX')} • {insp.users?.full_name}
@@ -211,7 +212,7 @@ export default function BuscarPage() {
                             className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <p className="font-semibold text-gray-900">
-                              {fb.stores?.name} - NPS: {fb.nps_score}
+                              {formatStoreName(fb.stores?.name)} - NPS: {fb.nps_score}
                             </p>
                             <p className="text-sm text-gray-600">
                               {new Date(fb.submission_date).toLocaleDateString('es-MX')}
@@ -236,7 +237,7 @@ export default function BuscarPage() {
                             className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <p className="font-semibold text-gray-900">
-                              {check.stores?.name} - {check.checklist_type}
+                              {formatStoreName(check.stores?.name)} - {check.checklist_type}
                             </p>
                             <p className="text-sm text-gray-600">
                               {new Date(check.submission_date).toLocaleDateString('es-MX')} • {check.shift}

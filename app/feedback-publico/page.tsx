@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart, Send, CheckCircle2, Gift, MapPin, Globe } from 'lucide-react'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
 export default function FeedbackPublicoPage() {
@@ -217,7 +217,7 @@ export default function FeedbackPublicoPage() {
                 <select required value={selectedStore} onChange={e => setSelectedStore(e.target.value)}
                   className="w-full p-6 bg-gray-50 border-gray-100 rounded-[2rem] font-black text-xl text-gray-700 outline-none focus:ring-4 focus:ring-red-50 transition-all appearance-none">
                   <option value="">{t.storePlaceholder}</option>
-                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
                 </select>
                 <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300">▼</div>
               </div>

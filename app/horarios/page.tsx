@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 
 // --- CONFIGURACIÓN DE DATOS ---
 const PRESETS = [
@@ -334,7 +334,7 @@ function ScheduleManager() {
                                 </div>
                                 <div>
                                     <h3 className="font-bold text-gray-900 text-lg leading-tight group-hover:text-blue-600 transition-colors">
-                                        {store.name}
+                                        {formatStoreName(store.name)}
                                     </h3>
                                     <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-0.5">
                                         {store.supervisor_name || 'Sin Supervisor'}
@@ -365,7 +365,7 @@ function ScheduleManager() {
                     <div className="flex items-center gap-4">
                         <button onClick={() => setViewMode('dashboard')} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-black hover:text-white transition-all">←</button>
                         <div>
-                            <h2 className="text-xl font-black text-gray-900">{currentStore?.name}</h2>
+                            <h2 className="text-xl font-black text-gray-900">{formatStoreName(currentStore?.name)}</h2>
                             <p className="text-xs text-gray-500 font-medium">Gestión Semanal • {canEdit ? 'Shift + Arrastrar para copiar' : 'Solo Lectura'}</p>
                         </div>
                     </div>
@@ -378,7 +378,7 @@ function ScheduleManager() {
                             <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white text-gray-500 shadow-sm transition-all">▶</button>
                         </div>
                         <select value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)} className="hidden md:block text-sm bg-gray-50 border-none rounded-lg px-4 py-2 font-bold text-gray-700 cursor-pointer hover:bg-gray-100 focus:ring-0">
-                            {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
                         </select>
                     </div>
                 </div>
@@ -422,14 +422,14 @@ function ScheduleManager() {
                                     key={idx}
                                     onClick={() => setSelectedDayIndex(idx)}
                                     className={`flex-none snap-start flex flex-col items-center justify-center w-[4.5rem] h-20 rounded-2xl border-2 transition-all duration-200 ${isSelected
-                                            ? 'bg-gray-900 border-gray-900 text-white shadow-lg scale-105 z-10'
-                                            : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'
+                                        ? 'bg-gray-900 border-gray-900 text-white shadow-lg scale-105 z-10'
+                                        : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'
                                         }`}
                                 >
                                     <span className="text-[10px] font-bold uppercase tracking-wider">{getDayName(date)}</span>
                                     <span className={`text-xl font-black ${isSelected ? 'text-white' : 'text-gray-800'}`}>{date.getDate()}</span>
                                     <div className={`w-1.5 h-1.5 rounded-full mt-1 ${status.status === 'ok' ? 'bg-emerald-500' :
-                                            status.status === 'bad' ? 'bg-red-500' : 'bg-gray-200'
+                                        status.status === 'bad' ? 'bg-red-500' : 'bg-gray-200'
                                         }`}></div>
                                 </button>
                             );

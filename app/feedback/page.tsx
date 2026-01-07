@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { MessageSquare, Plus, Filter } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabase' // ✅ Importación necesaria
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase' // ✅ Importación necesaria
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
@@ -229,7 +229,7 @@ function FeedbackContent() {
                 >
                   <option value="all">Todas las tiendas</option>
                   {stores.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                    <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                   ))}
                 </select>
               </div>
@@ -258,7 +258,7 @@ function FeedbackContent() {
               >
                 <option value="all">Todas las tiendas</option>
                 {stores.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                 ))}
               </select>
               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
@@ -325,7 +325,7 @@ function FeedbackContent() {
                   >
                     <div className="flex justify-between items-start mb-3">
                       <div>
-                        <h3 className="font-black text-lg text-gray-900">{item.stores?.name}</h3>
+                        <h3 className="font-black text-lg text-gray-900">{formatStoreName(item.stores?.name)}</h3>
                         <p className="text-xs text-gray-500 font-medium">
                           {new Date(item.submission_date).toLocaleDateString('es-MX')} • {new Date(item.submission_date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                         </p>
@@ -397,7 +397,7 @@ function FeedbackContent() {
                             <div className="font-bold text-gray-900">{new Date(item.submission_date).toLocaleDateString('es-MX')}</div>
                             <div className="text-xs text-gray-400">{new Date(item.submission_date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</div>
                           </td>
-                          <td className="px-6 py-4 font-medium text-gray-700">{item.stores?.name}</td>
+                          <td className="px-6 py-4 font-medium text-gray-700">{formatStoreName(item.stores?.name)}</td>
                           <td className="px-6 py-4">
                             <div className="text-sm font-bold text-gray-900">{item.customer_name || 'Anónimo'}</div>
                             {item.customer_email && <div className="text-xs text-gray-400 truncate max-w-[150px]">{item.customer_email}</div>}

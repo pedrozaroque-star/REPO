@@ -7,7 +7,7 @@ import { FileCheck, Plus, Filter } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA, isOverdue } from '@/lib/checklistPermissions'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 
 function ManagerChecklistsContent() {
   const searchParams = useSearchParams()
@@ -52,7 +52,7 @@ function ManagerChecklistsContent() {
             if (data) {
               const formatted = {
                 ...data,
-                store_name: data.stores?.name || 'N/A',
+                store_name: formatStoreName(data.stores?.name) || 'N/A',
                 manager_real_name: data.users?.full_name || data.manager_name
               }
               setSelectedItem(formatted)
@@ -105,7 +105,7 @@ function ManagerChecklistsContent() {
 
       let formattedData = Array.isArray(checkData) ? checkData.map(item => ({
         ...item,
-        store_name: item.stores?.name || 'N/A',
+        store_name: formatStoreName(item.stores?.name) || 'N/A',
         manager_real_name: item.users?.full_name || item.manager_name || item.created_by,
         checklist_type: 'manager'
       })) : []
@@ -239,7 +239,7 @@ function ManagerChecklistsContent() {
                 >
                   <option value="all">Todas las sucursales</option>
                   {stores.map(store => (
-                    <option key={store.id} value={store.id}>{store.name}</option>
+                    <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>
                   ))}
                 </select>
               </div>
@@ -270,7 +270,7 @@ function ManagerChecklistsContent() {
               >
                 <option value="all">Todas las sucursales</option>
                 {stores.map(store => (
-                  <option key={store.id} value={store.id}>{store.name}</option>
+                  <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>
                 ))}
               </select>
               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">

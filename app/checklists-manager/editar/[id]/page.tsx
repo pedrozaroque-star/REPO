@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import { ChevronLeft } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { canEditChecklist } from '@/lib/checklistPermissions'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import '@/app/checklists/checklists.css'
@@ -227,7 +227,7 @@ function EditManagerChecklistContent() {
                   </span>
                 )}
               </h1>
-              <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{checklist?.store_name} • {checklist?.checklist_date}</div>
+              <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{formatStoreName(checklist?.store_name)} • {checklist?.checklist_date}</div>
             </div>
           </div>
           <div className="bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg shadow-indigo-100 flex flex-col items-center min-w-[80px]">

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import {
   LayoutDashboard,
   Plus,
@@ -105,7 +105,7 @@ export default function DashboardPage() {
           ...s,
           activityType: 'Inspección',
           userLabel: (s as any).users?.full_name || 'Supervisor',
-          storeLabel: (s as any).stores?.name || 'Tienda',
+          storeLabel: formatStoreName((s as any).stores?.name) || 'Tienda',
           date: s.inspection_date || s.created_at,
           scoreLabel: s.overall_score
         })),
@@ -113,7 +113,7 @@ export default function DashboardPage() {
           ...a,
           activityType: `Checklist: ${a.checklist_type?.toUpperCase()}`,
           userLabel: a.user_name || 'Asistente',
-          storeLabel: (a as any).stores?.name || a.store_name || 'Tienda',
+          storeLabel: formatStoreName((a as any).stores?.name || a.store_name) || 'Tienda',
           date: a.checklist_date || a.created_at,
           scoreLabel: a.score
         }))
@@ -146,7 +146,7 @@ export default function DashboardPage() {
                 alerts.push({
                   id: `waste-${check.id}-${key}`,
                   type: 'waste',
-                  store: check.store_name,
+                  store: formatStoreName(check.store_name),
                   msg: `Exceso de sobrante: ${key} (${num} Lbs)`,
                   date: check.created_at
                 })
@@ -167,7 +167,7 @@ export default function DashboardPage() {
                 alerts.push({
                   id: `temp-${check.id}-${key}`,
                   type: 'temp',
-                  store: check.store_name,
+                  store: formatStoreName(check.store_name),
                   msg: `Temp Fuera de Rango: ${key} (${num}°F)`,
                   date: check.created_at
                 })

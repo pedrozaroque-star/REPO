@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { Download, TrendingUp, AlertOctagon, UserCheck, ArrowUpRight, ArrowDownRight, Search, Printer, ChevronRight } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import * as XLSX from 'xlsx'
 
@@ -122,7 +122,7 @@ function ReportesContent() {
 
             matrix.push({
                 id: store.id,
-                name: store.name,
+                name: formatStoreName(store.name),
                 inspections: totalCount,
                 avgScore: avg,
                 trend,

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ChevronLeft, MessageSquare, Star, Info, AlertCircle } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import '@/app/checklists/checklists.css'
@@ -187,7 +187,7 @@ function NuevoFeedbackContent() {
                   className="modern-input"
                 >
                   <option value="">Seleccionar Sucursal</option>
-                  {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
                 </select>
               </div>
               <div className="input-group">

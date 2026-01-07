@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import { ChevronLeft } from 'lucide-react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import '@/app/checklists/checklists.css'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 
@@ -238,7 +238,7 @@ function ManagerChecklistContent() {
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
                 className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all">
                 <option value="">Selecciona...</option>
-                {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
+                {stores.map(store => <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>)}
               </select>
             </div>
             <div className="space-y-2">
