@@ -26,13 +26,17 @@ import {
     Moon,
     Printer,
     Send,
+    Share2,
     Star,
+    Store,
     Sunrise,
     Thermometer,
     Timer,
     User,
     X,
-    XCircle
+    XCircle,
+    ZoomIn,
+    Sparkles
 } from 'lucide-react'
 import '@/app/checklists/checklists.css'
 
@@ -50,11 +54,16 @@ const TYPE_THEMES: Record<string, { gradient: string, accent: string, icon: any,
     'daily': { gradient: 'from-blue-600 to-indigo-500', accent: 'indigo', icon: ClipboardCheck, label: 'Checklist Diario' },
     'apertura': { gradient: 'from-emerald-500 to-teal-400', accent: 'teal', icon: Sunrise, label: 'Checklist de Apertura' },
     'cierre': { gradient: 'from-purple-500 to-pink-400', accent: 'pink', icon: Moon, label: 'Checklist de Cierre' },
-    'recorrido': { gradient: 'from-cyan-500 to-blue-400', accent: 'blue', icon: MapPin, label: 'Recorrido de Tienda' },
+    'recorrido': { gradient: 'from-cyan-500 to-blue-400', accent: 'blue', icon: Store, label: 'Recorrido de Tienda' },
     'sobrante': { gradient: 'from-amber-500 to-yellow-400', accent: 'yellow', icon: Award, label: 'Producto Sobrante' },
     'manager': { gradient: 'from-slate-600 to-gray-500', accent: 'gray', icon: User, label: 'Checklist de Manager' },
     'supervisor': { gradient: 'from-violet-600 to-purple-500', accent: 'purple', icon: Star, label: 'Inspección de Supervisor' },
 }
+
+// ... helper components ...
+
+
+
 
 const STATUS_CONFIG: Record<string, { bg: string, text: string, border: string, icon: any, label: string }> = {
     'pendiente': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-300', icon: Clock, label: 'Pendiente' },
@@ -62,6 +71,18 @@ const STATUS_CONFIG: Record<string, { bg: string, text: string, border: string, 
     'rechazado': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-300', icon: XCircle, label: 'Rechazado' },
     'cerrado': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-300', icon: ClipboardCheck, label: 'Cerrado' },
 }
+
+const SECTION_SCORES_MAP: Record<string, string> = {
+    'Servicio al Cliente': 'service_score',
+    'Procedimiento de Carnes': 'meat_score',
+    'Preparación de Alimentos': 'food_score',
+    'Seguimiento a Tortillas': 'tortilla_score',
+    'Limpieza General y Baños': 'cleaning_score',
+    'Checklists y Bitácoras': 'log_score',
+    'Aseo Personal': 'grooming_score'
+}
+
+import { calculateInspectionScore } from '@/lib/scoreCalculator'
 
 // Animated Score Gauge Component
 function ScoreGauge({ score, size = 120 }: { score: number, size?: number }) {
@@ -115,6 +136,15 @@ function ScoreGauge({ score, size = 120 }: { score: number, size?: number }) {
             </div>
         </div>
     )
+}
+
+const isNew = (dateStr?: string) => {
+    if (!dateStr) return false
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffTime = Math.abs(now.getTime() - date.getTime())
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays <= 180
 }
 
 export default function ChecklistReviewModal({ isOpen, onClose, checklist, currentUser, onUpdate }: ChecklistReviewModalProps) {
@@ -303,7 +333,19 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
     const templateCode = getTemplateCode(type)
     const { data: template, loading: templateLoading } = useDynamicChecklist(templateCode || '')
-    const questionPhotosMap = checklist?.answers?.['__question_photos'] || {}
+    const answersData = typeof checklist?.answers === 'string' ? JSON.parse(checklist.answers) : (checklist?.answers || {})
+    const questionPhotosMap = answersData['__question_photos'] || answersData['question_photos'] || answersData['photos'] || {}
+
+    // DEBUG: Log photo mapping data
+    console.log('🔍 DEBUG - Photo Mapping Investigation:')
+    console.log('  answersData keys:', Object.keys(answersData))
+    console.log('  questionPhotosMap keys:', Object.keys(questionPhotosMap))
+    console.log('  questionPhotosMap:', questionPhotosMap)
+    console.log('  __text_photos available?:', answersData['__text_photos'] ? 'YES ✅' : 'NO ❌')
+    if (answersData['__text_photos']) {
+        console.log('  __text_photos keys:', Object.keys(answersData['__text_photos']))
+    }
+    console.log('  checklist.photos:', checklist.photos)
 
 
     const handlePrint = () => {
@@ -425,8 +467,14 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
     // Dynamic Score Calculation (especially for Sobrantes/Temperaturas with rules changing)
     const finalScore = useMemo(() => {
         if (!template || !checklist) return checklist?.score || checklist?.overall_score || 0
-        if (type !== 'sobrante' && type !== 'temperaturas') return checklist?.score || checklist?.overall_score || 0
+        if (type !== 'sobrante' && type !== 'temperaturas' && type !== 'supervisor') return checklist?.score || checklist?.overall_score || 0
 
+        // Supervisor Calculation (Average of Section Averages)
+        if (type === 'supervisor') {
+            return calculateInspectionScore(checklist, template)
+        }
+
+        // Logic for Sobrante/Temperaturas (Flat List)
         const allQuestions = template.sections.flatMap((s: any) =>
             s.questions.map((q: any) => ({ ...q, sectionTitle: s.title }))
         )
@@ -437,6 +485,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
         allQuestions.forEach((q: any) => {
             let value: any = undefined
+            // Helper for flat answers
             if (checklist.answers?.[q.id] !== undefined) value = checklist.answers[q.id]
             else if (checklist.answers?.[q.text] !== undefined) value = checklist.answers[q.text]
             else {
@@ -464,10 +513,6 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     if (isValid) validCount++
                 }
             } else {
-                // For scoring, non-captured items in new templates act as neutral or pending
-                // but if and only if they were never answered.
-                // However, for sobrante we previously did 'withinLimit++'.
-                // Let's stick to (Valid / Captured) for Temperatures, and (<=2 / Total) for Sobrante as requested.
                 if (type === 'sobrante') validCount++
             }
         })
@@ -1084,9 +1129,19 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                 ) : template ? (
                                                     template.sections.map((section: any, sIdx: number) => (
                                                         <div key={`section-${sIdx}`} className="bg-gray-50 rounded-2xl p-4 md:p-5 border border-gray-100">
-                                                            <h3 className="text-xs md:text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 pb-2 border-b border-gray-200">
-                                                                {section.title}
-                                                            </h3>
+                                                            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-200">
+                                                                <h3 className="text-xs md:text-sm font-bold text-gray-500 uppercase tracking-wider">
+                                                                    {section.title}
+                                                                </h3>
+                                                                {type === 'supervisor' && checklist[SECTION_SCORES_MAP[section.title]] !== undefined && (
+                                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${Number(checklist[SECTION_SCORES_MAP[section.title]]) >= 80 ? 'bg-emerald-100 text-emerald-700' :
+                                                                        Number(checklist[SECTION_SCORES_MAP[section.title]]) >= 60 ? 'bg-amber-100 text-amber-700' :
+                                                                            'bg-red-100 text-red-700'
+                                                                        }`}>
+                                                                        {checklist[SECTION_SCORES_MAP[section.title]]}%
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                                                                 {section.questions.map((q: any, qIdx: number) => {
                                                                     // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
@@ -1157,6 +1212,17 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                     // Try to find photos for this question using multiple strategies
                                                                     let qPhotos: string[] = []
 
+                                                                    // Explicit fallback for known legacy question "Escurre carnes y rota producto (FIFO)"
+                                                                    if (q.text && q.text.toLowerCase().includes('escurre carnes')) {
+                                                                        if (questionPhotosMap['1585']) {
+                                                                            qPhotos = questionPhotosMap['1585']
+                                                                        }
+                                                                    }
+
+                                                                    // Helper for aggressive text matching
+                                                                    const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '').trim()
+                                                                    const normalizedTarget = normalize(q.text)
+
                                                                     // Strategy 1: Direct ID match
                                                                     if (questionPhotosMap[q.id]) {
                                                                         qPhotos = questionPhotosMap[q.id]
@@ -1165,23 +1231,175 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                     else if (questionPhotosMap[q.text]) {
                                                                         qPhotos = questionPhotosMap[q.text]
                                                                     }
-                                                                    // Strategy 3: Fuzzy match by question text words
+                                                                    // Strategy 2.5: Try __text_photos with lowercase text (NEW for ID drift immunity)
+                                                                    else if (answersData['__text_photos'] && answersData['__text_photos'][q.text.toLowerCase().trim()]) {
+                                                                        qPhotos = answersData['__text_photos'][q.text.toLowerCase().trim()]
+                                                                    }
+                                                                    // Strategy 2.6: Hardcoded Legacy ID Map (Keyword-based for robustness)
                                                                     else {
-                                                                        const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+                                                                        const legacyRules = [
+                                                                            { keywords: ['escurre', 'carnes', 'fifo'], id: '1585' },
+                                                                            { keywords: ['frijoles', 'olla', 'cebollas'], id: '1774' },
+                                                                            { keywords: ['controla', 'temperatura', '450'], id: '1584' },
+                                                                            { keywords: ['utensilios', 'limpios', 'golpear'], id: '1586' },
+                                                                            { keywords: ['vigila', 'cebolla', 'asada'], id: '1587' },
+                                                                            { keywords: ['apertura', 'cierre', 'completo'], id: '1566' },
+                                                                            { keywords: ['temperatura', 'agua', 'caliente'], id: '1556' }
+                                                                        ]
+
+                                                                        const qTextLower = q.text.toLowerCase()
+                                                                        for (const rule of legacyRules) {
+                                                                            if (rule.keywords.every(k => qTextLower.includes(k))) {
+                                                                                if (questionPhotosMap[rule.id]) {
+                                                                                    qPhotos = questionPhotosMap[rule.id]
+                                                                                    break
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+
+                                                                    // Strategy 3: Try fuzzy match in questionPhotosMap keys directly
+                                                                    if (qPhotos.length === 0) {
+                                                                        for (const k of Object.keys(questionPhotosMap)) {
+                                                                            if (normalize(k) === normalizedTarget && normalizedTarget.length > 5) {
+                                                                                qPhotos = questionPhotosMap[k]
+                                                                                break
+                                                                            }
+                                                                        }
+                                                                    }
+
+                                                                    // DEBUG: Log for FIFO question
+                                                                    if (q.text.includes('FIFO') || q.text.includes('carnes')) {
+                                                                        console.log('🔍 DEBUG - FIFO Question:')
+                                                                        console.log('  Question Text:', q.text)
+                                                                        console.log('  Question ID:', q.id)
+                                                                        console.log('  Normalized:', normalizedTarget)
+                                                                        console.log('  Photos found (Strategy 1-3):', qPhotos)
+                                                                        console.log('  questionPhotosMap has keys:', Object.keys(questionPhotosMap))
+                                                                    }
+
+                                                                    // Strategy 4: Cross-reference via ALL saved answer labels (IMPROVED BRIDGE)
+                                                                    if (qPhotos.length === 0 && checklist.answers) {
+                                                                        // Search for text match in EVERY property of checklist.answers
+                                                                        for (const key of Object.keys(checklist.answers)) {
+                                                                            const section = checklist.answers[key]
+
+                                                                            // Is it a section object with items?
+                                                                            if (section && typeof section === 'object' && section.items) {
+                                                                                for (const iKey of Object.keys(section.items)) {
+                                                                                    const item = section.items[iKey]
+                                                                                    const itemLabel = item?.label || ''
+
+                                                                                    if (normalize(itemLabel) === normalizedTarget && normalizedTarget.length > 5) {
+                                                                                        // DEBUG for FIFO
+                                                                                        if (q.text.includes('FIFO') || q.text.includes('carnes')) {
+                                                                                            console.log('🎯 Strategy 4 - MATCH FOUND!')
+                                                                                            console.log('  Matched section:', key)
+                                                                                            console.log('  Matched item key:', iKey)
+                                                                                            console.log('  Item data:', item)
+                                                                                            console.log('  Trying keys:', [iKey, iKey.replace('i', ''), item.id, item.question_id])
+                                                                                        }
+
+                                                                                        // Try many possible photo keys
+                                                                                        const numericIndex = iKey.startsWith('i') ? iKey.substring(1) : iKey
+                                                                                        const possibleKeys = [
+                                                                                            numericIndex,  // Try the numeric index first (e.g., "0" from "i0")
+                                                                                            iKey,          // Try the full key (e.g., "i0")
+                                                                                            item.id,       // Try stored ID
+                                                                                            item.question_id,
+                                                                                            item.label,
+                                                                                            q.id
+                                                                                        ].filter(Boolean)
+
+                                                                                        for (const pKey of possibleKeys) {
+                                                                                            if (pKey && questionPhotosMap[pKey]) {
+                                                                                                qPhotos = questionPhotosMap[pKey]
+                                                                                                if (q.text.includes('FIFO') || q.text.includes('carnes')) {
+                                                                                                    console.log('✅ FOUND PHOTOS with key:', pKey)
+                                                                                                }
+                                                                                                break
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                    if (qPhotos.length > 0) break
+                                                                                }
+                                                                            }
+                                                                            // Is it a direct answer with text mapping? (Strategy 4b)
+                                                                            else if (key === '__text_photos' && section) {
+                                                                                for (const tKey of Object.keys(section)) {
+                                                                                    if (normalize(tKey) === normalizedTarget) {
+                                                                                        qPhotos = section[tKey]
+                                                                                        break
+                                                                                    }
+                                                                                }
+                                                                            }
+
+                                                                            if (qPhotos.length > 0) break
+                                                                        }
+                                                                    }
+
+                                                                    // Strategy 5: Keyword match for highly specific tags (e.g. FIFO)
+                                                                    if (qPhotos.length === 0) {
+                                                                        const keywords = ['FIFO', 'NPS', 'TEMP', 'CARNES', 'BAÑOS']
+                                                                        for (const kw of keywords) {
+                                                                            if (q.text.toUpperCase().includes(kw)) {
+                                                                                for (const pk of Object.keys(questionPhotosMap)) {
+                                                                                    if (pk.toUpperCase().includes(kw)) {
+                                                                                        qPhotos = questionPhotosMap[pk]
+                                                                                        break
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            if (qPhotos.length > 0) break
+                                                                        }
+                                                                    }
+
+                                                                    // Strategy 6: Fuzzy match by question text words (Final resort)
+                                                                    if (qPhotos.length === 0) {
+                                                                        const targetWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 3)
                                                                         for (const photoKey of Object.keys(questionPhotosMap)) {
-                                                                            const keyLower = photoKey.toLowerCase()
-                                                                            const matchCount = questionWords.filter((word: string) => keyLower.includes(word)).length
-                                                                            if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                                                                            const kLower = photoKey.toLowerCase()
+                                                                            const matchCount = targetWords.filter((word: string) => kLower.includes(word)).length
+                                                                            if (matchCount >= 2 || (targetWords.length === 1 && matchCount === 1)) {
                                                                                 qPhotos = questionPhotosMap[photoKey]
                                                                                 break
                                                                             }
                                                                         }
                                                                     }
 
+                                                                    // Strategy 7: Deep recursion search (Search for ANY property that matches normalized text)
+                                                                    if (qPhotos.length === 0 && checklist.answers) {
+                                                                        const deepSearch = (obj: any): string[] | null => {
+                                                                            if (!obj || typeof obj !== 'object') return null
+                                                                            // If it's an item with label match
+                                                                            if (obj.label && normalize(String(obj.label)) === normalizedTarget) {
+                                                                                if (Array.isArray(obj.photos)) return obj.photos
+                                                                                if (typeof obj.photo === 'string') return [obj.photo]
+                                                                                // Check if the parent/map has photos for this label
+                                                                                if (questionPhotosMap[obj.label]) return questionPhotosMap[obj.label]
+                                                                            }
+                                                                            // Recursively search children
+                                                                            for (const k of Object.keys(obj)) {
+                                                                                const r = deepSearch(obj[k])
+                                                                                if (r) return r
+                                                                            }
+                                                                            return null
+                                                                        }
+                                                                        const res = deepSearch(checklist.answers)
+                                                                        if (res) qPhotos = res
+                                                                    }
+
                                                                     return (
                                                                         <div key={`q-${sIdx}-${qIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
                                                                             <div className="flex justify-between items-start gap-3">
-                                                                                <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{q.text}</span>
+                                                                                <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">
+                                                                                    {q.text}
+                                                                                    {isNew(q.created_at) && (
+                                                                                        <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] uppercase font-black rounded-full border border-blue-200 align-middle">
+                                                                                            <Sparkles size={8} /> NEW <span className="text-blue-500 font-medium normal-case tracking-normal ml-0.5">({new Date(q.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                                                                        </span>
+                                                                                    )}
+                                                                                </span>
                                                                                 <div className="shrink-0">{renderAnswerValue(q, value, section.title)}</div>
                                                                             </div>
                                                                             {qPhotos.length > 0 && (
@@ -1203,12 +1421,12 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                             </div>
 
                                                             {/* LEGACY SUPPORT: Show all photos at end of section if no question-specific photos exist */}
-                                                            {Object.keys(questionPhotosMap).length === 0 && checklist.photos && checklist.photos.length > 0 && (
+                                                            {checklist.photos && checklist.photos.length > 0 && (
                                                                 <div className="mt-6 bg-blue-50 rounded-xl p-4 border border-blue-100">
                                                                     <div className="flex items-center gap-2 mb-3">
                                                                         <Camera size={16} className="text-blue-600" />
                                                                         <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wider">
-                                                                            Evidencias de esta Inspección
+                                                                            Evidencias de la Inspección
                                                                         </h4>
                                                                         <span className="text-xs text-blue-500 ml-auto">
                                                                             ({checklist.photos.length} fotos)
@@ -1231,6 +1449,48 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                     ))
                                                 ) : null
                                             )}
+
+                                            {/* GLOBAL SAFETY GALLERY: Ensures photos are visible even if inline mapping fails (Critical for legacy inspections) */}
+                                            {(() => {
+                                                const allMapPhotos = Object.values(questionPhotosMap).flat() as string[]
+                                                const globalPhotos = checklist.photos || []
+                                                // Deduplicate photos
+                                                const allPhotos = Array.from(new Set([...globalPhotos, ...allMapPhotos]))
+
+                                                if (allPhotos.length > 0) {
+                                                    return (
+                                                        <div className="bg-white rounded-2xl p-5 border border-gray-200 mb-6 shadow-sm">
+                                                            <div className="flex items-center gap-2 mb-4 border-b border-gray-100 pb-2">
+                                                                <Camera size={18} className="text-indigo-600" />
+                                                                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">
+                                                                    Galería Completa de Evidencias
+                                                                </h3>
+                                                                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+                                                                    {allPhotos.length}
+                                                                </span>
+                                                            </div>
+                                                            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                                                                {allPhotos.map((url, idx) => (
+                                                                    <div
+                                                                        key={`global-evidence-${idx}`}
+                                                                        onClick={() => openViewer(idx, allPhotos)}
+                                                                        className="aspect-square rounded-xl overflow-hidden border border-gray-200 hover:scale-105 hover:shadow-md transition-all cursor-pointer relative group"
+                                                                    >
+                                                                        <img
+                                                                            src={getEmbeddableImageUrl(url)}
+                                                                            alt={`Evidencia ${idx + 1}`}
+                                                                            className="w-full h-full object-cover"
+                                                                            referrerPolicy="no-referrer"
+                                                                        />
+                                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                }
+                                                return null
+                                            })()}
 
                                             {/* Comments Section */}
                                             {(checklist.comments || checklist.observaciones) && (
@@ -1388,6 +1648,85 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     }
                 }
             `}</style>
+            {/* DEBUG SECTION */}
+            <div className="mt-8 p-4 bg-gray-100 rounded-xl border border-gray-300 text-xs font-mono">
+                <details>
+                    <summary className="cursor-pointer font-bold text-gray-700">🔧 Debug Score Calculation (Click to Expand)</summary>
+                    <div className="mt-2 space-y-2">
+                        <div className="grid grid-cols-2 gap-2 border-b pb-2">
+                            <div>Template Code: {templateCode}</div>
+                            <div>Score Type: {type}</div>
+                        </div>
+                        {template && template.sections.map((section: any, sIdx: number) => {
+                            let sSum = 0
+                            let sCount = 0
+                            const logs: any[] = []
+
+                            section.questions.forEach((q: any) => {
+                                const normalize = (t: string) => t ? t.toLowerCase().replace(/[^a-z0-9]/g, '').trim() : ''
+                                let value: any = undefined
+                                let source = 'NOT FOUND'
+
+                                // Logic Trace
+                                const answersObj = typeof checklist.answers === 'string' ? JSON.parse(checklist.answers) : (checklist.answers || {})
+
+                                if (answersObj[q.id] !== undefined) { value = answersObj[q.id]; source = 'ID' }
+                                else if (answersObj[q.text] !== undefined) { value = answersObj[q.text]; source = 'TEXT' }
+                                else {
+                                    if (answersObj[section.title]?.items) {
+                                        const items = answersObj[section.title].items
+                                        Object.values(items).forEach((item: any) => {
+                                            if (normalize(item.label) === normalize(q.text)) {
+                                                value = item.score !== undefined ? item.score : item
+                                                source = 'DEEP'
+                                            }
+                                        })
+                                    }
+                                    if (value === undefined) {
+                                        const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+                                        for (const key of Object.keys(answersObj)) {
+                                            if (key === '__question_photos' || typeof answersObj[key] === 'object') continue
+                                            const keyLower = key.toLowerCase()
+                                            const matchCount = questionWords.filter((w: string) => keyLower.includes(w)).length
+                                            if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                                                value = answersObj[key]
+                                                source = `FUZZY`
+                                                break
+                                            }
+                                        }
+                                    }
+                                }
+
+                                const strVal = String(value)
+                                const isNA = strVal.toUpperCase() === 'NA' || strVal.toUpperCase() === 'N/A'
+                                const numVal = Number(value)
+                                const isValid = !isNaN(numVal) && value !== null && value !== '' && value !== undefined
+
+                                if (isNA) {
+                                    logs.push(<div key={q.id} className="text-gray-400">🚫 [NA] {q.text} (Ignored)</div>)
+                                } else if (isValid) {
+                                    sSum += numVal
+                                    sCount++
+                                    logs.push(<div key={q.id} className={numVal === 0 ? "text-red-600 font-bold" : "text-green-600"}>
+                                        {numVal === 0 ? "❌ [0] " : "✅ [" + numVal + "] "}
+                                        {q.text} <span className="text-gray-400 text-[10px]">({source})</span>
+                                    </div>)
+                                } else {
+                                    logs.push(<div key={q.id} className="text-orange-400">❓ [MISSING] {q.text}</div>)
+                                }
+                            })
+
+                            const avg = sCount > 0 ? Math.round(sSum / sCount) : 0
+                            return (
+                                <div key={sIdx} className="pl-2 border-l-2 border-gray-300">
+                                    <div className="font-bold">{section.title} (Avg: {avg}%)</div>
+                                    <div className="pl-4">{logs}</div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </details>
+            </div>
         </>
     )
 }

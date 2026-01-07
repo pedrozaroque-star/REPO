@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion, Reorder } from 'framer-motion'
-import { Trash2, Plus, GripVertical, Save, Edit2, Camera, Star, BarChart3, Type, Hash, CheckSquare, ArrowLeft } from 'lucide-react'
+import { Trash2, Plus, GripVertical, Save, Edit2, Camera, Star, BarChart3, Type, Hash, CheckSquare, ArrowLeft, Sparkles } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
 
 // --- Types ---
@@ -15,7 +15,19 @@ interface Question {
     order_index: number
     section_id: string
     required_photo?: boolean
+    created_at?: string
 }
+
+// Helper to check if question is new (6 months approx 180 days)
+const isNew = (dateStr?: string) => {
+    if (!dateStr) return false
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffTime = Math.abs(now.getTime() - date.getTime())
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays <= 180
+}
+
 
 interface Section {
     id: string
@@ -156,9 +168,14 @@ export default function TemplateEditorPage() {
 
         try {
             const supabase = await getSupabaseClient()
-            await supabase.from('template_questions').update(updates).eq('id', qId)
-        } catch (err) {
+            const { error } = await supabase.from('template_questions').update(updates).eq('id', qId)
+            if (error) {
+                console.error(error)
+                alert('Error al actualizar: ' + error.message)
+            }
+        } catch (err: any) {
             console.error(err)
+            alert('Error de red: ' + err.message)
         }
     }
 
@@ -172,9 +189,15 @@ export default function TemplateEditorPage() {
 
         try {
             const supabase = await getSupabaseClient()
-            await supabase.from('template_questions').delete().eq('id', qId)
-        } catch (err) {
+            const { error } = await supabase.from('template_questions').delete().eq('id', qId)
+            if (error) {
+                console.error(error)
+                alert('Error al eliminar: ' + error.message)
+            }
+        } catch (err: any) {
             console.error(err)
+            alert('Error al eliminar: ' + (err.message || 'Desconocido'))
+            // Revert state if needed (complex for delete, assume refresh or ignore for now, but ideally we revert)
         }
     }
 
@@ -194,6 +217,16 @@ export default function TemplateEditorPage() {
                 order_index: newOrder
             }).select()
 
+            if (error) {
+                console.error(error)
+                if (error.code === '42501' || error.message?.includes('row-level security')) {
+                    alert('Tu sesión ha expirado. Por favor recarga la página para volver a ingresar.')
+                } else {
+                    alert('Error al crear pregunta: ' + error.message)
+                }
+                return
+            }
+
             if (data) {
                 const newQ = data[0]
                 setSections(prev => prev.map(sec => {
@@ -201,8 +234,9 @@ export default function TemplateEditorPage() {
                     return sec
                 }))
             }
-        } catch (err) {
-            console.error(err)
+        } catch (err: any) {
+            console.error('Error adding question:', err)
+            alert('Error al crear pregunta: ' + (err.message || 'Desconocido'))
         }
     }
 
@@ -344,6 +378,11 @@ export default function TemplateEditorPage() {
                                                             >
                                                                 <span className="text-indigo-400 mr-2 opacity-50 font-mono">#{q.order_index + 1}</span>
                                                                 {q.text}
+                                                                {isNew(q.created_at) && (
+                                                                    <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] uppercase font-black rounded-full border border-indigo-200">
+                                                                        <Sparkles size={10} /> NEW <span className="text-indigo-400 font-medium normal-case tracking-normal ml-1">({new Date(q.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                             <div className="flex items-center gap-3">
                                                                 <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px] uppercase font-black text-gray-500">

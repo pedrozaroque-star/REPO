@@ -82,7 +82,9 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
     sections.forEach((section: any) => {
       const questionsInSection = section.questions
-      const sectionAnswers = questionsInSection.map((q: any) => answers[q.id]).filter((v: any) => v !== undefined && v !== null)
+      const sectionAnswers = questionsInSection
+        .map((q: any) => answers[q.id])
+        .filter((v: any) => v !== undefined && v !== null && v !== 'NA' && v !== 'N/A')
 
       if (sectionAnswers.length > 0) {
         const sum = sectionAnswers.reduce((a: number, b: any) => a + (Number(b) || 0), 0)
@@ -137,6 +139,15 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
       // Add rich photo mapping
       richAnswers['__question_photos'] = questionPhotos
+
+      // ALSO: Add text-based photo mapping as a permanent anchor (immune to ID changes)
+      const textPhotos: any = {}
+      allQuestions.forEach((q: any) => {
+        if (questionPhotos[q.id] && questionPhotos[q.id].length > 0) {
+          textPhotos[q.text.toLowerCase().trim()] = questionPhotos[q.id]
+        }
+      })
+      richAnswers['__text_photos'] = textPhotos
 
       // Calculate duration
       const now = new Date()
@@ -329,16 +340,16 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             const sectionScore = sectionAnswers.length > 0 ? Math.round(sum / sectionAnswers.length) : 0
 
             return (
-              <div key={section.id} className="relative">
-                {/* Section Header with Backdrop Blur for contrast against custom background */}
-                <div className="flex items-center gap-4 mb-6 ml-4 bg-white/80 backdrop-blur-md px-6 py-3 rounded-full shadow-sm w-fit border border-gray-100 ring-1 ring-black/5">
-                  <span className="bg-gray-900 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shadow-md">
+              <div key={section.id} className="relative bg-white/40 backdrop-blur-sm rounded-[2rem] p-3 md:p-6 border border-white/60 shadow-sm mb-12 ring-1 ring-black/5">
+                {/* Section Header - STICKY for mobile context ONLY (High Contrast) */}
+                <div className="sticky md:static top-0 z-40 -mx-3 md:-mx-6 px-3 md:px-6 py-4 bg-slate-900 md:bg-white/40 backdrop-blur-xl md:backdrop-blur-sm shadow-lg md:shadow-none mb-6 flex items-center gap-4 rounded-t-[2rem] transition-all border-b border-white/10 md:border-transparent">
+                  <span className="shrink-0 bg-white md:bg-gray-900 text-slate-900 md:text-white w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center font-black text-sm md:text-base shadow-lg shadow-black/20 md:shadow-purple-900/20">
                     {idx + 1}
                   </span>
-                  <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">{section.title}</h3>
+                  <h3 className="text-sm md:text-lg font-black text-white md:text-gray-900 uppercase tracking-tight leading-snug">{section.title}</h3>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-4 md:space-y-6">
                   {section.questions.map((question: any, qIdx: number) => (
                     <DynamicQuestion
                       key={question.id}

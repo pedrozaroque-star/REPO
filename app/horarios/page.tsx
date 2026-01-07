@@ -4,16 +4,21 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+    X, Clock, Coffee, Sun, Sunrise, Moon, MoonStar,
+    Calendar, User, Save, Trash2, ArrowRight, Sparkles, Zap
+} from 'lucide-react'
 
 // --- CONFIGURACIÓN DE DATOS ---
 const PRESETS = [
-    { id: 'apertura', label: 'Apertura', start: '08:00', end: '16:00', color: 'bg-amber-100 text-amber-800 border-amber-300' },
-    { id: 'am', label: 'Mañana', start: '09:00', end: '17:00', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
-    { id: 'inter', label: 'Intermedio', start: '14:00', end: '22:00', color: 'bg-blue-100 text-blue-800 border-blue-300' },
-    { id: 'pm', label: 'Tarde/Noche', start: '17:00', end: '01:00', color: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
-    { id: 'cierre', label: 'Cierre', start: '17:00', end: '02:00', color: 'bg-purple-100 text-purple-800 border-purple-300' },
-    { id: 'cierre_fds', label: 'Cierre FDS', start: '17:00', end: '04:00', color: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300' },
-    { id: 'visita', label: 'Visita Sup.', start: '09:00', end: '17:00', color: 'bg-cyan-50 text-cyan-700 border-cyan-300 border-dashed' },
+    { id: 'apertura', label: 'Apertura', start: '08:00', end: '16:00', icon: <Sunrise size={16} />, color: 'bg-amber-100 text-amber-900 group-hover:bg-amber-200' },
+    { id: 'am', label: 'Mañana', start: '09:00', end: '17:00', icon: <Sun size={16} />, color: 'bg-emerald-100 text-emerald-900 group-hover:bg-emerald-200' },
+    { id: 'inter', label: 'Intermedio', start: '14:00', end: '22:00', icon: <Coffee size={16} />, color: 'bg-blue-100 text-blue-900 group-hover:bg-blue-200' },
+    { id: 'pm', label: 'Tarde/Noche', start: '17:00', end: '01:00', icon: <Moon size={16} />, color: 'bg-indigo-100 text-indigo-900 group-hover:bg-indigo-200' },
+    { id: 'cierre', label: 'Cierre', start: '17:00', end: '02:00', icon: <MoonStar size={16} />, color: 'bg-purple-100 text-purple-900 group-hover:bg-purple-200' },
+    { id: 'cierre_fds', label: 'Cierre FDS', start: '17:00', end: '04:00', icon: <Sparkles size={16} />, color: 'bg-fuchsia-100 text-fuchsia-900 group-hover:bg-fuchsia-200' },
+    { id: 'visita', label: 'Visita Sup.', start: '09:00', end: '17:00', icon: <User size={16} />, color: 'bg-cyan-50 text-cyan-800 border-2 border-dashed border-cyan-200' },
 ]
 
 // --- UTILIDADES ---
@@ -34,6 +39,18 @@ const formatDateNice = (d: Date) => {
     return `${d.getDate()} ${months[d.getMonth()]}`;
 }
 const getDayName = (d: Date) => ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][d.getDay()];
+
+// Helper para formato 12h (AM/PM)
+const formatTime12h = (time: string) => {
+    if (!time) return '';
+    try {
+        const [hStr, mStr] = time.split(':');
+        const hours = parseInt(hStr);
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const hours12 = hours % 12 || 12;
+        return `${hours12}:${mStr} ${ampm}`;
+    } catch (e) { return time; }
+}
 
 // --- SEMÁFORO (LÓGICA OPERATIVA) ---
 const calculateDailyStatus = (dateStr: string, shifts: any[], users: any[]) => {
@@ -241,6 +258,63 @@ function ScheduleManager() {
         }
     };
 
+    // --- COPIAR SEMANA ANTERIOR ---
+    const copyFromLastWeek = async () => {
+        if (!selectedStoreId || !canEdit) return;
+        setLoading(true);
+        try {
+            const supabase = await getSupabase();
+
+            // 1. Definir rango de la semana anterior
+            const lastWeekStart = addDays(weekStart, -7);
+            const lastWeekEnd = addDays(weekStart, -1);
+            const lastWeekStartStr = formatDateISO(lastWeekStart);
+            const lastWeekEndStr = formatDateISO(lastWeekEnd);
+
+            // 2. Obtener horarios de la semana anterior para esta tienda
+            const { data: lastWeekData, error } = await supabase
+                .from('schedules')
+                .select('*')
+                .eq('store_id', selectedStoreId)
+                .gte('date', lastWeekStartStr)
+                .lte('date', lastWeekEndStr);
+
+            if (error) throw error;
+            if (!lastWeekData || lastWeekData.length === 0) {
+                alert("No se encontraron horarios en la semana anterior para esta tienda.");
+                return;
+            }
+
+            // 3. Preparar nuevos registros (Ajustar fecha +7 días)
+            const newSchedules = lastWeekData.map(s => {
+                const oldDate = new Date(s.date + 'T00:00:00');
+                const newDate = addDays(oldDate, 7);
+                const { id, created_at, ...rest } = s; // Eliminar campos autogenerados
+                return {
+                    ...rest,
+                    date: formatDateISO(newDate)
+                };
+            });
+
+            // 4. Upsert masivo
+            const { error: upsertError } = await supabase
+                .from('schedules')
+                .upsert(newSchedules, { onConflict: 'user_id, date' });
+
+            if (upsertError) throw upsertError;
+
+            // 5. Recargar datos globales para actualizar UI
+            await loadGlobalData();
+            alert(`¡Éxito! Se han copiado ${newSchedules.length} horarios de la semana anterior.`);
+
+        } catch (e) {
+            console.error("Error al copiar semana:", e);
+            alert("Hubo un error al copiar los horarios.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // --- GUARDADO ---
     const saveShift = async () => {
         if (!editingShift || !canEdit) return;
@@ -358,9 +432,42 @@ function ScheduleManager() {
 
     const renderEditor = () => {
         const currentStore = stores.find(s => String(s.id) === String(selectedStoreId));
+        const isEmptyWeek = localSchedules.length === 0;
 
         return (
             <div className="animate-fade-in space-y-4">
+                {/* BANNER COPIAR SEMANA (Solo si está vacío y puede editar) */}
+                <AnimatePresence>
+                    {isEmptyWeek && canEdit && !loading && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20 }}
+                            className="bg-slate-900 rounded-[2rem] p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl shadow-slate-200 border border-white/10 relative overflow-hidden"
+                        >
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+                            <div className="relative flex items-center gap-6">
+                                <div className="w-16 h-16 rounded-3xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-xl">
+                                    <Zap size={32} className="text-amber-400 fill-amber-400" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black tracking-tight">Semana sin programación</h3>
+                                    <p className="text-slate-400 text-sm">¿Quieres ahorrar tiempo copiando los horarios de la semana anterior?</p>
+                                </div>
+                            </div>
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={copyFromLastWeek}
+                                className="relative bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2 hover:bg-slate-100 transition-colors"
+                            >
+                                <Zap size={16} className="fill-slate-900" />
+                                COPIAR SEMANA ANTERIOR
+                            </motion.button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 <div className="bg-white border-b border-gray-200 sticky top-0 z-30 p-4 rounded-2xl shadow-sm flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <button onClick={() => setViewMode('dashboard')} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-black hover:text-white transition-all">←</button>
@@ -492,7 +599,7 @@ function ScheduleManager() {
                                                     {preset ? preset.label : 'Personal'}
                                                 </span>
                                                 <span className="text-[10px] font-mono font-medium text-gray-400">
-                                                    {currentShift.start_time?.slice(0, 5)} - {currentShift.end_time?.slice(0, 5)}
+                                                    {formatTime12h(currentShift.start_time?.slice(0, 5))} - {formatTime12h(currentShift.end_time?.slice(0, 5))}
                                                 </span>
                                             </div>
                                         ) : (
@@ -561,14 +668,18 @@ function ScheduleManager() {
 
                                             if (currentShift) {
                                                 const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
-                                                const color = preset ? preset.color : 'bg-white border-blue-200 text-blue-800 shadow-sm';
+                                                // Cleaner style: No border, solid pastel, shadow
+                                                const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
 
-                                                cardClass = `${color} border shadow-sm hover:shadow-md hover:-translate-y-0.5`;
+                                                cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+
                                                 cardContent = (
-                                                    <div className="flex flex-col items-center justify-center w-full h-full p-1">
-                                                        <span className="text-xs font-bold leading-tight text-center">{preset ? preset.label : 'Personal'}</span>
-                                                        <span className="text-[11px] opacity-90 mt-0.5 font-mono font-semibold">
-                                                            {currentShift.start_time?.slice(0, 5)} - {currentShift.end_time?.slice(0, 5)}
+                                                    <div className="flex flex-col items-center justify-center w-full h-full p-2 gap-1">
+                                                        <span className="text-[10px] font-black uppercase tracking-wider opacity-60 leading-none">
+                                                            {preset ? preset.label : 'Personal'}
+                                                        </span>
+                                                        <span className="text-xs md:text-xs font-bold font-mono tracking-tight leading-none bg-white/40 px-1.5 py-0.5 rounded-md">
+                                                            {formatTime12h(currentShift.start_time?.slice(0, 5))} - {formatTime12h(currentShift.end_time?.slice(0, 5))}
                                                         </span>
                                                     </div>
                                                 );
@@ -613,79 +724,186 @@ function ScheduleManager() {
                 </div>
 
                 {/* MODAL */}
-                {
-                    editingShift && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
-                                <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-                                    <div>
-                                        <h3 className="text-lg font-bold text-gray-900">{editingShift.userName}</h3>
-                                        <p className="text-sm text-gray-500 capitalize">{formatDateNice(editingShift.date)} - {getDayName(editingShift.date)}</p>
+                <AnimatePresence>
+                    {editingShift && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                            {/* Backdrop */}
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setEditingShift(null)}
+                                className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+                            />
+
+                            {/* Modal Container */}
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                                animate={{ scale: 1, opacity: 1, y: 0 }}
+                                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                                className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden border border-white/20"
+                            >
+                                {/* Header Premium - Solid Dark */}
+                                <div className="bg-slate-950 px-8 py-8 text-white relative overflow-hidden">
+                                    <div className="relative flex justify-between items-start">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-2xl font-black shadow-xl">
+                                                {editingShift.userName?.[0]?.toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h3 className="text-2xl font-black tracking-tight leading-none mb-1">{editingShift.userName}</h3>
+                                                <div className="flex items-center gap-2 text-indigo-100">
+                                                    <Calendar size={14} className="opacity-70" />
+                                                    <span className="text-xs font-bold uppercase tracking-widest leading-none">
+                                                        {formatDateNice(editingShift.date)} • {getDayName(editingShift.date)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => setEditingShift(null)}
+                                            className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                                        >
+                                            <X size={20} />
+                                        </button>
                                     </div>
-                                    <button onClick={() => setEditingShift(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                                 </div>
 
-                                <div className="p-6 space-y-5">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <button
-                                            onClick={() => setEditingShift({ ...editingShift, start: '', end: '', presetId: 'off' })}
-                                            className={`p-3 rounded-lg border text-sm font-bold transition-all ${!editingShift.start ? 'bg-gray-800 text-white ring-2 ring-offset-2 ring-gray-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                                        >
-                                            OFF (Descanso)
-                                        </button>
+                                <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                                    {/* Grid de Presets */}
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Seleccionar Turno</h4>
+                                            <div className="h-px flex-1 bg-slate-100 ml-4"></div>
+                                        </div>
 
-                                        {PRESETS.map(p => (
-                                            <button
-                                                key={p.id}
-                                                onClick={() => setEditingShift({ ...editingShift, start: p.start, end: p.end, presetId: p.id })}
-                                                className={`p-2 rounded-lg border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1
-                               ${editingShift.start === p.start && editingShift.end === p.end
-                                                        ? `ring-2 ring-offset-1 border-transparent ${p.color.replace('bg-', 'bg-opacity-100 bg-').replace('text-', 'text-black ')} ring-blue-500`
-                                                        : `${p.color} hover:brightness-95`
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {/* Botón OFF */}
+                                            <motion.button
+                                                whileHover={{ scale: 1.02 }}
+                                                whileTap={{ scale: 0.98 }}
+                                                onClick={() => setEditingShift({ ...editingShift, start: '', end: '', presetId: 'off' })}
+                                                className={`col-span-2 group flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${!editingShift.start
+                                                    ? 'bg-slate-900 border-slate-900 text-white shadow-lg'
+                                                    : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200'
                                                     }`}
                                             >
-                                                <span>{p.label}</span>
-                                                <span className="opacity-70 text-[10px] font-normal">{p.start} - {p.end}</span>
-                                            </button>
-                                        ))}
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${!editingShift.start ? 'bg-white/10 text-white' : 'bg-slate-50 text-slate-400'}`}>
+                                                        <MoonStar size={18} />
+                                                    </div>
+                                                    <span className="font-bold text-sm">DIA DE DESCANSO (OFF)</span>
+                                                </div>
+                                                {!editingShift.start && <Sparkles size={16} className="text-amber-400" />}
+                                            </motion.button>
+
+                                            {/* Presets Grid */}
+                                            {PRESETS.map(p => {
+                                                const isSelected = editingShift.start === p.start && editingShift.end === p.end;
+                                                return (
+                                                    <motion.button
+                                                        key={p.id}
+                                                        whileHover={{ scale: 1.02 }}
+                                                        whileTap={{ scale: 0.98 }}
+                                                        onClick={() => setEditingShift({ ...editingShift, start: p.start, end: p.end, presetId: p.id })}
+                                                        className={`relative flex flex-col items-start p-4 rounded-2xl border-2 transition-all group overflow-hidden ${isSelected
+                                                            ? `border-purple-600 shadow-xl ring-2 ring-purple-600/10`
+                                                            : `border-slate-100 hover:border-slate-200`
+                                                            }`}
+                                                    >
+                                                        {/* Icono de fondo decorativo */}
+                                                        <div className={`absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity ${isSelected ? 'opacity-20 scale-150' : ''}`}>
+                                                            {p.icon}
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${isSelected ? 'bg-purple-600 text-white' : 'bg-slate-50 text-slate-400'}`}>
+                                                                {p.icon}
+                                                            </div>
+                                                            <span className={`text-[10px] font-black uppercase tracking-wider ${isSelected ? 'text-purple-600' : 'text-slate-400'}`}>
+                                                                {p.label}
+                                                            </span>
+                                                        </div>
+                                                        <span className={`text-sm font-black ${isSelected ? 'text-slate-900' : 'text-slate-700'}`}>
+                                                            {formatTime12h(p.start)} - {formatTime12h(p.end)}
+                                                        </span>
+
+                                                        {isSelected && (
+                                                            <motion.div
+                                                                layoutId="active-bg"
+                                                                className="absolute inset-0 bg-purple-50 -z-10"
+                                                            />
+                                                        )}
+                                                    </motion.button>
+                                                )
+                                            })}
+                                        </div>
                                     </div>
 
-                                    <div className="pt-4 border-t border-gray-100">
-                                        <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Horario Personalizado</label>
-                                        <div className="flex gap-4">
-                                            <div className="flex-1">
-                                                <span className="text-xs text-gray-400 mb-1 block">Entrada</span>
+                                    {/* Horario Personalizado */}
+                                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Horario Personalizado</h4>
+                                            <div className="h-px flex-1 bg-slate-100 ml-4"></div>
+                                        </div>
+
+                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 grid grid-cols-2 gap-8 relative overflow-hidden">
+                                            <div className="space-y-2">
+                                                <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                                    <Sunrise size={12} className="text-amber-500" />
+                                                    Entrada
+                                                </label>
                                                 <input
                                                     type="time"
                                                     value={editingShift.start}
-                                                    onChange={(e) => setEditingShift({ ...editingShift, start: e.target.value })}
-                                                    className="w-full p-2 border border-gray-300 rounded-lg text-lg font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    onChange={(e) => setEditingShift({ ...editingShift, start: e.target.value, presetId: 'custom' })}
+                                                    className="w-full bg-white p-3 rounded-2xl border-2 border-slate-200 text-xl font-black text-slate-800 focus:border-indigo-500 outline-none shadow-sm transition-all"
                                                 />
                                             </div>
-                                            <div className="flex items-center text-gray-400 pt-5">➜</div>
-                                            <div className="flex-1">
-                                                <span className="text-xs text-gray-400 mb-1 block">Salida</span>
+
+                                            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-2 text-slate-300">
+                                                <ArrowRight size={24} />
+                                            </div>
+
+                                            <div className="space-y-2 text-right">
+                                                <label className="flex items-center justify-end gap-2 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                                    Salida
+                                                    <Moon size={12} className="text-indigo-500" />
+                                                </label>
                                                 <input
                                                     type="time"
                                                     value={editingShift.end}
-                                                    onChange={(e) => setEditingShift({ ...editingShift, end: e.target.value })}
-                                                    className="w-full p-2 border border-gray-300 rounded-lg text-lg font-mono font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    onChange={(e) => setEditingShift({ ...editingShift, end: e.target.value, presetId: 'custom' })}
+                                                    className="w-full bg-white p-3 rounded-2xl border-2 border-slate-200 text-xl font-black text-slate-800 focus:border-indigo-500 outline-none shadow-sm transition-all"
                                                 />
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
-                                    <button onClick={() => setEditingShift(null)} className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-lg">Cancelar</button>
-                                    <button onClick={saveShift} className="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md transition-colors">
-                                        Guardar Cambios
+                                {/* Footer con Botones */}
+                                <div className="p-8 bg-slate-50 border-t border-slate-200/60 flex items-center justify-between gap-4">
+                                    <button
+                                        onClick={() => setEditingShift(null)}
+                                        className="h-14 px-8 text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors"
+                                    >
+                                        Cancelar
                                     </button>
+
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={saveShift}
+                                        className="flex-1 h-14 bg-slate-900 hover:bg-black text-white rounded-2xl text-sm font-black shadow-lg shadow-slate-200 flex items-center justify-center gap-2 transition-all"
+                                    >
+                                        <Save size={18} />
+                                        GUARDAR CAMBIOS
+                                    </motion.button>
                                 </div>
-                            </div>
+                            </motion.div>
                         </div>
-                    )
-                }
+                    )}
+                </AnimatePresence>
             </main>
         </div>
     )

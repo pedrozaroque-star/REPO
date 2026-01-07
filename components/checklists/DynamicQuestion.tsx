@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon } from 'lucide-react'
+import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles } from 'lucide-react'
 import { uploadPhotos } from '@/lib/uploadPhotos'
 
 interface QuestionProps {
@@ -11,6 +11,7 @@ interface QuestionProps {
         text: string
         type: string
         required_photo?: boolean
+        created_at?: string
     }
     index: number
     value: any
@@ -18,6 +19,16 @@ interface QuestionProps {
     onChange: (val: any) => void
     onPhotosChange: (urls: string[]) => void
     checklistType?: string
+}
+
+// Helper to check if question is new (7 days)
+const isNew = (dateStr?: string) => {
+    if (!dateStr) return false
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffTime = Math.abs(now.getTime() - date.getTime())
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays <= 180
 }
 
 export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType }: QuestionProps) {
@@ -201,6 +212,11 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                     <div className="flex-1">
                         <h4 className={`font-bold text-base leading-snug ${isAnswered ? 'text-gray-600' : 'text-gray-900'}`}>
                             {question.text}
+                            {isNew(question.created_at) && (
+                                <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] uppercase font-black rounded-full border border-blue-200 align-middle">
+                                    <Sparkles size={8} /> NEW <span className="text-blue-500 font-medium normal-case tracking-normal ml-0.5">({new Date(question.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                </span>
+                            )}
                         </h4>
 
                         {question.required_photo && (

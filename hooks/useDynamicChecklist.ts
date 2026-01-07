@@ -8,6 +8,7 @@ export interface Question {
     type: string
     order_index: number
     required_photo?: boolean
+    created_at?: string
 }
 
 export interface Section {

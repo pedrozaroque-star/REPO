@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server'
 const PUBLIC_ROUTES = [
   '/login',
   '/clientes',
-  '/evaluacion', 
+  '/evaluacion',
   '/admin',
   '/feedback-publico'
 ]
@@ -26,22 +26,29 @@ const PROTECTED_ROUTES = [
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  
+
+  // Verificar si es una ruta pública (incluyendo todas las sub-rutas de /admin)
+  const isPublicRoute = PUBLIC_ROUTES.some(route => pathname.startsWith(route))
+
+  if (isPublicRoute) {
+    return NextResponse.next()
+  }
+
   // Verificar si es una ruta protegida
   const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname.startsWith(route))
-  
+
   // Si es ruta protegida, verificar autenticación
   if (isProtectedRoute) {
     // En el cliente, verificaremos con localStorage
     // Aquí solo redirigimos a login si no hay cookie/header de sesión
     const response = NextResponse.next()
-    
+
     // Agregar header para que el cliente verifique
     response.headers.set('x-require-auth', 'true')
-    
+
     return response
   }
-  
+
   return NextResponse.next()
 }
 

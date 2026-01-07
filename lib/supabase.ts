@@ -21,15 +21,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 // FUNCIÓN DE CONVENIENCIA (ASYNC)
 // ============================================================================
 // Devuelve siempre la misma instancia del cliente.
-// Si hay un token en localStorage, lo inyecta como sesión ANTES de devolver.
 export async function getSupabaseClient() {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('teg_token')
-    if (token) {
-      // CRÍTICO: Esperar a que la sesión se establezca ANTES de continuar
-      await supabase.auth.setSession({ access_token: token, refresh_token: '' })
-    }
-  }
   return supabase
 }
 

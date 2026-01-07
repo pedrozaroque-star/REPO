@@ -51,9 +51,9 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
       items: [
         { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
         { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Checklists', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-        { name: 'Checklists Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Inspecciones', path: '/inspecciones', icon: '📋', roles: ['supervisor', 'admin'] },
+        { name: 'Asistentes', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+        { name: 'Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Supervisor', path: '/inspecciones', icon: '📋', roles: ['supervisor', 'admin'] },
       ]
     },
     {

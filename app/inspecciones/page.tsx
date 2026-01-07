@@ -6,6 +6,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
+import { calculateInspectionScore } from '@/lib/scoreCalculator'
 
 function InspeccionesContent() {
   const router = useRouter()
@@ -136,6 +137,47 @@ function InspeccionesContent() {
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto">
+            {/* Maintenance Button - Hidden unless needed */}
+            <button
+              onClick={async () => {
+                const confirm = window.confirm('¿Recalcular TODOS los scores ignorando NA? Esto puede tardar unos segundos.')
+                if (!confirm) return
+
+                setLoading(true)
+                try {
+                  const supabase = await getSupabaseClient()
+                  // Fetch Template
+                  const { data: templates } = await supabase.from('checklist_templates').select('*').eq('code', 'supervisor_inspection_v1').single()
+                  const templateData = templates?.structure ? (typeof templates.structure === 'string' ? JSON.parse(templates.structure) : templates.structure) : null
+
+                  if (!templateData) throw new Error('No se encontró la plantilla')
+
+                  // Fetch ALL Inspections
+                  const { data: allInspections } = await supabase.from('supervisor_inspections').select('*')
+                  if (!allInspections) throw new Error('No se encontraron inspecciones')
+
+                  let updatedCount = 0
+                  for (const inspection of allInspections) {
+                    const newScore = calculateInspectionScore(inspection, templateData)
+                    if (newScore !== inspection.overall_score) {
+                      await supabase.from('supervisor_inspections').update({ overall_score: newScore }).eq('id', inspection.id)
+                      updatedCount++
+                    }
+                  }
+                  alert(`✅ Scores recalculados. ${updatedCount} registros actualizados.`)
+                  fetchData()
+                } catch (e: any) {
+                  alert('Error: ' + e.message)
+                } finally {
+                  setLoading(false)
+                }
+              }}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2.5 rounded-lg font-bold transition-all text-xs"
+              title="Recalcular Scores (Ignorar NA)"
+            >
+              🔧 Fix Scores
+            </button>
+
             <button
               onClick={() => router.push('/inspecciones/nueva')}
               className="bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 w-full md:w-auto text-sm"
@@ -255,6 +297,18 @@ function InspeccionesContent() {
                         } catch (e) { }
                       }
 
+                      // [FIX] Infer shift if missing
+                      let displayShift = item.shift
+                      if (!displayShift && (item.start_time || item.inspection_time)) {
+                        try {
+                          const timeStr = item.start_time || item.inspection_time
+                          const hour = parseInt(timeStr.split(':')[0], 10)
+                          // Logic: Custom Business Hours
+                          // AM = 6:00 to 16:59 (5 PM starts PM)
+                          displayShift = (hour >= 6 && hour < 17) ? 'AM' : 'PM'
+                        } catch (e) { }
+                      }
+
                       return (
                         <tr
                           key={item.id}
@@ -265,9 +319,13 @@ function InspeccionesContent() {
                           <td className="p-4 text-gray-600 text-xs font-semibold">{item.supervisor_name}</td>
                           <td className="p-4 text-center text-gray-500 text-xs font-semibold">{formatDateLA(item.checklist_date)}</td>
                           <td className="p-4 text-center">
-                            <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${item.shift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
-                              {item.shift}
-                            </span>
+                            {displayShift ? (
+                              <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {displayShift}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 font-bold text-xs">-</span>
+                            )}
                           </td>
                           <td className="p-4 text-center">
                             <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
@@ -369,7 +427,7 @@ function InspeccionesContent() {
           />
         )
       }
-    </div>
+    </div >
   )
 }
 
