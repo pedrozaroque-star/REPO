@@ -79,9 +79,9 @@ export default function LoginPage() {
               rotateY: 1080, // Reduced rotation for better performance
               transition: {
                 type: "spring",
-                damping: 12,
-                stiffness: 100,
-                duration: 1.5
+                damping: 20,
+                stiffness: 60,
+                duration: 2.5
               }
             }}
             className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)] relative"
