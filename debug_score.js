@@ -8,105 +8,118 @@ const supabase = createClient(envConfig.NEXT_PUBLIC_SUPABASE_URL, envConfig.NEXT
 const normalize = (t) => t ? t.toLowerCase().replace(/[^a-z0-9]/g, '').trim() : '';
 
 async function debugScore() {
-    // 1. Get Template
-    const { data: templates } = await supabase.from('checklist_templates').select('*').eq('code', 'supervisor_inspection_v1').single();
-    const template = templates?.structure ? (typeof templates.structure === 'string' ? JSON.parse(templates.structure) : templates.structure) : null;
+    try {
+        console.log('STARTING DEBUG...');
+        // 1. Get Template
+        const { data: templates } = await supabase.from('checklist_templates').select('*').eq('code', 'supervisor_inspection_v1').single();
+        const template = templates?.structure ? (typeof templates.structure === 'string' ? JSON.parse(templates.structure) : templates.structure) : null;
 
-    // 2. Get Lynwood Inspection
-    // Fetch inspections for 'Lynwood' (filter locally or via store join if possible, but let's just grab by store name via a join logic simulation or multiple queries)
-    // First get store id for Lynwood
-    const { data: stores } = await supabase.from('stores').select('id').ilike('name', '%Lynwood%').single();
-    if (!stores) { console.log('Store Lynwood not found'); return; }
+        // 2. Get Lynwood Inspection
+        // Use a more generic search to ensure we get something
+        const { data: inspections } = await supabase.from('supervisor_inspections')
+            .select('*')
+            .ilike('supervisor_name', '%Willian%')
+            .order('created_at', { ascending: false })
+            .limit(5); // Get a few
 
-    // Get inspection
-    const { data: inspections } = await supabase.from('supervisor_inspections')
-        .select('*')
-        .eq('store_id', stores.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        if (!inspections || inspections.length === 0) {
+            console.log('No inspections found');
+            return;
+        }
 
-    const checklist = inspections[0];
-    console.log(`DEBUGGING INSPECTION: ${checklist.id} (Current DB Score: ${checklist.overall_score}%)`);
-    // console.log('Answers JSON:', JSON.stringify(checklist.answers, null, 2));
+        // Find the one with ~75% score or close to it
+        const target = inspections.find(i => Math.abs(i.overall_score - 75) < 5) || inspections[0];
 
-    // 3. Re-run Logic with Logging
-    console.log('\n--- CALCULATION TRACE ---');
-    let totalSectionScores = 0;
-    let validSections = 0;
+        console.log(`DEBUGGING INSPECTION: ${target.id}`);
+        console.log(`Store: ${target.store_id} (Name lookup skipped)`);
+        console.log(`Current Score: ${target.overall_score}%`);
 
-    template.sections.forEach((section) => {
-        let sectionSum = 0;
-        let sectionCount = 0;
-        console.log(`\nSECTION: ${section.title}`);
+        let logBuffer = `DEBUG REPORT FOR INSPECTION ${target.id}\nSCORE: ${target.overall_score}%\n\n`;
 
-        section.questions.forEach((q) => {
-            let value = undefined;
-            let source = 'NOT FOUND';
+        let totalSectionScores = 0;
+        let validSections = 0;
 
-            const answersObj = typeof checklist.answers === 'string'
-                ? JSON.parse(checklist.answers)
-                : (checklist.answers || {});
+        template.sections.forEach((section) => {
+            let sectionSum = 0;
+            let sectionCount = 0;
+            logBuffer += `SECTION: ${section.title}\n`;
 
-            if (answersObj[q.id] !== undefined) { value = answersObj[q.id]; source = 'ID'; }
-            else if (answersObj[q.text] !== undefined) { value = answersObj[q.text]; source = 'TEXT'; }
-            else {
-                // Deep
-                if (answersObj[section.title]?.items) {
-                    const items = answersObj[section.title].items;
-                    Object.values(items).forEach((item) => {
-                        if (normalize(item.label) === normalize(q.text)) {
-                            value = item.score !== undefined ? item.score : item;
-                            source = 'DEEP';
-                        }
-                    });
-                }
-                // Fuzzy
-                if (value === undefined) {
-                    const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 2);
-                    for (const key of Object.keys(answersObj)) {
-                        if (key === '__question_photos' || typeof answersObj[key] === 'object') continue;
-                        const keyLower = key.toLowerCase();
-                        const matchCount = questionWords.filter((w) => keyLower.includes(w)).length;
-                        if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
-                            value = answersObj[key];
-                            source = `FUZZY (${key})`;
-                            break;
+            section.questions.forEach((q) => {
+                let value = undefined;
+                let source = 'NOT FOUND';
+
+                const answersObj = typeof target.answers === 'string'
+                    ? JSON.parse(target.answers)
+                    : (target.answers || {});
+
+                // Lookup Logic
+                if (answersObj[q.id] !== undefined) { value = answersObj[q.id]; source = 'ID'; }
+                else if (answersObj[q.text] !== undefined) { value = answersObj[q.text]; source = 'TEXT'; }
+                else {
+                    if (answersObj[section.title]?.items) {
+                        const items = answersObj[section.title].items;
+                        Object.values(items).forEach((item) => {
+                            if (normalize(item.label) === normalize(q.text)) {
+                                value = item.score !== undefined ? item.score : item;
+                                source = 'DEEP';
+                            }
+                        });
+                    }
+                    if (value === undefined) {
+                        const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 2);
+                        for (const key of Object.keys(answersObj)) {
+                            if (key === '__question_photos' || typeof answersObj[key] === 'object') continue;
+                            const keyLower = key.toLowerCase();
+                            const matchCount = questionWords.filter((w) => keyLower.includes(w)).length;
+                            if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                                value = answersObj[key];
+                                source = `FUZZY`;
+                                break;
+                            }
                         }
                     }
                 }
-            }
 
-            const strVal = String(value);
-            const isNA = strVal.toUpperCase() === 'NA' || strVal.toUpperCase() === 'N/A';
+                // Check Value
+                const strVal = String(value);
+                const isNA = strVal.toUpperCase() === 'NA' || strVal.toUpperCase() === 'N/A';
+                const numVal = Number(value);
+                const isValid = !isNaN(numVal) && value !== null && value !== '' && value !== undefined;
 
-            if (isNA) {
-                console.log(`  [SKIP] ${q.text.substring(0, 30)}... : Value="${value}" (NA)`);
-                return;
-            }
+                if (isNA) {
+                    logBuffer += `  [SKIP] ${q.text.substring(0, 40)}... : "NA" (Ignored)\n`;
+                } else if (isValid) {
+                    if (numVal === 0) {
+                        logBuffer += `  [ZERO] ${q.text.substring(0, 40)}... : 0 (COUNTED AS FAIL) - Source: ${source}\n`;
+                    } else {
+                        logBuffer += `  [ OK ] ${q.text.substring(0, 40)}... : ${numVal}\n`;
+                    }
+                    sectionSum += numVal;
+                    sectionCount++;
+                } else {
+                    logBuffer += `  [MISS] ${q.text.substring(0, 40)}... : "${value}" (Missing)\n`;
+                }
+            });
 
-            const numVal = Number(value);
-            // DEBUG: Print what happens
-            if (!isNaN(numVal) && value !== null && value !== '' && value !== undefined) {
-                console.log(`  [ OK ] ${q.text.substring(0, 30)}... : Value=${numVal} (Source: ${source})`);
-                sectionSum += numVal;
-                sectionCount++;
+            if (sectionCount > 0) {
+                const avg = Math.round(sectionSum / sectionCount);
+                logBuffer += `  >> SECTION AVG: ${avg}% (${sectionSum} / ${sectionCount})\n\n`;
+                totalSectionScores += avg;
+                validSections++;
             } else {
-                console.log(`  [MISS] ${q.text.substring(0, 30)}... : Value="${value}" (Invalid/Missing)`);
+                logBuffer += `  >> SECTION AVG: N/A\n\n`;
             }
         });
 
-        if (sectionCount > 0) {
-            const sectionAvg = Math.round(sectionSum / sectionCount);
-            console.log(`  >> SECTION AVG: ${sectionAvg}% (${sectionSum} / ${sectionCount})`);
-            totalSectionScores += sectionAvg;
-            validSections++;
-        } else {
-            console.log(`  >> SECTION AVG: N/A (No valid answers)`);
-        }
-    });
+        const final = validSections > 0 ? Math.round(totalSectionScores / validSections) : 0;
+        logBuffer += `--- FINAL CALCULATED SCORE: ${final}% ---\n`;
 
-    const final = validSections > 0 ? Math.round(totalSectionScores / validSections) : 0;
-    console.log(`\n--- FINAL SCORE: ${final}% ---`);
+        fs.writeFileSync('debug_report.txt', logBuffer);
+        console.log('Report written to debug_report.txt');
+
+    } catch (e) {
+        console.error('ERROR:', e);
+    }
 }
 
 debugScore();

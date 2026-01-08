@@ -2,56 +2,68 @@ const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const dotenv = require('dotenv');
 
-// Manually parse .env.local to avoid gitignore issues if any
+// Load environment
 const envConfig = dotenv.parse(fs.readFileSync('.env.local'));
 const supabaseUrl = envConfig.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = envConfig.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error('Missing Supabase credentials');
-    process.exit(1);
-}
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Scoring Logic (Mirrors lib/scoreCalculator.ts)
-const calculateInspectionScore = (checklist, template) => {
-    if (!template || !checklist) return checklist?.overall_score || 0;
+const SECTION_MAPPING = {
+    'Servicio al Cliente': 'service_score',
+    'Procedimiento de Carnes': 'meat_score',
+    'Preparación de Alimentos': 'food_score',
+    'Seguimiento a Tortillas': 'tortilla_score',
+    'Limpieza General y Baños': 'cleaning_score',
+    'Checklists y Bitácoras': 'log_score',
+    'Aseo Personal': 'grooming_score'
+};
+
+const normalize = (t) => t ? t.toLowerCase().replace(/[^a-z0-9]/g, '').trim() : '';
+
+const calculateInspectionResults = (checklist, template) => {
+    if (!template || !checklist) return null;
 
     let totalSectionScores = 0;
     let validSections = 0;
-    const normalize = (t) => t ? t.toLowerCase().replace(/[^a-z0-9]/g, '').trim() : '';
+    let sectionScores = {};
+
+    const answersObj = typeof checklist.answers === 'string'
+        ? JSON.parse(checklist.answers)
+        : (checklist.answers || {});
 
     template.sections.forEach((section) => {
         let sectionSum = 0;
         let sectionCount = 0;
 
+        // Robust Section Lookup
+        let sectionItems = null;
+        const normTitle = normalize(section.title);
+
+        if (answersObj[section.title]?.items) sectionItems = answersObj[section.title].items;
+        else {
+            const matchKey = Object.keys(answersObj).find(k => normalize(k) === normTitle);
+            if (matchKey && answersObj[matchKey]?.items) sectionItems = answersObj[matchKey].items;
+        }
+
         section.questions.forEach((q) => {
             let value = undefined;
 
-            const answersObj = typeof checklist.answers === 'string'
-                ? JSON.parse(checklist.answers)
-                : (checklist.answers || {});
-
             if (answersObj[q.id] !== undefined) value = answersObj[q.id];
             else if (answersObj[q.text] !== undefined) value = answersObj[q.text];
-            else {
-                if (answersObj[section.title]?.items) {
-                    const items = answersObj[section.title].items;
-                    Object.values(items).forEach((item) => {
-                        if (normalize(item.label) === normalize(q.text)) {
-                            value = item.score !== undefined ? item.score : item;
-                        }
-                    });
-                }
+            else if (sectionItems) {
+                const normQ = normalize(q.text);
+                const match = Object.values(sectionItems).find((itm) => normalize(itm.label) === normQ);
+                if (match) value = match.score !== undefined ? match.score : match;
+            }
 
-                if (value === undefined) {
-                    const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 2);
+            if (value === undefined) {
+                const qWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3);
+                if (qWords.length > 0) {
                     for (const key of Object.keys(answersObj)) {
                         if (key === '__question_photos' || typeof answersObj[key] === 'object') continue;
                         const keyLower = key.toLowerCase();
-                        const matchCount = questionWords.filter((w) => keyLower.includes(w)).length;
-                        if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                        const matchCount = qWords.filter(w => keyLower.includes(w)).length;
+                        if ((matchCount / qWords.length) >= 0.5) {
                             value = answersObj[key];
                             break;
                         }
@@ -59,7 +71,12 @@ const calculateInspectionScore = (checklist, template) => {
                 }
             }
 
-            if (String(value).toUpperCase() === 'NA' || String(value).toUpperCase() === 'N/A') return;
+            if (value && typeof value === 'object') {
+                value = value.value !== undefined ? value.value : (value.score !== undefined ? value.score : value.response);
+            }
+
+            const sVal = String(value).toUpperCase();
+            if (sVal === 'NA' || sVal === 'N/A') return;
 
             const numVal = Number(value);
             if (!isNaN(numVal) && value !== null && value !== '' && value !== undefined) {
@@ -70,12 +87,14 @@ const calculateInspectionScore = (checklist, template) => {
 
         if (sectionCount > 0) {
             const sectionAvg = Math.round(sectionSum / sectionCount);
+            sectionScores[section.title] = sectionAvg;
             totalSectionScores += sectionAvg;
             validSections++;
         }
     });
 
-    return validSections > 0 ? Math.round(totalSectionScores / validSections) : 0;
+    const overall = validSections > 0 ? Math.round(totalSectionScores / validSections) : 0;
+    return { overall, sectionScores };
 };
 
 async function main() {
@@ -90,23 +109,50 @@ async function main() {
 
     console.log('Fetching Inspections...');
     const { data: allInspections, error } = await supabase.from('supervisor_inspections').select('*');
-    if (error) {
-        console.error('Error fetching inspections:', error);
-        return;
-    }
+    if (error) { console.error('Error:', error); return; }
 
-    console.log(`Found ${allInspections.length} inspections. Calculating...`);
+    console.log(`Processing ${allInspections.length} inspections...`);
 
+    let updatedCount = 0;
     for (const inspection of allInspections) {
-        const oldScore = inspection.overall_score;
-        const newScore = calculateInspectionScore(inspection, templateData);
+        const results = calculateInspectionResults(inspection, templateData);
+        if (!results) continue;
 
-        if (oldScore !== newScore) {
-            console.log(`Updating ID ${inspection.id}: ${oldScore}% -> ${newScore}%`);
-            await supabase.from('supervisor_inspections').update({ overall_score: newScore }).eq('id', inspection.id);
+        let updatePayload = {
+            overall_score: results.overall
+        };
+
+        // Add section scores to payload
+        Object.entries(results.sectionScores).forEach(([title, score]) => {
+            const colName = SECTION_MAPPING[title];
+            if (colName) {
+                updatePayload[colName] = score;
+            }
+        });
+
+        // Check if anything actually changed
+        let hasChanged = inspection.overall_score !== results.overall;
+        if (!hasChanged) {
+            for (const [title, score] of Object.entries(results.sectionScores)) {
+                const colName = SECTION_MAPPING[title];
+                if (colName && inspection[colName] !== score) {
+                    hasChanged = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasChanged) {
+            console.log(`Updating ID ${inspection.id}: Overall ${inspection.overall_score}% -> ${results.overall}%`);
+            const { error: updateError } = await supabase.from('supervisor_inspections').update(updatePayload).eq('id', inspection.id);
+            if (updateError) {
+                console.error(`Error updating ${inspection.id}:`, updateError);
+            } else {
+                updatedCount++;
+            }
         }
     }
-    console.log('Done.');
+    console.log(`Done. Updated ${updatedCount} inspections.`);
 }
 
 main();

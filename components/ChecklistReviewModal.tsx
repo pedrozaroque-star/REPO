@@ -36,7 +36,11 @@ import {
     X,
     XCircle,
     ZoomIn,
-    Sparkles
+    Sparkles,
+    Hash,
+    ArrowLeft,
+    MoreHorizontal,
+    Image as ImageIcon
 } from 'lucide-react'
 import '@/app/checklists/checklists.css'
 
@@ -82,7 +86,7 @@ const SECTION_SCORES_MAP: Record<string, string> = {
     'Aseo Personal': 'grooming_score'
 }
 
-import { calculateInspectionScore } from '@/lib/scoreCalculator'
+import { calculateInspectionScore, getNumericValue } from '@/lib/scoreCalculator'
 
 // Animated Score Gauge Component
 function ScoreGauge({ score, size = 120 }: { score: number, size?: number }) {
@@ -157,8 +161,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
     const [newComment, setNewComment] = useState('')
     const [loadingComments, setLoadingComments] = useState(false)
     const [includeManager, setIncludeManager] = useState(false)
+    const [hoveredBtn, setHoveredBtn] = useState<string | null>(null)
     const [managerName, setManagerName] = useState<string | null>(null)
     const [managerId, setManagerId] = useState<string | null>(null) // State for ID
+    const [chatOpen, setChatOpen] = useState(false) // Floating Chat State
     const chatContainerRef = useRef<HTMLDivElement>(null)
 
     // Image Viewer State
@@ -336,16 +342,36 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
     const answersData = typeof checklist?.answers === 'string' ? JSON.parse(checklist.answers) : (checklist?.answers || {})
     const questionPhotosMap = answersData['__question_photos'] || answersData['question_photos'] || answersData['photos'] || {}
 
-    // DEBUG: Log photo mapping data
-    console.log('🔍 DEBUG - Photo Mapping Investigation:')
-    console.log('  answersData keys:', Object.keys(answersData))
-    console.log('  questionPhotosMap keys:', Object.keys(questionPhotosMap))
-    console.log('  questionPhotosMap:', questionPhotosMap)
-    console.log('  __text_photos available?:', answersData['__text_photos'] ? 'YES ✅' : 'NO ❌')
-    if (answersData['__text_photos']) {
-        console.log('  __text_photos keys:', Object.keys(answersData['__text_photos']))
-    }
-    console.log('  checklist.photos:', checklist.photos)
+    // Aggregate unique photos from all possible sources
+    const allInspectionPhotos = useMemo(() => {
+        const photos = new Set<string>()
+
+        // 1. From explicit question photos map
+        Object.values(questionPhotosMap).forEach((val: any) => {
+            if (Array.isArray(val)) val.forEach(url => photos.add(url))
+            else if (typeof val === 'string') photos.add(val)
+        })
+
+        // 2. From text-based permanent anchors
+        if (answersData['__text_photos']) {
+            Object.values(answersData['__text_photos']).forEach((val: any) => {
+                if (Array.isArray(val)) val.forEach(url => photos.add(url))
+                else if (typeof val === 'string') photos.add(val)
+            })
+        }
+
+        // 3. Deep search for any 'photos' or 'photo' keys in answers (Legacy/Dynamic mix)
+        const deepExtract = (obj: any) => {
+            if (!obj || typeof obj !== 'object') return
+            if (Array.isArray(obj.photos)) obj.photos.forEach((url: any) => typeof url === 'string' && photos.add(url))
+            if (typeof obj.photo === 'string') photos.add(obj.photo)
+            Object.values(obj).forEach(deepExtract)
+        }
+        deepExtract(answersData)
+
+        return Array.from(photos).filter(url => url && typeof url === 'string' && url.length > 10)
+    }, [answersData, questionPhotosMap])
+
 
 
     const handlePrint = () => {
@@ -383,31 +409,96 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         }
         const displayValue = String(value ?? 'N/A')
         const numValue = Number(value)
+        const isAnswered = value !== undefined && value !== '' && value !== null
 
-        if (type === 'supervisor' && !isNaN(numValue) && value !== null && value !== '' && value !== undefined) {
-            if (numValue === 100) {
-                return (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200">
-                        <CheckCircle size={14} /> CUMPLE
-                    </span>
-                )
-            }
-            if (numValue === 60) {
-                return (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-100 text-amber-700 font-bold text-xs border border-amber-200">
-                        <AlertCircle size={14} /> CUMPLE PARCIAL
-                    </span>
-                )
-            }
-            if (numValue === 0) {
-                return (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-100 text-red-700 font-bold text-xs border border-red-200">
-                        <XCircle size={14} /> NO CUMPLE
-                    </span>
-                )
-            }
+        // YES/NO TYPE (Blocky Buttons style)
+        if (question.type === 'yes_no' || displayValue.toUpperCase() === 'SI' || displayValue.toUpperCase() === 'NO' || displayValue.toUpperCase() === 'NA' || displayValue.toUpperCase() === 'N/A') {
+            const valUpper = displayValue.toUpperCase().replace('Í', 'I')
+            // Normalizing input to align with button keys
+            const target = valUpper === 'SI' ? 'SI' : valUpper === 'NO' ? 'NO' : 'NA'
+
+            return (
+                <div className="flex gap-2 min-w-[120px]">
+                    {['SI', 'NO', 'NA'].map(opt => {
+                        const isActive = target === opt
+                        let activeClass = ''
+                        if (isActive) {
+                            if (opt === 'SI') activeClass = 'bg-blue-600 border-blue-600 text-white shadow-blue-200'
+                            else if (opt === 'NO') activeClass = 'bg-pink-600 border-pink-600 text-white shadow-pink-200'
+                            else activeClass = 'bg-gray-600 border-gray-600 text-white'
+                        } else {
+                            // Inactive read-only state
+                            activeClass = 'bg-gray-100/80 border-gray-400 text-gray-700 font-bold'
+                        }
+                        return (
+                            <div key={opt} className={`flex-1 py-3 px-2 rounded-xl font-bold text-xs text-center transition-all border-2 ${activeClass}`}>
+                                {opt === 'SI' ? 'SÍ' : opt === 'NO' ? 'NO' : 'N/A'}
+                            </div>
+                        )
+                    })}
+                </div>
+            )
         }
 
+        // RATING 5 (Stars)
+        if (question.type === 'rating_5') {
+            return (
+                <div className="flex items-center gap-1 bg-gray-50 rounded-2xl border border-gray-100 px-2 py-1">
+                    {[1, 2, 3, 4, 5].map(val => (
+                        <Star
+                            key={val}
+                            size={16}
+                            fill={numValue >= val ? '#facc15' : 'none'}
+                            className={numValue >= val ? 'text-yellow-400' : 'text-gray-200'}
+                            strokeWidth={3}
+                        />
+                    ))}
+                </div>
+            )
+        }
+
+        // NPS 10 (Circles)
+        if (question.type === 'nps_10') {
+            return (
+                <div className="flex items-center gap-1">
+                    <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm border
+                        ${numValue >= 9 ? 'bg-green-500 text-white border-green-600' :
+                                numValue >= 7 ? 'bg-yellow-500 text-white border-yellow-600' :
+                                    'bg-red-500 text-white border-red-600'}`}
+                    >
+                        {numValue}
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-400">NPS</span>
+                </div>
+            )
+        }
+
+        // SCORE 100 (Cumple/Parcial/No) - used in Supervisor
+        if (type === 'supervisor' && (numValue === 100 || numValue === 60 || numValue === 0)) {
+            return (
+                <div className="flex gap-1 min-w-[150px]">
+                    {[
+                        { label: 'CUMPLE', val: 100, color: 'bg-green-500', bgOff: 'bg-green-50' },
+                        { label: 'PARCIAL', val: 60, color: 'bg-orange-500', bgOff: 'bg-orange-50' },
+                        { label: 'NO', val: 0, color: 'bg-red-500', bgOff: 'bg-red-50' }
+                    ].map(opt => {
+                        const isSelected = numValue === opt.val
+                        return (
+                            <div
+                                key={opt.val}
+                                className={`flex-1 py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all text-xs font-bold border-2
+                                ${isSelected ? `${opt.color} text-white border-transparent shadow-sm` : 'bg-gray-100 text-gray-500 border-gray-300'}`}
+                            >
+                                {opt.label}
+                            </div>
+                        )
+                    })}
+                </div>
+            )
+        }
+
+        // TEMPERATURES
         if (type === 'temperaturas' && !isNaN(numValue) && value !== null && value !== '') {
             const { isValid } = getTempValidation(question.text, numValue, sectionTitle)
             return (
@@ -421,46 +512,29 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
             )
         }
 
-        const upperVal = displayValue.toUpperCase()
-        if (upperVal === 'SI' || upperVal === 'SÍ') {
-            return (
-                <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200">
-                    <CheckCircle size={14} /> SÍ
-                </span>
-            )
-        }
-        if (upperVal === 'NO') {
-            return (
-                <span className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-100 text-red-700 font-bold text-xs border border-red-200">
-                    <XCircle size={14} /> NO
-                </span>
-            )
-        }
-        if (upperVal === 'N/A' || upperVal === 'NA') {
-            return (
-                <span className="px-3 py-1 rounded-lg bg-gray-100 text-gray-500 font-bold text-xs border border-gray-200">
-                    N/A
-                </span>
-            )
-        }
-
+        // SOBRANTES
         if (type === 'sobrante' && !isNaN(numValue) && value !== null && value !== '') {
             const isAlarm = numValue > 2
             return (
-                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-semibold text-sm border ${isAlarm
-                    ? 'bg-red-50 text-red-700 border-red-200 animate-pulse'
-                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    }`}>
-                    {displayValue} Lbs {isAlarm && <AlertCircle size={14} />}
-                </span>
+                <div className="relative">
+                    <div className={`w-full px-4 py-2 bg-gray-50 border-2 rounded-xl text-gray-900 font-black text-lg transition-all text-center
+                        ${isAlarm ? 'border-red-500 bg-red-50' : 'border-emerald-200'}`}>
+                        {displayValue} <span className="text-xs font-normal text-gray-500">Lbs</span>
+                    </div>
+                </div>
             )
         }
 
-        return (
-            <span className="px-3 py-1 rounded-lg bg-gray-100 text-gray-700 font-semibold text-sm border border-gray-200">
-                {displayValue}{type === 'sobrante' && !isNaN(numValue) && value !== null && value !== '' ? ' Lbs' : ''}
-            </span>
-        )
+        // TEXT / DEFAULT
+        if (displayValue && displayValue !== 'undefined' && displayValue !== 'null') {
+            return (
+                <div className="px-4 py-2 rounded-xl bg-gray-50 text-gray-700 font-medium text-sm border border-gray-200 max-w-[200px] truncate" title={displayValue}>
+                    {displayValue}
+                </div>
+            )
+        }
+
+        return <span className="text-gray-300 text-xs italic">Sin respuesta</span>
     }
     // -- END HELPERS --
 
@@ -501,10 +575,9 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                 }
             }
 
-            const numVal = Number(value)
-            const isCaptured = !isNaN(numVal) && value !== null && value !== '' && value !== undefined
+            const numVal = getNumericValue(value)
 
-            if (isCaptured) {
+            if (numVal !== null) {
                 capturedCount++
                 if (type === 'sobrante') {
                     if (numVal <= 2) validCount++
@@ -548,7 +621,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         })
 
         return Object.keys(checklist.answers).filter(key =>
-            key !== '__question_photos' && !usedKeys.has(key) && checklist.answers[key] !== undefined && checklist.answers[key] !== null
+            key !== '__question_photos' && !key.startsWith('__') && !usedKeys.has(key) && checklist.answers[key] !== undefined && checklist.answers[key] !== null
         )
     }, [template, checklist])
 
@@ -706,848 +779,799 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                 {isOpen && (
                     <motion.div
                         key="modal-overlay"
-                        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-end md:items-center justify-center p-0 md:p-4"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] pb-32 text-left overflow-hidden"
+                        initial={{ opacity: 0, y: 50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 50 }}
                     >
-                        <motion.div
-                            key="modal-content"
-                            className="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-7xl h-[90vh] md:h-[90vh] flex flex-col md:flex-row overflow-hidden relative"
-                            initial={{ y: "100%" }}
-                            animate={{ y: 0 }}
-                            exit={{ y: "100%" }}
-                            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                        {/* CLOSE BUTTON (Floating Top Right) */}
+                        <button
+                            onClick={onClose}
+                            className="fixed top-6 right-6 z-[100] p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 border border-gray-200 text-gray-500 transition-colors"
                         >
-                            {/* MOBILE CLOSE HANDLE */}
-                            <div className="md:hidden w-full flex justify-center pt-3 pb-1 bg-gray-50 border-b border-gray-100 flex-shrink-0 cursor-grab active:cursor-grabbing" onClick={onClose}>
-                                <div className="w-16 h-1.5 bg-gray-300 rounded-full"></div>
-                            </div>
+                            <X size={24} />
+                        </button>
 
-                            {/* LEFT PANEL - Fixed Info & Actions */}
-                            <div className="w-full md:w-[400px] flex-shrink-0 flex flex-col bg-gray-50 border-r border-gray-200 border-b md:border-b-0 h-[55%] md:h-full overflow-hidden">
-                                {/* Gradient Header */}
-                                <div className={`bg-gradient-to-br ${theme.gradient} p-4 md:p-6 text-white sticky top-0 z-10`}>
-                                    <div className="flex items-start justify-between mb-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center">
-                                                <ThemeIcon size={24} />
-                                            </div>
-                                            <div>
-                                                <p className="text-xs font-medium opacity-80 uppercase tracking-wider">{theme.label}</p>
-                                                <h2 className="text-lg font-bold leading-tight">{checklist.store_name}</h2>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <button onClick={handlePrint} className="p-2 hover:bg-white/20 rounded-full transition text-white/80 hover:text-white" title="Imprimir / Guardar PDF">
-                                                <Printer size={20} />
-                                            </button>
-                                            <button onClick={onClose} className="hidden md:flex p-2 hover:bg-white/20 rounded-full transition text-white/80 hover:text-white">
-                                                <X size={20} />
-                                            </button>
-                                        </div>
-                                    </div>
+                        {/* 1. FLOATING HEADER PILL (Fixed at top) */}
+                        <div className="fixed top-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
+                            <div className="pointer-events-auto bg-white/95 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.15)] rounded-full px-6 py-4 flex items-center gap-6 max-w-4xl w-full justify-between ring-1 ring-black/5">
 
-                                    {/* Status Badge & Mobile Actions */}
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border} border font-bold text-xs shrink-0`}>
-                                            <StatusIcon size={14} />
-                                            {statusConfig.label.toUpperCase()}
-                                        </div>
-                                        {/* Mobile Score Display */}
-                                        <div className="md:hidden flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/20 backdrop-blur border border-white/30 text-white font-bold text-xs shrink-0">
-                                            <Award size={14} />
-                                            <span>{finalScore}%</span>
-                                        </div>
-
-                                        {/* Mobile Inline Actions */}
-                                        {(canApprove || canReject || canClose || canSupervisorFinalApprove) && status !== 'cerrado' && (
-                                            <div className="md:hidden flex items-center gap-1 ml-auto">
-                                                {(canApprove || canSupervisorFinalApprove) && (
-                                                    <button
-                                                        onClick={() => handleStatusChange('aprobado')}
-                                                        disabled={saving}
-                                                        className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500 text-white font-bold rounded-full text-[10px] shadow-sm hover:bg-emerald-600 transition"
-                                                    >
-                                                        <CheckCircle size={12} /> Aprobar
-                                                    </button>
-                                                )}
-                                                {canReject && (
-                                                    <button
-                                                        onClick={() => handleStatusChange('rechazado')}
-                                                        disabled={saving}
-                                                        className="flex items-center gap-1 px-3 py-1.5 bg-rose-500 text-white font-bold rounded-full text-[10px] shadow-sm hover:bg-rose-600 transition"
-                                                    >
-                                                        <XCircle size={12} /> Rechazar
-                                                    </button>
-                                                )}
-                                                {canClose && (
-                                                    <button
-                                                        onClick={() => handleStatusChange('cerrado')}
-                                                        disabled={saving}
-                                                        className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white font-bold rounded-full text-[10px] shadow-sm hover:bg-purple-700 transition"
-                                                    >
-                                                        <Send size={12} /> Cerrar
-                                                    </button>
-                                                )}
+                                <div className="flex items-center gap-4 pl-1">
+                                    <button onClick={onClose} className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center text-gray-900 hover:bg-gray-100 hover:text-black transition-colors border-2 border-gray-200 shadow-sm">
+                                        <ArrowLeft size={24} strokeWidth={3} />
+                                    </button>
+                                    <div className="flex flex-col gap-0.5">
+                                        <h1 className="text-lg font-black text-gray-900 tracking-tight leading-none uppercase">{theme.label}</h1>
+                                        <div className="flex items-center gap-3 hidden sm:flex">
+                                            <div className="text-xs flex items-center gap-1 font-bold text-gray-600 uppercase">
+                                                <Store size={14} strokeWidth={2.5} /> {checklist.store_name || 'Tienda'}
                                             </div>
-                                        )}
+                                            {checklist.supervisor_name && (
+                                                <div className="text-xs flex items-center gap-1 font-bold text-gray-600 uppercase border-l-2 border-gray-300 pl-3">
+                                                    <User size={14} strokeWidth={2.5} /> {checklist.supervisor_name}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
-                                {/* Scrollable Metadata Container - Compacted (HIDDEN ON MOBILE) */}
-                                <div className="hidden md:block flex-shrink-0 border-b border-gray-200 bg-gray-50">
-                                    {/* Score Gauge - HIDDEN ON MOBILE to save space */}
-                                    <div className="hidden md:flex justify-center py-3 border-b border-gray-200/50">
-                                        <div className="scale-75 origin-center">
-                                            <ScoreGauge score={finalScore} />
-                                        </div>
+                                {/* Progress Pill */}
+                                <div className="flex items-center gap-3 pr-1">
+                                    <div className="text-right hidden sm:block">
+                                        <div className="text-[11px] font-black text-gray-900 uppercase tracking-widest leading-none mb-1">PUNTAJE</div>
                                     </div>
-
-                                    {/* Metadata - Compact Grid */}
-                                    <div className="p-3 grid grid-cols-2 gap-x-2 gap-y-2 text-xs">
-                                        <div className="col-span-2 flex items-center gap-2 text-gray-700">
-                                            <User size={14} className="text-gray-400 shrink-0" />
-                                            <span className="font-semibold truncate">{checklist.users?.full_name || checklist.user_name || checklist.supervisor_name || 'N/A'}</span>
-                                        </div>
-
-                                        <div className="col-span-2 flex items-center gap-2 text-gray-600">
-                                            <Calendar size={14} className="text-gray-400 shrink-0" />
-                                            <span className="font-medium">{formatDateLA(checklist.checklist_date || checklist.inspection_date)}</span>
-                                        </div>
-
-                                        {(checklist.start_time || checklist.inspection_time) && (
-                                            <>
-                                                <div className="col-span-2 flex items-center gap-2 text-gray-600">
-                                                    <div className="flex items-center gap-2">
-                                                        <Clock size={14} className="text-gray-400 shrink-0" />
-                                                        <span className="font-medium">{checklist.inspection_time || checklist.start_time}</span>
-                                                    </div>
-                                                    <span className="text-gray-300">|</span>
-                                                    <span className="font-medium text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded text-gray-500">
-                                                        {checklist.shift === 'AM' ? 'AM' : 'PM'}
-                                                    </span>
-                                                </div>
-
-                                                {checklist.end_time ? (
-                                                    <>
-                                                        <div className="flex items-center gap-2 text-gray-600">
-                                                            <Clock size={14} className="text-gray-400 shrink-0" />
-                                                            <span className="font-medium">{checklist.end_time}</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-2 text-gray-600">
-                                                            <Timer size={14} className="text-gray-400 shrink-0" />
-                                                            <span className="font-medium">{getDuration()}</span>
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <div className="col-span-2 flex items-center gap-2 text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">
-                                                        <AlertCircle size={12} />
-                                                        <span className="font-bold text-[10px]">Sin fin</span>
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
+                                    <div className={`px-6 py-2.5 rounded-full font-black text-2xl shadow-md border-2 flex items-center gap-1 ${finalScore >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                                        finalScore >= 60 ? 'bg-amber-50 text-amber-600 border-amber-200' :
+                                            'bg-red-50 text-red-600 border-red-200'
+                                        }`}>
+                                        {finalScore}%
                                     </div>
-                                </div>
+                                    <div className="relative group/more">
+                                        <button className="w-12 h-12 rounded-full bg-gray-950 text-white flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-transform border-2 border-white/20">
+                                            <MoreHorizontal size={24} strokeWidth={3} />
+                                        </button>
 
-                                {/* Review Actions & Chat - Flexible Area */}
-                                <div className="flex-1 flex flex-col min-h-0 bg-slate-50 border-t border-gray-200 relative overflow-hidden">
-
-                                    {/* Header */}
-                                    <div className="px-4 py-3 bg-white border-b border-gray-100 shadow-sm z-10 flex justify-between items-center">
-                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                            <MessageSquare size={16} className="text-indigo-500" />
-                                            Chat de Revisión
-                                        </h3>
-                                        {comments.length > 0 && (
-                                            <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full border border-indigo-100">
-                                                {comments.length}
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* Chat Messages Area */}
-                                    <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth bg-slate-100/50" ref={chatContainerRef}>
-                                        {loadingComments && comments.length === 0 ? (
-                                            <div className="flex justify-center p-8">
-                                                <div className="w-6 h-6 border-2 border-indigo-500 rounded-full animate-spin border-t-transparent"></div>
-                                            </div>
-                                        ) : (
-                                            comments.map((comment: any, idx: number) => {
-                                                const isMe = String(comment.user_id) === String(currentUser.id)
-                                                return (
-                                                    <div key={`${comment.id}-${idx}`} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-                                                        <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm shadow-sm relative ${isMe
-                                                            ? 'bg-indigo-600 text-white rounded-br-sm'
-                                                            : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm'
-                                                            }`}>
-                                                            <p className="break-words leading-relaxed">{comment.content}</p>
-                                                        </div>
-                                                        <div className="flex items-center gap-1.5 mt-1 px-1">
-                                                            <span className={`text-[10px] font-bold ${isMe ? 'text-indigo-900/40' : 'text-gray-400'}`}>
-                                                                {isMe ? 'Tú' : (comment.user_name || 'Usuario')}
-                                                            </span>
-                                                            <span className="text-[10px] text-gray-300">•</span>
-                                                            <span className="text-[10px] text-gray-300">{formatDateLA(comment.created_at)}</span>
-                                                        </div>
-                                                    </div>
-                                                )
-                                            })
-                                        )}
-                                        {comments.length === 0 && !loadingComments && (
-                                            <div className="flex flex-col items-center justify-center h-full py-12 opacity-40">
-                                                <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
-                                                    <MessageSquare size={32} className="text-gray-400" />
-                                                </div>
-                                                <p className="text-sm font-bold text-gray-500">Sin comentarios</p>
-                                                <p className="text-xs text-gray-400 text-center mt-1 max-w-[200px]">
-                                                    Inicia la conversación para dejar constancia de la revisión.
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Input Area & Actions */}
-                                    <div className="p-3 bg-white border-t border-gray-200 z-20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
-
-                                        {/* Manager Toggle */}
-                                        {status !== 'cerrado' && (type === 'supervisor' && role !== 'manager') && (
-                                            <div className="mb-3">
-                                                <label className="flex items-center gap-3 p-2 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors group">
-                                                    <div className={`w-10 h-6 flex items-center bg-gray-300 rounded-full p-1 duration-300 ease-in-out ${includeManager ? 'bg-indigo-500' : ''}`}>
-                                                        <div className={`bg-white w-4 h-4 rounded-full shadow-md transform duration-300 ease-in-out ${includeManager ? 'translate-x-4' : ''}`}></div>
-                                                    </div>
-                                                    <input
-                                                        type="checkbox"
-                                                        className="hidden"
-                                                        checked={includeManager}
-                                                        onChange={(e) => toggleManager(e.target.checked)}
-                                                        disabled={saving}
-                                                    />
-                                                    <div className="flex flex-col">
-                                                        <span className="text-xs font-bold text-gray-700 group-hover:text-gray-900">
-                                                            {includeManager && managerName ? `Notificar a ${managerName}` : 'Notificar al Manager'}
-                                                        </span>
-                                                        <span className="text-[10px] text-gray-500">
-                                                            {includeManager && managerName ? 'El manager recibirá alerta' : 'Se enviará alerta al Store Manager'}
-                                                        </span>
-                                                    </div>
-                                                </label>
-                                            </div>
-                                        )}
-
-                                        {/* Input Field */}
-                                        {status !== 'cerrado' && (
-                                            <div className="flex gap-2 items-end bg-gray-100 p-1.5 rounded-2xl border border-gray-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-300 transition-all">
-                                                <textarea
-                                                    value={newComment}
-                                                    onChange={(e) => setNewComment(e.target.value)}
-                                                    placeholder="Escribe un mensaje..."
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                                            e.preventDefault()
-                                                            handleSendComment()
-                                                        }
-                                                    }}
-                                                    className="w-full px-3 py-2 bg-transparent border-none text-sm resize-none focus:ring-0 text-gray-800 placeholder:text-gray-400"
-                                                    style={{ minHeight: '44px', maxHeight: '120px' }}
-                                                    rows={1}
-                                                />
-                                                <button
-                                                    onClick={handleSendComment}
-                                                    disabled={!newComment.trim() || saving}
-                                                    className="h-9 w-9 mb-1 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                                                >
-                                                    {saving ? <div className="w-4 h-4 border-2 border-white rounded-full animate-spin border-t-transparent"></div> : <Send size={16} />}
+                                        {/* Dropdown for Status Actions */}
+                                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all transform origin-top-right z-50">
+                                            {(canApprove || canSupervisorFinalApprove) && status !== 'cerrado' && (
+                                                <button onClick={() => handleStatusChange('aprobado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors">
+                                                    <CheckCircle size={14} /> Aprobar
                                                 </button>
-                                            </div>
-                                        )}
-
-                                        {/* Action Buttons Grid - DESKTOP ONLY */}
-                                        {(canApprove || canReject || canClose || canSupervisorFinalApprove) && status !== 'cerrado' && (
-                                            <div className="hidden md:grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-100">
-                                                {(canApprove || canSupervisorFinalApprove) && (
-                                                    <button
-                                                        onClick={() => handleStatusChange('aprobado')}
-                                                        disabled={saving}
-                                                        className="col-span-1 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-100 transition disabled:opacity-50 text-xs"
-                                                    >
-                                                        <CheckCircle size={16} /> Aprobar
-                                                    </button>
-                                                )}
-                                                {canReject && (
-                                                    <button
-                                                        onClick={() => handleStatusChange('rechazado')}
-                                                        disabled={saving}
-                                                        className="col-span-1 flex items-center justify-center gap-1.5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl shadow-lg shadow-rose-100 transition disabled:opacity-50 text-xs"
-                                                    >
-                                                        <XCircle size={16} /> Rechazar
-                                                    </button>
-                                                )}
-                                                {canClose && (
-                                                    <button
-                                                        onClick={() => handleStatusChange('cerrado')}
-                                                        disabled={saving}
-                                                        className="col-span-2 flex items-center justify-center gap-1.5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg shadow-purple-100 transition disabled:opacity-50 text-xs"
-                                                    >
-                                                        <Send size={16} /> Cerrar Ticket
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
+                                            )}
+                                            {canReject && status !== 'cerrado' && (
+                                                <button onClick={() => handleStatusChange('rechazado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 rounded-lg transition-colors">
+                                                    <XCircle size={14} /> Rechazar
+                                                </button>
+                                            )}
+                                            {canClose && status !== 'cerrado' && (
+                                                <button onClick={() => handleStatusChange('cerrado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-lg transition-colors">
+                                                    <Send size={14} /> Cerrar Ticket
+                                                </button>
+                                            )}
+                                            <button onClick={handlePrint} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border-t border-gray-100 mt-1">
+                                                <Printer size={14} /> Imprimir
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                        </div>
 
-                            {/* RIGHT PANEL - Scrollable Content */}
-                            <div className="flex-1 flex flex-col min-h-0 bg-white md:h-full relative z-0">
-                                {/* Desktop Close Button */}
-                                <div className="hidden md:flex justify-end p-4 border-b border-gray-100 absolute top-0 right-0 z-20">
-                                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                                        <X size={22} className="text-gray-400" />
-                                    </button>
+                        {/* MAIN CONTENT CONTAINERS (Scrollable) */}
+                        <div className="h-full overflow-y-auto no-scrollbar">
+                            <div className="max-w-3xl mx-auto px-4 pt-36 space-y-8 relative z-10 pb-40">
+
+                                {/* 3. METADATA BUBBLE */}
+                                <div className="bg-white/95 backdrop-blur-sm rounded-3xl p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] text-center relative overflow-hidden group border border-gray-100 ring-1 ring-black/5">
+                                    <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${theme.gradient}`} />
+
+                                    <h2 className="text-xl font-black text-gray-900 mb-5 tracking-tight">Detalles de Visita</h2>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-blue-300">
+                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Sucursal</label>
+                                            <div className="text-base font-black text-gray-950 leading-tight">{checklist.store_name}</div>
+                                        </div>
+
+                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-purple-300">
+                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Turno</label>
+                                            <div className="text-base font-black text-gray-950 leading-tight">{checklist.shift || 'N/A'}</div>
+                                        </div>
+
+                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-pink-300">
+                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Fecha</label>
+                                            <div className="text-base font-black text-gray-950 leading-tight">{formatDateLA(checklist.inspection_date)}</div>
+                                        </div>
+
+                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-indigo-300">
+                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Hora Inicial</label>
+                                            <div className="text-base font-black text-indigo-700 leading-tight">{checklist.start_time || 'N/A'}</div>
+                                        </div>
+
+                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-emerald-300">
+                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Hora Final</label>
+                                            <div className="text-base font-black text-emerald-700 leading-tight">{checklist.end_time || 'N/A'}</div>
+                                        </div>
+
+                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-orange-300">
+                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Duración</label>
+                                            <div className="text-base font-black text-gray-950 leading-tight">{getDuration()}</div>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Tabs */}
-                                <div className="flex gap-2 px-6 py-3 border-b border-gray-100 shrink-0 sticky top-0 bg-white z-10 overflow-x-auto">
-                                    <button
-                                        onClick={() => setActiveTab('answers')}
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition whitespace-nowrap ${activeTab === 'answers'
-                                            ? `bg-gradient-to-r ${theme.gradient} text-white shadow-lg`
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        <FileText size={16} /> <span className="hidden sm:inline">Respuestas</span>
-                                    </button>
-                                    <button
-                                        onClick={() => setActiveTab('photos')}
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition whitespace-nowrap ${activeTab === 'photos'
-                                            ? `bg-gradient-to-r ${theme.gradient} text-white shadow-lg`
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                            }`}
-                                    >
-                                        <Camera size={16} /> <span className="hidden sm:inline">Evidencias</span>
-                                    </button>
-                                </div>
+                                {/* 4. SECTIONS LOOP (TEMPLATE DATA) */}
+                                {templateLoading ? (
+                                    <div className="flex justify-center py-20">
+                                        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                                    </div>
+                                ) : template ? (
+                                    template.sections.map((section: any, sIdx: number) => {
+                                        // 1. Calculate Score for this Section ON THE FLY
+                                        let sSum = 0
+                                        let sCount = 0
 
-                                {/* Content */}
-                                <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">
-                                    {activeTab === 'answers' && (
-                                        <div className="space-y-6">
-                                            {/* 
-                                           LOGIC CHANGE: 
-                                           If orphanedAnswers (Historical) exist, show ONLY them.
-                                           Hide Current Template sections in that case.
-                                           Also remove the "Información Histórica" header.
-                                        */}
-                                            {orphanedAnswers.length > 0 ? (
-                                                // --- HISTORICAL DATA ONLY ---
-                                                <div className="bg-amber-50 rounded-2xl p-4 md:p-5 border border-amber-100">
-                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                        {orphanedAnswers.map((key, oIdx) => {
-                                                            const rawValue = checklist.answers[key]
-                                                            const qPhotos = questionPhotosMap[key] || []
-
-                                                            // LOGIC: Handle Supervisor Nested Objects (Section -> Items)
-                                                            if (rawValue && typeof rawValue === 'object' && rawValue.items) {
-                                                                // It is a section with sub-items
-                                                                const items = rawValue.items
-                                                                const subItems = Object.values(items).map((item: any) => ({
-                                                                    label: item.label || item.text || 'Sin etiqueta',
-                                                                    score: item.score !== undefined ? item.score : item.value
-                                                                }))
-
-                                                                return (
-                                                                    <div key={`orphaned-group-${oIdx}`} className="col-span-1 lg:col-span-2 bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-                                                                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 border-b border-gray-100 pb-2">
-                                                                            {key.replace(/_/g, ' ')}
-                                                                        </h4>
-                                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                                            {subItems.map((sub, sIdx) => (
-                                                                                <div key={`sub-${oIdx}-${sIdx}`} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
-                                                                                    <span className="text-sm text-gray-700 font-medium leading-snug">{sub.label}</span>
-                                                                                    <div className="shrink-0 ml-2">
-                                                                                        {renderAnswerValue({ text: sub.label }, sub.score)}
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                        {qPhotos.length > 0 && (
-                                                                            <div className="mt-4 pt-3 border-t border-gray-100">
-                                                                                <span className="text-xs font-bold text-gray-400 block mb-2">Evidencias de Sección:</span>
-                                                                                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                                                                                    {qPhotos.map((url: string, idx: number) => (
-                                                                                        <div
-                                                                                            key={`orphaned-evidence-${oIdx}-${idx}`}
-                                                                                            onClick={() => openViewer(idx, qPhotos)}
-                                                                                            className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 cursor-pointer hover:opacity-90"
-                                                                                        >
-                                                                                            <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" />
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )
+                                        section.questions.forEach((q: any) => {
+                                            // --- Reusing same value lookup logic as below ---
+                                            let value: any = undefined
+                                            if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) value = checklist.answers[q.id]
+                                            if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) value = checklist.answers[q.text]
+                                            if ((value === undefined || value === null) && checklist.answers) {
+                                                const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+                                                for (const answerKey of Object.keys(checklist.answers)) {
+                                                    if (answerKey === '__question_photos') continue
+                                                    let keyText = answerKey
+                                                    const answerVal = checklist.answers[answerKey]
+                                                    // Handle Supervisor Nested
+                                                    if (type === 'supervisor' && answerVal && typeof answerVal === 'object' && answerVal.items) {
+                                                        for (const subKey of Object.keys(answerVal.items)) {
+                                                            const subItem = answerVal.items[subKey]
+                                                            const subMatchCount = questionWords.filter((word: string) => (subItem.label || subKey).toLowerCase().includes(word)).length
+                                                            if (subMatchCount >= 2) {
+                                                                value = subItem.score !== undefined ? subItem.score : subItem
+                                                                break
                                                             }
+                                                        }
+                                                        if (value !== undefined) break
+                                                        continue
+                                                    }
+                                                    // Handle Flat Keys
+                                                    if (type === 'manager') keyText = getManagerQuestionText(answerKey)
+                                                    else keyText = getAssistantQuestionText(type, answerKey)
+                                                    const keyLower = keyText.toLowerCase().replace(/\(lbs\)/g, '').trim()
+                                                    const matchCount = questionWords.filter((word: string) => keyLower.includes(word) && word.length > 2).length
+                                                    if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                                                        value = checklist.answers[answerKey]
+                                                        break
+                                                    }
+                                                }
+                                            }
+                                            // --- End Lookup --- 
 
-                                                            // Legacy Helper for Supervisor indices (0, 1, 2 keys) if mixed
-                                                            // (Not typically orphaned main keys, but good safety)
+                                            const numVal = getNumericValue(value)
+                                            if (numVal !== null) {
+                                                sSum += numVal
+                                                sCount++
+                                            }
+                                        })
 
-                                                            return (
-                                                                <div key={`orphaned-${oIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-amber-100 hover:shadow-md transition-shadow">
-                                                                    <div className="flex justify-between items-start gap-3">
-                                                                        <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">{key}</span>
-                                                                        <div className="shrink-0">{renderAnswerValue({ text: key }, rawValue)}</div>
+                                        const sectionAvg = sCount > 0 ? Math.round(sSum / sCount) : null
+
+                                        return (
+                                            <div key={`section-${sIdx}`} className="relative bg-white/40 backdrop-blur-sm rounded-[2rem] p-3 md:p-6 border border-white/60 shadow-sm mb-12 ring-1 ring-black/5">
+                                                {/* Section Header */}
+                                                <div className="sticky md:static top-0 z-40 -mx-3 md:-mx-6 px-3 md:px-6 py-4 bg-slate-900 md:bg-white/40 backdrop-blur-xl md:backdrop-blur-sm shadow-lg md:shadow-none mb-6 flex items-center gap-4 rounded-t-[2rem] transition-all border-b border-white/10 md:border-transparent">
+                                                    <span className="shrink-0 bg-white md:bg-gray-900 text-slate-900 md:text-white w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center font-black text-sm md:text-base shadow-lg shadow-black/20 md:shadow-purple-900/20">
+                                                        {sIdx + 1}
+                                                    </span>
+                                                    <h3 className="text-sm md:text-lg font-black text-white md:text-gray-900 uppercase tracking-tight leading-snug">
+                                                        {section.title}
+                                                    </h3>
+                                                    {/* DYNAMIC SCORE (Replaces Database Value) */}
+                                                    {type === 'supervisor' && sectionAvg !== null && (
+                                                        <span className={`ml-auto px-2 py-0.5 rounded text-xs font-bold ${sectionAvg >= 80 ? 'bg-emerald-100 text-emerald-700' :
+                                                            sectionAvg >= 60 ? 'bg-amber-100 text-amber-700' :
+                                                                'bg-red-100 text-red-700'
+                                                            }`}>
+                                                            {sectionAvg}%
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="space-y-4 md:space-y-6">
+                                                    {section.questions.map((q: any, qIdx: number) => {
+                                                        // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
+                                                        let value: any = undefined
+
+                                                        // Strategy 1: Direct ID match (for new dynamic templates)
+                                                        if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) {
+                                                            value = checklist.answers[q.id]
+                                                        }
+
+                                                        // Strategy 2: Direct text match (for legacy templates stored by question text)
+                                                        if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) {
+                                                            value = checklist.answers[q.text]
+                                                        }
+
+                                                        // Strategy 3: Fuzzy match on old descriptive IDs (e.g. "refrig1_papelitos_mayo")
+                                                        if ((value === undefined || value === null) && checklist.answers) {
+                                                            const questionWords = q.text.toLowerCase()
+                                                                .replace(/[^a-z0-9\s]/g, '')
+                                                                .split(/\s+/)
+                                                                .filter((w: string) => w.length > 2)
+
+                                                            for (const answerKey of Object.keys(checklist.answers)) {
+                                                                if (answerKey === '__question_photos') continue
+
+                                                                let keyText = answerKey
+                                                                const answerVal = checklist.answers[answerKey]
+
+                                                                if (type === 'supervisor' && answerVal && typeof answerVal === 'object' && answerVal.items) {
+                                                                    for (const subKey of Object.keys(answerVal.items)) {
+                                                                        const subItem = answerVal.items[subKey]
+                                                                        const subLabel = subItem.label || subKey
+                                                                        const subLabelLower = subLabel.toLowerCase()
+                                                                        const subMatchCount = questionWords.filter((word: string) =>
+                                                                            subLabelLower.includes(word)
+                                                                        ).length
+
+                                                                        if (subMatchCount >= 2) {
+                                                                            value = subItem.score !== undefined ? subItem.score : subItem
+                                                                            break
+                                                                        }
+                                                                    }
+                                                                    if (value !== undefined) break
+                                                                    continue
+                                                                }
+
+                                                                if (type === 'manager') {
+                                                                    keyText = getManagerQuestionText(answerKey)
+                                                                } else {
+                                                                    keyText = getAssistantQuestionText(type, answerKey)
+                                                                }
+
+                                                                const keyLower = keyText.toLowerCase()
+                                                                    .replace(/\(lbs\)/g, '')
+                                                                    .trim()
+
+                                                                const matchCount = questionWords.filter((word: string) =>
+                                                                    keyLower.includes(word) && word.length > 2
+                                                                ).length
+
+                                                                if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
+                                                                    value = checklist.answers[answerKey]
+                                                                    break
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Try to find photos for this question using multiple strategies
+                                                        let qPhotos: string[] = []
+
+                                                        // Explicit fallback for known legacy question "Escurre carnes y rota producto (FIFO)"
+                                                        if (q.text && q.text.toLowerCase().includes('escurre carnes')) {
+                                                            if (questionPhotosMap['1585']) {
+                                                                qPhotos = questionPhotosMap['1585']
+                                                            }
+                                                        }
+
+                                                        // Helper for aggressive text matching
+                                                        const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '').trim()
+                                                        const normalizedTarget = normalize(q.text)
+
+                                                        // Strategy 1: Direct ID match
+                                                        if (questionPhotosMap[q.id]) {
+                                                            qPhotos = questionPhotosMap[q.id]
+                                                        }
+                                                        // Strategy 2: Try question text as key
+                                                        else if (questionPhotosMap[q.text]) {
+                                                            qPhotos = questionPhotosMap[q.text]
+                                                        }
+                                                        // Strategy 2.5: Try __text_photos with lowercase text (NEW for ID drift immunity)
+                                                        else if (answersData['__text_photos'] && answersData['__text_photos'][q.text.toLowerCase().trim()]) {
+                                                            qPhotos = answersData['__text_photos'][q.text.toLowerCase().trim()]
+                                                        }
+                                                        // Strategy 2.6: Hardcoded Legacy ID Map (Keyword-based for robustness)
+                                                        else {
+                                                            const legacyRules = [
+                                                                { keywords: ['escurre', 'carnes', 'fifo'], id: '1585' },
+                                                                { keywords: ['frijoles', 'olla', 'cebollas'], id: '1774' },
+                                                                { keywords: ['controla', 'temperatura', '450'], id: '1584' },
+                                                                { keywords: ['utensilios', 'limpios', 'golpear'], id: '1586' },
+                                                                { keywords: ['vigila', 'cebolla', 'asada'], id: '1587' },
+                                                                { keywords: ['apertura', 'cierre', 'completo'], id: '1566' },
+                                                                { keywords: ['temperatura', 'agua', 'caliente'], id: '1556' }
+                                                            ]
+
+                                                            const qTextLower = q.text.toLowerCase()
+                                                            for (const rule of legacyRules) {
+                                                                if (rule.keywords.every(k => qTextLower.includes(k))) {
+                                                                    if (questionPhotosMap[rule.id]) {
+                                                                        qPhotos = questionPhotosMap[rule.id]
+                                                                        break
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Strategy 3: Try fuzzy match in questionPhotosMap keys directly
+                                                        if (qPhotos.length === 0) {
+                                                            for (const k of Object.keys(questionPhotosMap)) {
+                                                                if (normalize(k) === normalizedTarget && normalizedTarget.length > 5) {
+                                                                    qPhotos = questionPhotosMap[k]
+                                                                    break
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // DEBUG: Log for FIFO question
+                                                        if (q.text.includes('FIFO') || q.text.includes('carnes')) {
+                                                            console.log('🔍 DEBUG - FIFO Question:')
+                                                            console.log('  Question Text:', q.text)
+                                                            console.log('  Question ID:', q.id)
+                                                            console.log('  Normalized:', normalizedTarget)
+                                                            console.log('  Photos found (Strategy 1-3):', qPhotos)
+                                                            console.log('  questionPhotosMap has keys:', Object.keys(questionPhotosMap))
+                                                        }
+
+                                                        // Strategy 4: Cross-reference via ALL saved answer labels (IMPROVED BRIDGE)
+                                                        if (qPhotos.length === 0 && checklist.answers) {
+                                                            // Search for text match in EVERY property of checklist.answers
+                                                            for (const key of Object.keys(checklist.answers)) {
+                                                                const section = checklist.answers[key]
+
+                                                                // Is it a section object with items?
+                                                                if (section && typeof section === 'object' && section.items) {
+                                                                    for (const iKey of Object.keys(section.items)) {
+                                                                        const item = section.items[iKey]
+                                                                        const itemLabel = item?.label || ''
+
+                                                                        if (normalize(itemLabel) === normalizedTarget && normalizedTarget.length > 5) {
+                                                                            // DEBUG for FIFO
+                                                                            if (q.text.includes('FIFO') || q.text.includes('carnes')) {
+                                                                                console.log('🎯 Strategy 4 - MATCH FOUND!')
+                                                                                console.log('  Matched section:', key)
+                                                                                console.log('  Matched item key:', iKey)
+                                                                                console.log('  Item data:', item)
+                                                                                console.log('  Trying keys:', [iKey, iKey.replace('i', ''), item.id, item.question_id])
+                                                                            }
+
+                                                                            // Try many possible photo keys
+                                                                            const numericIndex = iKey.startsWith('i') ? iKey.substring(1) : iKey
+                                                                            const possibleKeys = [
+                                                                                numericIndex,  // Try the numeric index first (e.g., "0" from "i0")
+                                                                                iKey,          // Try the full key (e.g., "i0")
+                                                                                item.id,       // Try stored ID
+                                                                                item.question_id,
+                                                                                item.label,
+                                                                                q.id
+                                                                            ].filter(Boolean)
+
+                                                                            for (const pKey of possibleKeys) {
+                                                                                if (pKey && questionPhotosMap[pKey]) {
+                                                                                    qPhotos = questionPhotosMap[pKey]
+                                                                                    if (q.text.includes('FIFO') || q.text.includes('carnes')) {
+                                                                                        console.log('✅ FOUND PHOTOS with key:', pKey)
+                                                                                    }
+                                                                                    break
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        if (qPhotos.length > 0) break
+                                                                    }
+                                                                }
+                                                                // Is it a direct answer with text mapping? (Strategy 4b)
+                                                                else if (key === '__text_photos' && section) {
+                                                                    for (const tKey of Object.keys(section)) {
+                                                                        if (normalize(tKey) === normalizedTarget) {
+                                                                            qPhotos = section[tKey]
+                                                                            break
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                if (qPhotos.length > 0) break
+                                                            }
+                                                        }
+
+                                                        // Strategy 5: Keyword match for highly specific tags (e.g. FIFO)
+                                                        if (qPhotos.length === 0) {
+                                                            const keywords = ['FIFO', 'NPS', 'TEMP', 'CARNES', 'BAÑOS']
+                                                            for (const kw of keywords) {
+                                                                if (q.text.toUpperCase().includes(kw)) {
+                                                                    for (const pk of Object.keys(questionPhotosMap)) {
+                                                                        if (pk.toUpperCase().includes(kw)) {
+                                                                            qPhotos = questionPhotosMap[pk]
+                                                                            break
+                                                                        }
+                                                                    }
+                                                                }
+                                                                if (qPhotos.length > 0) break
+                                                            }
+                                                        }
+
+                                                        // Strategy 6: Fuzzy match by question text words (Final resort)
+                                                        if (qPhotos.length === 0) {
+                                                            const targetWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 3)
+                                                            for (const photoKey of Object.keys(questionPhotosMap)) {
+                                                                const kLower = photoKey.toLowerCase()
+                                                                const matchCount = targetWords.filter((word: string) => kLower.includes(word)).length
+                                                                if (matchCount >= 2 || (targetWords.length === 1 && matchCount === 1)) {
+                                                                    qPhotos = questionPhotosMap[photoKey]
+                                                                    break
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Strategy 7: Deep recursion search (Search for ANY property that matches normalized text)
+                                                        if (qPhotos.length === 0 && checklist.answers) {
+                                                            const deepSearch = (obj: any): string[] | null => {
+                                                                if (!obj || typeof obj !== 'object') return null
+                                                                // If it's an item with label match
+                                                                if (obj.label && normalize(String(obj.label)) === normalizedTarget) {
+                                                                    if (Array.isArray(obj.photos)) return obj.photos
+                                                                    if (typeof obj.photo === 'string') return [obj.photo]
+                                                                    // Check if the parent/map has photos for this label
+                                                                    if (questionPhotosMap[obj.label]) return questionPhotosMap[obj.label]
+                                                                }
+                                                                // Recursively search children
+                                                                for (const k of Object.keys(obj)) {
+                                                                    const r = deepSearch(obj[k])
+                                                                    if (r) return r
+                                                                }
+                                                                return null
+                                                            }
+                                                            const res = deepSearch(checklist.answers)
+                                                            if (res) qPhotos = res
+                                                        }
+
+                                                        return (
+                                                            <div key={`q-${sIdx}-${qIdx}`} className="relative rounded-3xl p-5 transition-all duration-300 bg-white shadow-sm border border-gray-100 opacity-90 hover:opacity-100">
+                                                                <div className="flex flex-col gap-4">
+
+                                                                    {/* Header: Number and Text */}
+                                                                    <div className="flex gap-4 items-start">
+                                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0 transition-colors mt-1 ${value !== undefined ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                                                                            }`}>
+                                                                            {qIdx + 1}
+                                                                        </div>
+
+                                                                        <div className="flex-1">
+                                                                            <h4 className="font-bold text-base leading-snug text-gray-600">
+                                                                                {q.text}
+                                                                                {isNew(q.created_at) && (
+                                                                                    <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] uppercase font-black rounded-full border border-blue-200 align-middle">
+                                                                                        <Sparkles size={8} /> NEW <span className="text-blue-500 font-medium normal-case tracking-normal ml-0.5">({new Date(q.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                                                                    </span>
+                                                                                )}
+                                                                            </h4>
+                                                                            {/* Render Answer HERE for better mobile flow */}
+                                                                            <div className="mt-4">
+                                                                                {renderAnswerValue(q, value, section.title)}
+                                                                            </div>
+                                                                        </div>
                                                                     </div>
+
+
                                                                     {qPhotos.length > 0 && (
-                                                                        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                                                                        <div className="flex justify-center gap-3 overflow-x-auto pb-2 pt-1 border-t border-gray-50 mt-1">
                                                                             {qPhotos.map((url: string, idx: number) => (
                                                                                 <div
-                                                                                    key={`orphaned-evidence-${oIdx}-${idx}`}
+                                                                                    key={`q-evidence-${sIdx}-${qIdx}-${idx}`}
                                                                                     onClick={() => openViewer(idx, qPhotos)}
-                                                                                    className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 cursor-pointer hover:opacity-90"
+                                                                                    className="relative group/delete flex-shrink-0 cursor-pointer hover:scale-105 transition-transform"
                                                                                 >
-                                                                                    <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" />
+                                                                                    <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200" referrerPolicy="no-referrer" />
                                                                                 </div>
                                                                             ))}
                                                                         </div>
                                                                     )}
                                                                 </div>
-                                                            )
-                                                        })}
-                                                    </div>
+                                                            </div>
+                                                        )
+                                                    })}
                                                 </div>
-                                            ) : (
-                                                // --- CURRENT TEMPLATE DATA ---
-                                                templateLoading ? (
-                                                    <div className="flex justify-center py-20">
-                                                        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                                                    </div>
-                                                ) : template ? (
-                                                    template.sections.map((section: any, sIdx: number) => (
-                                                        <div key={`section-${sIdx}`} className="bg-gray-50 rounded-2xl p-4 md:p-5 border border-gray-100">
-                                                            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-200">
-                                                                <h3 className="text-xs md:text-sm font-bold text-gray-500 uppercase tracking-wider">
-                                                                    {section.title}
-                                                                </h3>
-                                                                {type === 'supervisor' && checklist[SECTION_SCORES_MAP[section.title]] !== undefined && (
-                                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${Number(checklist[SECTION_SCORES_MAP[section.title]]) >= 80 ? 'bg-emerald-100 text-emerald-700' :
-                                                                        Number(checklist[SECTION_SCORES_MAP[section.title]]) >= 60 ? 'bg-amber-100 text-amber-700' :
-                                                                            'bg-red-100 text-red-700'
-                                                                        }`}>
-                                                                        {checklist[SECTION_SCORES_MAP[section.title]]}%
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                                                {section.questions.map((q: any, qIdx: number) => {
-                                                                    // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
-                                                                    let value: any = undefined
+                                            </div>
+                                        )
+                                    })
+                                ) : null}
 
-                                                                    // Strategy 1: Direct ID match (for new dynamic templates)
-                                                                    if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) {
-                                                                        value = checklist.answers[q.id]
-                                                                    }
 
-                                                                    // Strategy 2: Direct text match (for legacy templates stored by question text)
-                                                                    if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) {
-                                                                        value = checklist.answers[q.text]
-                                                                    }
 
-                                                                    // Strategy 3: Fuzzy match on old descriptive IDs (e.g. "refrig1_papelitos_mayo")
-                                                                    if ((value === undefined || value === null) && checklist.answers) {
-                                                                        const questionWords = q.text.toLowerCase()
-                                                                            .replace(/[^a-z0-9\s]/g, '')
-                                                                            .split(/\s+/)
-                                                                            .filter((w: string) => w.length > 2)
 
-                                                                        for (const answerKey of Object.keys(checklist.answers)) {
-                                                                            if (answerKey === '__question_photos') continue
+                                {/* 6. OBSERVATIONS */}
+                                {(checklist.comments || checklist.observaciones) && (
+                                    <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 text-center shadow-sm">
+                                        <h3 className="font-bold text-yellow-700 uppercase tracking-widest text-sm mb-4">Notas Finales</h3>
+                                        <p className="text-lg font-medium text-gray-800 italic">
+                                            "{checklist.comments || checklist.observaciones}"
+                                        </p>
+                                    </div>
+                                )}
 
-                                                                            let keyText = answerKey
-                                                                            const answerVal = checklist.answers[answerKey]
-
-                                                                            if (type === 'supervisor' && answerVal && typeof answerVal === 'object' && answerVal.items) {
-                                                                                for (const subKey of Object.keys(answerVal.items)) {
-                                                                                    const subItem = answerVal.items[subKey]
-                                                                                    const subLabel = subItem.label || subKey
-                                                                                    const subLabelLower = subLabel.toLowerCase()
-                                                                                    const subMatchCount = questionWords.filter((word: string) =>
-                                                                                        subLabelLower.includes(word)
-                                                                                    ).length
-
-                                                                                    if (subMatchCount >= 2) {
-                                                                                        value = subItem.score !== undefined ? subItem.score : subItem
-                                                                                        break
-                                                                                    }
-                                                                                }
-                                                                                if (value !== undefined) break
-                                                                                continue
-                                                                            }
-
-                                                                            if (type === 'manager') {
-                                                                                keyText = getManagerQuestionText(answerKey)
-                                                                            } else {
-                                                                                keyText = getAssistantQuestionText(type, answerKey)
-                                                                            }
-
-                                                                            const keyLower = keyText.toLowerCase()
-                                                                                .replace(/\(lbs\)/g, '')
-                                                                                .trim()
-
-                                                                            const matchCount = questionWords.filter((word: string) =>
-                                                                                keyLower.includes(word) && word.length > 2
-                                                                            ).length
-
-                                                                            if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
-                                                                                value = checklist.answers[answerKey]
-                                                                                break
-                                                                            }
-                                                                        }
-                                                                    }
-
-                                                                    // Try to find photos for this question using multiple strategies
-                                                                    let qPhotos: string[] = []
-
-                                                                    // Explicit fallback for known legacy question "Escurre carnes y rota producto (FIFO)"
-                                                                    if (q.text && q.text.toLowerCase().includes('escurre carnes')) {
-                                                                        if (questionPhotosMap['1585']) {
-                                                                            qPhotos = questionPhotosMap['1585']
-                                                                        }
-                                                                    }
-
-                                                                    // Helper for aggressive text matching
-                                                                    const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '').trim()
-                                                                    const normalizedTarget = normalize(q.text)
-
-                                                                    // Strategy 1: Direct ID match
-                                                                    if (questionPhotosMap[q.id]) {
-                                                                        qPhotos = questionPhotosMap[q.id]
-                                                                    }
-                                                                    // Strategy 2: Try question text as key
-                                                                    else if (questionPhotosMap[q.text]) {
-                                                                        qPhotos = questionPhotosMap[q.text]
-                                                                    }
-                                                                    // Strategy 2.5: Try __text_photos with lowercase text (NEW for ID drift immunity)
-                                                                    else if (answersData['__text_photos'] && answersData['__text_photos'][q.text.toLowerCase().trim()]) {
-                                                                        qPhotos = answersData['__text_photos'][q.text.toLowerCase().trim()]
-                                                                    }
-                                                                    // Strategy 2.6: Hardcoded Legacy ID Map (Keyword-based for robustness)
-                                                                    else {
-                                                                        const legacyRules = [
-                                                                            { keywords: ['escurre', 'carnes', 'fifo'], id: '1585' },
-                                                                            { keywords: ['frijoles', 'olla', 'cebollas'], id: '1774' },
-                                                                            { keywords: ['controla', 'temperatura', '450'], id: '1584' },
-                                                                            { keywords: ['utensilios', 'limpios', 'golpear'], id: '1586' },
-                                                                            { keywords: ['vigila', 'cebolla', 'asada'], id: '1587' },
-                                                                            { keywords: ['apertura', 'cierre', 'completo'], id: '1566' },
-                                                                            { keywords: ['temperatura', 'agua', 'caliente'], id: '1556' }
-                                                                        ]
-
-                                                                        const qTextLower = q.text.toLowerCase()
-                                                                        for (const rule of legacyRules) {
-                                                                            if (rule.keywords.every(k => qTextLower.includes(k))) {
-                                                                                if (questionPhotosMap[rule.id]) {
-                                                                                    qPhotos = questionPhotosMap[rule.id]
-                                                                                    break
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-
-                                                                    // Strategy 3: Try fuzzy match in questionPhotosMap keys directly
-                                                                    if (qPhotos.length === 0) {
-                                                                        for (const k of Object.keys(questionPhotosMap)) {
-                                                                            if (normalize(k) === normalizedTarget && normalizedTarget.length > 5) {
-                                                                                qPhotos = questionPhotosMap[k]
-                                                                                break
-                                                                            }
-                                                                        }
-                                                                    }
-
-                                                                    // DEBUG: Log for FIFO question
-                                                                    if (q.text.includes('FIFO') || q.text.includes('carnes')) {
-                                                                        console.log('🔍 DEBUG - FIFO Question:')
-                                                                        console.log('  Question Text:', q.text)
-                                                                        console.log('  Question ID:', q.id)
-                                                                        console.log('  Normalized:', normalizedTarget)
-                                                                        console.log('  Photos found (Strategy 1-3):', qPhotos)
-                                                                        console.log('  questionPhotosMap has keys:', Object.keys(questionPhotosMap))
-                                                                    }
-
-                                                                    // Strategy 4: Cross-reference via ALL saved answer labels (IMPROVED BRIDGE)
-                                                                    if (qPhotos.length === 0 && checklist.answers) {
-                                                                        // Search for text match in EVERY property of checklist.answers
-                                                                        for (const key of Object.keys(checklist.answers)) {
-                                                                            const section = checklist.answers[key]
-
-                                                                            // Is it a section object with items?
-                                                                            if (section && typeof section === 'object' && section.items) {
-                                                                                for (const iKey of Object.keys(section.items)) {
-                                                                                    const item = section.items[iKey]
-                                                                                    const itemLabel = item?.label || ''
-
-                                                                                    if (normalize(itemLabel) === normalizedTarget && normalizedTarget.length > 5) {
-                                                                                        // DEBUG for FIFO
-                                                                                        if (q.text.includes('FIFO') || q.text.includes('carnes')) {
-                                                                                            console.log('🎯 Strategy 4 - MATCH FOUND!')
-                                                                                            console.log('  Matched section:', key)
-                                                                                            console.log('  Matched item key:', iKey)
-                                                                                            console.log('  Item data:', item)
-                                                                                            console.log('  Trying keys:', [iKey, iKey.replace('i', ''), item.id, item.question_id])
-                                                                                        }
-
-                                                                                        // Try many possible photo keys
-                                                                                        const numericIndex = iKey.startsWith('i') ? iKey.substring(1) : iKey
-                                                                                        const possibleKeys = [
-                                                                                            numericIndex,  // Try the numeric index first (e.g., "0" from "i0")
-                                                                                            iKey,          // Try the full key (e.g., "i0")
-                                                                                            item.id,       // Try stored ID
-                                                                                            item.question_id,
-                                                                                            item.label,
-                                                                                            q.id
-                                                                                        ].filter(Boolean)
-
-                                                                                        for (const pKey of possibleKeys) {
-                                                                                            if (pKey && questionPhotosMap[pKey]) {
-                                                                                                qPhotos = questionPhotosMap[pKey]
-                                                                                                if (q.text.includes('FIFO') || q.text.includes('carnes')) {
-                                                                                                    console.log('✅ FOUND PHOTOS with key:', pKey)
-                                                                                                }
-                                                                                                break
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                    if (qPhotos.length > 0) break
-                                                                                }
-                                                                            }
-                                                                            // Is it a direct answer with text mapping? (Strategy 4b)
-                                                                            else if (key === '__text_photos' && section) {
-                                                                                for (const tKey of Object.keys(section)) {
-                                                                                    if (normalize(tKey) === normalizedTarget) {
-                                                                                        qPhotos = section[tKey]
-                                                                                        break
-                                                                                    }
-                                                                                }
-                                                                            }
-
-                                                                            if (qPhotos.length > 0) break
-                                                                        }
-                                                                    }
-
-                                                                    // Strategy 5: Keyword match for highly specific tags (e.g. FIFO)
-                                                                    if (qPhotos.length === 0) {
-                                                                        const keywords = ['FIFO', 'NPS', 'TEMP', 'CARNES', 'BAÑOS']
-                                                                        for (const kw of keywords) {
-                                                                            if (q.text.toUpperCase().includes(kw)) {
-                                                                                for (const pk of Object.keys(questionPhotosMap)) {
-                                                                                    if (pk.toUpperCase().includes(kw)) {
-                                                                                        qPhotos = questionPhotosMap[pk]
-                                                                                        break
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            if (qPhotos.length > 0) break
-                                                                        }
-                                                                    }
-
-                                                                    // Strategy 6: Fuzzy match by question text words (Final resort)
-                                                                    if (qPhotos.length === 0) {
-                                                                        const targetWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 3)
-                                                                        for (const photoKey of Object.keys(questionPhotosMap)) {
-                                                                            const kLower = photoKey.toLowerCase()
-                                                                            const matchCount = targetWords.filter((word: string) => kLower.includes(word)).length
-                                                                            if (matchCount >= 2 || (targetWords.length === 1 && matchCount === 1)) {
-                                                                                qPhotos = questionPhotosMap[photoKey]
-                                                                                break
-                                                                            }
-                                                                        }
-                                                                    }
-
-                                                                    // Strategy 7: Deep recursion search (Search for ANY property that matches normalized text)
-                                                                    if (qPhotos.length === 0 && checklist.answers) {
-                                                                        const deepSearch = (obj: any): string[] | null => {
-                                                                            if (!obj || typeof obj !== 'object') return null
-                                                                            // If it's an item with label match
-                                                                            if (obj.label && normalize(String(obj.label)) === normalizedTarget) {
-                                                                                if (Array.isArray(obj.photos)) return obj.photos
-                                                                                if (typeof obj.photo === 'string') return [obj.photo]
-                                                                                // Check if the parent/map has photos for this label
-                                                                                if (questionPhotosMap[obj.label]) return questionPhotosMap[obj.label]
-                                                                            }
-                                                                            // Recursively search children
-                                                                            for (const k of Object.keys(obj)) {
-                                                                                const r = deepSearch(obj[k])
-                                                                                if (r) return r
-                                                                            }
-                                                                            return null
-                                                                        }
-                                                                        const res = deepSearch(checklist.answers)
-                                                                        if (res) qPhotos = res
-                                                                    }
-
-                                                                    return (
-                                                                        <div key={`q-${sIdx}-${qIdx}`} className="bg-white p-3 md:p-4 rounded-xl border border-gray-100 hover:shadow-md transition-shadow">
-                                                                            <div className="flex justify-between items-start gap-3">
-                                                                                <span className="text-xs md:text-sm text-gray-700 leading-snug flex-1 font-medium">
-                                                                                    {q.text}
-                                                                                    {isNew(q.created_at) && (
-                                                                                        <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] uppercase font-black rounded-full border border-blue-200 align-middle">
-                                                                                            <Sparkles size={8} /> NEW <span className="text-blue-500 font-medium normal-case tracking-normal ml-0.5">({new Date(q.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
-                                                                                        </span>
-                                                                                    )}
-                                                                                </span>
-                                                                                <div className="shrink-0">{renderAnswerValue(q, value, section.title)}</div>
-                                                                            </div>
-                                                                            {qPhotos.length > 0 && (
-                                                                                <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                                                                                    {qPhotos.map((url: string, idx: number) => (
-                                                                                        <div
-                                                                                            key={`q-evidence-${sIdx}-${qIdx}-${idx}`}
-                                                                                            onClick={() => openViewer(idx, qPhotos)}
-                                                                                            className="flex-none w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden border border-gray-200 hover:scale-105 transition-transform cursor-pointer"
-                                                                                        >
-                                                                                            <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )
-                                                                })}
-                                                            </div>
-
-                                                            {/* LEGACY SUPPORT: Show all photos at end of section if no question-specific photos exist */}
-                                                            {checklist.photos && checklist.photos.length > 0 && (
-                                                                <div className="mt-6 bg-blue-50 rounded-xl p-4 border border-blue-100">
-                                                                    <div className="flex items-center gap-2 mb-3">
-                                                                        <Camera size={16} className="text-blue-600" />
-                                                                        <h4 className="text-xs font-bold text-blue-700 uppercase tracking-wider">
-                                                                            Evidencias de la Inspección
-                                                                        </h4>
-                                                                        <span className="text-xs text-blue-500 ml-auto">
-                                                                            ({checklist.photos.length} fotos)
-                                                                        </span>
-                                                                    </div>
-                                                                    <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
-                                                                        {checklist.photos.map((url: string, idx: number) => (
-                                                                            <div
-                                                                                key={`legacy-photo-${sIdx}-${idx}`}
-                                                                                onClick={() => openViewer(idx, checklist.photos)}
-                                                                                className="aspect-square rounded-lg overflow-hidden border border-blue-200 hover:scale-105 transition-transform cursor-pointer"
-                                                                            >
-                                                                                <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ))
-                                                ) : null
-                                            )}
-
-                                            {/* GLOBAL SAFETY GALLERY: Ensures photos are visible even if inline mapping fails (Critical for legacy inspections) */}
-                                            {(() => {
-                                                const allMapPhotos = Object.values(questionPhotosMap).flat() as string[]
-                                                const globalPhotos = checklist.photos || []
-                                                // Deduplicate photos
-                                                const allPhotos = Array.from(new Set([...globalPhotos, ...allMapPhotos]))
-
-                                                if (allPhotos.length > 0) {
-                                                    return (
-                                                        <div className="bg-white rounded-2xl p-5 border border-gray-200 mb-6 shadow-sm">
-                                                            <div className="flex items-center gap-2 mb-4 border-b border-gray-100 pb-2">
-                                                                <Camera size={18} className="text-indigo-600" />
-                                                                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">
-                                                                    Galería Completa de Evidencias
-                                                                </h3>
-                                                                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
-                                                                    {allPhotos.length}
-                                                                </span>
-                                                            </div>
-                                                            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-3">
-                                                                {allPhotos.map((url, idx) => (
-                                                                    <div
-                                                                        key={`global-evidence-${idx}`}
-                                                                        onClick={() => openViewer(idx, allPhotos)}
-                                                                        className="aspect-square rounded-xl overflow-hidden border border-gray-200 hover:scale-105 hover:shadow-md transition-all cursor-pointer relative group"
-                                                                    >
-                                                                        <img
-                                                                            src={getEmbeddableImageUrl(url)}
-                                                                            alt={`Evidencia ${idx + 1}`}
-                                                                            className="w-full h-full object-cover"
-                                                                            referrerPolicy="no-referrer"
-                                                                        />
-                                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                }
-                                                return null
-                                            })()}
-
-                                            {/* Comments Section */}
-                                            {(checklist.comments || checklist.observaciones) && (
-                                                <div className="bg-blue-50 rounded-2xl p-5 border border-blue-100">
-                                                    <h3 className="text-sm font-bold text-blue-700 uppercase tracking-wider mb-2 flex items-center gap-2">
-                                                        <MessageSquare size={16} /> Observaciones
-                                                    </h3>
-                                                    <p className="text-blue-800 text-sm italic">"{checklist.comments || checklist.observaciones}"</p>
-                                                </div>
-                                            )}
+                                {/* 7. CLOSED STATUS NOTICE */}
+                                {status === 'cerrado' && (
+                                    <motion.div
+                                        initial={{ opacity: 0, scale: 0.95 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        className="bg-slate-900 border-2 border-slate-700 rounded-[2.5rem] p-8 text-center shadow-2xl relative overflow-hidden"
+                                    >
+                                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-slate-700 via-slate-500 to-slate-700" />
+                                        <div className="flex flex-col items-center gap-4">
+                                            <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center text-slate-400 border border-slate-700">
+                                                <ClipboardCheck size={32} />
+                                            </div>
+                                            <div>
+                                                <h3 className="text-xl font-black text-white tracking-tight uppercase">Checklist Cerrado</h3>
+                                                <p className="text-slate-400 text-sm font-medium mt-1">
+                                                    Esta inspección ha sido finalizada y se encuentra en modo de solo lectura.
+                                                </p>
+                                            </div>
                                         </div>
-                                    )}
+                                    </motion.div>
+                                )}
 
-                                    {activeTab === 'photos' && (
-                                        <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
-                                            {(!checklist.photos || checklist.photos.length === 0) && Object.keys(questionPhotosMap).length === 0 ? (
-                                                <div className="text-center py-16">
-                                                    <Camera size={48} className="mx-auto text-gray-300 mb-4" />
-                                                    <p className="text-gray-400 font-medium">No hay evidencias fotográficas</p>
-                                                </div>
-                                            ) : (
-                                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                                    {(() => {
-                                                        // Combine both photo sources and remove duplicates
-                                                        const allPhotos = [...(checklist.photos || []), ...Object.values(questionPhotosMap).flat()];
-                                                        const uniquePhotos = Array.from(new Set(allPhotos));
-                                                        return uniquePhotos.map((url: string, i: number) => (
-                                                            <div
-                                                                key={`gallery-${i}`}
-                                                                onClick={() => openViewer(i, uniquePhotos)}
-                                                                className="aspect-square rounded-xl overflow-hidden border border-gray-200 hover:scale-105 hover:shadow-lg transition-all cursor-pointer group relative"
-                                                            >
-                                                                <img src={getEmbeddableImageUrl(url)} className="w-full h-full object-cover" alt="Evidence" referrerPolicy="no-referrer" />
-                                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                                                            </div>
-                                                        ));
-                                                    })()}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
+                                {/* Global Gallery Removed */}
+
                             </div>
+                        </div>
+
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* FLOATING CHAT BUBBLE */}
+            <AnimatePresence>
+                {chatOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                        className="fixed bottom-20 right-4 z-[10000] w-[350px] max-w-[90vw] h-[500px] max-h-[60vh] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden"
+                    >
+                        {/* Chat Header */}
+                        <div className="bg-indigo-600 text-white p-3 flex justify-between items-center shadow-md">
+                            <div className="flex items-center gap-2">
+                                <MessageSquare size={18} />
+                                <span className="font-bold text-sm">Chat de Revisión</span>
+                            </div>
+                            <button onClick={() => setChatOpen(false)} className="p-1 hover:bg-white/20 rounded-full transition">
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Messages */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 relative" ref={chatContainerRef}>
+                            {loadingComments && comments.length === 0 ? (
+                                <div className="flex justify-center p-8"><div className="w-5 h-5 border-2 border-indigo-500 rounded-full animate-spin border-t-transparent"></div></div>
+                            ) : (
+                                comments.map((comment: any, idx: number) => {
+                                    const isMe = String(comment.user_id) === String(currentUser.id)
+                                    return (
+                                        <div key={`chat-${idx}`} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-1`}>
+                                            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs shadow-sm ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
+                                                {comment.content}
+                                            </div>
+                                            <span className="text-[9px] text-gray-400 mt-1 px-1">{isMe ? 'Tú' : comment.user_name} • {formatDateLA(comment.created_at).split(',')[1]}</span>
+                                        </div>
+                                    )
+                                })
+                            )}
+                        </div>
+
+                        {/* Manager Toggle */}
+                        {status !== 'cerrado' && (type === 'supervisor' && role !== 'manager') && (
+                            <div className="px-3 py-2 bg-gray-50 border-t border-gray-100">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <div className={`w-8 h-4 flex items-center bg-gray-300 rounded-full p-0.5 duration-300 ${includeManager ? 'bg-indigo-500' : ''}`}>
+                                        <div className={`bg-white w-3 h-3 rounded-full shadow-md transform duration-300 ${includeManager ? 'translate-x-4' : ''}`}></div>
+                                    </div>
+                                    <input type="checkbox" className="hidden" checked={includeManager} onChange={(e) => toggleManager(e.target.checked)} />
+                                    <span className="text-[10px] font-bold text-gray-600">{includeManager && managerName ? `Avisar a ${managerName}` : 'Notificar al Manager'}</span>
+                                </label>
+                            </div>
+                        )}
+
+                        {/* Input */}
+                        <div className="p-2 bg-white border-t border-gray-200 flex gap-2">
+                            <input
+                                value={newComment}
+                                onChange={(e) => setNewComment(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendComment()}
+                                placeholder={status === 'cerrado' ? "El chat está cerrado" : "Escribe un mensaje..."}
+                                disabled={status === 'cerrado'}
+                                className="flex-1 px-3 py-2 bg-gray-100 rounded-xl text-xs border-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                            />
+                            <button
+                                onClick={handleSendComment}
+                                disabled={!newComment.trim() || saving || status === 'cerrado'}
+                                className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition shadow disabled:opacity-50"
+                            >
+                                <Send size={16} />
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* CHAT TOOLTIP ANIMATION (Spectacular!) */}
+            <AnimatePresence>
+                {isOpen && !chatOpen && !viewerOpen && (
+                    <motion.div
+                        key="chat-tooltip"
+                        initial={{ opacity: 0, y: 50, scale: 0.3, rotate: 15, filter: 'blur(10px)' }}
+                        animate={{
+                            opacity: 1,
+                            y: 0,
+                            scale: 1,
+                            rotate: 0,
+                            filter: 'blur(0px)',
+                            transition: {
+                                delay: 1.2,
+                                type: "spring",
+                                bounce: 0.6,
+                                duration: 1
+                            }
+                        }}
+                        exit={{ opacity: 0, scale: 0.5, y: 20, transition: { duration: 0.2 } }}
+                        className="fixed bottom-[152px] right-6 z-[10002] flex flex-col items-end pointer-events-none"
+                    >
+                        <motion.div
+                            animate={{
+                                y: [0, -6, 0],
+                                scale: [1, 1.02, 1],
+                            }}
+                            transition={{
+                                duration: 3,
+                                repeat: Infinity,
+                                ease: "easeInOut"
+                            }}
+                            className="bg-white/95 backdrop-blur-xl px-5 py-3 rounded-[1.25rem] shadow-[0_20px_50px_rgba(79,70,229,0.3)] border border-indigo-100 relative max-w-[240px] text-center ring-1 ring-black/5 overflow-hidden group"
+                        >
+                            {/* Animated Background Glow */}
+                            <motion.div
+                                animate={{
+                                    opacity: [0.3, 0.6, 0.3],
+                                    scale: [1, 1.2, 1]
+                                }}
+                                transition={{ duration: 4, repeat: Infinity }}
+                                className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 via-transparent to-purple-50/50 pointer-events-none"
+                            />
+
+                            <p className="text-[13px] font-black leading-tight relative z-10 bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                                Puedes dejar comentarios al Supervisor y/o Manager
+                            </p>
+
+                            {/* Speech bubble arrow */}
+                            <div className="absolute -bottom-1.5 right-6 w-3 h-3 bg-white border-b border-r border-indigo-100 transform rotate-45 shadow-sm" />
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* LIGHTBOX FOR IMAGES */}
+            {/* STATUS ACTION BAR (CENTERED) */}
+            <AnimatePresence>
+                {isOpen && status !== 'cerrado' && (role === 'supervisor' || role === 'admin') && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 100 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 100 }}
+                        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1 p-2 bg-white/80 backdrop-blur-xl rounded-full border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.2)] ml-1 mr-1"
+                    >
+                        <button
+                            onClick={() => handleStatusChange('pendiente')}
+                            disabled={saving}
+                            onMouseEnter={() => setHoveredBtn('pendiente')}
+                            onMouseLeave={() => setHoveredBtn(null)}
+                            className="relative w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center hover:bg-amber-100 hover:scale-110 active:scale-95 transition-all disabled:opacity-50 border border-amber-200/50 group"
+                        >
+                            <Clock size={20} />
+                            <AnimatePresence>
+                                {hoveredBtn === 'pendiente' && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -5 }}
+                                        animate={{ opacity: 1, y: -40 }}
+                                        exit={{ opacity: 0, y: -5 }}
+                                        className="absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
+                                    >
+                                        Marcar Pendiente
+                                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 transform rotate-45" />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </button>
+
+                        <button
+                            onClick={() => handleStatusChange('rechazado')}
+                            disabled={saving}
+                            onMouseEnter={() => setHoveredBtn('rechazado')}
+                            onMouseLeave={() => setHoveredBtn(null)}
+                            className="relative w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 hover:scale-110 active:scale-95 transition-all disabled:opacity-50 border border-rose-200/50 group"
+                        >
+                            <XCircle size={20} />
+                            <AnimatePresence>
+                                {hoveredBtn === 'rechazado' && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -5 }}
+                                        animate={{ opacity: 1, y: -40 }}
+                                        exit={{ opacity: 0, y: -5 }}
+                                        className="absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
+                                    >
+                                        Rechazar / Corregir
+                                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 transform rotate-45" />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </button>
+
+                        <button
+                            onClick={() => handleStatusChange('cerrado')}
+                            disabled={saving}
+                            onMouseEnter={() => setHoveredBtn('cerrado')}
+                            onMouseLeave={() => setHoveredBtn(null)}
+                            className="relative w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-100 hover:scale-110 active:scale-95 transition-all disabled:opacity-50 border border-indigo-200/50 group"
+                        >
+                            <CheckCircle size={20} />
+                            <AnimatePresence>
+                                {hoveredBtn === 'cerrado' && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -5 }}
+                                        animate={{ opacity: 1, y: -40 }}
+                                        exit={{ opacity: 0, y: -5 }}
+                                        className="absolute z-[10001] bg-indigo-600 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
+                                    >
+                                        Aprobar y Cerrar
+                                        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 transform rotate-45" />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* SEPARATE GALLERY FAB (CENTER-LEFT) */}
+            <AnimatePresence>
+                {isOpen && !viewerOpen && allInspectionPhotos.length > 0 && (
+                    <motion.button
+                        initial={{ scale: 0, x: -20 }}
+                        animate={{ scale: 1, x: 0 }}
+                        exit={{ scale: 0, x: -20 }}
+                        onClick={() => openViewer(0, allInspectionPhotos)}
+                        className="fixed bottom-24 left-6 z-[9999] w-12 h-12 rounded-full bg-white text-indigo-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-indigo-100 shadow-xl group"
+                        title="Mostrar Galeria completa de fotos"
+                    >
+                        <ImageIcon size={24} />
+                        <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm group-hover:bg-indigo-700 transition-colors">
+                            {allInspectionPhotos.length}
+                        </span>
+                    </motion.button>
+                )}
+            </AnimatePresence>
+
+            {/* SEPARATE CHAT FAB (RIGHT) */}
+            <AnimatePresence>
+                {isOpen && !viewerOpen && (
+                    <motion.button
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        exit={{ scale: 0 }}
+                        onClick={() => setChatOpen(!chatOpen)}
+                        className={`fixed bottom-6 right-6 z-[9999] w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-white/20 shadow-2xl ${chatOpen ? 'bg-white text-indigo-600' : 'bg-indigo-600 text-white'}`}
+                    >
+                        {comments.length > 0 && !chatOpen && <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-white"></span>}
+                        {chatOpen ? <X size={24} /> : <MessageSquare size={24} />}
+                    </motion.button>
+                )}
+            </AnimatePresence >
+
             <AnimatePresence>
                 {viewerOpen && (
                     <motion.div
-                        key="lightbox-modal"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[10000] bg-black/95 backdrop-blur-md flex items-center justify-center"
+                        className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center backdrop-blur-sm"
                         onClick={() => setViewerOpen(false)}
                     >
                         {/* Close Button */}
@@ -1648,85 +1672,6 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     }
                 }
             `}</style>
-            {/* DEBUG SECTION */}
-            <div className="mt-8 p-4 bg-gray-100 rounded-xl border border-gray-300 text-xs font-mono">
-                <details>
-                    <summary className="cursor-pointer font-bold text-gray-700">🔧 Debug Score Calculation (Click to Expand)</summary>
-                    <div className="mt-2 space-y-2">
-                        <div className="grid grid-cols-2 gap-2 border-b pb-2">
-                            <div>Template Code: {templateCode}</div>
-                            <div>Score Type: {type}</div>
-                        </div>
-                        {template && template.sections.map((section: any, sIdx: number) => {
-                            let sSum = 0
-                            let sCount = 0
-                            const logs: any[] = []
-
-                            section.questions.forEach((q: any) => {
-                                const normalize = (t: string) => t ? t.toLowerCase().replace(/[^a-z0-9]/g, '').trim() : ''
-                                let value: any = undefined
-                                let source = 'NOT FOUND'
-
-                                // Logic Trace
-                                const answersObj = typeof checklist.answers === 'string' ? JSON.parse(checklist.answers) : (checklist.answers || {})
-
-                                if (answersObj[q.id] !== undefined) { value = answersObj[q.id]; source = 'ID' }
-                                else if (answersObj[q.text] !== undefined) { value = answersObj[q.text]; source = 'TEXT' }
-                                else {
-                                    if (answersObj[section.title]?.items) {
-                                        const items = answersObj[section.title].items
-                                        Object.values(items).forEach((item: any) => {
-                                            if (normalize(item.label) === normalize(q.text)) {
-                                                value = item.score !== undefined ? item.score : item
-                                                source = 'DEEP'
-                                            }
-                                        })
-                                    }
-                                    if (value === undefined) {
-                                        const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
-                                        for (const key of Object.keys(answersObj)) {
-                                            if (key === '__question_photos' || typeof answersObj[key] === 'object') continue
-                                            const keyLower = key.toLowerCase()
-                                            const matchCount = questionWords.filter((w: string) => keyLower.includes(w)).length
-                                            if (matchCount >= 2 || (questionWords.length === 1 && matchCount === 1)) {
-                                                value = answersObj[key]
-                                                source = `FUZZY`
-                                                break
-                                            }
-                                        }
-                                    }
-                                }
-
-                                const strVal = String(value)
-                                const isNA = strVal.toUpperCase() === 'NA' || strVal.toUpperCase() === 'N/A'
-                                const numVal = Number(value)
-                                const isValid = !isNaN(numVal) && value !== null && value !== '' && value !== undefined
-
-                                if (isNA) {
-                                    logs.push(<div key={q.id} className="text-gray-400">🚫 [NA] {q.text} (Ignored)</div>)
-                                } else if (isValid) {
-                                    sSum += numVal
-                                    sCount++
-                                    logs.push(<div key={q.id} className={numVal === 0 ? "text-red-600 font-bold" : "text-green-600"}>
-                                        {numVal === 0 ? "❌ [0] " : "✅ [" + numVal + "] "}
-                                        {q.text} <span className="text-gray-400 text-[10px]">({source})</span>
-                                    </div>)
-                                } else {
-                                    logs.push(<div key={q.id} className="text-orange-400">❓ [MISSING] {q.text}</div>)
-                                }
-                            })
-
-                            const avg = sCount > 0 ? Math.round(sSum / sCount) : 0
-                            return (
-                                <div key={sIdx} className="pl-2 border-l-2 border-gray-300">
-                                    <div className="font-bold">{section.title} (Avg: {avg}%)</div>
-                                    <div className="pl-4">{logs}</div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                </details>
-            </div>
         </>
     )
 }

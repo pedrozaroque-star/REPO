@@ -8,6 +8,7 @@ import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import { getSafeLADateISO } from '@/lib/checklistPermissions'
+import { getNumericValue } from '@/lib/scoreCalculator'
 
 interface Store {
   id: string
@@ -83,11 +84,11 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     sections.forEach((section: any) => {
       const questionsInSection = section.questions
       const sectionAnswers = questionsInSection
-        .map((q: any) => answers[q.id])
-        .filter((v: any) => v !== undefined && v !== null && v !== 'NA' && v !== 'N/A')
+        .map((q: any) => getNumericValue(answers[q.id]))
+        .filter((v: number | null) => v !== null)
 
       if (sectionAnswers.length > 0) {
-        const sum = sectionAnswers.reduce((a: number, b: any) => a + (Number(b) || 0), 0)
+        const sum = sectionAnswers.reduce((a: number, b: number) => a + b, 0)
         const score = Math.round(sum / sectionAnswers.length)
         sectionScores[section.title] = score
         totalScore += score
@@ -335,8 +336,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
         <form onSubmit={handleSubmit} className="space-y-12">
           {sections.map((section: any, idx: number) => {
-            const sectionAnswers = section.questions.map((q: any) => answers[q.id]).filter((v: any) => v !== undefined && v !== null)
-            const sum = sectionAnswers.reduce((a: number, b: any) => a + (Number(b) || 0), 0)
+            const sectionAnswers = section.questions.map((q: any) => getNumericValue(answers[q.id])).filter((v: any) => v !== null)
+            const sum = sectionAnswers.reduce((a: number, b: number) => a + b, 0)
             const sectionScore = sectionAnswers.length > 0 ? Math.round(sum / sectionAnswers.length) : 0
 
             return (
