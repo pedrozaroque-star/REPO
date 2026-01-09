@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin } from 'lucide-react'
+import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin, LayoutGrid, List } from 'lucide-react'
 
 import UserModal from '@/components/UserModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
@@ -12,6 +12,7 @@ export default function UsuariosPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 
   // Estado para el Modal
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -73,7 +74,9 @@ export default function UsuariosPage() {
           : null,
         store_scope: role === 'supervisor'
           ? formData.store_scope // Array de nombres ['LYNWOOD', 'BELL']
-          : null
+          : null,
+        // IMPORTANTE: Actualizar también password en public.users porque el Login custom lo usa
+        ...(formData.password && formData.password.trim() !== '' ? { password: formData.password } : {})
       }
 
       if (isEdit) {
@@ -87,17 +90,37 @@ export default function UsuariosPage() {
 
         if (error) throw error
 
-        // 2. Cambiar contraseña (si se escribió algo en el campo)
         if (formData.password && formData.password.trim() !== '') {
-          // Opción A: Usar la función RPC segura (Recomendada)
-          const { error: rpcError } = await supabase.rpc('admin_reset_password_by_email', {
-            target_email: formData.email,
+          // 1. Actualizar contraseña TEXTO PLANO via RPC (Bypassea problemas de RLS/Mayúsculas)
+          const { error: plainError } = await supabase.rpc('update_user_password_plaintext', {
+            target_user_id: formData.id,
             new_password: formData.password
           })
 
-          // Opción B (Fallback): Si no tienes la RPC, podrías intentar update directo si auth lo permite
-          // pero la RPC es lo ideal.
-          if (rpcError) console.warn('No se pudo actualizar password via RPC:', rpcError.message)
+          if (plainError) {
+            console.error('Error actualizando password simple:', plainError)
+            alert('Advertencia: No se pudo guardar la contraseña para el login: ' + plainError.message)
+          }
+
+          // 2. Intentar sincronizar con Supabase Auth (Opcional)
+          try {
+            const response = await fetch('/api/admin/reset-password', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: formData.id,
+                email: formData.email,
+                password: formData.password
+              })
+            })
+
+            if (!response.ok) {
+              // Solo avisar si es un error real, no un skip
+              console.warn('Sync Auth warning:', await response.json())
+            }
+          } catch (syncErr) {
+            // Silencio total para no molestar user
+          }
         }
 
         alert('✅ Usuario actualizado correctamente')
@@ -229,6 +252,24 @@ export default function UsuariosPage() {
                 </select>
               </div>
 
+              {/* View Toggle (Desktop) */}
+              <div className="hidden md:flex bg-gray-100 p-1 rounded-full mr-2">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded-full transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-gray-900 ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
+                  title="Vista Cuadrícula"
+                >
+                  <LayoutGrid size={16} />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-1.5 rounded-full transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-gray-900 ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
+                  title="Vista Lista"
+                >
+                  <List size={16} />
+                </button>
+              </div>
+
               <button
                 onClick={() => { setEditingUser(null); setIsModalOpen(true); }}
                 className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 text-white flex items-center justify-center gap-2 hover:bg-black transition-transform active:scale-95 shadow-lg shadow-gray-200"
@@ -272,7 +313,7 @@ export default function UsuariosPage() {
             </div>
           </div>
 
-          {/* Grid de Tarjetas */}
+          {/* Grid de Tarjetas o Tabla Lista */}
           {loading ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-pulse">
               {[1, 2, 3, 4, 5, 6].map(i => (
@@ -280,83 +321,162 @@ export default function UsuariosPage() {
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {filteredUsers.map(user => (
-                <div
-                  key={user.id}
-                  onClick={() => {
-                    // On mobile make the whole card clickable for edit
-                    if (window.innerWidth < 768) {
-                      setEditingUser(user);
-                      setIsModalOpen(true);
-                    }
-                  }}
-                  className={`bg-white p-5 rounded-3xl shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border transition-all duration-200 hover:shadow-lg relative group active:scale-[0.98] cursor-pointer md:cursor-default
-                    ${!user.is_active ? 'opacity-60 border-gray-100 grayscale' : 'border-gray-100'}
-                  `}
-                >
-                  {/* Botón Editar Flotante (Desktop only) */}
-                  {/* Botón Editar Flotante (Visible siempre) */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingUser(user);
-                      setIsModalOpen(true);
-                    }}
-                    className="absolute top-4 right-4 text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-xl transition-colors md:opacity-0 md:group-hover:opacity-100"
-                    title="Editar Usuario"
-                  >
-                    <MoreHorizontal size={20} />
-                  </button>
+            <>
+              {viewMode === 'list' ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider">Usuario</th>
+                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider">Rol</th>
+                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider">Ubicación</th>
+                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider text-center">Estado</th>
+                        <th className="px-6 py-4 text-right"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filteredUsers.map(user => (
+                        <tr
+                          key={user.id}
+                          className="hover:bg-gray-50 transition-colors group cursor-pointer"
+                          onClick={() => { setEditingUser(user); setIsModalOpen(true); }}
+                        >
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm shrink-0
+                                ${user.role === 'admin' ? 'bg-slate-800' :
+                                  user.role === 'manager' ? 'bg-blue-600' :
+                                    user.role === 'supervisor' ? 'bg-purple-600' :
+                                      'bg-emerald-500'
+                                }`}>
+                                {user.full_name?.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-bold text-gray-900 leading-tight">{user.full_name}</div>
+                                <div className="text-xs text-gray-500">{user.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${roleColors[user.role] || 'bg-gray-100 text-gray-500'}`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+                              <MapPin size={12} className="text-gray-400" />
+                              {getLocationLabel(user)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {user.is_active ? (
+                              <div className="w-2 h-2 rounded-full bg-green-500 mx-auto ring-4 ring-green-100" title="Activo" />
+                            ) : (
+                              <div className="w-2 h-2 rounded-full bg-gray-300 mx-auto" title="Inactivo" />
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingUser(user);
+                                setIsModalOpen(true);
+                              }}
+                              className="text-gray-400 hover:text-blue-600 p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
+                            >
+                              <MoreHorizontal size={18} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
 
-                  {/* Info Principal */}
-                  <div className="flex items-center gap-4 mb-5">
-                    <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl md:text-2xl shadow-md shrink-0
-                      ${user.role === 'admin' ? 'bg-gradient-to-br from-slate-700 to-slate-900' :
-                        user.role === 'manager' ? 'bg-gradient-to-br from-blue-500 to-blue-600' :
-                          user.role === 'supervisor' ? 'bg-gradient-to-br from-purple-500 to-purple-600' :
-                            'bg-gradient-to-br from-emerald-400 to-emerald-600'
-                      }`}>
-                      {user.full_name?.charAt(0).toUpperCase()}
+                  {filteredUsers.length === 0 && (
+                    <div className="p-12 text-center text-gray-400">
+                      <p>No se encontraron usuarios</p>
                     </div>
-                    <div className="overflow-hidden min-w-0">
-                      <h3 className="font-bold text-gray-900 text-base md:text-lg truncate leading-tight" title={user.full_name}>
-                        {user.full_name}
-                      </h3>
-                      <p className="text-xs text-gray-500 truncate" title={user.email}>
-                        {user.email}
-                      </p>
-                      {!user.is_active && (
-                        <span className="inline-block mt-1 text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
-                          INACTIVO
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Detalles Footer */}
-                  <div className="space-y-3 pt-4 border-t border-dashed border-gray-100">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                        <User size={12} /> Rol
-                      </span>
-                      <span className={`px-2.5 py-1 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-wide ${roleColors[user.role] || 'bg-gray-100'}`}>
-                        {user.role}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                        <MapPin size={12} /> Ubicación
-                      </span>
-                      <span className="text-xs font-bold text-gray-700 truncate max-w-[150px] text-right" title={getLocationLabel(user)}>
-                        {getLocationLabel(user)}
-                      </span>
-                    </div>
-                  </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  {filteredUsers.map(user => (
+                    <div
+                      key={user.id}
+                      onClick={() => {
+                        // On mobile make the whole card clickable for edit
+                        if (window.innerWidth < 768) {
+                          setEditingUser(user);
+                          setIsModalOpen(true);
+                        }
+                      }}
+                      className={`bg-white p-5 rounded-3xl shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border transition-all duration-200 hover:shadow-lg relative group active:scale-[0.98] cursor-pointer md:cursor-default
+                        ${!user.is_active ? 'opacity-60 border-gray-100 grayscale' : 'border-gray-100'}
+                      `}
+                    >
+                      {/* Botón Editar Flotante (Visible siempre) */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingUser(user);
+                          setIsModalOpen(true);
+                        }}
+                        className="absolute top-4 right-4 text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-xl transition-colors md:opacity-0 md:group-hover:opacity-100"
+                        title="Editar Usuario"
+                      >
+                        <MoreHorizontal size={20} />
+                      </button>
+
+                      {/* Info Principal */}
+                      <div className="flex items-center gap-4 mb-5">
+                        <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl md:text-2xl shadow-md shrink-0
+                          ${user.role === 'admin' ? 'bg-gradient-to-br from-slate-700 to-slate-900' :
+                            user.role === 'manager' ? 'bg-gradient-to-br from-blue-500 to-blue-600' :
+                              user.role === 'supervisor' ? 'bg-gradient-to-br from-purple-500 to-purple-600' :
+                                'bg-gradient-to-br from-emerald-400 to-emerald-600'
+                          }`}>
+                          {user.full_name?.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="overflow-hidden min-w-0">
+                          <h3 className="font-bold text-gray-900 text-base md:text-lg truncate leading-tight" title={user.full_name}>
+                            {user.full_name}
+                          </h3>
+                          <p className="text-xs text-gray-500 truncate" title={user.email}>
+                            {user.email}
+                          </p>
+                          {!user.is_active && (
+                            <span className="inline-block mt-1 text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
+                              INACTIVO
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Detalles Footer */}
+                      <div className="space-y-3 pt-4 border-t border-dashed border-gray-100">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                            <User size={12} /> Rol
+                          </span>
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-wide ${roleColors[user.role] || 'bg-gray-100'}`}>
+                            {user.role}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                            <MapPin size={12} /> Ubicación
+                          </span>
+                          <span className="text-xs font-bold text-gray-700 truncate max-w-[150px] text-right" title={getLocationLabel(user)}>
+                            {getLocationLabel(user)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
