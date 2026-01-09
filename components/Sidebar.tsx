@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
 import { useState, useMemo, useEffect } from 'react'
@@ -49,11 +48,11 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
       title: 'OPERACIONES',
       id: 'operaciones',
       items: [
-        { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Asistentes', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-        { name: 'Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
         { name: 'Supervisor', path: '/inspecciones', icon: '📋', roles: ['supervisor', 'admin'] },
+        { name: 'Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Asistentes', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+        { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
       ]
     },
     {
@@ -185,13 +184,13 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
             className="group flex flex-col items-center flex-shrink-0 px-2 pt-8 pb-4 relative cursor-pointer"
           >
             <div className={`relative ${isCollapsed ? 'w-14 h-14' : 'w-42 h-42'} mb-6 bg-white rounded-full shadow-[0_0_25px_rgba(255,255,255,0.3)] border-2 border-yellow-400 transition-all duration-500 group-hover:rotate-6 overflow-hidden`}>
-              <Image
-                src="/logo.png"
-                alt="Tacos Gavilan Logo"
-                fill
-                sizes="(max-width: 768px) 100vw, 224px"
-                className="object-contain"
-              />
+              <div className="w-full h-full flex items-center justify-center p-2">
+                <img
+                  src="/logo.png"
+                  alt="Tacos Gavilan Logo"
+                  className="w-full h-full object-contain"
+                />
+              </div>
             </div>
 
             {!isCollapsed && (
@@ -323,7 +322,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
       {/* Mobile Menu Button - Ajustado al nuevo tema */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-gradient-to-r from-red-600 to-red-900 px-4 py-3 flex items-center justify-between shadow-lg">
         <div className="h-8 w-8 relative">
-          <Image src="/logo.png" alt="Logo" fill sizes="32px" className="object-contain" />
+          <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
         </div>
         <div className="flex items-center gap-2">
           <NotificationBell />

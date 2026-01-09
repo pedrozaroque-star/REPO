@@ -31,6 +31,10 @@ const isNew = (dateStr?: string) => {
     return diffDays <= 180
 }
 
+const isVideo = (url: string) => {
+    return url.toLowerCase().match(/\.(mp4|mov|webm|ogg|quicktime)$/)
+}
+
 export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType }: QuestionProps) {
     const [uploading, setUploading] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -237,7 +241,11 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                     <AnimatePresence>
                         {photos.map((url) => (
                             <motion.div key={url} initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} className="relative group/delete flex-shrink-0">
-                                <img src={url} className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200" alt="Evidence" />
+                                {isVideo(url) ? (
+                                    <video src={url} className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200 bg-black" muted playsInline />
+                                ) : (
+                                    <img src={url} className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200" alt="Evidence" />
+                                )}
                                 <button onClick={() => removePhoto(url)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md scale-0 group-hover/delete:scale-100 transition-transform z-10">
                                     <X size={12} strokeWidth={3} />
                                 </button>
@@ -254,9 +262,9 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         `}
                     >
                         <Camera size={20} />
-                        <span className="text-[9px] font-bold uppercase">Foto</span>
+                        <span className="text-[9px] font-bold uppercase">Foto/Video</span>
                     </button>
-                    <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*" multiple />
+                    <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*,video/*" multiple />
                 </div>
             </div>
         </motion.div>

@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Image from 'next/image'
 
 export default function SurpriseLoader() {
     const [stage, setStage] = useState(0)
@@ -35,13 +34,12 @@ export default function SurpriseLoader() {
                             : 'opacity-0 scale-75 rotate-12'
                             }`}
                     >
-                        <Image
+                        <img
                             src={img.src}
                             alt={img.alt}
                             width={img.width}
                             height={150}
                             style={{ width: 'auto', height: 'auto' }}
-                            priority={index === 0}
                             className="drop-shadow-xl object-contain"
                         />
                     </div>

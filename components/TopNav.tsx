@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
 import { useState, useMemo, useEffect } from 'react'
@@ -36,11 +35,11 @@ export default function TopNav() {
             title: 'OPERACIONES',
             id: 'operaciones',
             items: [
-                { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Asistentes', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-                { name: 'Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
                 { name: 'Supervisor', path: '/inspecciones', icon: '📋', roles: ['supervisor', 'admin'] },
+                { name: 'Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Asistentes', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
             ]
         },
         {
@@ -118,8 +117,8 @@ export default function TopNav() {
                 {/* Logo Section */}
                 <div className="flex items-center gap-8">
                     <Link href="/dashboard" className="flex items-center gap-2">
-                        <div className="relative h-8 w-8 overflow-hidden rounded-lg bg-red-600 shadow-sm">
-                            <Image src="/logo.png" alt="Logo" fill className="object-cover" />
+                        <div className="h-8 w-8 overflow-hidden rounded-lg bg-red-600 shadow-sm flex items-center justify-center">
+                            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
                         </div>
                         <span className="text-xl font-bold tracking-tight text-gray-900">
                             TEG<span className="text-red-600">Admin</span>

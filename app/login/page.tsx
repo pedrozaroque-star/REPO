@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
 import { Eye, EyeOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -135,25 +134,21 @@ export default function LoginPage() {
         <div className="text-center mb-8 flex flex-col items-center">
           {/* Círculo blanco para resaltar el logo */}
           <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 p-2">
-            <div className="relative w-28 h-28">
-              <Image
+            <div className="w-28 h-28 flex items-center justify-center">
+              <img
                 src="/logo.png"
                 alt="Logo Tacos Gavilan"
-                fill
-                sizes="112px"
-                className="object-contain"
+                className="w-full h-full object-contain"
               />
             </div>
           </div>
 
           {/* Imagen del Eslogan */}
-          <div className="relative w-48 h-16 mb-2">
-            <Image
+          <div className="w-48 h-16 mb-2 flex items-center justify-center">
+            <img
               src="/ya esta.png"
               alt="Ya está"
-              fill
-              sizes="192px"
-              className="object-contain"
+              className="w-full h-full object-contain"
             />
           </div>
         </div>

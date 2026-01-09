@@ -6,7 +6,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
-import { calculateInspectionScore } from '@/lib/scoreCalculator'
+
 
 function InspeccionesContent() {
   const router = useRouter()
@@ -138,45 +138,7 @@ function InspeccionesContent() {
 
           <div className="flex items-center gap-3 w-full md:w-auto">
             {/* Maintenance Button - Hidden unless needed */}
-            <button
-              onClick={async () => {
-                const confirm = window.confirm('¿Recalcular TODOS los scores ignorando NA? Esto puede tardar unos segundos.')
-                if (!confirm) return
 
-                setLoading(true)
-                try {
-                  const supabase = await getSupabaseClient()
-                  // Fetch Template
-                  const { data: templates } = await supabase.from('checklist_templates').select('*').eq('code', 'supervisor_inspection_v1').single()
-                  const templateData = templates?.structure ? (typeof templates.structure === 'string' ? JSON.parse(templates.structure) : templates.structure) : null
-
-                  if (!templateData) throw new Error('No se encontró la plantilla')
-
-                  // Fetch ALL Inspections
-                  const { data: allInspections } = await supabase.from('supervisor_inspections').select('*')
-                  if (!allInspections) throw new Error('No se encontraron inspecciones')
-
-                  let updatedCount = 0
-                  for (const inspection of allInspections) {
-                    const newScore = calculateInspectionScore(inspection, templateData)
-                    if (newScore !== inspection.overall_score) {
-                      await supabase.from('supervisor_inspections').update({ overall_score: newScore }).eq('id', inspection.id)
-                      updatedCount++
-                    }
-                  }
-                  alert(`✅ Scores recalculados. ${updatedCount} registros actualizados.`)
-                  fetchData()
-                } catch (e: any) {
-                  alert('Error: ' + e.message)
-                } finally {
-                  setLoading(false)
-                }
-              }}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2.5 rounded-lg font-bold transition-all text-xs"
-              title="Recalcular Scores (Ignorar NA)"
-            >
-              🔧 Fix Scores
-            </button>
 
             <button
               onClick={() => router.push('/inspecciones/nueva')}
