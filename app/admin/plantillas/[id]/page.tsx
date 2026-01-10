@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion, Reorder } from 'framer-motion'
-import { Trash2, Plus, GripVertical, Save, Edit2, Camera, Star, BarChart3, Type, Hash, CheckSquare, ArrowLeft, Sparkles } from 'lucide-react'
+import { Trash2, Plus, GripVertical, Save, Edit2, Camera, Star, BarChart3, Type, Hash, CheckSquare, ArrowLeft, Sparkles, ClipboardList } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
 
 // --- Types ---
@@ -51,6 +51,7 @@ const QUESTION_TYPES = [
     { value: 'text', label: 'Texto Libre', icon: Type },
     { value: 'number', label: 'Número', icon: Hash },
     { value: 'photo', label: 'Solo Foto', icon: Camera },
+    { value: 'compliance', label: 'Cumple / Parcial / No Cumple', icon: ClipboardList },
 ]
 
 export default function TemplateEditorPage() {
