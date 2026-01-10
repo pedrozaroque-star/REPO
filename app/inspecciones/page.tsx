@@ -6,6 +6,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
+import { MessageCircleMore } from 'lucide-react'
 
 
 function InspeccionesContent() {
@@ -15,7 +16,9 @@ function InspeccionesContent() {
   const [loading, setLoading] = useState(true)
   const [storeFilter, setStoreFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [supervisorFilter, setSupervisorFilter] = useState('all') // New State
   const [stores, setStores] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([]) // key for dropdown
 
   // Modal State
   const [selectedInspection, setSelectedInspection] = useState<any>(null)
@@ -25,7 +28,7 @@ function InspeccionesContent() {
 
   useEffect(() => {
     if (user) fetchData()
-  }, [storeFilter, statusFilter, user])
+  }, [storeFilter, statusFilter, supervisorFilter, user])
 
   const fetchData = async () => {
     try {
@@ -44,10 +47,11 @@ function InspeccionesContent() {
       const { data: storesList, error: storesListError } = await supabase.from('stores').select('*').order('name', { ascending: true })
       if (storesListError) console.error('❌ Error fetching stores list:', storesListError);
 
-      const { data: usersList, error: usersListError } = await supabase.from('users').select('id, full_name')
+      const { data: usersList, error: usersListError } = await supabase.from('users').select('id, full_name, role')
       if (usersListError) console.error('❌ Error fetching users list:', usersListError);
 
       setStores(storesList || [])
+      setUsers(usersList || [])
 
 
       // 2. Obtener inspecciones básicas (Sin Joins complejos que puedan fallar por RLS o FKs)
@@ -64,7 +68,10 @@ function InspeccionesContent() {
         // [FIX] Managers solo ven SU tienda
         if (user.store_id) query = query.eq('store_id', user.store_id)
       } else {
-
+        // Is Admin/Auditor
+        if (supervisorFilter !== 'all') {
+          query = query.eq('inspector_id', supervisorFilter)
+        }
       }
 
       const { data: rawData, error: rawError } = await query
@@ -72,6 +79,23 @@ function InspeccionesContent() {
       if (rawError) {
         console.error('❌ Error de consulta de inspecciones:', rawError)
         throw rawError
+      }
+
+      // 2.5 Verificar comentarios (Chat)
+      const inspectionIds = (rawData || []).map(i => i.id)
+      let commentCounts: Record<string, number> = {}
+
+      if (inspectionIds.length > 0) {
+        const { data: commentsData } = await supabase
+          .from('inspection_comments')
+          .select('inspection_id')
+          .in('inspection_id', inspectionIds)
+
+        if (commentsData) {
+          commentsData.forEach((c: any) => {
+            commentCounts[c.inspection_id] = (commentCounts[c.inspection_id] || 0) + 1
+          })
+        }
       }
 
 
@@ -87,7 +111,8 @@ function InspeccionesContent() {
           checklist_type: 'supervisor',
           checklist_date: item.inspection_date || item.created_at,
           score: item.overall_score,
-          photo_urls: item.photos || []
+          photo_urls: item.photos || [],
+          has_comments: commentCounts[item.id] > 0
         }
       })
 
@@ -181,31 +206,55 @@ function InspeccionesContent() {
           </div>
 
           {/* FILTERS */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'}`}
-            >
-              Todos
-            </button>
-            <button
-              onClick={() => setStatusFilter('pendiente')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-yellow-50 hover:text-yellow-600'}`}
-            >
-              Pendientes
-            </button>
-            <button
-              onClick={() => setStatusFilter('aprobado')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-green-50 hover:text-green-600'}`}
-            >
-              Aprobados
-            </button>
-            <button
-              onClick={() => setStatusFilter('rechazado')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-red-50 hover:text-red-600'}`}
-            >
-              Rechazados
-            </button>
+          <div className="flex flex-col md:flex-row gap-4 justify-between">
+            {/* Supervisor Filter for Admins */}
+            {(user?.role === 'admin' || user?.role === 'auditor') && (
+              <div className="relative group">
+                <select
+                  value={supervisorFilter}
+                  onChange={(e) => setSupervisorFilter(e.target.value)}
+                  className="appearance-none bg-white border border-gray-200 text-gray-700 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
+                >
+                  <option value="all">🧑‍🏫 Todos los Supervisores</option>
+                  {users
+                    .filter(u => ['supervisor', 'admin', 'auditor'].includes(u.role))
+                    .map(u => (
+                      <option key={u.id} value={u.id}>{u.full_name}</option>
+                    ))
+                  }
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                  <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'}`}
+              >
+                Todos
+              </button>
+              <button
+                onClick={() => setStatusFilter('pendiente')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-yellow-50 hover:text-yellow-600'}`}
+              >
+                Pendientes
+              </button>
+              <button
+                onClick={() => setStatusFilter('aprobado')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-green-50 hover:text-green-600'}`}
+              >
+                Aprobados
+              </button>
+              <button
+                onClick={() => setStatusFilter('rechazado')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-red-50 hover:text-red-600'}`}
+              >
+                Rechazados
+              </button>
+            </div>
           </div>
 
 
@@ -221,7 +270,7 @@ function InspeccionesContent() {
                     <th className="p-4 text-center">Turno</th>
                     <th className="p-4 text-center">Duración</th>
                     <th className="p-4 text-center">Score</th>
-                    <th className="p-4 text-center">Estado</th>
+                    <th className="p-4 text-left">Estado</th>
                     <th className="p-4 text-center">Evidencia</th>
                     <th className="p-4 text-center">Acciones</th>
                   </tr>
@@ -297,10 +346,17 @@ function InspeccionesContent() {
                               {item.overall_score}%
                             </span>
                           </td>
-                          <td className="p-4 text-center">
-                            <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
-                              {getStatusLabel(item.estatus_admin || 'pendiente')}
-                            </span>
+                          <td className="p-4 text-left">
+                            <div className="flex items-center justify-start gap-1">
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
+                                {getStatusLabel(item.estatus_admin || 'pendiente')}
+                              </span>
+                              {item.has_comments && (
+                                <div className="p-1 text-blue-600 bg-blue-50 rounded-full border border-blue-100" title="Hay comentarios">
+                                  <MessageCircleMore size={18} strokeWidth={2.5} />
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className="p-4 text-center">
                             {(item.photos && item.photos.length > 0) ? (
@@ -348,6 +404,11 @@ function InspeccionesContent() {
                     <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
                       {getStatusLabel(item.estatus_admin || 'pendiente')}
                     </span>
+                    {item.has_comments && (
+                      <div className="p-1 text-blue-600 bg-blue-50 rounded-full border border-blue-100">
+                        <MessageCircleMore size={18} strokeWidth={3} />
+                      </div>
+                    )}
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.shift === 'AM' ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'}`}>
                       {item.shift}
                     </span>
