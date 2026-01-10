@@ -4,512 +4,500 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import {
-  LayoutDashboard,
-  Plus,
-  BarChart3,
-  Search,
-  Store,
-  Users,
-  ClipboardList,
-  FileText,
-  MessageSquare,
-  AlertTriangle,
-  CheckCircle,
-  Calendar,
-  Clock,
-  TrendingUp,
-  Activity
+    LayoutDashboard,
+    Plus,
+    BarChart3,
+    Store,
+    Users,
+    ClipboardList,
+    MessageSquare,
+    AlertTriangle,
+    CheckCircle,
+    TrendingUp,
+    Activity,
+    Target,
+    Timer,
+    Award,
+    Info,
+    ShieldAlert
 } from 'lucide-react'
 
 export default function DashboardPage() {
-  const router = useRouter()
-  const [stats, setStats] = useState({
-    totalStores: 0,
-    totalUsers: 0,
-    totalFeedbacks: 0,
-    totalInspections: 0,
-    totalChecklists: 0,
-    avgNPS: 0,
-    avgInspectionScore: 0,
-    criticalAlerts: [] as any[],
-    recentActivity: [] as any[]
-  })
-  const [loading, setLoading] = useState(true)
+    const router = useRouter()
+    const [stats, setStats] = useState({
+        totalInspections: 0,
+        avgInspectionScore: 0,
+        avgNPS: 0,
+        criticalAlerts: [] as any[],
+        recentActivity: [] as any[],
+        topStores: [] as any[],
+        sectionPerformance: [] as any[],
+        supervisorStats: [] as any[],
+        avgDuration: '0 min'
+    })
+    const [loading, setLoading] = useState(true)
+    const [hoveredAlert, setHoveredAlert] = useState<number | null>(null)
 
-  useEffect(() => {
-    const user = localStorage.getItem('teg_user')
-    if (!user) {
-      router.push('/')
-      return
-    }
-    fetchStats()
-  }, [router])
+    useEffect(() => {
+        const user = localStorage.getItem('teg_user')
+        if (!user) {
+            router.push('/')
+            return
+        }
+        fetchStats()
+    }, [router])
 
-  const fetchStats = async () => {
-    try {
-      const token = localStorage.getItem('teg_token')
-      const supabase = await getSupabaseClient()
+    const fetchStats = async () => {
+        try {
+            const token = localStorage.getItem('teg_token')
+            const supabase = await getSupabaseClient()
 
-      if (token) {
-        await supabase.auth.setSession({ access_token: token, refresh_token: '' })
-      }
+            if (token) {
+                await supabase.auth.setSession({ access_token: token, refresh_token: '' })
+            }
 
-      // 1. Tiendas
-      const { count: storesCount } = await supabase
-        .from('stores')
-        .select('*', { count: 'exact', head: true })
+            const { data: inspections } = await supabase
+                .from('supervisor_inspections')
+                .select(`
+          id, overall_score, inspection_date, start_time, end_time, duration, shift,
+          service_score, meat_score, food_score, tortilla_score, cleaning_score, log_score, grooming_score,
+          store_id, inspector_id,
+          stores(name, code),
+          users!inspector_id(full_name)
+        `)
+                .order('created_at', { ascending: false })
+                .limit(100)
 
-      // 2. Usuarios
-      const { count: usersCount } = await supabase
-        .from('users')
-        .select('*', { count: 'exact', head: true })
+            const { data: feedbacks } = await supabase
+                .from('customer_feedback')
+                .select('nps_score')
+                .limit(200)
 
-      // 3. Feedback: Obtener conteo y datos
-      const { data: feedbacks } = await supabase
-        .from('customer_feedback')
-        .select('nps_score, submission_date')
-        .order('submission_date', { ascending: false })
+            const validInspections = inspections || []
 
-      // 4. Inspecciones
-      const { data: inspections } = await supabase
-        .from('supervisor_inspections')
-        .select('overall_score, estatus_admin')
-        .limit(100)
+            const categories = [
+                { key: 'service_score', label: 'Servicio' },
+                { key: 'meat_score', label: 'Carnes' },
+                { key: 'food_score', label: 'Alimentos' },
+                { key: 'tortilla_score', label: 'Tortillas' },
+                { key: 'cleaning_score', label: 'Limpieza' },
+                { key: 'grooming_score', label: 'Personal' }
+            ]
 
-      // 5. Checklists (Assistant)
-      const { data: assistantChecklists } = await supabase
-        .from('assistant_checklists')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100)
+            const sectionPerf = categories.map(cat => {
+                const scores = validInspections.map((i: any) => i[cat.key]).filter(s => s !== null && s !== undefined)
+                const avg = scores.length > 0 ? Math.round(scores.reduce((a: any, b: any) => a + b, 0) / scores.length) : 0
+                return { label: cat.label, score: avg }
+            }).sort((a, b) => a.score - b.score)
 
-      // 6. Manager Checklists
-      const { count: managerCheckCount } = await supabase.from('manager_checklists').select('*', { count: 'exact', head: true })
-
-      // 7. Recent Activity (Unified)
-      const { data: recentSups } = await supabase
-        .from('supervisor_inspections')
-        .select('*, stores(name, code), users!inspector_id(full_name)')
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      const { data: recentAssist } = await supabase
-        .from('assistant_checklists')
-        .select('*, stores(name, code)')
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      // Merge and Sort
-      const combinedActivity = [
-        ...(recentSups || []).map(s => ({
-          ...s,
-          activityType: 'Inspección',
-          userLabel: (s as any).users?.full_name || 'Supervisor',
-          storeLabel: formatStoreName((s as any).stores?.name) || 'Tienda',
-          date: s.inspection_date || s.created_at,
-          scoreLabel: s.overall_score
-        })),
-        ...(recentAssist || []).map(a => ({
-          ...a,
-          activityType: `Checklist: ${a.checklist_type?.toUpperCase()}`,
-          userLabel: a.user_name || 'Asistente',
-          storeLabel: formatStoreName((a as any).stores?.name || a.store_name) || 'Tienda',
-          date: a.checklist_date || a.created_at,
-          scoreLabel: a.score
-        }))
-      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 10)
-
-      const validFeedbacks = feedbacks || []
-      const validInspections = inspections || []
-      const validAssistant = assistantChecklists || []
-
-      const now = new Date()
-      const day = now.getDay() // 0 Sun, 1 Mon
-      const diffSinceMonday = (day === 0 ? 6 : day - 1)
-      const monday6AM = new Date(now)
-      monday6AM.setDate(now.getDate() - diffSinceMonday)
-      monday6AM.setHours(6, 0, 0, 0)
-
-      const alerts: any[] = []
-      validAssistant
-        .filter(check => new Date(check.created_at) >= monday6AM)
-        .forEach(check => {
-          const type = check.checklist_type?.toLowerCase()
-          const answers = check.answers || {}
-
-          if (type === 'sobrante') {
-            Object.entries(answers).forEach(([key, val]: [string, any]) => {
-              if (key === '__question_photos') return
-              const num = Number(typeof val === 'object' ? val.value : val)
-              if (!isNaN(num) && num > 2) {
-                alerts.push({
-                  id: `waste-${check.id}-${key}`,
-                  type: 'waste',
-                  store: formatStoreName(check.store_name),
-                  msg: `Exceso de sobrante: ${key} (${num} Lbs)`,
-                  date: check.created_at
-                })
-              }
+            const supervisorMap: Record<string, any> = {}
+            validInspections.forEach((i: any) => {
+                const name = i.users?.full_name || 'Desconocido'
+                if (!supervisorMap[name]) supervisorMap[name] = { count: 0, totalScore: 0, name }
+                supervisorMap[name].count++
+                supervisorMap[name].totalScore += i.overall_score || 0
             })
-          }
 
-          if (type === 'temperaturas') {
-            Object.entries(answers).forEach(([key, val]: [string, any]) => {
-              if (key === '__question_photos') return
-              const num = Number(typeof val === 'object' ? val.value : val)
-              if (isNaN(num)) return
+            const supervisorStats = Object.values(supervisorMap).map((s: any) => ({
+                name: s.name.split(' ')[0],
+                count: s.count,
+                avgScore: Math.round(s.totalScore / s.count)
+            })).sort((a, b) => b.count - a.count).slice(0, 5)
 
-              const isRefrig = key.toLowerCase().includes('refrig') || key.toLowerCase().includes('frio')
-              const isFail = isRefrig ? (num < 34 || num > 41) : (num < 165)
-
-              if (isFail) {
-                alerts.push({
-                  id: `temp-${check.id}-${key}`,
-                  type: 'temp',
-                  store: formatStoreName(check.store_name),
-                  msg: `Temp Fuera de Rango: ${key} (${num}°F)`,
-                  date: check.created_at
-                })
-              }
-            })
-          }
-        })
-
-      // Calculations
-      let promoters = 0
-      let detractors = 0
-
-      validFeedbacks.forEach((f: any) => {
-        const score = f.nps_score || 0
-        if (score >= 9) promoters++
-        else if (score <= 6) detractors++
-      })
-
-      const totalFeedbacks = validFeedbacks.length
-      const avgNPS = totalFeedbacks > 0
-        ? Math.round(((promoters - detractors) / totalFeedbacks) * 100)
-        : 0
-
-      const inspSum = validInspections.reduce((sum: number, i: any) => sum + (i.overall_score || 0), 0)
-      const assistSum = validAssistant.reduce((sum: number, i: any) => sum + (i.score || 0), 0)
-      const totalScoreCount = validInspections.length + validAssistant.length
-
-      const avgInspectionScore = totalScoreCount > 0
-        ? Math.round((inspSum + assistSum) / totalScoreCount)
-        : 0
-
-      setStats({
-        totalStores: storesCount || 0,
-        totalUsers: usersCount || 0,
-        totalFeedbacks: validFeedbacks.length,
-        totalInspections: validInspections.length,
-        totalChecklists: validAssistant.length + (managerCheckCount || 0),
-        avgNPS,
-        avgInspectionScore,
-        criticalAlerts: alerts.slice(0, 5),
-        recentActivity: combinedActivity
-      })
-
-      setLoading(false)
-    } catch (err) {
-      console.error('Error general en Dashboard:', err)
-      setLoading(false)
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex bg-gray-50 h-screen items-center justify-center">
-        <div className="text-center animate-pulse">
-          <LayoutDashboard size={48} className="mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-900 font-bold">Cargando dashboard...</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-transparent font-sans w-full">
-      {/* STICKY HEADER - Mobile & Desktop */}
-      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0 transition-all top-[63px]">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Title Area */}
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
-              <TrendingUp size={18} />
-            </div>
-            <div>
-              <h1 className="text-lg md:text-xl font-black text-gray-900 tracking-tight leading-none">Dashboard</h1>
-              <p className="hidden md:block text-xs text-gray-400 font-medium">Vista general</p>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => window.location.href = '/inspecciones/nueva'}
-              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 md:px-4 md:py-2 rounded-xl font-bold text-xs md:text-sm flex items-center gap-2 shadow-lg shadow-red-200 transition-all active:scale-95"
-            >
-              <Plus size={16} strokeWidth={3} />
-              <span className="hidden sm:inline">NUEVA INSPECCIÓN</span>
-              <span className="sm:hidden">INSP.</span>
-            </button>
-            <button
-              onClick={() => window.location.href = '/reportes'}
-              className="bg-gray-100 text-gray-600 hover:bg-gray-200 p-2 md:px-4 md:py-2 rounded-xl font-bold text-xs md:text-sm flex items-center gap-2 transition-all"
-            >
-              <BarChart3 size={18} />
-              <span className="hidden sm:inline">Reportes</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <main className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {/* Quick Search */}
-        <div className="bg-white rounded-2xl shadow-sm p-4 md:p-6 mb-8 border border-gray-100">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="relative group flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 transition-colors" size={20} />
-              <input
-                type="text"
-                placeholder="Búsqueda rápida..."
-                className="w-full pl-11 pr-4 py-3 rounded-xl bg-gray-50 border-none outline-none focus:ring-2 focus:ring-red-100 text-sm font-bold text-gray-900 placeholder:text-gray-400 transition-all"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    const query = (e.target as HTMLInputElement).value
-                    window.location.href = `/buscar?q=${encodeURIComponent(query)}`
-                  }
-                }}
-              />
-            </div>
-            <button
-              onClick={(e) => {
-                const input = (e.currentTarget.previousElementSibling?.querySelector('input') as HTMLInputElement)
-                if (input?.value) {
-                  window.location.href = `/buscar?q=${encodeURIComponent(input.value)}`
+            let totalMinutes = 0
+            let durationCount = 0
+            validInspections.forEach((i: any) => {
+                if (i.duration) {
+                    let mins = 0
+                    if (i.duration.includes('h')) {
+                        const parts = i.duration.split('h')
+                        mins += parseInt(parts[0]) * 60
+                        if (parts[1]) mins += parseInt(parts[1])
+                    } else {
+                        mins = parseInt(i.duration)
+                    }
+                    if (!isNaN(mins) && mins > 0 && mins < 400) {
+                        totalMinutes += mins
+                        durationCount++
+                    }
                 }
-              }}
-              className="bg-gray-900 text-white p-3 rounded-xl hover:bg-black transition-colors"
-            >
-              <Search size={20} />
-            </button>
-          </div>
+            })
+            const avgDurationVal = durationCount > 0 ? Math.round(totalMinutes / durationCount) : 0
+            const avgDurationStr = avgDurationVal > 60 ? `${Math.floor(avgDurationVal / 60)}h ${avgDurationVal % 60}m` : `${avgDurationVal} min`
 
-          <div className="flex flex-wrap gap-2">
-            {[
-              { label: 'Tiendas', href: '/tiendas', icon: Store },
-              { label: 'Usuarios', href: '/usuarios', icon: Users },
-              { label: 'Inspecciones', href: '/inspecciones', icon: ClipboardList },
-              { label: 'Checklists', href: '/checklists', icon: FileText },
-              { label: 'Feedback', href: '/feedback', icon: MessageSquare },
-              { label: 'Reportes', href: '/reportes', icon: BarChart3 },
-            ].map((item) => (
-              <button
-                key={item.label}
-                onClick={() => window.location.href = item.href}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-bold rounded-lg border border-gray-100 transition-colors"
-              >
-                <item.icon size={14} />
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
+            let promoters = 0, detractors = 0
+            const validFeedbacks = feedbacks || []
+            validFeedbacks.forEach((f: any) => {
+                if (f.nps_score >= 9) promoters++
+                else if (f.nps_score <= 6) detractors++
+            })
+            const avgNPS = validFeedbacks.length > 0 ? Math.round(((promoters - detractors) / validFeedbacks.length) * 100) : 0
 
-        {/* Main Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'Tiendas', value: stats.totalStores, icon: Store, color: 'text-red-600', bg: 'bg-red-50' },
-            { label: 'Usuarios', value: stats.totalUsers, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
-            { label: 'Feedbacks', value: stats.totalFeedbacks, icon: MessageSquare, color: 'text-green-600', bg: 'bg-green-50' },
-            { label: 'Checklists', value: stats.totalChecklists, icon: FileText, color: 'text-purple-600', bg: 'bg-purple-50' },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100 flex flex-col items-center text-center hover:shadow-md transition-shadow">
-              <div className={`w-10 h-10 ${stat.bg} ${stat.color} rounded-full flex items-center justify-center mb-2`}>
-                <stat.icon size={20} />
-              </div>
-              <div className="text-2xl font-black text-gray-900">{stat.value}</div>
-              <div className="text-xs font-bold text-gray-400 uppercase tracking-wide">{stat.label}</div>
-            </div>
-          ))}
-        </div>
+            const storeScores: Record<string, { total: number, count: number, name: string }> = {}
+            validInspections.forEach((i: any) => {
+                const sName = i.stores?.name || 'Unknown'
+                if (!storeScores[sName]) storeScores[sName] = { total: 0, count: 0, name: sName }
+                storeScores[sName].total += (i.overall_score || 0)
+                storeScores[sName].count += 1
+            })
+            const topStores = Object.values(storeScores).map(s => ({
+                name: formatStoreName(s.name),
+                avg: Math.round(s.total / s.count)
+            })).sort((a, b) => b.avg - a.avg).slice(0, 50)
 
-        {/* Performance Metrics */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100">
-            <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2">
-              <TrendingUp size={20} className="text-indigo-500" />
-              NPS Promedio
-            </h3>
-            <div className="flex items-center justify-center py-4">
-              <div className="relative w-48 h-48">
-                <svg className="transform -rotate-90 w-48 h-48">
-                  <circle
-                    cx="96"
-                    cy="96"
-                    r="80"
-                    stroke="#e5e7eb"
-                    strokeWidth="12"
-                    fill="none"
-                    className="bg-gray-100"
-                  />
-                  <circle
-                    cx="96"
-                    cy="96"
-                    r="80"
-                    stroke={stats.avgNPS >= 50 ? '#10b981' : stats.avgNPS >= 0 ? '#fbbf24' : '#ef4444'}
-                    strokeWidth="12"
-                    fill="none"
-                    strokeDasharray={`${(stats.avgNPS + 100) * 2.51} 502.4`}
-                    strokeLinecap="round"
-                    className="transition-all duration-1000 ease-out"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-5xl font-black text-gray-900">{stats.avgNPS}</span>
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">SCORE</span>
-                </div>
-              </div>
-            </div>
-            <p className="text-center text-xs font-medium text-gray-400 mt-2 bg-gray-50 py-2 rounded-lg">
-              Basado en {stats.totalFeedbacks} feedbacks
-            </p>
-          </div>
+            const alerts: any[] = []
+            validInspections.slice(0, 20).forEach((i: any) => {
+                const inspectorName = i.users?.full_name || 'Supervisor'
+                const storeCode = i.stores?.code || 'N/A'
+                const inspDate = new Date(i.inspection_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
 
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100">
-            <h3 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2">
-              <ClipboardList size={20} className="text-indigo-500" />
-              Score Inspecciones
-            </h3>
-            <div className="flex items-center justify-center py-4">
-              <div className="relative w-48 h-48">
-                <svg className="transform -rotate-90 w-48 h-48">
-                  <circle
-                    cx="96"
-                    cy="96"
-                    r="80"
-                    stroke="#e5e7eb"
-                    strokeWidth="12"
-                    fill="none"
-                  />
-                  <circle
-                    cx="96"
-                    cy="96"
-                    r="80"
-                    stroke="#8b5cf6"
-                    strokeWidth="12"
-                    fill="none"
-                    strokeDasharray={`${stats.avgInspectionScore * 5.024} 502.4`}
-                    strokeLinecap="round"
-                    className="transition-all duration-1000 ease-out"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-5xl font-black text-gray-900">{stats.avgInspectionScore}<span className="text-2xl text-gray-400">%</span></span>
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">PROMEDIO</span>
-                </div>
-              </div>
-            </div>
-            <p className="text-center text-xs font-medium text-gray-400 mt-2 bg-gray-50 py-2 rounded-lg">
-              Basado en {stats.totalInspections} inspecciones
-            </p>
-          </div>
-        </div>
+                if (i.cleaning_score < 75) {
+                    alerts.push({
+                        id: `clean-${i.id}`,
+                        store: formatStoreName(i.stores?.name),
+                        storeCode,
+                        type: 'limpieza',
+                        msg: 'Falla crítica en Limpieza',
+                        score: i.cleaning_score,
+                        date: i.inspection_date,
+                        inspectionId: i.id,
+                        inspector: inspectorName,
+                        shift: i.shift,
+                        overallScore: i.overall_score,
+                        fullDate: inspDate
+                    })
+                }
+                if (i.food_score < 75) {
+                    alerts.push({
+                        id: `food-${i.id}`,
+                        store: formatStoreName(i.stores?.name),
+                        storeCode,
+                        type: 'food',
+                        msg: 'Riesgo en Preparación de Alimentos',
+                        score: i.food_score,
+                        date: i.inspection_date,
+                        inspectionId: i.id,
+                        inspector: inspectorName,
+                        shift: i.shift,
+                        overallScore: i.overall_score,
+                        fullDate: inspDate
+                    })
+                }
+                if (i.meat_score < 75) {
+                    alerts.push({
+                        id: `meat-${i.id}`,
+                        store: formatStoreName(i.stores?.name),
+                        storeCode,
+                        type: 'carnes',
+                        msg: 'Procedimiento de Carnes Deficiente',
+                        score: i.meat_score,
+                        date: i.inspection_date,
+                        inspectionId: i.id,
+                        inspector: inspectorName,
+                        shift: i.shift,
+                        overallScore: i.overall_score,
+                        fullDate: inspDate
+                    })
+                }
+                if (i.service_score < 75) {
+                    alerts.push({
+                        id: `service-${i.id}`,
+                        store: formatStoreName(i.stores?.name),
+                        storeCode,
+                        type: 'servicio',
+                        msg: 'Servicio al Cliente Insatisfactorio',
+                        score: i.service_score,
+                        date: i.inspection_date,
+                        inspectionId: i.id,
+                        inspector: inspectorName,
+                        shift: i.shift,
+                        overallScore: i.overall_score,
+                        fullDate: inspDate
+                    })
+                }
+            })
 
-        {/* Critical Alerts */}
-        <div className="space-y-4 mb-8">
-          {stats.criticalAlerts.map((alert) => (
-            <div key={alert.id} className={`rounded-2xl p-4 flex items-start gap-4 border shadow-sm ${alert.type === 'waste' ? 'bg-orange-50 border-orange-200' : 'bg-red-50 border-red-200'} animate-in fade-in slide-in-from-top-4 duration-500`}>
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${alert.type === 'waste' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600'}`}>
-                <AlertTriangle size={20} />
-              </div>
-              <div className="flex-1">
-                <div className="flex justify-between items-start">
-                  <h4 className={`font-black text-sm uppercase tracking-tight ${alert.type === 'waste' ? 'text-orange-900' : 'text-red-900'}`}>
-                    {alert.type === 'waste' ? 'Alerta de Desperdicio' : 'Alerta de Inocuidad'}
-                  </h4>
-                  <span className="text-[10px] font-bold text-gray-400">
-                    {new Date(alert.date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-                <p className={`text-sm font-bold mt-0.5 ${alert.type === 'waste' ? 'text-orange-800' : 'text-red-800'}`}>
-                  {alert.store}: <span className="font-medium">{alert.msg}</span>
-                </p>
-              </div>
-            </div>
-          ))}
+            setStats({
+                totalInspections: validInspections.length,
+                avgInspectionScore: validInspections.length > 0
+                    ? Math.round(validInspections.reduce((a: any, b: any) => a + (b.overall_score || 0), 0) / validInspections.length)
+                    : 0,
+                avgNPS,
+                criticalAlerts: alerts.slice(0, 8),
+                recentActivity: validInspections.slice(0, 5).map((i: any) => ({
+                    store: formatStoreName(i.stores?.name),
+                    user: i.users?.full_name?.split(' ')[0],
+                    date: i.inspection_date,
+                    score: i.overall_score
+                })),
+                topStores,
+                sectionPerformance: sectionPerf,
+                supervisorStats,
+                avgDuration: avgDurationStr !== '0 min' ? avgDurationStr : 'N/A'
+            })
 
-          {stats.avgNPS < 50 && stats.criticalAlerts.length === 0 && (
-            <div className="bg-red-50 rounded-2xl p-4 flex items-start gap-4 border border-red-100">
-              <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full flex items-center justify-center flex-shrink-0">
-                <AlertTriangle size={20} />
-              </div>
-              <div>
-                <h4 className="font-bold text-red-900">NPS Bajo Detectado</h4>
-                <p className="text-sm text-red-700 mt-1">El NPS promedio ({stats.avgNPS}) está por debajo del objetivo de 50. Se requiere atención inmediata.</p>
-              </div>
-            </div>
-          )}
-        </div>
+            setLoading(false)
+        } catch (err) {
+            console.error(err)
+            setLoading(false)
+        }
+    }
 
-        {/* Recent Activity */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 flex items-center gap-2">
-            <Activity size={20} className="text-gray-400" />
-            <h3 className="font-black text-gray-900">Actividad Reciente</h3>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {stats.recentActivity.map((activity, idx) => (
-              <div key={idx} className="p-4 hover:bg-gray-50 flex flex-col md:flex-row gap-4 items-start md:items-center">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-2 py-0.5 rounded-md text-[10px] uppercase font-black tracking-wide border ${activity.activityType?.includes('Inspección')
-                      ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                      }`}>
-                      {activity.activityType}
-                    </span>
-                    <h4 className="font-bold text-gray-900 text-sm">
-                      {activity.storeLabel}
-                    </h4>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs font-medium text-gray-500">
-                    <div className="flex items-center gap-1">
-                      <Users size={12} />
-                      {activity.userLabel}
+    if (loading) return <div className="flex h-screen items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
+
+    return (
+        <div className="bg-[#F8FAFC] min-h-screen font-sans w-full pb-10">
+
+            <header className="bg-white sticky top-0 z-30 px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="bg-slate-900 text-white p-2 rounded-lg">
+                        <Target size={20} />
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Calendar size={12} />
-                      {new Date(activity.date).toLocaleDateString('es-MX')}
+                    <div>
+                        <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">Intelligence Hub</h1>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Análisis Operativo en Tiempo Real</p>
                     </div>
-                    {activity.shift && (
-                      <div className="flex items-center gap-1">
-                        <Clock size={12} />
-                        {activity.shift}
-                      </div>
-                    )}
-                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                    <div className="hidden md:flex flex-col items-end mr-4 border-r border-gray-100 pr-4">
+                        <span className="text-[10px] font-black text-slate-400 uppercase">Eficiencia Promedio</span>
+                        <span className="text-sm font-black text-slate-900 flex items-center gap-1">
+                            <Timer size={14} className="text-indigo-600" /> {stats.avgDuration}
+                        </span>
+                    </div>
+                    <button
+                        onClick={() => window.location.href = '/inspecciones/nueva'}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg shadow-indigo-200 transition-all active:scale-95"
+                    >
+                        + Nueva Auditoría
+                    </button>
+                </div>
+            </header>
+
+            <main className="max-w-[1600px] mx-auto px-4 md:px-6 py-8 space-y-6">
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col justify-between relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <Activity size={80} />
+                        </div>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Score Global</p>
+                                <h2 className="text-5xl font-black tracking-tighter mt-1">{stats.avgInspectionScore}<span className="text-2xl text-slate-500">%</span></h2>
+                            </div>
+                            <div className={`px-2 py-1 rounded text-[10px] font-black uppercase ${stats.avgInspectionScore >= 85 ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                {stats.avgInspectionScore >= 85 ? 'Objetivo Cumplido' : 'Requiere Atención'}
+                            </div>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-800 flex justify-between items-end">
+                            <div>
+                                <p className="text-slate-400 text-[10px] font-bold">NPS Clientes</p>
+                                <p className="text-xl font-black">{stats.avgNPS}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-slate-400 text-[10px] font-bold">Auditorías Mes</p>
+                                <p className="text-xl font-black text-indigo-400">{stats.totalInspections}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm md:col-span-2 flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                                <BarChart3 size={16} className="text-indigo-500" />
+                                Desempeño por Categoría
+                            </h3>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Áreas Críticas (Menor a Mayor)</span>
+                        </div>
+                        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-3">
+                            {stats.sectionPerformance.map((cat, i) => (
+                                <div key={i} className="bg-slate-50 rounded-xl p-3 border border-slate-100 relative overflow-hidden">
+                                    <div className="flex justify-between items-center relative z-10">
+                                        <span className="text-xs font-bold text-slate-600">{cat.label}</span>
+                                        <span className={`text-sm font-black ${cat.score >= 85 ? 'text-green-600' : cat.score >= 75 ? 'text-yellow-600' : 'text-red-500'}`}>
+                                            {cat.score}%
+                                        </span>
+                                    </div>
+                                    <div className="mt-2 w-full bg-slate-200 h-1 rounded-full overflow-hidden relative z-10">
+                                        <div className={`h-full rounded-full ${cat.score >= 85 ? 'bg-green-500' : cat.score >= 75 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${cat.score}%` }}></div>
+                                    </div>
+                                    {cat.score < 75 && <div className="absolute inset-0 bg-red-500/5 z-0 animate-pulse"></div>}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex flex-col">
+                        <h3 className="font-bold text-slate-900 text-sm mb-4 flex items-center gap-2">
+                            <Award size={16} className="text-orange-500" />
+                            Top Supervisores
+                        </h3>
+                        <div className="space-y-3 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                            {stats.supervisorStats.map((sup, i) => (
+                                <div key={i} className="flex items-center justify-between text-xs group">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 rounded bg-slate-100 text-slate-500 font-bold flex items-center justify-center text-[10px] group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-colors">
+                                            {i + 1}
+                                        </span>
+                                        <span className="font-semibold text-slate-700">{sup.name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-slate-400 font-medium">{sup.count} insp</span>
+                                        <span className="font-black text-slate-900 bg-slate-100 px-1.5 rounded">{sup.avgScore}%</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
 
-                <div className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-black border ${activity.scoreLabel >= 90
-                  ? 'bg-green-50 text-green-700 border-green-100'
-                  : activity.scoreLabel >= 80
-                    ? 'bg-yellow-50 text-yellow-700 border-yellow-100'
-                    : 'bg-red-50 text-red-700 border-red-100'
-                  }`}>
-                  {activity.scoreLabel}% SCORE
-                </div>
-              </div>
-            ))}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-            {stats.recentActivity.length === 0 && (
-              <div className="p-8 text-center text-gray-400 text-sm font-medium">No hay actividad reciente</div>
-            )}
-          </div>
+                    {/* Alerts with Hover Tooltips */}
+                    <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm flex flex-col h-[400px] relative">
+                        <div className="p-4 border-b border-slate-50 bg-red-50/30 flex justify-between items-center">
+                            <h3 className="font-bold text-red-900 text-sm flex items-center gap-2">
+                                <ShieldAlert size={16} className="text-red-600" />
+                                Riesgos Detectados
+                            </h3>
+                            <span className="bg-red-100 text-red-700 text-[10px] font-black px-2 py-0.5 rounded-full">{stats.criticalAlerts.length}</span>
+                        </div>
+                        <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3">
+                            {stats.criticalAlerts.length > 0 ? stats.criticalAlerts.map((alert, i) => (
+                                <div key={alert.id} className="group/alert relative">
+                                    <div className="bg-white border border-red-100 rounded-xl p-3 shadow-sm flex gap-3 hover:border-red-200 transition-colors cursor-pointer">
+                                        <div className="shrink-0 pt-0.5">
+                                            <AlertTriangle size={16} className="text-red-500" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <h4 className="font-bold text-slate-800 text-xs">{alert.store}</h4>
+                                            <p className="text-xs text-red-600 font-medium mt-0.5">{alert.msg}</p>
+                                            <p className="text-[10px] text-slate-400 mt-1">{alert.fullDate}</p>
+                                        </div>
+                                        <Info size={14} className="text-slate-300 shrink-0 group-hover/alert:text-red-500 transition-colors" />
+                                    </div>
+
+                                    {/* Tooltip with extended hover area */}
+                                    <div className="fixed left-[420px] z-[100] opacity-0 invisible group-hover/alert:opacity-100 group-hover/alert:visible transition-all duration-150 pointer-events-none group-hover/alert:pointer-events-auto"
+                                        style={{ top: `${300 + (i * 80)}px` }}>
+                                        <div className="bg-slate-900 text-white rounded-xl p-4 shadow-2xl border border-slate-700 w-72 relative">
+                                            <div className="absolute right-full top-4 w-0 h-0 border-8 border-transparent border-r-slate-900"></div>
+
+                                            <div className="space-y-3">
+                                                <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-700">
+                                                    <div>
+                                                        <h4 className="font-black text-white text-sm">{alert.store}</h4>
+                                                        <p className="text-xs text-slate-400 mt-0.5">Código: {alert.storeCode}</p>
+                                                    </div>
+                                                    <div className={`px-2 py-1 rounded text-[10px] font-black uppercase ${alert.score >= 70 ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                        {alert.score}%
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                                    <div>
+                                                        <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Inspector</p>
+                                                        <p className="text-white font-semibold truncate">{alert.inspector}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Turno</p>
+                                                        <p className="text-white font-semibold">{alert.shift || 'N/A'}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="pt-3 border-t border-slate-700">
+                                                    <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Categoría Afectada</p>
+                                                    <p className="text-red-400 font-bold text-xs mb-2">{alert.msg}</p>
+                                                    <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Score Global Inspección</p>
+                                                    <p className={`text-sm font-black ${alert.overallScore >= 80 ? 'text-green-400' : 'text-red-400'}`}>{alert.overallScore}%</p>
+                                                </div>
+
+                                                <button
+                                                    onClick={() => router.push(`/inspecciones?id=${alert.inspectionId}`)}
+                                                    className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-xs font-bold transition-colors"
+                                                >
+                                                    Ver Inspección #{alert.inspectionId}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-300">
+                                    <CheckCircle size={40} className="mb-2 text-green-100" />
+                                    <p className="text-xs font-bold">Sin alertas críticas</p>
+                                </div>
+                            )}
+                        </div>            </div>
+
+                    <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[400px]">
+                        <div className="p-4 border-b border-slate-50 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                                <Store size={16} className="text-blue-500" />
+                                Ranking Sucursales
+                            </h3>
+                        </div>
+                        <div className="flex-1 overflow-y-auto">
+                            <table className="w-full text-left text-xs">
+                                <thead className="bg-slate-50 text-slate-400 font-bold uppercase sticky top-0">
+                                    <tr>
+                                        <th className="pl-4 py-3">#</th>
+                                        <th className="py-3">Tienda</th>
+                                        <th className="pr-4 py-3 text-right">Score</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {stats.topStores.map((store, i) => (
+                                        <tr key={i} className="hover:bg-slate-50/50">
+                                            <td className="pl-4 py-3 text-slate-400 font-bold w-10">{i + 1}</td>
+                                            <td className="py-3 font-semibold text-slate-700">{store.name}</td>
+                                            <td className="pr-4 py-3 text-right">
+                                                <span className={`font-black px-2 py-0.5 rounded ${store.avg >= 85 ? 'bg-green-100 text-green-700' : store.avg >= 75 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                                    {store.avg}%
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[400px]">
+                        <div className="p-4 border-b border-slate-50 flex justify-between items-center bg-indigo-50/30">
+                            <h3 className="font-bold text-indigo-900 text-sm flex items-center gap-2">
+                                <Activity size={16} className="text-indigo-600" />
+                                Última Actividad
+                            </h3>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                            {stats.recentActivity.map((act, i) => (
+                                <div key={i} className="flex gap-3 items-start relative pb-4 last:pb-0">
+                                    {i !== stats.recentActivity.length - 1 && <div className="absolute left-[11px] top-6 bottom-[-16px] w-[2px] bg-slate-100"></div>}
+
+                                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center bg-white z-10 ${act.score >= 80 ? 'border-green-500 text-green-500' : 'border-red-500 text-red-500'}`}>
+                                        <div className={`w-2 h-2 rounded-full ${act.score >= 80 ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-800">{act.store}</p>
+                                        <p className="text-[10px] text-slate-500">
+                                            Auditado por <span className="font-semibold text-indigo-600">{act.user}</span>
+                                        </p>
+                                        <span className={`text-[10px] font-black mt-1 inline-block ${act.score >= 80 ? 'text-green-600' : 'text-red-600'}`}>
+                                            Resultado: {act.score}%
+                                        </span>
+                                    </div>
+                                    <span className="ml-auto text-[9px] font-bold text-slate-300">
+                                        {new Date(act.date).toLocaleDateString()}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                </div>
+            </main>
         </div>
-      </main>
-    </div>
-  )
+    )
 }

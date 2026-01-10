@@ -175,7 +175,7 @@ function InspeccionesContent() {
         </div>
 
         {/* 2. SCROLLABLE CONTENT (Stats + Filters + List) */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
+        <div className="flex-1 overflow-y-auto p-2 md:p-4 space-y-6">
 
           {/* STATS CARDS */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -264,27 +264,26 @@ function InspeccionesContent() {
               <table className="w-full text-left border-collapse relative">
                 <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-bold">
                   <tr>
-                    <th className="p-4">Tienda</th>
-                    <th className="p-4">Supervisor</th>
-                    <th className="p-4 text-center">Fecha</th>
-                    <th className="p-4 text-center">Turno</th>
-                    <th className="p-4 text-center">Duración</th>
-                    <th className="p-4 text-center">Score</th>
-                    <th className="p-4 text-left">Estado</th>
-                    <th className="p-4 text-center">Evidencia</th>
-                    <th className="p-4 text-center">Acciones</th>
+                    <th className="p-5">Tienda</th>
+                    <th className="p-5">Supervisor</th>
+                    <th className="p-5 text-center">Fecha</th>
+                    <th className="p-5 text-center">Turno</th>
+                    <th className="p-5 text-center">Duración</th>
+                    <th className="p-5 text-center">Score</th>
+                    <th className="p-5 text-left">Estado</th>
+                    <th className="p-5 text-center">Evidencia</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-gray-100">
                   {errorMsg ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-red-500 font-bold">
+                      <td colSpan={8} className="p-8 text-center text-red-500 font-bold">
                         {errorMsg}
                       </td>
                     </tr>
                   ) : inspections.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-gray-400 italic">No se encontraron inspecciones.</td>
+                      <td colSpan={8} className="p-8 text-center text-gray-400 italic">No se encontraron inspecciones.</td>
                     </tr>
                   ) : (
                     inspections.map((item) => {
@@ -326,10 +325,10 @@ function InspeccionesContent() {
                           onClick={() => handleRowClick(item)}
                           className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
                         >
-                          <td className="p-4 font-bold text-gray-900">{item.store_name}</td>
-                          <td className="p-4 text-gray-600 text-xs font-semibold">{item.supervisor_name}</td>
-                          <td className="p-4 text-center text-gray-500 text-xs font-semibold">{formatDateLA(item.checklist_date)}</td>
-                          <td className="p-4 text-center">
+                          <td className="p-5 font-bold text-gray-900">{item.store_name}</td>
+                          <td className="p-5 text-gray-600 text-xs font-semibold">{item.supervisor_name}</td>
+                          <td className="p-5 text-center text-gray-500 text-xs font-semibold">{formatDateLA(item.checklist_date)}</td>
+                          <td className="p-5 text-center">
                             {displayShift ? (
                               <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {displayShift}
@@ -338,15 +337,15 @@ function InspeccionesContent() {
                               <span className="text-gray-300 font-bold text-xs">-</span>
                             )}
                           </td>
-                          <td className="p-4 text-center">
+                          <td className="p-5 text-center">
                             <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
                           </td>
-                          <td className="p-4 text-center">
+                          <td className="p-5 text-center">
                             <span className={`text-base font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
                               {item.overall_score}%
                             </span>
                           </td>
-                          <td className="p-4 text-left">
+                          <td className="p-5 text-left">
                             <div className="flex items-center justify-start gap-1">
                               <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
                                 {getStatusLabel(item.estatus_admin || 'pendiente')}
@@ -358,19 +357,14 @@ function InspeccionesContent() {
                               )}
                             </div>
                           </td>
-                          <td className="p-4 text-center">
+                          <td className="p-5 text-center">
                             {(item.photos && item.photos.length > 0) ? (
-                              <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-full text-xs font-bold" title={`${item.photos.length} fotos`}>
+                              <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-full text-xl font-bold" title={`${item.photos.length} fotos`}>
                                 📷
                               </span>
                             ) : (
                               <span className="text-gray-300">-</span>
                             )}
-                          </td>
-                          <td className="p-4 text-center">
-                            <button className="text-gray-400 hover:text-blue-600 font-bold text-xs underline opacity-0 group-hover:opacity-100 transition-opacity">
-                              Ver Detalle
-                            </button>
                           </td>
                         </tr>
                       )
