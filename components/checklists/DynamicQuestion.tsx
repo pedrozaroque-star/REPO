@@ -263,9 +263,18 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         `}
                     >
                         <Camera size={20} />
-                        <span className="text-[9px] font-bold uppercase">Foto/Video</span>
+                        <span className="text-[9px] font-bold uppercase">Capturar</span>
                     </button>
-                    <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*,video/*" multiple />
+                    {/* Input with capture attribute for Android support */}
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handlePhotoUpload}
+                        className="hidden"
+                        accept="image/*,video/*"
+                        capture="environment"
+                        multiple
+                    />
                 </div>
             </div>
         </motion.div>
