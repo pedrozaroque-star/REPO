@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles } from 'lucide-react'
+import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Video, Upload } from 'lucide-react'
 import { uploadPhotos } from '@/lib/uploadPhotos'
 
 interface QuestionProps {
@@ -21,7 +21,6 @@ interface QuestionProps {
     checklistType?: string
 }
 
-// Helper to check if question is new (7 days)
 const isNew = (dateStr?: string) => {
     if (!dateStr) return false
     const date = new Date(dateStr)
@@ -37,7 +36,11 @@ const isVideo = (url: string) => {
 
 export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType }: QuestionProps) {
     const [uploading, setUploading] = useState(false)
-    const fileInputRef = useRef<HTMLInputElement>(null)
+
+    // Separate refs for distinct Android intents
+    const photoInputRef = useRef<HTMLInputElement>(null)
+    const videoInputRef = useRef<HTMLInputElement>(null)
+    const galleryInputRef = useRef<HTMLInputElement>(null)
 
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files?.length) return
@@ -46,10 +49,13 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
             const urls = await uploadPhotos(Array.from(e.target.files), 'checklist-photos', `question-${question.id}`)
             onPhotosChange([...photos, ...urls])
         } catch (err) {
-            alert('Error al subir foto')
+            alert('Error al subir archivo')
         } finally {
             setUploading(false)
-            if (fileInputRef.current) fileInputRef.current.value = ''
+            // Reset all inputs
+            if (photoInputRef.current) photoInputRef.current.value = ''
+            if (videoInputRef.current) videoInputRef.current.value = ''
+            if (galleryInputRef.current) galleryInputRef.current.value = ''
         }
     }
 
@@ -238,7 +244,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                 </div>
 
                 {/* Photos Section */}
-                <div className="flex gap-3 overflow-x-auto pb-2 pt-1 border-t border-gray-50 mt-1">
+                <div className="flex gap-2 overflow-x-auto pb-2 pt-1 border-t border-gray-50 mt-1 scrollbar-hide">
                     <AnimatePresence>
                         {photos.map((url) => (
                             <motion.div key={url} initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} className="relative group/delete flex-shrink-0">
@@ -254,27 +260,36 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         ))}
                     </AnimatePresence>
 
+                    {/* BUTTON 1: CAMERA (Photos) */}
                     <button
-                        type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
-                        className={`
-                            h-16 w-16 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 transition-all flex-shrink-0
-                            ${(photos.length === 0 && !isAnswered) ? 'border-gray-300 text-gray-400 bg-gray-50' : 'border-gray-200 text-gray-300'}
-                            hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50
-                        `}
+                        type="button" onClick={() => photoInputRef.current?.click()} disabled={uploading}
+                        className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 bg-blue-50 text-blue-600 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-blue-100 transition-colors"
                     >
-                        <Camera size={20} />
-                        <span className="text-[9px] font-bold uppercase">Capturar</span>
+                        <Camera size={18} />
+                        <span className="text-[8px] font-black uppercase">Foto</span>
                     </button>
-                    {/* Input with capture attribute for Android support */}
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handlePhotoUpload}
-                        className="hidden"
-                        accept="image/*,video/*"
-                        capture="environment"
-                        multiple
-                    />
+                    <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*" capture="environment" multiple />
+
+                    {/* BUTTON 2: VIDEO (Video) */}
+                    <button
+                        type="button" onClick={() => videoInputRef.current?.click()} disabled={uploading}
+                        className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 bg-purple-50 text-purple-600 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-purple-100 transition-colors"
+                    >
+                        <Video size={18} />
+                        <span className="text-[8px] font-black uppercase">Video</span>
+                    </button>
+                    <input type="file" ref={videoInputRef} onChange={handlePhotoUpload} className="hidden" accept="video/*" capture="environment" multiple />
+
+                    {/* BUTTON 3: GALLERY */}
+                    <button
+                        type="button" onClick={() => galleryInputRef.current?.click()} disabled={uploading}
+                        className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 text-gray-400 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-gray-100 transition-colors"
+                    >
+                        <ImageIcon size={18} />
+                        <span className="text-[8px] font-black uppercase">Galería</span>
+                    </button>
+                    <input type="file" ref={galleryInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*,video/*" multiple />
+
                 </div>
             </div>
         </motion.div>
