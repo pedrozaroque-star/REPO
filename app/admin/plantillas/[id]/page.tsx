@@ -161,10 +161,39 @@ export default function TemplateEditorPage() {
     }
 
     const handleUpdateQuestion = async (qId: string, updates: Partial<Question>) => {
-        setSections(prev => prev.map(sec => ({
-            ...sec,
-            questions: sec.questions.map(q => q.id === qId ? { ...q, ...updates } : q)
-        })))
+        setSections(prev => {
+            // If strictly creating/updating simple fields and NOT moving sections
+            if (!updates.section_id) {
+                return prev.map(sec => ({
+                    ...sec,
+                    questions: sec.questions.map(q => q.id === qId ? { ...q, ...updates } : q)
+                }))
+            }
+
+            // If moving to another section:
+            let questionToMove: Question | undefined
+
+            // 1. Find and remove from old section
+            const sectionsWithoutQ = prev.map(sec => {
+                const q = sec.questions.find(q => q.id === qId)
+                if (q) {
+                    questionToMove = { ...q, ...updates } // Capture with updates
+                    // Remove from this section
+                    return { ...sec, questions: sec.questions.filter(q => q.id !== qId) }
+                }
+                return sec
+            })
+
+            if (!questionToMove) return prev
+
+            // 2. Add to new section
+            return sectionsWithoutQ.map(sec => {
+                if (sec.id === updates.section_id) {
+                    return { ...sec, questions: [...sec.questions, questionToMove!] }
+                }
+                return sec
+            })
+        })
 
         try {
             const supabase = await getSupabaseClient()
@@ -332,6 +361,19 @@ export default function TemplateEditorPage() {
                                                             </div>
 
                                                             <div className="flex flex-wrap gap-4">
+                                                                <div className="min-w-[200px]">
+                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">Sección</label>
+                                                                    <select
+                                                                        value={q.section_id}
+                                                                        onChange={(e) => handleUpdateQuestion(q.id, { section_id: e.target.value })}
+                                                                        className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-sm"
+                                                                    >
+                                                                        {sections.map(s => (
+                                                                            <option key={s.id} value={s.id}>{s.title}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+
                                                                 <div className="flex-1 min-w-[200px]">
                                                                     <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">Tipo de Respuesta</label>
                                                                     <select

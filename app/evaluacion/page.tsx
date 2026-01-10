@@ -15,6 +15,15 @@ const isLeadRole = (role: string): boolean => {
   return LEAD_ROLES.has(role.toLowerCase().trim())
 }
 
+interface Store {
+  id: string
+  name: string
+  latitude: number | null
+  longitude: number | null
+  address?: string
+  city?: string
+}
+
 export default function StaffEvaluationPage() {
   const searchParams = useSearchParams()
   const storeParam = searchParams.get('store')
@@ -22,7 +31,7 @@ export default function StaffEvaluationPage() {
   const [showSplash, setShowSplash] = useState(true)
   const [showThanks, setShowThanks] = useState(false)
   const [lang, setLang] = useState<'es' | 'en'>('es')
-  const [stores, setStores] = useState<any[]>([])
+  const [stores, setStores] = useState<Store[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedStore, setSelectedStore] = useState(storeParam || '')
   const [detectingLocation, setDetectingLocation] = useState(false)
@@ -46,7 +55,7 @@ export default function StaffEvaluationPage() {
 
   useEffect(() => {
     fetchStores()
-    const timer = setTimeout(() => setShowSplash(false), 2000)
+    const timer = setTimeout(() => setShowSplash(false), 5500)
     return () => clearTimeout(timer)
   }, [])
 
@@ -60,25 +69,47 @@ export default function StaffEvaluationPage() {
   const fetchStores = async () => {
     try {
       const supabase = await getSupabaseClient()
-      const { data } = await supabase.from('stores').select('id, name, latitude, longitude').order('name')
-      setStores(data || [])
+      const { data } = await supabase.from('stores').select('id, name, latitude, longitude, address, city').order('name')
+
+      const storesWithNumbers = (Array.isArray(data) ? data : []).map(store => ({
+        ...store,
+        id: String(store.id), // Ensure text ID for consistent selection
+        latitude: store.latitude ? parseFloat(store.latitude) : null,
+        longitude: store.longitude ? parseFloat(store.longitude) : null
+      }))
+      setStores(storesWithNumbers)
     } catch (err) {
       console.error('Error fetching stores:', err)
     }
   }
 
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+  }
+
   const detectLocation = () => {
-    if (!navigator.geolocation) return
+    if (!navigator.geolocation) {
+      alert('Tu navegador no soporta geolocalización')
+      return
+    }
     setDetectingLocation(true)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords
-        let closest: any = null
+        let closest: Store | null = null
         let minDistance = Infinity
 
         stores.forEach(s => {
           if (s.latitude && s.longitude) {
-            const d = Math.sqrt(Math.pow(s.latitude - latitude, 2) + Math.pow(s.longitude - longitude, 2))
+            const d = calculateDistance(latitude, longitude, s.latitude, s.longitude)
             if (d < minDistance) {
               minDistance = d
               closest = s
@@ -86,12 +117,16 @@ export default function StaffEvaluationPage() {
           }
         })
 
-        if (closest && minDistance < 0.05) { // Roughly 5km
-          setSelectedStore(closest.id)
+        const MAX_DISTANCE_KM = 4.02 // 2.5 miles
+        if (closest && minDistance <= MAX_DISTANCE_KM) {
+          setSelectedStore((closest as Store).id)
         }
         setDetectingLocation(false)
       },
-      () => setDetectingLocation(false),
+      () => {
+        alert('No se pudo obtener la ubicación.')
+        setDetectingLocation(false)
+      },
       { enableHighAccuracy: true, timeout: 10000 }
     )
   }
@@ -199,6 +234,7 @@ export default function StaffEvaluationPage() {
 
   const t = texts[lang]
   const isLead = isLeadRole(formData.evaluated_role)
+  const currentStoreInfo = stores.find(s => s.id === selectedStore)
 
   if (showSplash) {
     return (
@@ -250,37 +286,76 @@ export default function StaffEvaluationPage() {
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <MapPin size={12} /> {t.store}
               </label>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none">
-                  <option value="">{t.storePlaceholder}</option>
-                  {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
-                </select>
-                <button type="button" onClick={detectLocation} disabled={detectingLocation}
-                  className="p-4 bg-red-50 text-red-600 font-black text-xs uppercase tracking-widest rounded-2xl border border-red-100 hover:bg-red-100 transition-all disabled:opacity-50">
-                  {detectingLocation ? t.detecting : t.detectBtn}
-                </button>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr,auto] gap-3">
+                  <div className="relative w-full">
+                    <select
+                      value={selectedStore}
+                      onChange={e => setSelectedStore(e.target.value)}
+                      className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
+                    >
+                      <option value="">{t.storePlaceholder}</option>
+                      {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
+                    </select>
+                    <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">▼</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={detectLocation}
+                    disabled={detectingLocation}
+                    className="p-4 bg-red-50 text-red-600 font-black text-xs uppercase tracking-widest rounded-2xl border border-red-100 hover:bg-red-100 transition-all disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {detectingLocation ? t.detecting : t.detectBtn}
+                  </button>
+                </div>
+
+                {currentStoreInfo && (
+                  <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 rounded-xl border border-blue-100 animate-in fade-in zoom-in duration-300">
+                    <span className="text-lg">📍</span>
+                    <div className="text-xs text-blue-700 leading-relaxed">
+                      <span className="block font-black text-blue-800 uppercase tracking-wide mb-0.5">¿Estás aquí?</span>
+                      {currentStoreInfo.address}<br />
+                      {currentStoreInfo.city}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-6 pt-4 border-t border-gray-50">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><User size={12} /> {t.evaluator}</label>
-                <input type="text" value={formData.evaluator_name} onChange={e => setFormData({ ...formData, evaluator_name: e.target.value })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all" />
+                <input
+                  type="text"
+                  value={formData.evaluator_name}
+                  onChange={e => setFormData({ ...formData, evaluator_name: e.target.value })}
+                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><UserCheck size={12} /> {t.evaluatedName}</label>
-                <input type="text" value={formData.evaluated_name} onChange={e => setFormData({ ...formData, evaluated_name: e.target.value })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all" />
+                <input
+                  type="text"
+                  value={formData.evaluated_name}
+                  onChange={e => setFormData({ ...formData, evaluated_name: e.target.value })}
+                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><Briefcase size={12} /> {t.evaluatedRole}</label>
-                <select value={formData.evaluated_role} onChange={e => setFormData({ ...formData, evaluated_role: e.target.value })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none">
-                  <option value="">{t.rolePlaceholder}</option>
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+                <div className="relative">
+                  <select
+                    value={formData.evaluated_role}
+                    onChange={e => setFormData({ ...formData, evaluated_role: e.target.value })}
+                    className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
+                  >
+                    <option value="">{t.rolePlaceholder}</option>
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">▼</div>
+                </div>
               </div>
             </div>
           </section>
@@ -328,36 +403,55 @@ export default function StaffEvaluationPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic">{t.fortalezas}</label>
-                <textarea value={formData.fortalezas} onChange={e => setFormData({ ...formData, fortalezas: e.target.value })} rows={3}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none" />
+                <textarea
+                  value={formData.fortalezas}
+                  onChange={e => setFormData({ ...formData, fortalezas: e.target.value })} rows={3}
+                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic">{t.areasMejora}</label>
-                <textarea value={formData.areas_mejora} onChange={e => setFormData({ ...formData, areas_mejora: e.target.value })} rows={3}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none" />
+                <textarea
+                  value={formData.areas_mejora}
+                  onChange={e => setFormData({ ...formData, areas_mejora: e.target.value })} rows={3}
+                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none"
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-6 pt-4 border-t border-gray-50">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.recomendaria}</label>
-                <select value={formData.recomendaria} onChange={e => setFormData({ ...formData, recomendaria: e.target.value })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all">
-                  <option value="si">{t.yes}</option>
-                  <option value="no">{t.no}</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={formData.recomendaria}
+                    onChange={e => setFormData({ ...formData, recomendaria: e.target.value })}
+                    className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
+                  >
+                    <option value="si">{t.yes}</option>
+                    <option value="no">{t.no}</option>
+                  </select>
+                  <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">▼</div>
+                </div>
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.general}</label>
-                <input type="number" min="1" max="10" value={formData.desempeno_general || ''} onChange={e => setFormData({ ...formData, desempeno_general: parseInt(e.target.value) })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all" />
+                <input
+                  type="number" min="1" max="10"
+                  value={formData.desempeno_general || ''}
+                  onChange={e => setFormData({ ...formData, desempeno_general: parseInt(e.target.value) })}
+                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all"
+                />
               </div>
             </div>
 
             <div className="space-y-2 pt-4">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic">{t.comentarios}</label>
-              <textarea value={formData.comentarios} onChange={e => setFormData({ ...formData, comentarios: e.target.value })} rows={4}
-                className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none" />
+              <textarea
+                value={formData.comentarios}
+                onChange={e => setFormData({ ...formData, comentarios: e.target.value })} rows={4}
+                className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none"
+              />
             </div>
 
             <button type="submit" disabled={loading}
