@@ -156,6 +156,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                     </div>
                 )
 
+            case 'compliance':
             case 'score_100':
                 return (
                     <div className="flex gap-2 w-full">
