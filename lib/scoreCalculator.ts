@@ -29,7 +29,7 @@ export const calculateInspectionScore = (checklist: any, template: any) => {
     let validSections = 0
     const normalize = (t: string) => t ? t.toLowerCase().replace(/[^a-z0-9]/g, '').trim() : ''
 
-    template.sections.forEach((section: any) => {
+    template.sections.forEach((section: any, sIdx: number) => {
         let sectionSum = 0
         let sectionCount = 0
 
@@ -49,8 +49,14 @@ export const calculateInspectionScore = (checklist: any, template: any) => {
             if (matchKey && answersObj[matchKey]?.items) sectionItems = answersObj[matchKey].items
         }
 
-        section.questions.forEach((q: any) => {
+        section.questions.forEach((q: any, qIdx: number) => {
             let value: any = undefined
+
+            // Strategy 0: Positional Index Match (Crucial for Supervisor V1)
+            if (sectionItems && (sectionItems[`i${qIdx}`] !== undefined || sectionItems[qIdx] !== undefined)) {
+                const item = sectionItems[`i${qIdx}`] || sectionItems[qIdx]
+                value = (item.score !== undefined) ? item.score : item
+            }
 
             // Strategy 1: ID match (Top Level)
             if (answersObj[q.id] !== undefined) value = answersObj[q.id]
@@ -84,13 +90,33 @@ export const calculateInspectionScore = (checklist: any, template: any) => {
                 const qWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 3)
                 if (qWords.length > 0) {
                     for (const key of Object.keys(answersObj)) {
-                        if (key === '__question_photos' || typeof answersObj[key] === 'object') continue
-                        const keyLower = key.toLowerCase()
-                        const matchCount = qWords.filter((w: string) => keyLower.includes(w)).length
-                        const matchRatio = matchCount / qWords.length
-                        if (matchRatio >= 0.5) {
-                            value = answersObj[key]
-                            break
+                        if (key === '__question_photos') continue
+
+                        const val = answersObj[key]
+
+                        // NEW Strategy 5: Deep Search inside items (Modal Style Logic)
+                        if (val && typeof val === 'object' && val.items) {
+                            for (const subKey of Object.keys(val.items)) {
+                                const subItem = val.items[subKey]
+                                const label = (subItem.label || subKey).toLowerCase()
+                                const matchCount = qWords.filter((w: string) => label.includes(w)).length
+                                if (matchCount >= 2 || (qWords.length === 1 && matchCount === 1)) {
+                                    value = subItem.score !== undefined ? subItem.score : subItem
+                                    break
+                                }
+                            }
+                            if (value !== undefined) break
+                        }
+
+                        // Original Flat Strategy
+                        if (typeof val !== 'object') {
+                            const keyLower = key.toLowerCase()
+                            const matchCount = qWords.filter((w: string) => keyLower.includes(w)).length
+                            const matchRatio = matchCount / qWords.length
+                            if (matchRatio >= 0.5) {
+                                value = answersObj[key]
+                                break
+                            }
                         }
                     }
                 }

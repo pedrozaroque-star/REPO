@@ -74,8 +74,11 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                                 type="button"
                                 onClick={() => onChange(opt)}
                                 className={`flex-1 py-3 px-2 rounded-xl font-black text-sm transition-all shadow-sm border-2 ${value === opt
-                                    ? opt === 'SI' ? 'bg-blue-600 border-blue-600 text-white shadow-blue-200' : opt === 'NO' ? 'bg-pink-600 border-pink-600 text-white shadow-pink-200' : 'bg-gray-600 border-gray-600 text-white'
-                                    : 'bg-white border-gray-100 text-gray-500 hover:border-blue-200 hover:text-blue-600'
+                                    ? opt === 'SI'
+                                        ? 'bg-green-500 border-green-500 text-white shadow-green-200' : opt === 'NO'
+                                            ? 'bg-red-500 border-red-500 text-white shadow-red-200'
+                                            : 'bg-gray-500 border-gray-500 text-white'
+                                    : 'bg-white border-gray-100 text-gray-500 hover:border-green-200 hover:text-green-600'
                                     }`}
                             >
                                 {opt === 'SI' ? 'SÍ' : opt === 'NO' ? 'NO' : 'N/A'}

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, MoreHorizontal } from 'lucide-react'
@@ -22,8 +22,9 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   // Dynamic Hooks
   const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('supervisor_inspection_v1')
-  const sections = template?.sections || []
-  const allQuestions = sections.flatMap((s: any) => s.questions)
+
+  const sections = useMemo(() => template?.sections || [], [template])
+  const allQuestions = useMemo(() => sections.flatMap((s: any) => s.questions), [sections])
 
   const [formData, setFormData] = useState({
     store_id: initialData?.store_id?.toString() || '',
@@ -50,15 +51,20 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   useEffect(() => {
     if (initialData?.answers) {
       const initialAnswers: { [key: string]: any } = {}
-      allQuestions.forEach((q: any, idx: number) => {
-        const sectionTitle = sections.find(s => s.questions.some((qq: any) => qq.id === q.id))?.title
-        if (sectionTitle && initialData.answers[sectionTitle]) {
-          const itm = initialData.answers[sectionTitle].items?.[`i${idx}`] || initialData.answers[sectionTitle].items?.[idx]
-          if (itm !== undefined) {
-            initialAnswers[q.id] = itm.score !== undefined ? itm.score : itm
-          }
+
+      // [FIX] Iterate by sections to match saving structure (Local Index)
+      sections.forEach((section: any) => {
+        const sectionTitle = section.title
+        if (initialData.answers[sectionTitle]) {
+          section.questions.forEach((q: any, idx: number) => {
+            const itm = initialData.answers[sectionTitle].items?.[`i${idx}`] || initialData.answers[sectionTitle].items?.[idx]
+            if (itm !== undefined) {
+              initialAnswers[q.id] = itm.score !== undefined ? itm.score : itm
+            }
+          })
         }
       })
+
       setAnswers(initialAnswers)
 
       // Load photos from __question_photos if available
@@ -66,7 +72,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         setQuestionPhotos(initialData.answers['__question_photos'])
       }
     }
-  }, [initialData, allQuestions])
+  }, [initialData, sections])
 
   const handleAnswer = (questionId: string, val: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: val }))

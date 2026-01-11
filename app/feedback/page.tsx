@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { MessageSquare, Plus, Filter } from 'lucide-react'
-import { getSupabaseClient, formatStoreName } from '@/lib/supabase' // ✅ Importación necesaria
+import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
@@ -206,7 +207,7 @@ function FeedbackContent() {
 
         {/* STICKY HEADER - Mobile & Desktop */}
         <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
-          <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
+          <div className="w-full mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
             {/* Title Area */}
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
@@ -246,7 +247,7 @@ function FeedbackContent() {
         </div>
 
         {/* SCROLLABLE CONTENT */}
-        <div className="flex-1 overflow-y-auto w-full max-w-7xl mx-auto p-4 md:p-8 pb-24">
+        <div className="flex-1 overflow-y-auto w-full mx-auto p-4 md:p-8 pb-24">
 
           {/* Mobile Filters */}
           <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6">
@@ -327,7 +328,7 @@ function FeedbackContent() {
                       <div>
                         <h3 className="font-black text-lg text-gray-900">{formatStoreName(item.stores?.name)}</h3>
                         <p className="text-xs text-gray-500 font-medium">
-                          {new Date(item.submission_date).toLocaleDateString('es-MX')} • {new Date(item.submission_date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                          {formatDateLA(item.submission_date)} • {formatTimeLA(item.submission_date)}
                         </p>
                       </div>
                       <div className="text-right">
@@ -338,7 +339,7 @@ function FeedbackContent() {
                     </div>
 
                     <div className="flex flex-col gap-2 mb-4">
-                      <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
+                      <div className={`flex items-center gap-2 text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 italic' : 'text-gray-800'}`}>
                         {item.customer_name || 'Anónimo'}
                       </div>
                       {item.comments && (
@@ -380,7 +381,7 @@ function FeedbackContent() {
                         <th className="px-6 py-4">Sucursal</th>
                         <th className="px-6 py-4">Cliente</th>
                         <th className="px-6 py-4 text-center">NPS</th>
-                        <th className="px-6 py-4 text-center">Calif. Gral</th>
+                        <th className="px-6 py-4 text-left">CALIFICACIÓN</th>
                         <th className="px-6 py-4 text-center">Evidencia</th>
                         <th className="px-6 py-4 text-center">Comentario</th>
                         <th className="px-6 py-4 text-center">Acciones</th>
@@ -394,12 +395,12 @@ function FeedbackContent() {
                           className="hover:bg-gray-50/80 cursor-pointer transition-colors group"
                         >
                           <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
-                            <div className="font-bold text-gray-900">{new Date(item.submission_date).toLocaleDateString('es-MX')}</div>
-                            <div className="text-xs text-gray-400">{new Date(item.submission_date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div className="font-bold text-gray-900">{formatDateLA(item.submission_date)}</div>
+                            <div className="text-xs text-gray-400">{formatTimeLA(item.submission_date)}</div>
                           </td>
                           <td className="px-6 py-4 font-medium text-gray-700">{formatStoreName(item.stores?.name)}</td>
                           <td className="px-6 py-4">
-                            <div className="text-sm font-bold text-gray-900">{item.customer_name || 'Anónimo'}</div>
+                            <div className={`text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 italic' : 'text-gray-900'}`}>{item.customer_name || 'Anónimo'}</div>
                             {item.customer_email && <div className="text-xs text-gray-400 truncate max-w-[150px]">{item.customer_email}</div>}
                           </td>
                           <td className="px-6 py-4 text-center">
@@ -407,8 +408,8 @@ function FeedbackContent() {
                               {item.nps_score}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            <div className="flex justify-center text-yellow-400 text-xs">
+                          <td className="px-6 py-4 text-left">
+                            <div className="flex justify-start text-yellow-400 text-lg">
                               {'⭐'.repeat(Math.round((item.service_rating + item.food_quality_rating + item.cleanliness_rating + item.speed_rating) / 4))}
                             </div>
                           </td>

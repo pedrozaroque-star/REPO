@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Lock as LockIcon, ShieldCheck, Trophy, ClipboardList, LogOut, RefreshCw, Store as StoreIcon, Star, Heart, Filter, Search } from 'lucide-react'
+import { formatDateLA } from '@/lib/checklistPermissions'
 
 interface Feedback {
   id: number
@@ -456,7 +457,7 @@ export default function AdminPage() {
                       <div>
                         <h3 className="font-black text-lg text-gray-900 leading-tight mb-1">{feedback.store_name}</h3>
                         <p className="text-xs text-gray-500 font-medium">
-                          {new Date(feedback.submission_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} • {feedback.customer_name || 'Anónimo'}
+                          {formatDateLA(feedback.submission_date)} • {feedback.customer_name || 'Anónimo'}
                         </p>
                       </div>
                       <span className={`px-2 py-1 rounded-lg text-xs font-black uppercase border ${getNPSColor(feedback.nps_category)}`}>

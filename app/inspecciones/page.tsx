@@ -6,7 +6,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
-import { MessageCircleMore } from 'lucide-react'
+import { MessageCircleMore, Edit } from 'lucide-react'
 
 
 function InspeccionesContent() {
@@ -147,6 +147,26 @@ function InspeccionesContent() {
     setIsModalOpen(true)
   }
 
+  const handleEdit = (item: any, e: any) => {
+    e.stopPropagation()
+    // Validar permiso usando la helper centralizada
+    // Nota: item.inspector_id es el creador de la inspección
+    const permission = canEditChecklist(
+      item.checklist_date || item.created_at,
+      user?.role || '',
+      item.inspector_id,
+      user?.id || '',
+      item.estatus_admin
+    )
+
+    if (!permission.canEdit) {
+      alert(permission.reason || 'No tienes permiso para editar esta inspección.')
+      return
+    }
+
+    router.push(`/inspecciones/editar/${item.id}`)
+  }
+
   // --- RENDER ---
   if (loading) return <div className="flex h-screen items-center justify-center">Cargando inspecciones...</div>
 
@@ -194,13 +214,16 @@ function InspeccionesContent() {
             <div className="bg-white rounded-xl shadow-sm p-4 border border-yellow-100 border-l-4 border-l-yellow-500">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Pendientes</p>
               <p className="text-2xl font-black text-gray-900 mt-0.5">
-                {inspections.filter(i => (i.estatus_admin || 'pendiente') === 'pendiente').length}
+                {inspections.filter(i => (i.estatus_admin || 'pendiente').toLowerCase().trim() === 'pendiente').length}
               </p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-4 border border-blue-100 border-l-4 border-l-blue-500">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Aprobados</p>
               <p className="text-2xl font-black text-gray-900 mt-0.5">
-                {inspections.filter(i => i.estatus_admin === 'aprobado').length}
+                {inspections.filter(i => {
+                  const s = (i.estatus_admin || '').toLowerCase().trim()
+                  return s === 'aprobado' || s === 'cerrado'
+                }).length}
               </p>
             </div>
           </div>
@@ -262,16 +285,17 @@ function InspeccionesContent() {
           <div className="hidden lg:flex bg-white rounded-xl shadow-sm border border-gray-200 flex-col overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse relative">
-                <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-bold">
+                <thead className="bg-gray-50 border-b border-gray-200 text-sm uppercase text-gray-500 font-bold tracking-wide">
                   <tr>
-                    <th className="p-5">Tienda</th>
-                    <th className="p-5">Supervisor</th>
-                    <th className="p-5 text-center">Fecha</th>
-                    <th className="p-5 text-center">Turno</th>
-                    <th className="p-5 text-center">Duración</th>
-                    <th className="p-5 text-center">Score</th>
-                    <th className="p-5 text-left">Estado</th>
-                    <th className="p-5 text-center">Evidencia</th>
+                    <th className="p-4 pl-6">Tienda</th>
+                    <th className="p-4">Supervisor</th>
+                    <th className="p-4 text-center">Fecha</th>
+                    <th className="p-4 text-center">Turno</th>
+                    <th className="p-4 text-center">Duración</th>
+                    <th className="p-4 text-center">Score</th>
+                    <th className="p-4 text-left">Estado</th>
+                    <th className="p-4 text-center">Evidencia</th>
+                    <th className="p-4 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-gray-100">
@@ -323,48 +347,58 @@ function InspeccionesContent() {
                         <tr
                           key={item.id}
                           onClick={() => handleRowClick(item)}
-                          className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
+                          className="hover:bg-blue-50/50 cursor-pointer transition-colors group border-b border-gray-50/50"
                         >
-                          <td className="p-5 font-bold text-gray-900">{item.store_name}</td>
-                          <td className="p-5 text-gray-600 text-xs font-semibold">{item.supervisor_name}</td>
-                          <td className="p-5 text-center text-gray-500 text-xs font-semibold">{formatDateLA(item.checklist_date)}</td>
-                          <td className="p-5 text-center">
+                          <td className="p-4 pl-6 font-black text-gray-900 text-base">{item.store_name}</td>
+                          <td className="p-4 text-gray-600 text-sm font-semibold">{item.supervisor_name}</td>
+                          <td className="p-4 text-center text-gray-500 text-sm font-semibold">{formatDateLA(item.checklist_date)}</td>
+                          <td className="p-4 text-center">
                             {displayShift ? (
-                              <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                              <span className={`px-2.5 py-1 rounded text-xs font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {displayShift}
                               </span>
                             ) : (
                               <span className="text-gray-300 font-bold text-xs">-</span>
                             )}
                           </td>
-                          <td className="p-5 text-center">
+                          <td className="p-4 text-center">
                             <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
                           </td>
-                          <td className="p-5 text-center">
-                            <span className={`text-base font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
+                          <td className="p-4 text-center">
+                            <span className={`text-xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
                               {item.overall_score}%
                             </span>
                           </td>
-                          <td className="p-5 text-left">
-                            <div className="flex items-center justify-start gap-1">
-                              <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
+                          <td className="p-4 text-left">
+                            <div className="flex items-center justify-start gap-2">
+                              <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase border tracking-wide ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
                                 {getStatusLabel(item.estatus_admin || 'pendiente')}
                               </span>
                               {item.has_comments && (
                                 <div className="p-1 text-blue-600 bg-blue-50 rounded-full border border-blue-100" title="Hay comentarios">
-                                  <MessageCircleMore size={18} strokeWidth={2.5} />
+                                  <MessageCircleMore size={16} strokeWidth={2.5} />
                                 </div>
                               )}
                             </div>
                           </td>
-                          <td className="p-5 text-center">
+                          <td className="p-4 text-center">
                             {(item.photos && item.photos.length > 0) ? (
-                              <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-full text-xl font-bold" title={`${item.photos.length} fotos`}>
+                              <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-full text-lg font-bold hover:bg-blue-100 transition-colors" title={`${item.photos.length} fotos`}>
                                 📷
                               </span>
                             ) : (
-                              <span className="text-gray-300">-</span>
+                              <span className="text-gray-300 text-xs font-medium">-</span>
                             )}
+                          </td>
+
+                          <td className="p-4 text-center">
+                            <button
+                              onClick={(e) => handleEdit(item, e)}
+                              className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Editar Inspección"
+                            >
+                              <Edit size={18} />
+                            </button>
                           </td>
                         </tr>
                       )
@@ -385,17 +419,17 @@ function InspeccionesContent() {
               >
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex flex-col">
-                    <h3 className="text-base font-black text-gray-900 leading-tight">{item.store_name}</h3>
-                    <span className="text-xs font-bold text-gray-500 mt-1">{formatDateLA(item.checklist_date)}</span>
+                    <h3 className="text-lg font-black text-gray-900 leading-tight">{item.store_name}</h3>
+                    <span className="text-sm font-bold text-gray-500 mt-1">{formatDateLA(item.checklist_date)}</span>
                   </div>
-                  <span className={`text-xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
+                  <span className={`text-2xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
                     {item.overall_score}%
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50">
                   <div className="flex items-center gap-2">
-                    <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
+                    <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
                       {getStatusLabel(item.estatus_admin || 'pendiente')}
                     </span>
                     {item.has_comments && (
@@ -403,17 +437,24 @@ function InspeccionesContent() {
                         <MessageCircleMore size={18} strokeWidth={3} />
                       </div>
                     )}
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.shift === 'AM' ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'}`}>
+                    <span className={`px-2.5 py-0.5 rounded text-xs font-bold ${item.shift === 'AM' ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'}`}>
                       {item.shift}
                     </span>
                   </div>
 
                   {item.photos && item.photos.length > 0 && (
-                    <div className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
-                      <span>📷</span>
+                    <div className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-full">
+                      <span className="text-sm">📷</span>
                       <span>{item.photos.length}</span>
                     </div>
                   )}
+
+                  <button
+                    onClick={(e) => handleEdit(item, e)}
+                    className="p-2 -mr-2 text-gray-400 hover:text-indigo-600 active:bg-indigo-50 rounded-full"
+                  >
+                    <Edit size={20} />
+                  </button>
                 </div>
               </div>
             ))}

@@ -423,8 +423,8 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         const isActive = target === opt
                         let activeClass = ''
                         if (isActive) {
-                            if (opt === 'SI') activeClass = 'bg-blue-600 border-blue-600 text-white shadow-blue-200'
-                            else if (opt === 'NO') activeClass = 'bg-pink-600 border-pink-600 text-white shadow-pink-200'
+                            if (opt === 'SI') activeClass = 'bg-green-600 border-green-600 text-white shadow-green-200'
+                            else if (opt === 'NO') activeClass = 'bg-red-600 border-red-600 text-white shadow-red-200'
                             else activeClass = 'bg-gray-600 border-gray-600 text-white'
                         } else {
                             // Inactive read-only state
@@ -545,6 +545,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
         // Supervisor Calculation (Average of Section Averages)
         if (type === 'supervisor') {
+            // [FIX] Prioritize Historical Score to match List View (avoid recalculating with new template rules)
+            if (checklist.overall_score !== undefined && checklist.overall_score !== null && checklist.overall_score > 0) {
+                return checklist.overall_score
+            }
             return calculateInspectionScore(checklist, template)
         }
 
@@ -983,6 +987,14 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                         // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
                                                         let value: any = undefined
 
+                                                        // Strategy 0: Structured Section/Index Lookup (Supervisor V1)
+                                                        if (type === 'supervisor' && section.title && checklist.answers?.[section.title]?.items) {
+                                                            const item = checklist.answers[section.title].items[`i${qIdx}`] || checklist.answers[section.title].items[qIdx]
+                                                            if (item !== undefined) {
+                                                                value = (item.score !== undefined) ? item.score : item
+                                                            }
+                                                        }
+
                                                         // Strategy 1: Direct ID match (for new dynamic templates)
                                                         if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) {
                                                             value = checklist.answers[q.id]
@@ -1104,15 +1116,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                             }
                                                         }
 
-                                                        // DEBUG: Log for FIFO question
-                                                        if (q.text.includes('FIFO') || q.text.includes('carnes')) {
-                                                            console.log('🔍 DEBUG - FIFO Question:')
-                                                            console.log('  Question Text:', q.text)
-                                                            console.log('  Question ID:', q.id)
-                                                            console.log('  Normalized:', normalizedTarget)
-                                                            console.log('  Photos found (Strategy 1-3):', qPhotos)
-                                                            console.log('  questionPhotosMap has keys:', Object.keys(questionPhotosMap))
-                                                        }
+
 
                                                         // Strategy 4: Cross-reference via ALL saved answer labels (IMPROVED BRIDGE)
                                                         if (qPhotos.length === 0 && checklist.answers) {
@@ -1127,14 +1131,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                         const itemLabel = item?.label || ''
 
                                                                         if (normalize(itemLabel) === normalizedTarget && normalizedTarget.length > 5) {
-                                                                            // DEBUG for FIFO
-                                                                            if (q.text.includes('FIFO') || q.text.includes('carnes')) {
-                                                                                console.log('🎯 Strategy 4 - MATCH FOUND!')
-                                                                                console.log('  Matched section:', key)
-                                                                                console.log('  Matched item key:', iKey)
-                                                                                console.log('  Item data:', item)
-                                                                                console.log('  Trying keys:', [iKey, iKey.replace('i', ''), item.id, item.question_id])
-                                                                            }
+
 
                                                                             // Try many possible photo keys
                                                                             const numericIndex = iKey.startsWith('i') ? iKey.substring(1) : iKey
@@ -1150,9 +1147,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                             for (const pKey of possibleKeys) {
                                                                                 if (pKey && questionPhotosMap[pKey]) {
                                                                                     qPhotos = questionPhotosMap[pKey]
-                                                                                    if (q.text.includes('FIFO') || q.text.includes('carnes')) {
-                                                                                        console.log('✅ FOUND PHOTOS with key:', pKey)
-                                                                                    }
+
                                                                                     break
                                                                                 }
                                                                             }
@@ -1255,15 +1250,32 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                                                                     {qPhotos.length > 0 && (
                                                                         <div className="flex justify-center gap-3 overflow-x-auto pb-2 pt-1 border-t border-gray-50 mt-1">
-                                                                            {qPhotos.map((url: string, idx: number) => (
-                                                                                <div
-                                                                                    key={`q-evidence-${sIdx}-${qIdx}-${idx}`}
-                                                                                    onClick={() => openViewer(idx, qPhotos)}
-                                                                                    className="relative group/delete flex-shrink-0 cursor-pointer hover:scale-105 transition-transform"
-                                                                                >
-                                                                                    <img src={getEmbeddableImageUrl(url)} alt="Evidence" className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200" referrerPolicy="no-referrer" />
-                                                                                </div>
-                                                                            ))}
+                                                                            {qPhotos.map((url: string, idx: number) => {
+                                                                                const isVideo = (u: string) => u.toLowerCase().match(/\.(mp4|webm|ogg|mov)$/)
+                                                                                const isVid = isVideo(url)
+                                                                                const finalUrl = getEmbeddableImageUrl(url)
+
+                                                                                return (
+                                                                                    <div
+                                                                                        key={`q-evidence-${sIdx}-${qIdx}-${idx}`}
+                                                                                        onClick={() => openViewer(idx, qPhotos)}
+                                                                                        className="relative group/delete flex-shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                                                                                    >
+                                                                                        {isVid ? (
+                                                                                            <div className="w-16 h-16 rounded-xl shadow-sm border border-gray-200 bg-black flex items-center justify-center relative overflow-hidden">
+                                                                                                <video src={finalUrl} className="w-full h-full object-cover opacity-80" muted playsInline />
+                                                                                                <div className="absolute inset-0 flex items-center justify-center">
+                                                                                                    <div className="bg-white/30 rounded-full p-1 backdrop-blur-sm">
+                                                                                                        <div className="w-0 h-0 border-l-[6px] border-l-white border-y-[4px] border-y-transparent ml-0.5"></div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <img src={finalUrl} alt="Evidence" className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200" referrerPolicy="no-referrer" />
+                                                                                        )}
+                                                                                    </div>
+                                                                                )
+                                                                            })}
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -1602,15 +1614,34 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                         {/* Image Container */}
                         <div className="relative w-full h-full max-w-7xl max-h-screen p-4 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                            <motion.img
-                                key={currentImageIndex}
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                src={getEmbeddableImageUrl(galleryImages[currentImageIndex])}
-                                alt="Evidence Fullscreen"
-                                className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-                            />
+                            {(() => {
+                                const currentUrl = getEmbeddableImageUrl(galleryImages[currentImageIndex])
+                                const isVideo = currentUrl?.toLowerCase().match(/\.(mp4|webm|ogg|mov)$/)
+
+                                return isVideo ? (
+                                    <motion.video
+                                        key={`vid-${currentImageIndex}`}
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                                        src={currentUrl}
+                                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl bg-black"
+                                        controls
+                                        autoPlay
+                                        playsInline
+                                    />
+                                ) : (
+                                    <motion.img
+                                        key={currentImageIndex}
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                                        src={currentUrl}
+                                        alt="Evidence Fullscreen"
+                                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                                    />
+                                )
+                            })()}
 
                             {/* Counter */}
                             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/50 backdrop-blur rounded-full text-white text-sm font-medium">

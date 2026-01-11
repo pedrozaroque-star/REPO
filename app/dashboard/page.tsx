@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { formatDateLA } from '@/lib/checklistPermissions'
 import {
     LayoutDashboard,
     Plus,
@@ -28,15 +29,15 @@ export default function DashboardPage() {
         totalInspections: 0,
         avgInspectionScore: 0,
         avgNPS: 0,
-        criticalAlerts: [] as any[],
         recentActivity: [] as any[],
         topStores: [] as any[],
         sectionPerformance: [] as any[],
         supervisorStats: [] as any[],
-        avgDuration: '0 min'
+        avgDuration: '0 min',
+        recentFeedback: [] as any[]
     })
     const [loading, setLoading] = useState(true)
-    const [hoveredAlert, setHoveredAlert] = useState<number | null>(null)
+    const [timeFilter, setTimeFilter] = useState('month')
 
     useEffect(() => {
         const user = localStorage.getItem('teg_user')
@@ -44,8 +45,36 @@ export default function DashboardPage() {
             router.push('/')
             return
         }
+
+        // Ejecutar carga inicial
         fetchStats()
-    }, [router])
+
+        // Auto-refresh cada 30 segundos
+        const interval = setInterval(fetchStats, 30000)
+        return () => clearInterval(interval)
+    }, [router, timeFilter]) // Re-ejecutar cuando cambia el filtro
+
+    const getDateFilter = (filter: string) => {
+        const now = new Date()
+        now.setHours(0, 0, 0, 0) // Reset time to start of day needed for some calcs
+
+        switch (filter) {
+            case 'today':
+                return now.toISOString()
+            case 'week':
+                // Retroceder al último lunes
+                const day = now.getDay()
+                const diff = now.getDate() - day + (day === 0 ? -6 : 1) // adjust when day is sunday
+                const monday = new Date(now.setDate(diff))
+                return monday.toISOString()
+            case 'month':
+                return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+            case 'year':
+                return new Date(now.getFullYear(), 0, 1).toISOString()
+            default:
+                return null // 'all'
+        }
+    }
 
     const fetchStats = async () => {
         try {
@@ -56,24 +85,35 @@ export default function DashboardPage() {
                 await supabase.auth.setSession({ access_token: token, refresh_token: '' })
             }
 
-            const { data: inspections } = await supabase
+            const startDate = getDateFilter(timeFilter)
+
+            // 1. Inspecciones Query
+            let queryInspections = supabase
                 .from('supervisor_inspections')
                 .select(`
           id, overall_score, inspection_date, start_time, end_time, duration, shift,
           service_score, meat_score, food_score, tortilla_score, cleaning_score, log_score, grooming_score,
           store_id, inspector_id,
           stores(name, code),
-          users!inspector_id(full_name)
+          users!inspector_id(full_name),
+          created_at
         `)
                 .order('created_at', { ascending: false })
-                .limit(100)
+                .limit(500) // Limit increased for analytics
 
-            const { data: feedbacks } = await supabase
-                .from('customer_feedback')
-                .select('nps_score')
-                .limit(200)
+            if (startDate) {
+                // Usar inspection_date (fecha real de operación) en lugar de created_at
+                // Cortar a YYYY-MM-DD para comparar correctamente con columna tipo Date
+                const dateOnly = startDate.split('T')[0]
+                queryInspections = queryInspections.gte('inspection_date', dateOnly)
+            }
+
+            const { data: inspections } = await queryInspections
+
 
             const validInspections = inspections || []
+
+            // ... (Rest of logic remains similar but uses filtered validInspections)
 
             const categories = [
                 { key: 'service_score', label: 'Servicio' },
@@ -102,7 +142,7 @@ export default function DashboardPage() {
                 name: s.name.split(' ')[0],
                 count: s.count,
                 avgScore: Math.round(s.totalScore / s.count)
-            })).sort((a, b) => b.count - a.count).slice(0, 5)
+            })).sort((a, b) => b.count - a.count).slice(0, 50)
 
             let totalMinutes = 0
             let durationCount = 0
@@ -125,14 +165,6 @@ export default function DashboardPage() {
             const avgDurationVal = durationCount > 0 ? Math.round(totalMinutes / durationCount) : 0
             const avgDurationStr = avgDurationVal > 60 ? `${Math.floor(avgDurationVal / 60)}h ${avgDurationVal % 60}m` : `${avgDurationVal} min`
 
-            let promoters = 0, detractors = 0
-            const validFeedbacks = feedbacks || []
-            validFeedbacks.forEach((f: any) => {
-                if (f.nps_score >= 9) promoters++
-                else if (f.nps_score <= 6) detractors++
-            })
-            const avgNPS = validFeedbacks.length > 0 ? Math.round(((promoters - detractors) / validFeedbacks.length) * 100) : 0
-
             const storeScores: Record<string, { total: number, count: number, name: string }> = {}
             validInspections.forEach((i: any) => {
                 const sName = i.stores?.name || 'Unknown'
@@ -145,77 +177,55 @@ export default function DashboardPage() {
                 avg: Math.round(s.total / s.count)
             })).sort((a, b) => b.avg - a.avg).slice(0, 50)
 
-            const alerts: any[] = []
-            validInspections.slice(0, 20).forEach((i: any) => {
-                const inspectorName = i.users?.full_name || 'Supervisor'
-                const storeCode = i.stores?.code || 'N/A'
-                const inspDate = new Date(i.inspection_date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
 
-                if (i.cleaning_score < 75) {
-                    alerts.push({
-                        id: `clean-${i.id}`,
-                        store: formatStoreName(i.stores?.name),
-                        storeCode,
-                        type: 'limpieza',
-                        msg: 'Falla crítica en Limpieza',
-                        score: i.cleaning_score,
-                        date: i.inspection_date,
-                        inspectionId: i.id,
-                        inspector: inspectorName,
-                        shift: i.shift,
-                        overallScore: i.overall_score,
-                        fullDate: inspDate
-                    })
-                }
-                if (i.food_score < 75) {
-                    alerts.push({
-                        id: `food-${i.id}`,
-                        store: formatStoreName(i.stores?.name),
-                        storeCode,
-                        type: 'food',
-                        msg: 'Riesgo en Preparación de Alimentos',
-                        score: i.food_score,
-                        date: i.inspection_date,
-                        inspectionId: i.id,
-                        inspector: inspectorName,
-                        shift: i.shift,
-                        overallScore: i.overall_score,
-                        fullDate: inspDate
-                    })
-                }
-                if (i.meat_score < 75) {
-                    alerts.push({
-                        id: `meat-${i.id}`,
-                        store: formatStoreName(i.stores?.name),
-                        storeCode,
-                        type: 'carnes',
-                        msg: 'Procedimiento de Carnes Deficiente',
-                        score: i.meat_score,
-                        date: i.inspection_date,
-                        inspectionId: i.id,
-                        inspector: inspectorName,
-                        shift: i.shift,
-                        overallScore: i.overall_score,
-                        fullDate: inspDate
-                    })
-                }
-                if (i.service_score < 75) {
-                    alerts.push({
-                        id: `service-${i.id}`,
-                        store: formatStoreName(i.stores?.name),
-                        storeCode,
-                        type: 'servicio',
-                        msg: 'Servicio al Cliente Insatisfactorio',
-                        score: i.service_score,
-                        date: i.inspection_date,
-                        inspectionId: i.id,
-                        inspector: inspectorName,
-                        shift: i.shift,
-                        overallScore: i.overall_score,
-                        fullDate: inspDate
-                    })
+            // 2. Feedback Query
+            let queryFeedback = supabase
+                .from('customer_feedback')
+                .select('nps_score, comments, submission_date, stores(name)')
+                .order('submission_date', { ascending: false })
+                .limit(500)
+
+            if (startDate) {
+                queryFeedback = queryFeedback.gte('submission_date', startDate)
+            }
+
+            const { data: feedbacksRaw } = await queryFeedback
+
+            const feedbacks = feedbacksRaw || []
+
+            // Calculate NPS Logic
+            let promoters = 0, detractors = 0, validResponses = 0
+            feedbacks.forEach((f: any) => {
+                if (f.nps_score !== null && f.nps_score !== undefined) {
+                    const score = Number(f.nps_score)
+                    if (!isNaN(score)) {
+                        validResponses++
+                        if (score >= 9) promoters++
+                        else if (score <= 6) detractors++
+                    }
                 }
             })
+            const avgNPS = validResponses > 0 ? Math.round(((promoters - detractors) / validResponses) * 100) : 0
+
+            // Map safely to avoid render crashes
+            const safeRecentFeedback = feedbacks.map((f: any) => {
+                try {
+                    const storeData = f.stores
+                    // Handle if Supabase returns store as array or object
+                    const storeName = Array.isArray(storeData)
+                        ? storeData[0]?.name
+                        : storeData?.name
+
+                    return {
+                        score: f.nps_score || 0,
+                        comment: f.comments || '',
+                        store: formatStoreName(storeName || 'Tienda'),
+                        date: formatDateLA(f.submission_date)
+                    }
+                } catch (e) {
+                    return null
+                }
+            }).filter(Boolean) // Remove failed items
 
             setStats({
                 totalInspections: validInspections.length,
@@ -223,8 +233,7 @@ export default function DashboardPage() {
                     ? Math.round(validInspections.reduce((a: any, b: any) => a + (b.overall_score || 0), 0) / validInspections.length)
                     : 0,
                 avgNPS,
-                criticalAlerts: alerts.slice(0, 8),
-                recentActivity: validInspections.slice(0, 5).map((i: any) => ({
+                recentActivity: validInspections.slice(0, 50).map((i: any) => ({
                     store: formatStoreName(i.stores?.name),
                     user: i.users?.full_name?.split(' ')[0],
                     date: i.inspection_date,
@@ -233,7 +242,8 @@ export default function DashboardPage() {
                 topStores,
                 sectionPerformance: sectionPerf,
                 supervisorStats,
-                avgDuration: avgDurationStr !== '0 min' ? avgDurationStr : 'N/A'
+                avgDuration: avgDurationStr !== '0 min' ? avgDurationStr : 'N/A',
+                recentFeedback: safeRecentFeedback
             })
 
             setLoading(false)
@@ -254,10 +264,42 @@ export default function DashboardPage() {
                         <Target size={20} />
                     </div>
                     <div>
-                        <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">Intelligence Hub</h1>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Análisis Operativo en Tiempo Real</p>
+                        <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none flex items-center gap-2">
+                            Dashboard
+                            <span className="flex items-center gap-1.5 bg-red-50 text-red-600 px-2.5 py-1 rounded-full text-xs uppercase tracking-wider border border-red-100 font-bold">
+                                <span className="relative flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
+                                </span>
+                                Live
+                            </span>
+                        </h1>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Análisis Operativo en Tiempo Real</p>
                     </div>
                 </div>
+
+                {/* FILTROS DE TIEMPO */}
+                <div className="hidden lg:flex items-center bg-slate-100 p-1 rounded-xl">
+                    {[
+                        { id: 'all', label: 'Todo' },
+                        { id: 'today', label: 'Hoy' },
+                        { id: 'week', label: 'Semana' },
+                        { id: 'month', label: 'Mes' },
+                        { id: 'year', label: 'Año' },
+                    ].map((filter) => (
+                        <button
+                            key={filter.id}
+                            onClick={() => setTimeFilter(filter.id)}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-400 hover:text-slate-600'
+                                }`}
+                        >
+                            {filter.label}
+                        </button>
+                    ))}
+                </div>
+
                 <div className="flex items-center gap-4">
                     <div className="hidden md:flex flex-col items-end mr-4 border-r border-gray-100 pr-4">
                         <span className="text-[10px] font-black text-slate-400 uppercase">Eficiencia Promedio</span>
@@ -265,16 +307,11 @@ export default function DashboardPage() {
                             <Timer size={14} className="text-indigo-600" /> {stats.avgDuration}
                         </span>
                     </div>
-                    <button
-                        onClick={() => window.location.href = '/inspecciones/nueva'}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg shadow-indigo-200 transition-all active:scale-95"
-                    >
-                        + Nueva Auditoría
-                    </button>
+
                 </div>
             </header>
 
-            <main className="max-w-[1600px] mx-auto px-4 md:px-6 py-8 space-y-6">
+            <main className="w-full mx-auto px-4 md:px-6 py-8 space-y-6">
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col justify-between relative overflow-hidden group">
@@ -296,7 +333,12 @@ export default function DashboardPage() {
                                 <p className="text-xl font-black">{stats.avgNPS}</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-slate-400 text-[10px] font-bold">Auditorías Mes</p>
+                                <p className="text-slate-400 text-[10px] font-bold">
+                                    {timeFilter === 'today' ? 'Auditorías Hoy' :
+                                        timeFilter === 'week' ? 'Auditorías Semana' :
+                                            timeFilter === 'month' ? 'Auditorías Mes' :
+                                                timeFilter === 'year' ? 'Auditorías Año' : 'Total Auditorías'}
+                                </p>
                                 <p className="text-xl font-black text-indigo-400">{stats.totalInspections}</p>
                             </div>
                         </div>
@@ -355,81 +397,41 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
                     {/* Alerts with Hover Tooltips */}
+                    {/* CUSTOMER FEEDBACK WIDGET */}
                     <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm flex flex-col h-[400px] relative">
-                        <div className="p-4 border-b border-slate-50 bg-red-50/30 flex justify-between items-center">
-                            <h3 className="font-bold text-red-900 text-sm flex items-center gap-2">
-                                <ShieldAlert size={16} className="text-red-600" />
-                                Riesgos Detectados
+                        <div className="p-4 border-b border-slate-50 bg-indigo-50/30 flex justify-between items-center">
+                            <h3 className="font-bold text-indigo-900 text-sm flex items-center gap-2">
+                                <MessageSquare size={16} className="text-indigo-600" />
+                                Feedback Clientes
                             </h3>
-                            <span className="bg-red-100 text-red-700 text-[10px] font-black px-2 py-0.5 rounded-full">{stats.criticalAlerts.length}</span>
+                            <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">Últimos {stats.recentFeedback?.length || 0}</span>
                         </div>
-                        <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3">
-                            {stats.criticalAlerts.length > 0 ? stats.criticalAlerts.map((alert, i) => (
-                                <div key={alert.id} className="group/alert relative">
-                                    <div className="bg-white border border-red-100 rounded-xl p-3 shadow-sm flex gap-3 hover:border-red-200 transition-colors cursor-pointer">
-                                        <div className="shrink-0 pt-0.5">
-                                            <AlertTriangle size={16} className="text-red-500" />
+                        <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3 custom-scrollbar">
+                            {stats.recentFeedback && stats.recentFeedback.length > 0 ? stats.recentFeedback.map((item: any, i: number) => (
+                                <div key={i} className="group relative">
+                                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex gap-3 hover:border-indigo-200 hover:shadow-md transition-all">
+                                        <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${item.score >= 9 ? 'bg-green-100 text-green-700' : item.score >= 7 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                            {item.score}
                                         </div>
                                         <div className="flex-1">
-                                            <h4 className="font-bold text-slate-800 text-xs">{alert.store}</h4>
-                                            <p className="text-xs text-red-600 font-medium mt-0.5">{alert.msg}</p>
-                                            <p className="text-[10px] text-slate-400 mt-1">{alert.fullDate}</p>
-                                        </div>
-                                        <Info size={14} className="text-slate-300 shrink-0 group-hover/alert:text-red-500 transition-colors" />
-                                    </div>
-
-                                    {/* Tooltip with extended hover area */}
-                                    <div className="fixed left-[420px] z-[100] opacity-0 invisible group-hover/alert:opacity-100 group-hover/alert:visible transition-all duration-150 pointer-events-none group-hover/alert:pointer-events-auto"
-                                        style={{ top: `${300 + (i * 80)}px` }}>
-                                        <div className="bg-slate-900 text-white rounded-xl p-4 shadow-2xl border border-slate-700 w-72 relative">
-                                            <div className="absolute right-full top-4 w-0 h-0 border-8 border-transparent border-r-slate-900"></div>
-
-                                            <div className="space-y-3">
-                                                <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-700">
-                                                    <div>
-                                                        <h4 className="font-black text-white text-sm">{alert.store}</h4>
-                                                        <p className="text-xs text-slate-400 mt-0.5">Código: {alert.storeCode}</p>
-                                                    </div>
-                                                    <div className={`px-2 py-1 rounded text-[10px] font-black uppercase ${alert.score >= 70 ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
-                                                        {alert.score}%
-                                                    </div>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-3 text-xs">
-                                                    <div>
-                                                        <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Inspector</p>
-                                                        <p className="text-white font-semibold truncate">{alert.inspector}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Turno</p>
-                                                        <p className="text-white font-semibold">{alert.shift || 'N/A'}</p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="pt-3 border-t border-slate-700">
-                                                    <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Categoría Afectada</p>
-                                                    <p className="text-red-400 font-bold text-xs mb-2">{alert.msg}</p>
-                                                    <p className="text-slate-400 text-[10px] uppercase font-bold mb-1">Score Global Inspección</p>
-                                                    <p className={`text-sm font-black ${alert.overallScore >= 80 ? 'text-green-400' : 'text-red-400'}`}>{alert.overallScore}%</p>
-                                                </div>
-
-                                                <button
-                                                    onClick={() => router.push(`/inspecciones?id=${alert.inspectionId}`)}
-                                                    className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-xs font-bold transition-colors"
-                                                >
-                                                    Ver Inspección #{alert.inspectionId}
-                                                </button>
+                                            <div className="flex justify-between items-start">
+                                                <h4 className="font-bold text-slate-800 text-xs">{item.store}</h4>
+                                                <span className="text-[10px] text-slate-400 font-medium">{item.date}</span>
                                             </div>
+                                            <p className="text-xs text-slate-600 font-medium mt-1 leading-relaxed line-clamp-2 group-hover:line-clamp-none transition-all duration-300">
+                                                "{item.comment || 'Sin comentario'}"
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
                             )) : (
                                 <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                                    <CheckCircle size={40} className="mb-2 text-green-100" />
-                                    <p className="text-xs font-bold">Sin alertas críticas</p>
+                                    <MessageSquare size={40} className="mb-2 text-indigo-100" />
+                                    <p className="text-xs font-bold">Sin comentarios recientes</p>
                                 </div>
                             )}
-                        </div>            </div>
+                        </div>
+                    </div>
 
                     <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[400px]">
                         <div className="p-4 border-b border-slate-50 flex justify-between items-center">
@@ -488,8 +490,8 @@ export default function DashboardPage() {
                                             Resultado: {act.score}%
                                         </span>
                                     </div>
-                                    <span className="ml-auto text-[9px] font-bold text-slate-300">
-                                        {new Date(act.date).toLocaleDateString()}
+                                    <span className="ml-auto text-xs font-bold text-slate-500">
+                                        {formatDateLA(act.date)}
                                     </span>
                                 </div>
                             ))}

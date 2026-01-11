@@ -53,19 +53,16 @@ export const getSafeLADateISO = (dateInput: any) => {
 export const formatDateLA = (dateString: any) => {
   if (!dateString) return 'N/A';
   try {
-    if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
-      const [y, m, d] = dateString.split('-');
-      return `${d}/${m}/${y}`;
-    }
-
     const date = new Date(dateString);
     if (!isValidDate(date)) return 'Fecha Inválida';
 
-    return new Intl.DateTimeFormat('es-MX', {
-      timeZone: TIMEZONE,
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', hour12: true
-    }).format(date);
+    const fmt = (opts: any) => new Intl.DateTimeFormat('es-MX', { timeZone: TIMEZONE, ...opts }).format(date);
+
+    const m = fmt({ month: 'short' }).replace('.', '').toLowerCase();
+    const d = fmt({ day: '2-digit' });
+    const y = fmt({ year: '2-digit' });
+
+    return `${m}-${d}-${y}`;
   } catch (e) {
     return 'Error Fecha';
   }
