@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { FileCheck, Plus, Filter } from 'lucide-react'
+import { FileCheck, Plus, Filter, MessageCircleMore } from 'lucide-react'
 
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
@@ -103,11 +103,29 @@ function ManagerChecklistsContent() {
       const { data: checkData, error } = await query
       if (error) throw error
 
+      // Fetch Comments Count
+      const checkIds = (checkData || []).map(c => c.id)
+      let commentCounts: Record<string, number> = {}
+
+      if (checkIds.length > 0) {
+        const { data: commentsData } = await supabaseClient
+          .from('inspection_comments')
+          .select('inspection_id')
+          .in('inspection_id', checkIds)
+
+        if (commentsData) {
+          commentsData.forEach((c: any) => {
+            commentCounts[c.inspection_id] = (commentCounts[c.inspection_id] || 0) + 1
+          })
+        }
+      }
+
       let formattedData = Array.isArray(checkData) ? checkData.map(item => ({
         ...item,
         store_name: formatStoreName(item.stores?.name) || 'N/A',
         manager_real_name: item.users?.full_name || item.manager_name || item.created_by,
-        checklist_type: 'manager'
+        checklist_type: 'manager',
+        has_comments: commentCounts[item.id] > 0
       })) : []
 
       if (statusFilter !== 'all') {
@@ -358,7 +376,14 @@ function ManagerChecklistsContent() {
                         </div>
                         <div className="text-right">
                           <span className={`text-2xl font-black ${scoreColor}`}>{item.score}%</span>
-                          <div className="mt-1">{getStatusBadge(item)}</div>
+                          <div className="mt-1 flex items-center justify-end gap-1">
+                            {getStatusBadge(item)}
+                            {(item as any).has_comments && (
+                              <div className="p-0.5 text-blue-600 bg-blue-50 rounded-full border border-blue-100" title="Hay mensajes en el chat">
+                                <MessageCircleMore size={14} strokeWidth={2.5} />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -396,7 +421,7 @@ function ManagerChecklistsContent() {
                         <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Manager</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Duración</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Score</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Estado</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Estado</th>
                         <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Acciones</th>
                       </tr>
                     </thead>
@@ -429,10 +454,9 @@ function ManagerChecklistsContent() {
                             key={item.id}
                             className={`hover:bg-gray-50/80 transition-colors cursor-pointer ${isItemOverdue ? 'bg-red-50/50' : ''}`}
                             onClick={() => {
-                              if (canReview()) {
-                                setSelectedItem(item)
-                                setShowReviewModal(true)
-                              }
+                              // Allow opening modal for everyone (read-only for non-reviewers)
+                              setSelectedItem(item)
+                              setShowReviewModal(true)
                             }}
                           >
                             <td className="px-6 py-4 whitespace-nowrap">
@@ -452,8 +476,15 @@ function ManagerChecklistsContent() {
                             <td className="px-6 py-4 whitespace-nowrap text-center">
                               <span className={`text-lg font-black ${scoreColor}`}>{item.score}%</span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-center">
-                              {getStatusBadge(item)}
+                            <td className="px-6 py-4 whitespace-nowrap text-left">
+                              <div className="flex items-center justify-start gap-2">
+                                {getStatusBadge(item)}
+                                {(item as any).has_comments && (
+                                  <div className="p-1 text-blue-600 bg-blue-50 rounded-full border border-blue-100" title="Hay mensajes en el chat">
+                                    <MessageCircleMore size={16} strokeWidth={2.5} />
+                                  </div>
+                                )}
+                              </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-center">
                               {canEdit && (
