@@ -55,7 +55,7 @@ export default function StaffEvaluationPage() {
 
   useEffect(() => {
     fetchStores()
-    const timer = setTimeout(() => setShowSplash(false), 5500)
+    const timer = setTimeout(() => setShowSplash(false), 7500)
     return () => clearTimeout(timer)
   }, [])
 
@@ -238,13 +238,63 @@ export default function StaffEvaluationPage() {
 
   if (showSplash) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#50050a]">
-        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center">
-          <div className="w-32 h-32 bg-white rounded-full p-4 mx-auto mb-6 shadow-2xl">
-            <img src="/logo.png" alt="TAG" className="w-full h-full object-contain" />
-          </div>
-          <h1 className="text-2xl font-black text-white tracking-widest uppercase">Staff Eval</h1>
-        </motion.div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#50050a] overflow-hidden">
+        <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+
+        <div className="relative z-10 flex flex-col items-center">
+          {/* Main Logo Container - Drop In Animation */}
+          <motion.div
+            initial={{ y: -800, opacity: 0, rotateY: 0 }}
+            animate={{
+              y: 0,
+              opacity: 1,
+              rotateY: 2520,
+              transition: {
+                type: "spring",
+                damping: 20,
+                stiffness: 60,
+                duration: 4.5
+              }
+            }}
+            className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)] relative"
+          >
+            <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-[#fffbeb]">
+              <img src="/logo.png" alt="TAG" className="w-[85%] h-[85%] object-contain" />
+            </div>
+
+            {/* Ripple Effect */}
+            <motion.div
+              className="absolute inset-0 rounded-full border border-white/50"
+              initial={{ scale: 0, opacity: 0.8 }}
+              animate={{
+                scale: 3,
+                opacity: 0,
+                transition: {
+                  duration: 2,
+                  repeat: Infinity,
+                  delay: 1.2,
+                  ease: "easeOut"
+                }
+              }}
+            />
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              transition: { delay: 1, duration: 0.5 }
+            }}
+            className="mt-8 w-64 h-24 flex items-center justify-center"
+          >
+            <img
+              src="/ya esta.png"
+              alt="¡Ya está!"
+              className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(253,200,47,0.5)]"
+            />
+          </motion.div>
+        </div>
       </div>
     )
   }

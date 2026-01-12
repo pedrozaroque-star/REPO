@@ -54,7 +54,7 @@ export default function LoginPage() {
         } else {
           router.push('/dashboard')
         }
-      }, 3500)
+      }, 5500)
 
     } catch (err) {
       console.error('Error inesperado:', err)
@@ -75,12 +75,12 @@ export default function LoginPage() {
             animate={{
               y: 0,
               opacity: 1,
-              rotateY: 1080, // Reduced rotation for better performance
+              rotateY: 2520,
               transition: {
                 type: "spring",
                 damping: 20,
                 stiffness: 60,
-                duration: 2.5
+                duration: 4.5
               }
             }}
             className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)] relative"
@@ -106,17 +106,21 @@ export default function LoginPage() {
             />
           </motion.div>
 
-          <motion.h2
+          <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{
               opacity: 1,
               scale: 1,
               transition: { delay: 1, duration: 0.5 }
             }}
-            className="mt-8 text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#fdc82f] to-[#fffbeb] animate-pulse tracking-widest uppercase"
+            className="mt-8 w-64 h-24 flex items-center justify-center"
           >
-            BIENVENIDO
-          </motion.h2>
+            <img
+              src="/ya esta.png"
+              alt="¡Ya está!"
+              className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(253,200,47,0.5)]"
+            />
+          </motion.div>
         </div>
       </div>
     )
