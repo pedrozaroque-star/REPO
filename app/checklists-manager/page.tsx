@@ -264,7 +264,7 @@ function ManagerChecklistsContent() {
 
               {canCreate() && (
                 <button
-                  onClick={() => router.push('/checklists-manager/crear')}
+                  onClick={() => router.push('/checklists/crear/manager')}
                   className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 text-white flex items-center justify-center gap-2 hover:bg-blue-700 transition-transform active:scale-95 shadow-lg shadow-blue-200"
                 >
                   <Plus size={16} strokeWidth={3} />

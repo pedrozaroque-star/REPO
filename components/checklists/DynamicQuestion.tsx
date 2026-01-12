@@ -1,127 +1,103 @@
 'use client'
 
 import React, { useState, useRef } from 'react'
-import { Camera, X, Image as ImageIcon, Loader2, Star, Check, AlertCircle } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabase'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Video, Upload } from 'lucide-react'
+import { uploadPhotos } from '@/lib/uploadPhotos'
 
-interface DynamicQuestionProps {
+interface QuestionProps {
     question: {
         id: string
         text: string
-        type: string // 'yes_no', 'text', 'rating_5', 'nps_10', 'photo', 'temperature', 'sobrante', etc.
-        options?: string[]
+        type: string
         required_photo?: boolean
-        description?: string
+        created_at?: string
     }
+    index: number
     value: any
     photos: string[]
-    onChange: (value: any) => void
+    onChange: (val: any) => void
     onPhotosChange: (urls: string[]) => void
-    disabled?: boolean
-    index?: number
     checklistType?: string
 }
 
-export default function DynamicQuestion({
-    question,
-    value,
-    photos = [],
-    onChange,
-    onPhotosChange,
-    disabled = false,
-    index,
-    checklistType
-}: DynamicQuestionProps) {
+const isNew = (dateStr?: string) => {
+    if (!dateStr) return false
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffTime = Math.abs(now.getTime() - date.getTime())
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays <= 180
+}
+
+const isVideo = (url: string) => {
+    return url.toLowerCase().match(/\.(mp4|mov|webm|ogg|quicktime)$/)
+}
+
+export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType }: QuestionProps) {
     const [uploading, setUploading] = useState(false)
-    const fileInputRef = useRef<HTMLInputElement>(null)
+
+    // Separate refs for distinct Android intents
+    const photoInputRef = useRef<HTMLInputElement>(null)
+    const videoInputRef = useRef<HTMLInputElement>(null)
+    const galleryInputRef = useRef<HTMLInputElement>(null)
 
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files
-        if (!files || files.length === 0) return
-
+        if (!e.target.files?.length) return
         setUploading(true)
         try {
-            const supabase = await getSupabaseClient()
-            const newUrls: string[] = []
-
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i]
-                const fileExt = file.name.split('.').pop()
-                const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`
-                const filePath = `uploads/${fileName}`
-
-                const { error: uploadError } = await supabase.storage
-                    .from('checklist-photos')
-                    .upload(filePath, file)
-
-                if (uploadError) throw uploadError
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from('checklist-photos')
-                    .getPublicUrl(filePath)
-
-                newUrls.push(publicUrl)
-            }
-
-            onPhotosChange([...photos, ...newUrls])
-        } catch (error) {
-            console.error('Error uploading photo:', error)
-            alert('Error al subir la imagen. Intenta de nuevo.')
+            const urls = await uploadPhotos(Array.from(e.target.files), 'checklist-photos', `question-${question.id}`)
+            onPhotosChange([...photos, ...urls])
+        } catch (err) {
+            alert('Error al subir archivo')
         } finally {
             setUploading(false)
-            if (fileInputRef.current) fileInputRef.current.value = ''
+            // Reset all inputs
+            if (photoInputRef.current) photoInputRef.current.value = ''
+            if (videoInputRef.current) videoInputRef.current.value = ''
+            if (galleryInputRef.current) galleryInputRef.current.value = ''
         }
     }
 
-    const removePhoto = (indexToRemove: number) => {
-        onPhotosChange(photos.filter((_, i) => i !== indexToRemove))
+    const removePhoto = (url: string) => {
+        onPhotosChange(photos.filter(p => p !== url))
     }
 
     const renderInput = () => {
         switch (question.type) {
             case 'yes_no':
                 return (
-                    <div className="flex gap-2">
-                        {['SI', 'NO', 'NA'].map((option) => {
-                            const isActive = value === option
-                            let colorClass = 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                            if (isActive) {
-                                if (option === 'SI') colorClass = 'bg-green-100 text-green-700 border-green-200 ring-2 ring-green-500 ring-offset-1'
-                                if (option === 'NO') colorClass = 'bg-red-100 text-red-700 border-red-200 ring-2 ring-red-500 ring-offset-1'
-                                if (option === 'NA') colorClass = 'bg-gray-800 text-white border-gray-700 ring-2 ring-gray-900 ring-offset-1'
-                            }
-
-                            return (
-                                <button
-                                    key={option}
-                                    type="button"
-                                    disabled={disabled}
-                                    onClick={() => onChange(option)}
-                                    className={`flex-1 py-3 px-4 rounded-xl font-black text-sm transition-all border border-transparent ${colorClass} disabled:opacity-50`}
-                                >
-                                    {option}
-                                </button>
-                            )
-                        })}
+                    <div className="flex gap-3">
+                        {['SI', 'NO', 'NA'].map(opt => (
+                            <button
+                                key={opt}
+                                type="button"
+                                onClick={() => onChange(opt)}
+                                className={`flex-1 py-3 px-2 rounded-xl font-black text-sm transition-all shadow-sm border-2 ${value === opt
+                                    ? opt === 'SI'
+                                        ? 'bg-green-500 border-green-500 text-white shadow-green-200' : opt === 'NO'
+                                            ? 'bg-red-500 border-red-500 text-white shadow-red-200'
+                                            : 'bg-gray-500 border-gray-500 text-white'
+                                    : 'bg-white border-gray-100 text-gray-500 hover:border-green-200 hover:text-green-600'
+                                    }`}
+                            >
+                                {opt === 'SI' ? 'SÍ' : opt === 'NO' ? 'NO' : 'N/A'}
+                            </button>
+                        ))}
                     </div>
                 )
 
             case 'rating_5':
                 return (
-                    <div className="flex gap-2 justify-center py-2">
-                        {[1, 2, 3, 4, 5].map((rating) => (
+                    <div className="flex justify-between items-center py-2 px-2 bg-gray-50 rounded-2xl border border-gray-100">
+                        {[1, 2, 3, 4, 5].map(val => (
                             <button
-                                key={rating}
+                                key={val}
                                 type="button"
-                                disabled={disabled}
-                                onClick={() => onChange(rating)}
-                                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${value === rating
-                                        ? 'bg-yellow-400 text-white transform scale-110 shadow-lg'
-                                        : 'bg-gray-100 text-gray-400 hover:bg-yellow-100'
-                                    }`}
+                                onClick={() => onChange(val)}
+                                className={`p-2 transition-transform active:scale-75 ${value >= val ? 'text-yellow-400 scale-110' : 'text-gray-200'}`}
                             >
-                                <Star size={20} className={value === rating ? 'fill-current' : ''} />
+                                <Star size={32} fill={value >= val ? 'currentColor' : 'none'} strokeWidth={3} className="drop-shadow-sm" />
                             </button>
                         ))}
                     </div>
@@ -129,183 +105,196 @@ export default function DynamicQuestion({
 
             case 'nps_10':
                 return (
-                    <div className="flex flex-wrap gap-1 justify-center py-2">
-                        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((rating) => {
-                            let bgClass = 'bg-red-100 text-red-600'
-                            if (rating >= 7) bgClass = 'bg-yellow-100 text-yellow-600'
-                            if (rating >= 9) bgClass = 'bg-green-100 text-green-600'
+                    <div className="flex flex-wrap gap-2 justify-center bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(val => (
+                            <button
+                                key={val}
+                                type="button"
+                                onClick={() => onChange(val)}
+                                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-all shadow-sm ${value === val
+                                    ? val >= 9 ? 'bg-green-500 text-white scale-110 shadow-lg' : val >= 7 ? 'bg-yellow-500 text-white scale-110 shadow-lg' : 'bg-red-500 text-white scale-110 shadow-lg'
+                                    : 'bg-white text-gray-400 border border-gray-200 hover:border-gray-400'
+                                    }`}
+                            >
+                                {val}
+                            </button>
+                        ))}
+                    </div>
+                )
 
-                            const isActive = value === rating
+            case 'text':
+                return (
+                    <textarea
+                        value={value || ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder="Escribe tus observaciones aquí..."
+                        className="w-full p-4 bg-gray-50 border-2 border-transparent focus:bg-white focus:border-blue-500 rounded-xl outline-none text-gray-900 font-medium placeholder:text-gray-400 transition-all min-h-[100px] resize-none text-sm"
+                    />
+                )
+
+            case 'number':
+                const numVal = Number(value)
+                const isOverLimit = checklistType === 'sobrante' && !isNaN(numVal) && numVal > 2
+                return (
+                    <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">#</span>
+                        <input
+                            type="number"
+                            value={value || ''}
+                            onChange={(e) => onChange(e.target.value)}
+                            placeholder="0"
+                            className={`w-full pl-8 p-4 bg-gray-50 border-2 rounded-xl outline-none text-gray-900 font-black text-xl transition-all placeholder:text-gray-300 ${isOverLimit
+                                ? 'border-red-500 bg-red-50 focus:bg-white'
+                                : 'border-transparent focus:bg-white focus:border-blue-500'}`}
+                        />
+                        {isOverLimit && (
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-red-600 font-bold text-[10px] animate-pulse">
+                                ⚠️ {'>'} 2 Lbs
+                            </div>
+                        )}
+                    </div>
+                )
+
+            case 'photo':
+                return (
+                    <div className="text-center py-6 bg-blue-50 rounded-2xl border-2 border-dashed border-blue-200 text-blue-600">
+                        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center mx-auto mb-2 shadow-sm">
+                            <ImageIcon size={18} />
+                        </div>
+                        <p className="text-[10px] font-black uppercase tracking-widest">Foto Requerida</p>
+                    </div>
+                )
+
+            case 'compliance':
+            case 'score_100':
+                return (
+                    <div className="flex gap-2 w-full">
+                        {[
+                            { label: 'CUMPLE', val: 100, color: 'bg-green-500', text: 'text-green-600', border: 'border-green-200', bg: 'bg-green-50' },
+                            { label: 'PARCIAL', val: 60, color: 'bg-orange-500', text: 'text-orange-600', border: 'border-orange-200', bg: 'bg-orange-50' },
+                            { label: 'NO', val: 0, color: 'bg-red-500', text: 'text-red-600', border: 'border-red-200', bg: 'bg-red-50' }
+                        ].map(opt => {
+                            const isSelected = value === opt.val
                             return (
                                 <button
-                                    key={rating}
+                                    key={opt.val}
                                     type="button"
-                                    disabled={disabled}
-                                    onClick={() => onChange(rating)}
-                                    className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${isActive
-                                            ? 'bg-gray-900 text-white transform scale-110 shadow-lg z-10'
-                                            : `${bgClass} hover:opacity-80`
+                                    onClick={() => onChange(opt.val)}
+                                    className={`flex-1 py-3 px-2 rounded-xl flex flex-col items-center justify-center gap-1 transition-all duration-200 border-2 ${isSelected
+                                        ? `${opt.color} border-transparent text-white shadow-lg scale-105`
+                                        : `bg-white ${opt.border} ${opt.text} hover:bg-gray-50`
                                         }`}
                                 >
-                                    {rating}
+                                    <span className="text-[10px] font-black tracking-widest leading-none">{opt.label}</span>
+                                    {isSelected && <div className="w-1 h-1 bg-white rounded-full mt-1" />}
                                 </button>
                             )
                         })}
                     </div>
                 )
 
-            case 'text':
-            case 'textarea':
-                return (
-                    <textarea
-                        value={value || ''}
-                        disabled={disabled}
-                        onChange={(e) => onChange(e.target.value)}
-                        placeholder="Escribe tu respuesta aquí..."
-                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none min-h-[100px]"
-                    />
-                )
-
-            case 'photo':
-                return (
-                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-center">
-                        <p className="text-blue-600 text-xs font-bold mb-2">Esta pregunta requiere evidencia fotográfica obligatoria</p>
-                    </div>
-                )
-
-            case 'temperature':
-                return (
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="number"
-                            value={value || ''}
-                            disabled={disabled}
-                            onChange={(e) => onChange(e.target.value)}
-                            placeholder="0.0"
-                            step="0.1"
-                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-lg font-bold text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                        />
-                        <span className="text-gray-500 font-bold">°C</span>
-                    </div>
-                )
-
-            case 'sobrante':
-                return (
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="number"
-                            value={value || ''}
-                            disabled={disabled}
-                            onChange={(e) => onChange(e.target.value)}
-                            placeholder="0"
-                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-lg font-bold text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                        />
-                        <span className="text-gray-500 font-bold">Unidades</span>
-                    </div>
-                )
-
             default:
-                // Default to text input for unknown types
-                return (
-                    <input
-                        type="text"
-                        value={value || ''}
-                        disabled={disabled}
-                        onChange={(e) => onChange(e.target.value)}
-                        placeholder="Respuesta..."
-                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                )
+                return <div className="p-4 bg-red-50 text-red-600 font-bold rounded-lg text-sm">Error: {question.type}</div>
         }
     }
 
+    const isAnswered = value !== undefined && value !== '' && value !== null
+
     return (
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-            <div className="flex items-start gap-4 mb-4">
-                {index !== undefined && (
-                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-[10px] font-black">
-                        {index + 1}
-                    </span>
-                )}
-                <div className="flex-1">
-                    <p className="font-bold text-gray-900 text-sm leading-relaxed">
-                        {question.text}
-                        {question.required_photo && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">Foto</span>}
-                    </p>
-                    {question.description && (
-                        <p className="text-xs text-gray-400 mt-1">{question.description}</p>
-                    )}
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-50px" }}
+            className={`
+                relative rounded-3xl p-5 transition-all duration-300
+                ${isAnswered
+                    ? 'bg-white shadow-sm border border-gray-100 opacity-80 hover:opacity-100'
+                    : 'bg-white shadow-lg shadow-blue-50 border border-blue-100 z-10 scale-[1.01] ring-1 ring-blue-100'
+                }
+            `}
+        >
+            <div className="flex flex-col gap-4">
+                {/* Header: Number and Text */}
+                <div className="flex gap-4 items-start">
+                    <div className={`
+                        w-8 h-8 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0 transition-colors mt-1
+                        ${isAnswered ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white shadow-blue-200 shadow-md'}
+                    `}>
+                        {isAnswered ? <Check size={14} strokeWidth={4} /> : index + 1}
+                    </div>
+
+                    <div className="flex-1">
+                        <h4 className={`font-bold text-base leading-snug ${isAnswered ? 'text-gray-600' : 'text-gray-900'}`}>
+                            {question.text}
+                            {isNew(question.created_at) && (
+                                <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] uppercase font-black rounded-full border border-blue-200 align-middle">
+                                    <Sparkles size={8} /> NEW <span className="text-blue-500 font-medium normal-case tracking-normal ml-0.5">({new Date(question.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                </span>
+                            )}
+                        </h4>
+
+                        {question.required_photo && (
+                            <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 text-red-600 text-[10px] font-bold uppercase tracking-wider border border-red-100">
+                                <Camera size={10} strokeWidth={2.5} /> Foto
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
 
-            <div className="space-y-4">
-                {/* Input Area */}
-                {renderInput()}
+                {/* Input Area - Full Width */}
+                <div className="w-full pt-1">
+                    {renderInput()}
+                </div>
 
-                {/* Photos Area */}
-                <div className="space-y-3">
-                    {photos.length > 0 && (
-                        <div className="grid grid-cols-4 gap-2">
-                            <AnimatePresence>
-                                {photos.map((url, i) => (
-                                    <motion.div
-                                        key={url}
-                                        initial={{ opacity: 0, scale: 0.8 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.8 }}
-                                        className="relative aspect-square rounded-xl overflow-hidden group"
-                                    >
-                                        <img src={url} alt="Evidencia" className="w-full h-full object-cover" />
-                                        {!disabled && (
-                                            <button
-                                                type="button"
-                                                onClick={() => removePhoto(i)}
-                                                className="absolute top-1 right-1 bg-black/50 hover:bg-red-500 text-white p-1 rounded-full backdrop-blur-sm transition-colors opacity-0 group-hover:opacity-100"
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        )}
-                                    </motion.div>
-                                ))}
-                            </AnimatePresence>
-                        </div>
-                    )}
-
-                    {!disabled && (
-                        <div className="flex justify-end">
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                className="hidden"
-                                onChange={handlePhotoUpload}
-                            />
-                            <button
-                                type="button"
-                                disabled={uploading}
-                                onClick={() => fileInputRef.current?.click()}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${photos.length > 0
-                                        ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                    }`}
-                            >
-                                {uploading ? (
-                                    <>
-                                        <Loader2 size={14} className="animate-spin" />
-                                        <span>Subiendo...</span>
-                                    </>
+                {/* Photos Section */}
+                <div className="flex gap-2 overflow-x-auto pb-2 pt-1 border-t border-gray-50 mt-1 scrollbar-hide">
+                    <AnimatePresence>
+                        {photos.map((url) => (
+                            <motion.div key={url} initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} className="relative group/delete flex-shrink-0">
+                                {isVideo(url) ? (
+                                    <video src={url} className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200 bg-black" muted playsInline />
                                 ) : (
-                                    <>
-                                        <Camera size={14} />
-                                        <span>{photos.length > 0 ? 'Agregar más fotos' : 'Agregar foto'}</span>
-                                    </>
+                                    <img src={url} className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200" alt="Evidence" />
                                 )}
-                            </button>
-                        </div>
-                    )}
+                                <button onClick={() => removePhoto(url)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md scale-0 group-hover/delete:scale-100 transition-transform z-10">
+                                    <X size={12} strokeWidth={3} />
+                                </button>
+                            </motion.div>
+                        ))}
+                    </AnimatePresence>
+
+                    {/* BUTTON 1: CAMERA (Photos) */}
+                    <button
+                        type="button" onClick={() => photoInputRef.current?.click()} disabled={uploading}
+                        className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 bg-blue-50 text-blue-600 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-blue-100 transition-colors"
+                    >
+                        <Camera size={18} />
+                        <span className="text-[8px] font-black uppercase">Foto</span>
+                    </button>
+                    <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*" capture="environment" multiple />
+
+                    {/* BUTTON 2: VIDEO (Video) */}
+                    <button
+                        type="button" onClick={() => videoInputRef.current?.click()} disabled={uploading}
+                        className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 bg-purple-50 text-purple-600 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-purple-100 transition-colors"
+                    >
+                        <Video size={18} />
+                        <span className="text-[8px] font-black uppercase">Video</span>
+                    </button>
+                    <input type="file" ref={videoInputRef} onChange={handlePhotoUpload} className="hidden" accept="video/*" capture="environment" multiple />
+
+                    {/* BUTTON 3: GALLERY */}
+                    <button
+                        type="button" onClick={() => galleryInputRef.current?.click()} disabled={uploading}
+                        className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 text-gray-400 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-gray-100 transition-colors"
+                    >
+                        <ImageIcon size={18} />
+                        <span className="text-[8px] font-black uppercase">Galería</span>
+                    </button>
+                    <input type="file" ref={galleryInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*,video/*" multiple />
+
                 </div>
             </div>
-        </div>
+        </motion.div>
     )
 }
