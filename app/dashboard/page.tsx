@@ -258,28 +258,60 @@ export default function DashboardPage() {
     return (
         <div className="bg-[#F8FAFC] min-h-screen font-sans w-full pb-10">
 
-            <header className="bg-white sticky top-0 z-30 px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="bg-slate-900 text-white p-2 rounded-lg">
-                        <Target size={20} />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none flex items-center gap-2">
-                            Dashboard
-                            <span className="flex items-center gap-1.5 bg-red-50 text-red-600 px-2.5 py-1 rounded-full text-xs uppercase tracking-wider border border-red-100 font-bold">
-                                <span className="relative flex h-2.5 w-2.5">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
+            <header className="bg-white sticky top-0 z-30 px-4 md:px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-slate-900 text-white p-2 rounded-lg">
+                            <Target size={20} />
+                        </div>
+                        <div>
+                            <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight leading-none flex items-center gap-2">
+                                Dashboard
+                                <span className="hidden sm:flex items-center gap-1.5 bg-red-50 text-red-600 px-2.5 py-1 rounded-full text-xs uppercase tracking-wider border border-red-100 font-bold">
+                                    <span className="relative flex h-2.5 w-2.5">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
+                                    </span>
+                                    Live
                                 </span>
-                                Live
-                            </span>
-                        </h1>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Análisis Operativo en Tiempo Real</p>
+                            </h1>
+                            <p className="hidden md:block text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Análisis Operativo en Tiempo Real</p>
+                        </div>
+                    </div>
+
+                    {/* FILTROS DE TIEMPO - Desktop (derecha del header) */}
+                    <div className="hidden lg:flex items-center bg-slate-100 p-1 rounded-xl">
+                        {[
+                            { id: 'all', label: 'Todo' },
+                            { id: 'today', label: 'Hoy' },
+                            { id: 'week', label: 'Semana' },
+                            { id: 'month', label: 'Mes' },
+                            { id: 'year', label: 'Año' },
+                        ].map((filter) => (
+                            <button
+                                key={filter.id}
+                                onClick={() => setTimeFilter(filter.id)}
+                                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id
+                                    ? 'bg-white text-slate-900 shadow-sm'
+                                    : 'text-slate-400 hover:text-slate-600'
+                                    }`}
+                            >
+                                {filter.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Eficiencia Promedio - Hidden on mobile */}
+                    <div className="hidden md:flex flex-col items-end">
+                        <span className="text-[10px] font-black text-slate-400 uppercase">Eficiencia Promedio</span>
+                        <span className="text-sm font-black text-slate-900 flex items-center gap-1">
+                            <Timer size={14} className="text-indigo-600" /> {stats.avgDuration}
+                        </span>
                     </div>
                 </div>
 
-                {/* FILTROS DE TIEMPO */}
-                <div className="hidden lg:flex items-center bg-slate-100 p-1 rounded-xl">
+                {/* FILTROS DE TIEMPO - Mobile (debajo del título) */}
+                <div className="lg:hidden mt-3 flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl overflow-x-auto">
                     {[
                         { id: 'all', label: 'Todo' },
                         { id: 'today', label: 'Hoy' },
@@ -290,24 +322,14 @@ export default function DashboardPage() {
                         <button
                             key={filter.id}
                             onClick={() => setTimeFilter(filter.id)}
-                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id
+                            className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id
                                 ? 'bg-white text-slate-900 shadow-sm'
-                                : 'text-slate-400 hover:text-slate-600'
+                                : 'text-slate-400 active:text-slate-600'
                                 }`}
                         >
                             {filter.label}
                         </button>
                     ))}
-                </div>
-
-                <div className="flex items-center gap-4">
-                    <div className="hidden md:flex flex-col items-end mr-4 border-r border-gray-100 pr-4">
-                        <span className="text-[10px] font-black text-slate-400 uppercase">Eficiencia Promedio</span>
-                        <span className="text-sm font-black text-slate-900 flex items-center gap-1">
-                            <Timer size={14} className="text-indigo-600" /> {stats.avgDuration}
-                        </span>
-                    </div>
-
                 </div>
             </header>
 

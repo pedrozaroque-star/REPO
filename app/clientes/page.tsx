@@ -301,32 +301,36 @@ export default function ClientesFeedbackPage() {
   if (showSplash) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#50050a] overflow-hidden">
-        <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] pointer-events-none"></div>
         <style dangerouslySetInnerHTML={{
           __html: `
           @keyframes dropIn {
-            0% { transform: translateY(-800px) rotateY(0deg); opacity: 0; }
-            60% { transform: translateY(20px) rotateY(720deg); opacity: 1; }
-            80% { transform: translateY(-10px) rotateY(720deg); }
-            100% { transform: translateY(0) rotateY(720deg); }
+            0% { transform: translate3d(0, -800px, 0) rotateY(0deg); opacity: 0; }
+            60% { transform: translate3d(0, 20px, 0) rotateY(720deg); opacity: 1; }
+            80% { transform: translate3d(0, -10px, 0) rotateY(720deg); }
+            100% { transform: translate3d(0, 0, 0) rotateY(720deg); }
           }
           @keyframes ripple {
             0% { transform: scale(0); opacity: 0.8; }
-            100% { transform: scale(4); opacity: 0; }
+            100% { transform: scale(3); opacity: 0; }
+          }
+          .coin-3d {
+            backface-visibility: hidden;
+            perspective: 1000px;
           }
         `}} />
         <div className="relative z-10 flex flex-col items-center">
           <div
-            className="w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_60px_rgba(253,200,47,0.4)] will-change-transform"
-            style={{ animation: 'dropIn 3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards' }}
+            className="coin-3d w-48 h-48 rounded-full bg-gradient-to-br from-[#fdc82f] to-[#e69b00] p-1.5 shadow-[0_0_30px_rgba(253,200,47,0.3)] will-change-transform"
+            style={{ animation: 'dropIn 2.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards' }}
           >
             <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-4 border-[#fffbeb]">
               <img src="/logo.png" alt="TAG" className="w-[85%] h-[85%] object-contain" />
             </div>
           </div>
           <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full border border-white/50"
-            style={{ animation: 'ripple 2s infinite linear', animationDelay: '1.2s' }}
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full border border-white/40 pointer-events-none"
+            style={{ animation: 'ripple 2s infinite linear', animationDelay: '1s' }}
           ></div>
         </div>
       </div>
