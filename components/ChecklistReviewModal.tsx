@@ -679,9 +679,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
     const canSupervisorFinalApprove = role === 'supervisor' && type !== 'manager' && (status === 'cerrado' || status === 'aprobado')
 
     const handleStatusChange = async (newStatus: string) => {
-        // Validation: require comment if rejecting/closing AND no chat history
-        if ((newStatus === 'rechazado' || newStatus === 'cerrado') && comments.length === 0 && !newComment.trim()) {
-            alert('Por favor agrega un comentario o asegúrate de que haya historial en el chat.')
+        // Validation: require comment ONLY if rejecting AND no chat history
+        // Supervisors can approve/close without comment
+        if (newStatus === 'rechazado' && comments.length === 0 && !newComment.trim()) {
+            alert('Por favor explica la razón del rechazo en el chat o comentario.')
             return
         }
 
@@ -1390,13 +1391,13 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 value={newComment}
                                 onChange={(e) => setNewComment(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendComment()}
-                                placeholder={status === 'cerrado' ? "El chat está cerrado" : "Escribe un mensaje..."}
-                                disabled={status === 'cerrado'}
+                                placeholder={status === 'cerrado' && !['supervisor', 'admin'].includes(role) ? "El chat está cerrado" : "Escribe un mensaje..."}
+                                disabled={status === 'cerrado' && !['supervisor', 'admin'].includes(role)}
                                 className="flex-1 px-3 py-2 bg-gray-100 rounded-xl text-xs border-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
                             />
                             <button
                                 onClick={handleSendComment}
-                                disabled={!newComment.trim() || saving || status === 'cerrado'}
+                                disabled={!newComment.trim() || saving || (status === 'cerrado' && !['supervisor', 'admin'].includes(role))}
                                 className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition shadow disabled:opacity-50"
                             >
                                 <Send size={16} />
