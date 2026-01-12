@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Star, MapPin, Send, CheckCircle2, User, UserCheck, Briefcase } from 'lucide-react'
+import { MapPin, Send, CheckCircle2, User, UserCheck, Briefcase } from 'lucide-react'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
@@ -73,7 +73,7 @@ export default function StaffEvaluationPage() {
 
       const storesWithNumbers = (Array.isArray(data) ? data : []).map(store => ({
         ...store,
-        id: String(store.id), // Ensure text ID for consistent selection
+        id: String(store.id),
         latitude: store.latitude ? parseFloat(store.latitude) : null,
         longitude: store.longitude ? parseFloat(store.longitude) : null
       }))
@@ -161,8 +161,6 @@ export default function StaffEvaluationPage() {
         }
       }
 
-      // We still need to map to q1_1 etc. for legacy tables if needed
-      // But for now let's focus on the submission success
       const { error } = await supabase.from('staff_evaluations').insert([payload])
       if (error) throw error
       setShowThanks(true)
@@ -178,8 +176,8 @@ export default function StaffEvaluationPage() {
       title: 'Evaluación de Staff',
       subtitle: 'Crecer juntos es nuestra meta.',
       store: 'Sucursal',
-      storePlaceholder: 'Selecciona sucursal...',
-      detectBtn: 'Detectar Ubicación',
+      storePlaceholder: 'Selecciona la Sucursal',
+      detectBtn: 'Detectar GPS',
       detecting: 'Detectando...',
       evaluator: 'Tu Nombre (Opcional)',
       evaluatedName: 'Nombre del Staff a evaluar',
@@ -207,7 +205,7 @@ export default function StaffEvaluationPage() {
       subtitle: 'Growing together is our goal.',
       store: 'Location',
       storePlaceholder: 'Select location...',
-      detectBtn: 'Detect Location',
+      detectBtn: 'Detect GPS',
       detecting: 'Detecting...',
       evaluator: 'Your Name (Optional)',
       evaluatedName: 'Staff Member Name',
@@ -242,7 +240,6 @@ export default function StaffEvaluationPage() {
         <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
 
         <div className="relative z-10 flex flex-col items-center">
-          {/* Main Logo Container - Drop In Animation */}
           <motion.div
             initial={{ y: -800, opacity: 0, rotateY: 0 }}
             animate={{
@@ -262,7 +259,6 @@ export default function StaffEvaluationPage() {
               <img src="/logo.png" alt="TAG" className="w-[85%] h-[85%] object-contain" />
             </div>
 
-            {/* Ripple Effect */}
             <motion.div
               className="absolute inset-0 rounded-full border border-white/50"
               initial={{ scale: 0, opacity: 0.8 }}
@@ -301,216 +297,301 @@ export default function StaffEvaluationPage() {
 
   if (showThanks) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-6 text-center">
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="max-w-md">
-          <CheckCircle2 size={80} className="text-green-500 mx-auto mb-6" />
-          <h1 className="text-4xl font-black text-gray-900 mb-4">{t.thanks}</h1>
-          <p className="text-gray-500 text-lg mb-8">{t.thanksMsg}</p>
-          <button onClick={() => window.location.reload()} className="w-full py-4 bg-gray-900 text-white font-bold rounded-2xl shadow-xl">Realizar otra evaluación</button>
-        </motion.div>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-[#50050a] to-[#1a0103] text-white p-6">
+        <div className="absolute inset-0 opacity-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <div className="relative z-10 flex flex-col items-center text-center animate-in fade-in zoom-in duration-700">
+          <div className="w-32 h-32 rounded-full bg-[#fdc82f] flex items-center justify-center shadow-[0_0_50px_rgba(253,200,47,0.5)] mb-8">
+            <span className="text-6xl text-[#50050a]">✓</span>
+          </div>
+          <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#fdc82f] to-[#fffbeb] mb-4 tracking-tight">
+            {t.thanks}
+          </h1>
+          <p className="text-xl text-white/80 font-light max-w-md leading-relaxed">
+            {t.thanksMsg}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-8 px-8 py-3 bg-white/10 border border-white/20 hover:bg-white/20 text-white rounded-lg font-bold transition-all"
+          >
+            Realizar otra evaluación
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex bg-transparent font-sans w-full flex-col animate-in fade-in duration-500">
-      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
-        <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo" className="h-8" />
-            <span className="font-black text-xs tracking-widest uppercase text-gray-400">Staff Evaluation</span>
+    <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-start p-4 relative overflow-hidden">
+      {/* Fondo decorativo sutil */}
+      <div className="absolute inset-0 opacity-60 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+
+      {/* Logo y título superior */}
+      <div className="w-full max-w-md z-10 mt-8 mb-6">
+        <div className="text-center flex flex-col items-center mb-6">
+          <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 p-2">
+            <div className="w-28 h-28 flex items-center justify-center">
+              <img
+                src="/logo.png"
+                alt="Logo Tacos Gavilan"
+                className="w-full h-full object-contain"
+              />
+            </div>
           </div>
-          <button onClick={() => setLang(lang === 'es' ? 'en' : 'es')} className="text-xs font-black uppercase text-gray-900 bg-gray-100 px-3 py-1 rounded-full">{lang === 'es' ? 'EN' : 'ES'}</button>
+
+          <div className="w-48 h-16 mb-2 flex items-center justify-center">
+            <img
+              src="/ya esta.png"
+              alt="Ya está"
+              className="w-full h-full object-contain"
+            />
+          </div>
         </div>
-      </nav>
 
-      <main className="flex-1 overflow-y-auto max-w-2xl mx-auto px-4 py-8 space-y-8 pb-24 w-full">
-        <header className="text-center space-y-2">
-          <h1 className="text-3xl font-black text-gray-900 italic uppercase italic">{t.title}</h1>
-          <p className="text-gray-400 font-medium">{t.subtitle}</p>
-        </header>
+        <h1 className="text-2xl font-bold text-white tracking-wider text-center">
+          {t.title}
+        </h1>
+        <p className="text-sm text-gray-400 text-center mt-2">{t.subtitle}</p>
 
-        <form onSubmit={handleSubmit} className="space-y-8">
-          <section className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-6">
-            <div className="space-y-4">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                <MapPin size={12} /> {t.store}
+        <div className="flex justify-center mt-4">
+          <button
+            onClick={() => setLang(lang === 'es' ? 'en' : 'es')}
+            className="px-4 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs font-bold text-white hover:bg-white/20 transition-all"
+          >
+            {lang === 'es' ? '🇬🇧 EN' : '🇪🇸 ES'}
+          </button>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="w-full max-w-md z-20 space-y-4 pb-8">
+
+        {/* TARJETA 1: Selección de Tienda */}
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="h-2 bg-red-600 w-full"></div>
+          <div className="p-6">
+            <label className="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+              <MapPin size={16} className="text-red-600" /> {t.store}
+            </label>
+            <select
+              value={selectedStore}
+              onChange={(e) => setSelectedStore(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+              required
+            >
+              <option value="">{t.storePlaceholder}</option>
+              {stores.map(s => (
+                <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
+              ))}
+            </select>
+
+            {currentStoreInfo && (
+              <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+                <span className="text-base">📍</span>
+                <div className="text-xs text-blue-700 leading-relaxed">
+                  <span className="block font-bold text-blue-800">¿Estás aquí?</span>
+                  {currentStoreInfo.address}<br />
+                  {currentStoreInfo.city}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={detectLocation}
+              disabled={detectingLocation}
+              className="w-full mt-3 py-2.5 rounded-lg bg-gray-100 border border-gray-300 text-gray-700 font-bold text-sm hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50"
+            >
+              {detectingLocation ? '📍 Detectando...' : `📍 ${t.detectBtn}`}
+            </button>
+          </div>
+        </div>
+
+        {/* TARJETA 2: Información Personal */}
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="h-2 bg-red-600 w-full"></div>
+          <div className="p-6 space-y-5">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                <User size={16} className="text-gray-400" /> {t.evaluator}
               </label>
-
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr,auto] gap-3">
-                  <div className="relative w-full">
-                    <select
-                      value={selectedStore}
-                      onChange={e => setSelectedStore(e.target.value)}
-                      className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
-                    >
-                      <option value="">{t.storePlaceholder}</option>
-                      {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
-                    </select>
-                    <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">▼</div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={detectLocation}
-                    disabled={detectingLocation}
-                    className="p-4 bg-red-50 text-red-600 font-black text-xs uppercase tracking-widest rounded-2xl border border-red-100 hover:bg-red-100 transition-all disabled:opacity-50 whitespace-nowrap"
-                  >
-                    {detectingLocation ? t.detecting : t.detectBtn}
-                  </button>
-                </div>
-
-                {currentStoreInfo && (
-                  <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 rounded-xl border border-blue-100 animate-in fade-in zoom-in duration-300">
-                    <span className="text-lg">📍</span>
-                    <div className="text-xs text-blue-700 leading-relaxed">
-                      <span className="block font-black text-blue-800 uppercase tracking-wide mb-0.5">¿Estás aquí?</span>
-                      {currentStoreInfo.address}<br />
-                      {currentStoreInfo.city}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 pt-4 border-t border-gray-50">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><User size={12} /> {t.evaluator}</label>
-                <input
-                  type="text"
-                  value={formData.evaluator_name}
-                  onChange={e => setFormData({ ...formData, evaluator_name: e.target.value })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><UserCheck size={12} /> {t.evaluatedName}</label>
-                <input
-                  type="text"
-                  value={formData.evaluated_name}
-                  onChange={e => setFormData({ ...formData, evaluated_name: e.target.value })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><Briefcase size={12} /> {t.evaluatedRole}</label>
-                <div className="relative">
-                  <select
-                    value={formData.evaluated_role}
-                    onChange={e => setFormData({ ...formData, evaluated_role: e.target.value })}
-                    className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
-                  >
-                    <option value="">{t.rolePlaceholder}</option>
-                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                  <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">▼</div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {checklistLoading ? (
-            <div className="p-12 text-center animate-pulse text-gray-400 font-black uppercase tracking-widest">Cargando Preguntas...</div>
-          ) : (
-            <div className="space-y-12">
-              {template?.sections.map((section: any) => {
-                const isLeadSection = section.title.toLowerCase().includes('liderazgo') || section.title.toLowerCase().includes('leadership')
-                if (isLeadSection && !isLead) return null
-
-                return (
-                  <div key={section.id} className="space-y-6">
-                    <div className="flex items-center gap-4 px-2">
-                      <div className="h-[2px] flex-1 bg-gray-100" />
-                      <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em]">{section.title}</h2>
-                      <div className="h-[2px] flex-1 bg-gray-100" />
-                    </div>
-                    <div className="space-y-4">
-                      {section.questions.map((q: any, idx: number) => {
-                        const isLeadQ = q.text.toLowerCase().includes('(líder)') || q.text.toLowerCase().includes('(lider)') || q.text.toLowerCase().includes('(lead)')
-                        if (isLeadQ && !isLead) return null
-
-                        return (
-                          <DynamicQuestion
-                            key={q.id}
-                            question={q}
-                            index={idx}
-                            value={answers[q.id]}
-                            photos={questionPhotos[q.id] || []}
-                            onChange={(val) => setAnswers(prev => ({ ...prev, [q.id]: val }))}
-                            onPhotosChange={(urls) => setQuestionPhotos(prev => ({ ...prev, [q.id]: urls }))}
-                          />
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          <section className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic">{t.fortalezas}</label>
-                <textarea
-                  value={formData.fortalezas}
-                  onChange={e => setFormData({ ...formData, fortalezas: e.target.value })} rows={3}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic">{t.areasMejora}</label>
-                <textarea
-                  value={formData.areas_mejora}
-                  onChange={e => setFormData({ ...formData, areas_mejora: e.target.value })} rows={3}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-6 pt-4 border-t border-gray-50">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.recomendaria}</label>
-                <div className="relative">
-                  <select
-                    value={formData.recomendaria}
-                    onChange={e => setFormData({ ...formData, recomendaria: e.target.value })}
-                    className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all appearance-none"
-                  >
-                    <option value="si">{t.yes}</option>
-                    <option value="no">{t.no}</option>
-                  </select>
-                  <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">▼</div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.general}</label>
-                <input
-                  type="number" min="1" max="10"
-                  value={formData.desempeno_general || ''}
-                  onChange={e => setFormData({ ...formData, desempeno_general: parseInt(e.target.value) })}
-                  className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-4">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic">{t.comentarios}</label>
-              <textarea
-                value={formData.comentarios}
-                onChange={e => setFormData({ ...formData, comentarios: e.target.value })} rows={4}
-                className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none"
+              <input
+                type="text"
+                value={formData.evaluator_name}
+                onChange={e => setFormData({ ...formData, evaluator_name: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
               />
             </div>
 
-            <button type="submit" disabled={loading}
-              className="w-full py-5 bg-gradient-to-r from-red-600 to-red-800 text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-red-100 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50">
-              {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Send size={20} /><span>{t.send}</span></>}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                <UserCheck size={16} className="text-red-600" /> {t.evaluatedName}
+              </label>
+              <input
+                type="text"
+                value={formData.evaluated_name}
+                onChange={e => setFormData({ ...formData, evaluated_name: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                <Briefcase size={16} className="text-red-600" /> {t.evaluatedRole}
+              </label>
+              <select
+                value={formData.evaluated_role}
+                onChange={e => setFormData({ ...formData, evaluated_role: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+              >
+                <option value="">{t.rolePlaceholder}</option>
+                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* TARJETA 3: Checklist Dinámico */}
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="h-2 bg-red-600 w-full"></div>
+          <div className="p-6">
+            {checklistLoading ? (
+              <div className="p-8 text-center animate-pulse text-gray-400 font-bold uppercase tracking-widest">
+                Cargando Preguntas...
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {template?.sections.map((section: any) => {
+                  const isLeadSection = section.title.toLowerCase().includes('liderazgo') || section.title.toLowerCase().includes('leadership')
+                  if (isLeadSection && !isLead) return null
+
+                  return (
+                    <div key={section.id} className="space-y-4">
+                      <div className="flex items-center gap-4">
+                        <div className="h-[1px] flex-1 bg-gray-200" />
+                        <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">{section.title}</h2>
+                        <div className="h-[1px] flex-1 bg-gray-200" />
+                      </div>
+                      <div className="space-y-4">
+                        {section.questions.map((q: any, idx: number) => {
+                          const isLeadQ = q.text.toLowerCase().includes('(líder)') || q.text.toLowerCase().includes('(lider)') || q.text.toLowerCase().includes('(lead)')
+                          if (isLeadQ && !isLead) return null
+
+                          return (
+                            <DynamicQuestion
+                              key={q.id}
+                              question={q}
+                              index={idx}
+                              value={answers[q.id]}
+                              photos={questionPhotos[q.id] || []}
+                              onChange={(val) => setAnswers(prev => ({ ...prev, [q.id]: val }))}
+                              onPhotosChange={(urls) => setQuestionPhotos(prev => ({ ...prev, [q.id]: urls }))}
+                            />
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* TARJETA 4: Evaluación Cualitativa */}
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="h-2 bg-red-600 w-full"></div>
+          <div className="p-6 space-y-5">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">{t.fortalezas}</label>
+              <textarea
+                value={formData.fortalezas}
+                onChange={e => setFormData({ ...formData, fortalezas: e.target.value })}
+                rows={3}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">{t.areasMejora}</label>
+              <textarea
+                value={formData.areas_mejora}
+                onChange={e => setFormData({ ...formData, areas_mejora: e.target.value })}
+                rows={3}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 resize-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">{t.recomendaria}</label>
+                <select
+                  value={formData.recomendaria}
+                  onChange={e => setFormData({ ...formData, recomendaria: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+                >
+                  <option value="si">{t.yes}</option>
+                  <option value="no">{t.no}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">{t.general}</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={formData.desempeno_general || ''}
+                  onChange={e => setFormData({ ...formData, desempeno_general: parseInt(e.target.value) })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">{t.comentarios}</label>
+              <textarea
+                value={formData.comentarios}
+                onChange={e => setFormData({ ...formData, comentarios: e.target.value })}
+                rows={3}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 resize-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* TARJETA 5: Botón Enviar */}
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="h-2 bg-red-600 w-full"></div>
+          <div className="p-6">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-red-700 hover:bg-red-800 text-white font-bold py-4 px-4 rounded-lg shadow-md hover:shadow-lg transition-all transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed uppercase tracking-wide flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>{t.sending}</span>
+                </>
+              ) : (
+                <>
+                  <span>{t.send}</span>
+                  <Send size={18} />
+                </>
+              )}
             </button>
-          </section>
-        </form>
-      </main>
-    </div >
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="text-center py-4">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <img src="/logo.png" className="h-6 opacity-30" alt="Logo" />
+          </div>
+          <p className="text-xs text-gray-400">
+            © 2026 Tacos Gavilan. {selectedStore && `ID: ${selectedStore}`}
+          </p>
+        </div>
+      </form>
+    </div>
   )
 }

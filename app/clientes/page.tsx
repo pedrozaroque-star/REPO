@@ -230,7 +230,7 @@ export default function ClientesFeedbackPage() {
       title: 'Tu experiencia nos importa',
       subtitle: 'Ayúdanos a mejorar con esta breve encuesta.',
       store: 'Sucursal',
-      storePlaceholder: 'Selecciona tu ubicación...',
+      storePlaceholder: 'Selecciona la Sucursal',
       detectBtn: 'Detectar GPS',
       detecting: 'Detectando...',
       name: 'Tu nombre (Opcional)',
