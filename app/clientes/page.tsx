@@ -620,7 +620,7 @@ export default function ClientesFeedbackPage() {
             <img src="/logo.png" className="h-6 opacity-30" alt="Logo" />
           </div>
           <p className="text-xs text-gray-400">
-            © 2025 Tacos Gavilan. {selectedStore && `ID: ${selectedStore}`}
+            © 2026 Tacos Gavilan. {selectedStore && `ID: ${selectedStore}`}
           </p>
         </div>
       </form>
