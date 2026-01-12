@@ -251,8 +251,8 @@ export default function StaffEvaluationPage() {
               rotateY: 2520,
               transition: {
                 type: "spring",
-                damping: 20,
-                stiffness: 60,
+                damping: 10,
+                stiffness: 20,
                 duration: 4.5
               }
             }}
