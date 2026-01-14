@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase'
 
-const TIMEOUT_DURATION = 10 * 60 * 1000 // 10 minutes
+const TIMEOUT_DURATION = 60 * 60 * 1000 // 60 minutes
 
 export default function IdleTimer() {
     const router = useRouter()
