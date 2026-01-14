@@ -1027,7 +1027,8 @@ function ScheduleManager() {
 
             // Calcular riesgo de esta tienda: SOLO para personal de esta tienda
             const storeUserIds = new Set(allUsers?.filter(u => String(u.store_id) === String(store.id)).map(u => String(u.id)) || []);
-            const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && storeUserIds.has(String(s.user_id)));
+            // Calcular riesgo de esta tienda: Usar todos los horarios asignados a esta tienda
+            const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id));
 
             // BUSCAR ÚLTIMA CAPTURA (Max created_at o similar de esta tienda)
             // Nota: created_at viene de Supabase por defecto en el select *
@@ -1118,11 +1119,18 @@ function ScheduleManager() {
                     text: `${totalPending} ${totalPending === 1 ? 'tienda está' : 'tiendas están'} sin horarios programados.`,
                     color: 'text-amber-600 bg-amber-50'
                 });
-            } else if (sup.alertLines.length === 0) { // Fallback si no hay bad ni empty 
-                sup.alertLines.push({
-                    text: `${sup.stores.length} tiendas sin horarios programados.`,
-                    color: 'text-amber-600 bg-amber-50'
-                });
+            } else if (sup.alertLines.length === 0) {
+                if (sup.overallStatus === 'ok') {
+                    sup.alertLines.push({
+                        text: `¡Excelente! Todas las tiendas están cubiertas.`,
+                        color: 'text-emerald-600 bg-emerald-50'
+                    });
+                } else {
+                    sup.alertLines.push({
+                        text: `${sup.stores.length} tiendas sin horarios programados.`,
+                        color: 'text-amber-600 bg-amber-50'
+                    });
+                }
             }
         });
 
