@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import React, { useState, useEffect, Suspense, useRef, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
     X, Clock, Coffee, Sun, Sunrise, Moon, MoonStar,
-    Calendar, User, Save, Trash2, ArrowRight, Sparkles, Zap
+    Calendar, User, Save, Trash2, ArrowRight, Sparkles, Zap, Store,
+    ChevronLeft, ChevronRight
 } from 'lucide-react'
 
 // --- CONFIGURACIÓN DE DATOS ---
@@ -48,54 +49,303 @@ const formatTime12h = (time: string) => {
         const hours = parseInt(hStr);
         const ampm = hours >= 12 ? 'PM' : 'AM';
         const hours12 = hours % 12 || 12;
-        return `${hours12}:${mStr} ${ampm}`;
+        const minDisplay = mStr === '00' ? '' : `:${mStr}`;
+        return `${hours12}${minDisplay} ${ampm}`;
     } catch (e) { return time; }
 }
 
 // --- SEMÁFORO (LÓGICA OPERATIVA) ---
-const calculateDailyStatus = (dateStr: string, shifts: any[], users: any[]) => {
-    // 1. Filtrar turnos del día
-    const dayShifts = shifts.filter(s => s.date === dateStr);
+// --- HELPER PARA COBERTURA DE HORAS (4 HORAS MINIMO) ---
+const getMinutes = (timeStr: string) => {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + (m || 0);
+};
 
-    // CASO 1: Tienda sola (Nadie programado)
-    if (dayShifts.length === 0) {
+const coversBlock = (shift: any, blockStartHour: number, blockEndHour: number) => {
+    if (!shift || !shift.start_time || !shift.end_time) return false;
+
+    let start = getMinutes(shift.start_time);
+    let end = getMinutes(shift.end_time);
+
+    // Manejo de turno nocturno (ej: 5pm a 1am -> 17 a 25)
+    if (end < start) end += 24 * 60;
+
+    // Definir bloque objetivo AM (0-17) o PM (17-30)
+    const blockStart = blockStartHour * 60;
+    const blockEnd = blockEndHour * 60;
+
+    // Calcular intersección
+    const overlapStart = Math.max(start, blockStart);
+    const overlapEnd = Math.min(end, blockEnd);
+
+    // Duración de la intersección en minutos
+    const overlap = overlapEnd - overlapStart;
+
+    // Regla: Debe cubrir al menos 4 horas (240 minutos) del bloque
+    return overlap >= 240;
+};
+
+
+// --- SEMÁFORO (LÓGICA OPERATIVA 4H + COMODÍN) ---
+// --- SEMÁFORO (LÓGICA OPERATIVA 4H + COMODÍN FINITO) ---
+const calculateDailyStatus = (
+    dateStr: string,
+    storeShifts: any[],
+    storeUsers: any[],
+    supervisorShift?: any,
+    supAvailableAM: boolean = true,
+    supAvailablePM: boolean = true
+) => {
+    const dayShifts = storeShifts.filter(s => s.date === dateStr);
+
+    // 1. Verificar cobertura del PERSONAL DE LA TIENDA
+    // AM: Bloque 00:00 - 17:00 (5 PM)
+    const storeCoversAM = dayShifts.some(s => coversBlock(s, 0, 17));
+    // PM: Bloque 17:00 - 30:00 (6 AM next day)
+    const storeCoversPM = dayShifts.some(s => coversBlock(s, 17, 30));
+
+    let finalAM = storeCoversAM;
+    let finalPM = storeCoversPM;
+
+    let usedSupAM = false;
+    let usedSupPM = false;
+
+    // 2. Verificar cobertura del SUPERVISOR (Comodín Finito)
+    if (supervisorShift) {
+        // Solo intentar cubrir si la tienda NO lo cubre Y el supervisor está disponible para ese bloque
+        if (!finalAM && supAvailableAM && coversBlock(supervisorShift, 0, 17)) {
+            finalAM = true;
+            usedSupAM = true;
+        }
+        if (!finalPM && supAvailablePM && coversBlock(supervisorShift, 17, 30)) {
+            finalPM = true;
+            usedSupPM = true;
+        }
+    }
+
+    const coveredBySup = usedSupAM || usedSupPM;
+
+    // Retorno extendido para la lógica de consumo
+    const baseResult = {
+        usedSupAM,
+        usedSupPM,
+        missingAM: !finalAM,
+        missingPM: !finalPM
+    };
+
+    // CASO 1: Sin personal capturado (Pendiente) o turnos sin horas validas
+    const hasValidShifts = dayShifts.some(s => s.start_time && s.end_time);
+
+    if (dayShifts.length === 0 || !hasValidShifts) {
         return {
+            ...baseResult,
             status: 'empty',
             label: 'VACÍO',
             color: 'bg-gray-100 text-gray-400 border-gray-200'
         };
     }
 
-    // 2. Analizar Cobertura de Turnos (Sin importar el rango/rol)
-    // Se considera "AM" si alguien entra temprano (antes de la 1 PM)
-    const hasMorning = dayShifts.some(s => {
-        const startHour = parseInt(s.start_time?.split(':')[0] || '0');
-        return startHour < 13;
-    });
-
-    // Se considera "PM" si alguien cubre la tarde/noche
-    // Criterio: Entra tarde (>= 2 PM) O sale tarde (>= 8 PM) O es turno nocturno (cierra otro día)
-    const hasEvening = dayShifts.some(s => {
-        const start = parseInt(s.start_time?.split(':')[0] || '0');
-        const end = parseInt(s.end_time?.split(':')[0] || '0');
-        return start >= 14 || end >= 20 || end < start;
-    });
-
-    // CASO 2: Cobertura Total (Hay alguien en AM y alguien en PM)
-    if (hasMorning && hasEvening) {
+    // CASO 2: Cobertura Total
+    if (finalAM && finalPM) {
         return {
-            status: 'ok',
-            label: 'CUBIERTO',
-            color: 'bg-emerald-500 text-white shadow-emerald-200 shadow-md'
+            ...baseResult,
+            status: coveredBySup ? 'ok-sup' : 'ok',
+            label: coveredBySup ? 'CUBIERTO (SUP)' : 'CUBIERTO',
+            color: coveredBySup ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-emerald-500 text-white shadow-md'
         };
     }
 
-    // CASO 3: Falta algún turno
+    // CASO 3: Faltas de personal (Solo si ya se empezó a capturar)
     return {
+        ...baseResult,
         status: 'bad',
-        label: !hasMorning ? 'FALTA AM' : 'FALTA PM',
-        color: 'bg-red-500 text-white shadow-red-200 shadow-md'
+        label: !finalAM && !finalPM ? 'FALTA AM/PM' : (!finalAM ? 'FALTA AM' : 'FALTA PM'),
+        color: 'bg-red-500 text-white animate-pulse shadow-md'
     };
+}
+
+// --- COMPONENTE UI: PICKER DE SEMANA PERSONALIZADO (Copia Visual) ---
+function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: Date, onDateChange: (d: Date) => void, weekStart: Date }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [viewDate, setViewDate] = useState(new Date(currentDate)); // Para navegar meses sin cambiar selección
+
+    // Sincronizar viewDate si cambia currentDate externamente
+    useEffect(() => { setViewDate(new Date(currentDate)); }, [currentDate]);
+
+    // Helpers de Fecha UI
+    const MonthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const ShortMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+    const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+    const getFirstDayOfMonth = (year: number, month: number) => {
+        const day = new Date(year, month, 1).getDay();
+        return day === 0 ? 6 : day - 1; // Ajustar para Lunes=0
+    };
+
+    const handlePrevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+    const handleNextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+
+    const handleDayClick = (dayStr: number) => {
+        const selectedDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), dayStr);
+        onDateChange(selectedDate); // El padre calculará el Start of Week automáticamente
+        setIsOpen(false);
+    };
+
+    // Generar Grid
+    const daysInMonth = getDaysInMonth(viewDate.getFullYear(), viewDate.getMonth());
+    const startOffset = getFirstDayOfMonth(viewDate.getFullYear(), viewDate.getMonth());
+    const matrix = [];
+    let counter = 1;
+    for (let i = 0; i < 6; i++) {
+        const row = [];
+        for (let j = 0; j < 7; j++) {
+            if (i === 0 && j < startOffset) {
+                row.push(null);
+            } else if (counter > daysInMonth) {
+                row.push(null);
+            } else {
+                row.push(counter++);
+            }
+        }
+        matrix.push(row);
+        if (counter > daysInMonth) break;
+    }
+
+    // Rango Seleccionado Visual
+    const startRange = weekStart;
+    const endRange = addDays(weekStart, 13); // Visualmente mostramos 2 semanas en el texto, pero el picker selecciona 1 fecha base.
+    // Ajuste: El usuario quiere seleccionar UNA semana. La logica actual maneja 2 semanas.
+    // El picker sombreará la semana a la que pertenece el día que se renderiza.
+
+    const isDayInSelectedWeek = (d: number) => {
+        const target = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+        const targetTime = target.getTime();
+        // Verificar si está en la semana actual seleccionada (Semana 1)
+        const s1Start = new Date(weekStart); s1Start.setHours(0, 0, 0, 0);
+        const s1End = addDays(s1Start, 6); s1End.setHours(23, 59, 59, 999);
+
+        // Verificar si está en la semana siguiente (Semana 2) -> Opcional si queremos sombrear las 2 semanas
+        // La imagen del usuario muestra 1 semana sombreada (12-18). Vamos a sombrear solo esa semana base para ser fieles a la imagen UI.
+        // Pero el sistema usa 2 semanas. Sombrearemos la semana que contiene a la fecha 'currentDate'.
+
+        return targetTime >= s1Start.getTime() && targetTime <= s1End.getTime();
+    };
+
+    const isStart = (d: number) => {
+        const target = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+        return target.toDateString() === weekStart.toDateString();
+    };
+    const isEnd = (d: number) => {
+        const target = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+        const wEnd = addDays(weekStart, 6);
+        return target.toDateString() === wEnd.toDateString();
+    };
+
+    const dateRangeText = `${ShortMonths[weekStart.getMonth()]} ${weekStart.getDate()}, ${weekStart.getFullYear()}  →  ${ShortMonths[addDays(weekStart, 6).getMonth()]} ${addDays(weekStart, 6).getDate()}, ${addDays(weekStart, 6).getFullYear()}`;
+
+    return (
+        <div className="relative flex items-center gap-2 z-[100]">
+            {/* Backdrop click closer */}
+            {isOpen && <div className="fixed inset-0 z-[80]" onClick={() => setIsOpen(false)}></div>}
+
+            <div className={`flex items-center bg-white rounded-md shadow-sm border p-1 transition-all ${isOpen ? 'border-indigo-300 ring-2 ring-indigo-100' : 'border-gray-200'}`}>
+                <button
+                    onClick={() => onDateChange(addDays(currentDate, -7))}
+                    className="w-7 h-7 flex items-center justify-center hover:bg-gray-50 rounded text-gray-500 hover:text-gray-900 transition-colors border-r border-gray-100"
+                >
+                    <ChevronLeft size={16} strokeWidth={2.5} />
+                </button>
+
+                <div
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="relative px-3 flex items-center gap-2 text-sm text-gray-700 hover:bg-gray-50 h-7 rounded mx-0.5 cursor-pointer select-none min-w-[200px] justify-center"
+                >
+                    <Calendar size={14} className="text-gray-400 mb-0.5 group-hover:text-indigo-500 transition-colors" />
+                    <span className="tabular-nums tracking-tight text-xs md:text-sm whitespace-nowrap">
+                        {dateRangeText}
+                    </span>
+                </div>
+
+                <button
+                    onClick={() => onDateChange(addDays(currentDate, 7))}
+                    className="w-7 h-7 flex items-center justify-center hover:bg-gray-50 rounded text-gray-500 hover:text-gray-900 transition-colors border-l border-gray-100"
+                >
+                    <ChevronRight size={16} strokeWidth={2.5} />
+                </button>
+            </div>
+
+            <button
+                onClick={() => onDateChange(new Date())}
+                className="bg-white border border-gray-200 text-gray-700 text-xs font-bold px-3 py-1.5 rounded-md shadow-sm hover:bg-gray-50 transition-colors hidden md:block"
+            >
+                Hoy
+            </button>
+
+            {/* POPOVER CALENDARIO */}
+            {isOpen && (
+                <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-2xl border border-gray-100 p-4 w-[300px] z-[90]"
+                >
+                    {/* Header Mes */}
+                    <div className="flex items-center justify-between mb-4">
+                        <span className="font-bold text-gray-800 text-sm">
+                            {MonthNames[viewDate.getMonth()]} {viewDate.getFullYear()}
+                        </span>
+                        <div className="flex gap-1">
+                            <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-100 rounded text-gray-500"><ChevronLeft size={16} /></button>
+                            <button onClick={handleNextMonth} className="p-1 hover:bg-gray-100 rounded text-gray-500"><ChevronRight size={16} /></button>
+                        </div>
+                    </div>
+
+                    {/* Grid Dias Semana */}
+                    <div className="grid grid-cols-7 mb-2 text-center">
+                        {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'].map(d => (
+                            <span key={d} className="text-[10px] font-bold text-gray-400 uppercase">{d}</span>
+                        ))}
+                    </div>
+
+                    {/* Grid Fechas */}
+                    <div className="grid grid-cols-7 gap-y-1">
+                        {matrix.map((row, i) => (
+                            <React.Fragment key={i}>
+                                {row.map((day, j) => {
+                                    if (!day) return <span key={`${i}-${j}`} className="p-2"></span>;
+
+                                    const isSelected = isDayInSelectedWeek(day);
+                                    const isStartDay = isStart(day);
+                                    const isEndDay = isEnd(day);
+
+                                    let cellClass = "text-gray-700 hover:bg-gray-100"; // Default
+
+                                    if (isSelected) {
+                                        cellClass = "bg-indigo-50 text-indigo-700 font-bold";
+                                        if (isStartDay) cellClass += " rounded-l-lg bg-indigo-100 text-indigo-900";
+                                        if (isEndDay) cellClass += " rounded-r-lg bg-indigo-100 text-indigo-900";
+                                    } else {
+                                        cellClass += " rounded-lg"; // Round hover for non-selected
+                                    }
+
+                                    return (
+                                        <button
+                                            key={`${i}-${j}`}
+                                            onClick={() => handleDayClick(day)}
+                                            className={`h-8 w-full text-xs flex items-center justify-center transition-all ${cellClass}`}
+                                        >
+                                            {day}
+                                        </button>
+                                    );
+                                })}
+                            </React.Fragment>
+                        ))}
+                    </div>
+                </motion.div>
+            )}
+        </div>
+    );
 }
 
 // --- COMPONENTE PRINCIPAL ---
@@ -118,6 +368,7 @@ function ScheduleManager() {
     const [currentDate, setCurrentDate] = useState(new Date())
     const [stores, setStores] = useState<any[]>([])
     const [selectedStoreId, setSelectedStoreId] = useState<string>('')
+    const [selectedSupervisorId, setSelectedSupervisorId] = useState<string>('')
 
     const [allSchedules, setAllSchedules] = useState<any[]>([])
     const [allUsers, setAllUsers] = useState<any[]>([])
@@ -131,15 +382,20 @@ function ScheduleManager() {
     const [isDragging, setIsDragging] = useState(false);
     const [dragSource, setDragSource] = useState<any>(null);
 
+    // --- REPLICACIÓN DE SEMANA ---
+    const [showReplicationModal, setShowReplicationModal] = useState(false);
+    const [replicationLoading, setReplicationLoading] = useState(false);
+    const [replicationCandidates, setReplicationCandidates] = useState<{ id: string, name: string }[]>([]);
+
     const weekStart = getMonday(currentDate)
-    const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i))
+    const weekDays = Array.from({ length: 14 }).map((_, i) => addDays(weekStart, i))
 
     const loadGlobalData = async () => {
         setLoading(true)
         try {
             const supabase = await getSupabase()
             const startStr = formatDateISO(weekStart)
-            const endStr = formatDateISO(addDays(weekStart, 6))
+            const endStr = formatDateISO(addDays(weekStart, 13))
             const { data: sData } = await supabase.from('schedules').select('*').gte('date', startStr).lte('date', endStr)
             setAllSchedules(sData || [])
             const { data: uData } = await supabase.from('users').select('id, full_name, role, store_id').eq('is_active', true)
@@ -148,21 +404,194 @@ function ScheduleManager() {
     }
 
     const filterLocalData = () => {
-        const currentStore = stores.find(s => String(s.id) === String(selectedStoreId));
-        const supId = currentStore?.supervisor_id;
-        const filteredUsers = allUsers.filter(u =>
-            String(u.store_id) === String(selectedStoreId) || String(u.id) === String(supId)
-        ).sort((a, b) => {
-            const isLeaderA = ['manager', 'sup', 'gerente'].some(r => a.role.toLowerCase().includes(r));
-            const isLeaderB = ['manager', 'sup', 'gerente'].some(r => b.role.toLowerCase().includes(r));
-            if (isLeaderA && !isLeaderB) return -1;
-            if (!isLeaderA && isLeaderB) return 1;
+        // Obtenemos las tiendas a mostrar (Puede ser 1 o todas las del supervisor)
+        const targetStoreIds = selectedSupervisorId
+            ? stores.filter(s => String(s.supervisor_id) === String(selectedSupervisorId)).map(s => String(s.id))
+            : [String(selectedStoreId)];
+
+        // Filtramos usuarios que pertenezcan a esas tiendas O sean el supervisor
+        // Nota: Si es vista de supervisor, queremos ver a todos los usuarios de todas sus tiendas
+        const filteredUsers = allUsers.filter(u => {
+            const isTargetStore = targetStoreIds.includes(String(u.store_id));
+            const isSelectedSup = String(u.id) === String(selectedSupervisorId);
+            const isAdmin = u.role.toLowerCase().includes('admin');
+
+            // Mostrar si es de la tienda y NO es admin, O si es el supervisor seleccionado específicamente
+            return (isTargetStore && !isAdmin) || isSelectedSup;
+        }).sort((a, b) => {
+            // 1. Supervisor siempre arriba
+            const isSupA = a.role.toLowerCase().includes('sup') || String(a.id) === String(selectedSupervisorId);
+            const isSupB = b.role.toLowerCase().includes('sup') || String(b.id) === String(selectedSupervisorId);
+            if (isSupA && !isSupB) return -1;
+            if (!isSupA && isSupB) return 1;
+
+            // 2. Managers después
+            const isManagerA = ['manager', 'gerente'].some(r => a.role.toLowerCase().includes(r));
+            const isManagerB = ['manager', 'gerente'].some(r => b.role.toLowerCase().includes(r));
+            if (isManagerA && !isManagerB) return -1;
+            if (!isManagerA && isManagerB) return 1;
+
+            // 3. Alfabético
             return a.full_name.localeCompare(b.full_name);
         });
         setLocalUsers(filteredUsers);
-        const filteredSchedules = allSchedules.filter(s => String(s.store_id) === String(selectedStoreId));
+
+        // Filtramos horarios de esas tiendas
+        const filteredSchedules = allSchedules.filter(s => targetStoreIds.includes(String(s.store_id)));
         setLocalSchedules(filteredSchedules);
     }
+
+    // --- ESTADO PARA CONTROLAR REPETICIÓN DEL MODAL ---
+    const dismissedReplicationsRef = useRef<Set<string>>(new Set());
+
+    // 🔍 VERIFICAR OPORTUNIDAD DE RÉPLICA (Automático al cambiar de semana)
+    useEffect(() => {
+        const checkReplication = async () => {
+            if (viewMode !== 'editor' || loading) return;
+
+            // Generar una clave única para esta combinación de vista/semana
+            const currentKey = `${formatDateISO(weekStart)}-${selectedStoreId || selectedSupervisorId}`;
+
+            // Chequear contra la referencia actual (siempre viva)
+            if (dismissedReplicationsRef.current.has(currentKey)) return;
+
+            // Definir targetStores basado en la selección actual
+            const targetStoresList = selectedSupervisorId
+                ? stores.filter(s => String(s.supervisor_id) === String(selectedSupervisorId))
+                : stores.filter(s => String(s.id) === String(selectedStoreId));
+
+            if (targetStoresList.length === 0) return;
+
+            const supabase = await getSupabase();
+            const candidates: { id: string, name: string }[] = [];
+
+            const currentStart = formatDateISO(weekStart);
+            const currentEnd = formatDateISO(addDays(weekStart, 6)); // Solo Semana 1
+            const prevStart = formatDateISO(addDays(weekStart, -7));
+            const prevEnd = formatDateISO(addDays(weekStart, -1));
+
+            // Verificar tienda por tienda
+            for (const store of targetStoresList) {
+                // ... (rest of logic unchanged) ...
+                // 1. Chequear semana ACTUAL (debe estar vacía)
+                const { count: currentCount } = await supabase
+                    .from('schedules')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('store_id', store.id)
+                    .gte('date', currentStart)
+                    .lte('date', currentEnd);
+
+                if (currentCount && currentCount > 0) continue;
+
+                // 2. Chequear semana ANTERIOR (debe tener datos)
+                const { count: prevCount } = await supabase
+                    .from('schedules')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('store_id', store.id)
+                    .gte('date', prevStart)
+                    .lte('date', prevEnd);
+
+                if (prevCount && prevCount > 0) {
+                    // Evitar duplicados si la lista de tiendas base los tiene
+                    if (!candidates.some(c => c.id === store.id)) {
+                        candidates.push({ id: store.id, name: store.name });
+                    }
+                }
+            }
+
+            if (candidates.length > 0) {
+                // Doble chequeo por si el usuario descartó mientras se ejecutaba esto
+                if (dismissedReplicationsRef.current.has(currentKey)) return;
+
+                setReplicationCandidates(candidates);
+                setShowReplicationModal(true);
+            }
+        };
+
+        if (!loading) checkReplication();
+    }, [weekStart, viewMode, selectedSupervisorId, selectedStoreId, stores, loading]); // Quitada la dependencia de dismissed
+
+    const dismissReplication = () => {
+        const currentKey = `${formatDateISO(weekStart)}-${selectedStoreId || selectedSupervisorId}`;
+        dismissedReplicationsRef.current.add(currentKey);
+        setShowReplicationModal(false);
+    };
+
+    const handleReplicateWeek = async () => {
+        if (replicationCandidates.length === 0) return;
+        setReplicationLoading(true);
+        try {
+            const supabase = await getSupabase();
+            const candidateIds = replicationCandidates.map(c => c.id);
+
+            // 1. Obtener datos semana anterior SOLO de las tiendas candidatas
+            const prevStart = formatDateISO(addDays(weekStart, -7));
+            const prevEnd = formatDateISO(addDays(weekStart, -1));
+
+            const { data: sourceShifts, error: fetchError } = await supabase
+                .from('schedules')
+                .select('*')
+                .in('store_id', candidateIds)
+                .gte('date', prevStart)
+                .lte('date', prevEnd);
+
+            if (fetchError) {
+                console.error("Error fetching source shifts:", fetchError);
+                throw new Error(`Fetch error: ${fetchError.message}`);
+            }
+
+            if (!sourceShifts || sourceShifts.length === 0) {
+                // No hay nada que copiar (raro si llegamos aquí, pero posible)
+                setShowReplicationModal(false);
+                return;
+            }
+
+            // 2. Preparar nuevos turnos (+7 días)
+            const newShifts = sourceShifts.map(s => {
+                if (!s.date) return null; // Safety check
+                const oldDate = new Date(s.date + 'T12:00:00');
+                const newDate = addDays(oldDate, 7);
+
+                // Mapeo explicito incluyendo todos los campos necesarios
+                return {
+                    user_id: s.user_id,
+                    store_id: s.store_id,
+                    date: formatDateISO(newDate),
+                    start_time: s.start_time,
+                    end_time: s.end_time,
+                    shift_label: s.shift_label || 'Custom',
+                    role: s.role || 'ventas'
+                };
+            }).filter(Boolean); // Remover nulos
+
+            if (newShifts.length === 0) {
+                setShowReplicationModal(false);
+                return;
+            }
+
+            // 3. Insertar con Upsert para evitar conflictos de clave única
+            const { error: insertError } = await supabase
+                .from('schedules')
+                .upsert(newShifts, { onConflict: 'user_id, date' });
+
+            if (insertError) {
+                console.error("Error detailed (JSON):", JSON.stringify(insertError));
+                console.error("Error detailed (Object):", insertError);
+                throw new Error(`Insert error: ${insertError.message} - ${insertError.details || 'no details'}`);
+            }
+
+            // 4. Recargar
+            await loadGlobalData();
+            setShowReplicationModal(false);
+            setReplicationCandidates([]);
+
+        } catch (e: any) {
+            console.error("FULL Error replicating week:", e);
+            alert(`Hubo un error al replicar: ${e.message || 'Error desconocido'}. Revisa la consola para más detalles.`);
+        } finally {
+            setReplicationLoading(false);
+        }
+    };
 
     // 🔗 DEEP LINKING: Cargar tienda y fecha desde URL (Notificaciones)
     useEffect(() => {
@@ -207,13 +636,14 @@ function ScheduleManager() {
     }, []);
 
     // --- DRAG & DROP ---
-    const handleCellMouseDown = (e: React.MouseEvent, user: any, date: Date, shift: any) => {
+    // --- DRAG & DROP ---
+    const handleCellMouseDown = (e: React.MouseEvent, user: any, date: Date, shift: any, storeId?: string) => {
         if (e.shiftKey && canEdit) {
             e.preventDefault();
             setIsDragging(true);
             setDragSource(shift);
         } else {
-            openEditModal(user, date, shift);
+            openEditModal(user, date, shift, storeId);
         }
     };
 
@@ -233,7 +663,7 @@ function ScheduleManager() {
         if (!isDelete) {
             tempSchedules.push({
                 user_id: targetUser.id,
-                store_id: parseInt(selectedStoreId),
+                store_id: targetUser.store_id, // CORRECCIÓN: Usar la tienda del usuario destino
                 date: dateStr,
                 shift_label: sourceShift.shift_label,
                 start_time: sourceShift.start_time,
@@ -248,7 +678,7 @@ function ScheduleManager() {
         } else {
             await supabase.from('schedules').upsert({
                 user_id: targetUser.id,
-                store_id: parseInt(selectedStoreId),
+                store_id: targetUser.store_id, // CORRECCIÓN: Usar la tienda del usuario destino
                 date: dateStr,
                 shift_label: sourceShift.shift_label,
                 start_time: sourceShift.start_time,
@@ -327,9 +757,15 @@ function ScheduleManager() {
         if (preset) labelToSave = preset.label;
         else if (editingShift.presetId === 'visita') labelToSave = 'Visita Sup.';
 
+        const targetStoreId = parseInt(editingShift.storeId || selectedStoreId); // INTENTAR USAR ID DEL MODAL, SI NO EL SELECCIONADO
+        if (!targetStoreId || isNaN(targetStoreId)) {
+            console.error("Error: Store ID invalido al guardar");
+            return;
+        }
+
         const newEntry = {
             user_id: parseInt(editingShift.userId),
-            store_id: parseInt(selectedStoreId),
+            store_id: targetStoreId,
             date: dateStr,
             shift_label: labelToSave,
             start_time: editingShift.start,
@@ -346,10 +782,11 @@ function ScheduleManager() {
         else await supabase.from('schedules').upsert(newEntry, { onConflict: 'user_id, date' })
     }
 
-    const openEditModal = (user: any, date: Date, currentShift: any) => {
+    const openEditModal = (user: any, date: Date, currentShift: any, storeId?: string) => {
         if (!canEdit) return;
         setEditingShift({
             userId: user.id, userName: user.full_name, userRole: user.role,
+            storeId: storeId, // GUARDAR STORE ID
             date: date, start: currentShift?.start_time || '', end: currentShift?.end_time || '',
             presetId: currentShift ? 'custom' : 'off'
         })
@@ -357,362 +794,531 @@ function ScheduleManager() {
 
     // --- RENDERIZADO ---
 
-    const renderDashboard = () => (
-        <div className="animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
-                <div>
-                    <h2 className="text-3xl font-black text-gray-900 tracking-tight">Centro de Control</h2>
-                    <p className="text-gray-500 mt-1">
-                        {canEdit ? '👋 Hola Admin. Selecciona una tienda para gestionar.' : '👀 Modo Lectura. Visualización de cobertura.'}
-                    </p>
+    const renderDashboard = () => {
+        // Calcular supervisores y sus métricas
+        const supervisorsList = Object.values(stores.reduce((acc: any, store: any) => {
+            const supId = store.supervisor_id;
+            // Si no tiene supervisor, lo agrupamos bajo "Sin Supervisor" (ID 0 o similar)
+            // O simplemente lo mostramos como tarjeta individual si preferimos.
+            // Aqui usaremos el ID del supervisor como clave.
+            if (!supId) return acc; // Ignorar tiendas sin supervisor por ahora para simplificar dashboard
+
+            if (!acc[supId]) {
+                acc[supId] = {
+                    id: supId,
+                    name: store.supervisor_name || 'Sin Nombre',
+                    stores: [],
+                    risk: false,
+                    issues: [],
+                    stats: { empty: 0, bad: 0, ok: 0, progress: 0 }
+                };
+            }
+
+            // Calcular riesgo de esta tienda: SOLO para personal de esta tienda
+            const storeUserIds = new Set(allUsers?.filter(u => String(u.store_id) === String(store.id)).map(u => String(u.id)) || []);
+            const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && storeUserIds.has(String(s.user_id)));
+
+            // Calculo seguro de estado semanal
+            const weekStatuses = weekDays.map(d => {
+                const dateStr = formatDateISO(d);
+                try {
+                    const supShift = allSchedules.find(s => String(s.user_id) === String(supId) && s.date === dateStr);
+                    return calculateDailyStatus(dateStr, storeShifts, allUsers || [], supShift, true, true);
+                } catch (e) {
+                    return { status: 'error', missingAM: true, missingPM: true };
+                }
+            });
+
+            const hasRisk = weekStatuses.some(s => s.status === 'bad' || s.status === 'empty');
+            const storeHasBad = weekStatuses.some(s => s.status === 'bad');
+            const storeHasEmpty = weekStatuses.some(s => s.status === 'empty');
+
+            if (storeHasBad) {
+                const badDays = weekStatuses
+                    .map((s, idx) => s.status === 'bad' ? getDayName(weekDays[idx]).substring(0, 3) : null)
+                    .filter(Boolean);
+                acc[supId].issues.push({ store: formatStoreName(store.name), days: badDays, type: 'bad' });
+            } else if (storeHasEmpty) {
+                const emptyDays = weekStatuses
+                    .map((s, idx) => s.status === 'empty' ? getDayName(weekDays[idx]).substring(0, 3) : null)
+                    .filter(Boolean);
+                acc[supId].issues.push({ store: formatStoreName(store.name), days: emptyDays, type: 'empty' });
+            }
+
+            acc[supId].stores.push(store);
+            if (hasRisk) acc[supId].risk = true;
+
+            const allOk = weekStatuses.every(s => s.status === 'ok' || s.status === 'ok-sup');
+            const anyBad = weekStatuses.some(s => s.status === 'bad');
+            const anyEmpty = weekStatuses.some(s => s.status === 'empty');
+            const allEmpty = weekStatuses.every(s => s.status === 'empty');
+
+            const storeRes = anyBad ? 'bad' : (allOk ? 'ok' : (allEmpty ? 'empty' : 'progress'));
+
+            acc[supId].stats[storeRes]++;
+
+            return acc;
+        }, {} as Record<string, any>));
+
+        // Refinar mensajes para cada supervisor
+        supervisorsList.forEach((sup: any) => {
+            const badIssues = sup.issues.filter((i: any) => i.type === 'bad');
+            const emptyIssues = sup.issues.filter((i: any) => i.type === 'empty');
+            sup.alertLines = [];
+
+            if (badIssues.length > 0) {
+                badIssues.forEach((i: any) => {
+                    sup.alertLines.push({
+                        text: `Alerta: ${i.store} tiene turnos descubiertos (${i.days.join(', ')}).`,
+                        color: 'text-red-600 bg-red-50'
+                    });
+                });
+            } else if (sup.stats.progress > 0 || (emptyIssues.length > 0 && sup.stats.ok > 0)) {
+                sup.alertLines.push({
+                    text: `En progreso: ${sup.stats.ok + sup.stats.progress} ${sup.stats.ok + sup.stats.progress === 1 ? 'tienda iniciada' : 'tiendas iniciadas'}; ${emptyIssues.length - sup.stats.progress} pendientes.`,
+                    color: 'text-blue-600 bg-blue-50'
+                });
+            } else if (emptyIssues.length > 0) {
+                sup.alertLines.push({
+                    text: `${emptyIssues.length} ${emptyIssues.length === 1 ? 'tienda está' : 'tiendas están'} sin horarios programados.`,
+                    color: 'text-amber-600 bg-amber-50'
+                });
+            } else {
+                sup.alertLines.push({
+                    text: "Todo cubierto y programado correctamente.",
+                    color: 'text-emerald-600 bg-emerald-50'
+                });
+            }
+        });
+
+        if (stores.length === 0) {
+            return (
+                <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                    <Store size={48} className="mb-4 opacity-20" />
+                    <p>No hay tiendas configuradas.</p>
                 </div>
-                <div className="flex items-center gap-3 w-full md:w-auto">
-                    <div className="flex items-center justify-between md:justify-start bg-white rounded-full p-1 shadow-sm border border-gray-200 w-full md:w-auto">
-                        <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">◀</button>
-                        <span className="px-4 font-mono font-bold text-xs text-gray-700 whitespace-nowrap">
-                            {formatDateNice(weekStart)} — {formatDateNice(addDays(weekStart, 6))}
-                        </span>
-                        <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500">▶</button>
-                    </div>
+            )
+        }
 
-                    <div className="hidden md:flex bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                        <span className="text-xs font-bold text-gray-600">Alerta</span>
-                    </div>
+        if (supervisorsList.length === 0) {
+            return (
+                <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                    <User size={48} className="mb-4 opacity-20" />
+                    <p>No se encontraron supervisores asignados.</p>
                 </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                {stores.map(store => {
-                    const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id));
-                    const weekStatuses = weekDays.map(d => calculateDailyStatus(formatDateISO(d), storeShifts, allUsers));
-                    const hasRisk = weekStatuses.some(s => s.status === 'bad');
-
-                    return (
-                        <div
-                            key={store.id}
-                            onClick={() => { setSelectedStoreId(String(store.id)); setViewMode('editor'); }}
-                            className={`bg-white rounded-2xl p-6 border-2 transition-all duration-300 cursor-pointer group hover:-translate-y-1 relative overflow-hidden
-                            ${hasRisk ? 'border-red-100 hover:border-red-300 shadow-red-50' : 'border-transparent hover:border-blue-200 shadow-sm hover:shadow-xl'}
-                        `}
-                        >
-                            {hasRisk && (
-                                <div className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-bold px-3 py-1 rounded-bl-xl">
-                                    ATENCIÓN
-                                </div>
-                            )}
-                            <div className="flex items-center gap-4 mb-5">
-                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-inner
-                                ${hasRisk ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-600'}`}>
-                                    🏪
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-gray-900 text-lg leading-tight group-hover:text-blue-600 transition-colors">
-                                        {formatStoreName(store.name)}
-                                    </h3>
-                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mt-0.5">
-                                        {store.supervisor_name || 'Sin Supervisor'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex justify-between items-end">
-                                {weekStatuses.map((st, idx) => (
-                                    <div key={idx} className="flex flex-col items-center gap-1.5 w-full">
-                                        <div className={`w-full h-1.5 rounded-full ${st.color.split(' ')[0]}`}></div>
-                                        <span className="text-[9px] font-bold text-gray-400">{['L', 'M', 'M', 'J', 'V', 'S', 'D'][idx]}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )
-                })}
-            </div>
-        </div>
-    );
-
-    const renderEditor = () => {
-        const currentStore = stores.find(s => String(s.id) === String(selectedStoreId));
-        const isEmptyWeek = localSchedules.length === 0;
+            )
+        }
 
         return (
-            <div className="animate-fade-in space-y-4">
-                {/* BANNER COPIAR SEMANA (Solo si está vacío y puede editar) */}
-                <AnimatePresence>
-                    {isEmptyWeek && canEdit && !loading && (
-                        <motion.div
-                            initial={{ opacity: 0, y: -20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -20 }}
-                            className="bg-slate-900 rounded-[2rem] p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl shadow-slate-200 border border-white/10 relative overflow-hidden"
-                        >
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
-                            <div className="relative flex items-center gap-6">
-                                <div className="w-16 h-16 rounded-3xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-xl">
-                                    <Zap size={32} className="text-amber-400 fill-amber-400" />
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-black tracking-tight">Semana sin programación</h3>
-                                    <p className="text-slate-400 text-sm">¿Quieres ahorrar tiempo copiando los horarios de la semana anterior?</p>
-                                </div>
-                            </div>
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={copyFromLastWeek}
-                                className="relative bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-sm shadow-xl flex items-center gap-2 hover:bg-slate-100 transition-colors"
-                            >
-                                <Zap size={16} className="fill-slate-900" />
-                                COPIAR SEMANA ANTERIOR
-                            </motion.button>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <div className="bg-white border-b border-gray-200 sticky top-0 z-30 p-4 rounded-2xl shadow-sm flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => setViewMode('dashboard')} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-black hover:text-white transition-all">←</button>
+            <div className="animate-fade-in h-full relative overflow-y-auto p-4 lg:p-8 bg-gray-50/50">
+                <div className="max-w-[1440px] mx-auto">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
                         <div>
-                            <h2 className="text-xl font-black text-gray-900">{formatStoreName(currentStore?.name)}</h2>
-                            <p className="text-xs text-gray-500 font-medium">Gestión Semanal • {canEdit ? 'Shift + Arrastrar para copiar' : 'Solo Lectura'}</p>
+                            <h2 className="text-4xl font-black text-gray-900 tracking-tight text-balance">Control de Operaciones</h2>
+                            <p className="text-lg text-gray-500 mt-1">
+                                {canEdit ? 'Revisa el estado de tus tiendas y atiende las alertas de la semana.' : '👀 Vista de lectura: Monitor de cobertura de tiendas.'}
+                            </p>
                         </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center bg-transparent rounded-full p-1 border border-gray-200">
-                            <button onClick={() => setCurrentDate(addDays(currentDate, -7))} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white text-gray-500 shadow-sm transition-all">◀</button>
-                            <span className="px-4 font-mono font-bold text-xs text-gray-700">
-                                {formatDateNice(weekStart)} — {formatDateNice(addDays(weekStart, 6))}
-                            </span>
-                            <button onClick={() => setCurrentDate(addDays(currentDate, 7))} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white text-gray-500 shadow-sm transition-all">▶</button>
-                        </div>
-                        <select value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)} className="hidden md:block text-sm bg-gray-50 border-none rounded-lg px-4 py-2 font-bold text-gray-700 cursor-pointer hover:bg-gray-100 focus:ring-0">
-                            {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
-                        </select>
-                    </div>
-                </div>
+                        <div className="flex items-center gap-3 w-full md:w-auto">
+                            <WeekSelector currentDate={currentDate} onDateChange={setCurrentDate} weekStart={weekStart} />
 
-                {/* 🔥 LEYENDA VISUAL (Desktop Only) 🔥 */}
-                <div className="hidden md:flex bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex-col md:flex-row gap-6 justify-between items-start md:items-center">
-                    <div className="space-y-2">
-                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Estatus del Día</h3>
-                        <div className="flex flex-wrap gap-2">
-                            <span className="px-2 py-1 rounded text-[10px] font-bold bg-emerald-500 text-white shadow-sm">CUBIERTO</span>
-                            <span className="px-2 py-1 rounded text-[10px] font-bold bg-red-500 text-white shadow-sm">FALTA AM/PM</span>
-                            <span className="px-2 py-1 rounded text-[10px] font-bold bg-gray-100 text-gray-400 border border-gray-200">VACÍO</span>
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                        <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipos de Turno</h3>
-                        <div className="flex flex-wrap gap-2">
-                            {PRESETS.map(p => (
-                                <span key={p.id} className={`px-2 py-1 rounded text-[10px] font-bold border ${p.color}`}>
-                                    {p.label}
-                                </span>
-                            ))}
-                            <span className="px-2 py-1 rounded text-[10px] font-bold bg-white border border-blue-200 text-blue-800 shadow-sm">
-                                Personal
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* 📱 MOBILE EDITOR VIEW (Day Tabs + List) */}
-                <div className="md:hidden space-y-4">
-                    {/* Day Selector Tabs */}
-                    <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide snap-x">
-                        {weekDays.map((date, idx) => {
-                            const isSelected = selectedDayIndex === idx;
-                            const dateStr = formatDateISO(date);
-                            const status = calculateDailyStatus(dateStr, localSchedules, localUsers);
-
-                            return (
-                                <button
-                                    key={idx}
-                                    onClick={() => setSelectedDayIndex(idx)}
-                                    className={`flex-none snap-start flex flex-col items-center justify-center w-[4.5rem] h-20 rounded-2xl border-2 transition-all duration-200 ${isSelected
-                                        ? 'bg-gray-900 border-gray-900 text-white shadow-lg scale-105 z-10'
-                                        : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'
-                                        }`}
-                                >
-                                    <span className="text-[10px] font-bold uppercase tracking-wider">{getDayName(date)}</span>
-                                    <span className={`text-xl font-black ${isSelected ? 'text-white' : 'text-gray-800'}`}>{date.getDate()}</span>
-                                    <div className={`w-1.5 h-1.5 rounded-full mt-1 ${status.status === 'ok' ? 'bg-emerald-500' :
-                                        status.status === 'bad' ? 'bg-red-500' : 'bg-gray-200'
-                                        }`}></div>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {/* Day Status Header */}
-                    {(() => {
-                        const currentDayDate = weekDays[selectedDayIndex];
-                        const dateStr = formatDateISO(currentDayDate);
-                        const status = calculateDailyStatus(dateStr, localSchedules, localUsers);
-
-                        return (
-                            <div className={`p-3 rounded-xl flex items-center justify-between shadow-sm ${status.color}`}>
-                                <span className="text-xs font-bold uppercase tracking-wider opacity-90">Estatus del Día</span>
-                                <span className="text-sm font-black">{status.label}</span>
+                            <div className="hidden md:flex bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                                <span className="text-xs font-bold text-gray-600">Alerta</span>
                             </div>
-                        );
-                    })()}
+                        </div>
+                    </div>
 
-                    {/* Users List for Selected Day */}
-                    <div className="space-y-3 pb-24">
-                        {localUsers.map(user => {
-                            const currentDayDate = weekDays[selectedDayIndex];
-                            const dateStr = formatDateISO(currentDayDate);
-                            const currentShift = localSchedules.find(s => String(s.user_id) === String(user.id) && s.date === dateStr);
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 pb-20">
+                        {supervisorsList.map((sup: any) => (
+                            <div
+                                key={sup.id}
+                                onClick={() => { setSelectedSupervisorId(String(sup.id)); setViewMode('editor'); }}
+                                className={`bg-white rounded-2xl p-6 border-2 border-gray-100 transition-all duration-300 cursor-pointer group hover:scale-[1.02] hover:shadow-xl relative overflow-hidden`}
+                            >
+                                {/* Fondo decorativo */}
+                                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 blur-3xl group-hover:bg-indigo-100 transition-all"></div>
 
-                            let preset = null;
-                            if (currentShift) {
-                                preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
-                            }
-
-                            return (
-                                <div
-                                    key={user.id}
-                                    onClick={() => openEditModal(user, currentDayDate, currentShift)}
-                                    className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-all flex items-center justify-between"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold text-white shadow-sm
-                                            ${['manager', 'admin', 'sup'].some(r => user.role.toLowerCase().includes(r))
-                                                ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
-                                            {user.full_name.substring(0, 1).toUpperCase()}
-                                        </div>
-                                        <div>
-                                            <h4 className="font-bold text-gray-900 leading-tight">
-                                                {user.full_name}
-                                                {['manager', 'sup'].some(r => user.role.toLowerCase().includes(r)) && <span className="ml-1 text-amber-500 text-xs">👑</span>}
-                                            </h4>
-                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{user.role}</span>
-                                        </div>
+                                {sup.risk && (
+                                    <div className="absolute top-0 right-0 bg-red-50 text-red-600 text-[11px] font-black px-4 py-2 rounded-bl-2xl shadow-sm z-10 border-b border-l border-red-100 uppercase tracking-widest">
+                                        ATENCIÓN
                                     </div>
+                                )}
 
-                                    {/* Shift Pill */}
-                                    <div className="text-right">
-                                        {currentShift ? (
-                                            <div className={`flex flex-col items-end`}>
-                                                <span className={`px-3 py-1 rounded-lg text-xs font-bold shadow-sm mb-1 ${preset ? preset.color : 'bg-white border text-blue-800 border-blue-200'
-                                                    }`}>
-                                                    {preset ? preset.label : 'Personal'}
-                                                </span>
-                                                <span className="text-[10px] font-mono font-medium text-gray-400">
-                                                    {formatTime12h(currentShift.start_time?.slice(0, 5))} - {formatTime12h(currentShift.end_time?.slice(0, 5))}
-                                                </span>
-                                            </div>
-                                        ) : (
-                                            <span className="px-3 py-1 rounded-lg bg-gray-50 text-gray-400 text-xs font-bold border border-gray-100">
-                                                OFF
-                                            </span>
-                                        )}
+                                <div className="flex items-center gap-5 relative z-10">
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl shadow-sm
+                                        ${sup.risk ? 'bg-red-50 text-red-500' : 'bg-indigo-50 text-indigo-600'}`}>
+                                        {sup.risk ? '⚠️' : '👔'}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black text-gray-900 text-2xl leading-tight group-hover:text-indigo-600 transition-colors">
+                                            {sup.name}
+                                        </h3>
+                                        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">
+                                            {sup.stores.length} Tiendas Asignadas
+                                        </p>
                                     </div>
                                 </div>
-                            );
-                        })}
-                    </div>
-                </div>
 
-                {/* 💻 DESKTOP TABLE (Hidden on Mobile) */}
-                <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden select-none">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-collapse">
-                            <thead>
-                                <tr className="bg-gray-50/50">
-                                    <th className="p-4 text-left min-w-[220px] sticky left-0 bg-gray-50 z-20 border-r border-gray-200">
-                                        <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Colaborador</span>
-                                    </th>
-                                    {weekDays.map(day => {
-                                        const dateStr = formatDateISO(day);
-                                        const status = calculateDailyStatus(dateStr, localSchedules, localUsers);
-                                        return (
-                                            <th key={day.toISOString()} className="p-3 min-w-[140px] border-r border-gray-200 last:border-0">
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-400 uppercase">{getDayName(day)}</span>
-                                                    <span className="text-xl font-black text-gray-800">{day.getDate()}</span>
-                                                    <div className={`mt-1 px-3 py-0.5 rounded-full text-[10px] font-bold tracking-wide w-full text-center ${status.color}`}>
-                                                        {status.label}
-                                                    </div>
-                                                </div>
-                                            </th>
-                                        )
-                                    })}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {localUsers.map(user => (
-                                    <tr key={user.id} className="group hover:bg-gray-50 transition-colors">
-                                        <td className="p-4 sticky left-0 bg-white group-hover:bg-gray-50 z-10 border-r border-gray-200 transition-colors">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white shadow-md
-                                                ${['manager', 'admin', 'sup'].some(r => user.role.toLowerCase().includes(r))
-                                                        ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
-                                                    {user.full_name.substring(0, 1).toUpperCase()}
-                                                </div>
-                                                <div className="flex flex-col">
-                                                    <span className="font-bold text-gray-900 text-sm flex items-center gap-1">
-                                                        {user.full_name}
-                                                        {['manager', 'sup'].some(r => user.role.toLowerCase().includes(r)) && <span className="text-amber-500">👑</span>}
-                                                    </span>
-                                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide bg-gray-100 px-1.5 rounded w-fit mt-0.5">{user.role}</span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        {weekDays.map(day => {
-                                            const dateStr = formatDateISO(day);
-                                            const currentShift = localSchedules.find(s => String(s.user_id) === String(user.id) && s.date === dateStr);
+                                <div className="mt-8 flex flex-wrap gap-2 relative z-10">
+                                    {sup.stores.map((s: any) => (
+                                        <span key={s.id} className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-100 text-gray-600 text-[11px] font-black group-hover:bg-white group-hover:border-gray-200 transition-colors uppercase tracking-tight">
+                                            {formatStoreName(s.name)}
+                                        </span>
+                                    ))}
+                                </div>
 
-                                            let cardContent = <div className="w-1.5 h-1.5 rounded-full bg-gray-200 group-hover:bg-gray-300"></div>;
-                                            let cardClass = "bg-transparent hover:bg-gray-100 border border-transparent";
-
-                                            if (currentShift) {
-                                                const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
-                                                // Cleaner style: No border, solid pastel, shadow
-                                                const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
-
-                                                cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
-
-                                                cardContent = (
-                                                    <div className="flex flex-col items-center justify-center w-full h-full p-2 gap-1">
-                                                        <span className="text-[10px] font-black uppercase tracking-wider opacity-60 leading-none">
-                                                            {preset ? preset.label : 'Personal'}
-                                                        </span>
-                                                        <span className="text-xs md:text-xs font-bold font-mono tracking-tight leading-none bg-white/40 px-1.5 py-0.5 rounded-md">
-                                                            {formatTime12h(currentShift.start_time?.slice(0, 5))} - {formatTime12h(currentShift.end_time?.slice(0, 5))}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            }
-                                            return (
-                                                <td
-                                                    key={day.toISOString()}
-                                                    className="p-2 h-[80px] border-r border-gray-200 last:border-0"
-                                                    onMouseDown={(e) => handleCellMouseDown(e, user, day, currentShift)}
-                                                    onMouseEnter={() => handleCellMouseEnter(user, day)}
-                                                >
-                                                    <div className={`w-full h-full rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer ${cardClass} ${!canEdit && 'cursor-default hover:translate-y-0 hover:shadow-none'}`}>
-                                                        {cardContent}
-                                                    </div>
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                {/* Mensaje de Estatus Dinámico */}
+                                <div className="mt-6 space-y-2 relative z-10">
+                                    {sup.alertLines.map((line: any, idx: number) => (
+                                        <div key={idx} className={`p-3.5 rounded-xl border-l-4 border-current ${line.color} font-bold text-sm flex items-center gap-3 shadow-sm animate-fade-in`}>
+                                            <Sparkles size={16} className="opacity-70 flex-shrink-0" />
+                                            <span>{line.text}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
         );
-    }
+    };
+
+    const renderEditor = () => {
+        // Determinar qué tiendas mostrar (1 o todas las del supervisor)
+        const targetStores = selectedSupervisorId
+            ? stores.filter(s => String(s.supervisor_id) === String(selectedSupervisorId))
+            : [stores.find(s => String(s.id) === String(selectedStoreId))].filter(Boolean);
+
+        return (
+            <div className="h-full flex flex-col">
+                {/* TARJETA UNIFICADA: Header + Tabla */}
+                <div className="bg-white shadow-sm border-b border-gray-200 flex flex-col flex-1 overflow-hidden">
+                    {/* HEADER DEL PLANIFICADOR (parte de la tarjeta) */}
+                    <div className="bg-white border-b border-gray-200 p-4 px-6 flex-none flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <button onClick={() => setViewMode('dashboard')} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 text-gray-600 hover:bg-black hover:text-white transition-all border border-gray-200">←</button>
+                            <div>
+                                <h2 className="text-2xl font-black text-gray-900">Organizador de Horarios</h2>
+                                <p className="text-sm text-gray-500 font-medium tracking-tight">Asigna los turnos de tu equipo y asegura que todo esté cubierto.</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            {/* Leyenda de colores */}
+                            <div className="hidden md:flex items-center gap-2 mr-4 border-r border-gray-200 pr-4">
+                                <span className="text-xs font-black text-gray-400 uppercase tracking-widest mr-1">ESTATUS:</span>
+                                <span className="px-4 py-2 rounded-md text-xs font-black bg-emerald-500 text-white shadow-sm">CUBIERTO</span>
+                                <span className="px-4 py-2 rounded-md text-xs font-black bg-red-500 text-white shadow-sm animate-pulse">FALTA AM/PM</span>
+                                <span className="px-4 py-2 rounded-md text-xs font-black bg-gray-100 text-gray-400 border border-gray-200">VACÍO</span>
+                            </div>
+                            <WeekSelector currentDate={currentDate} onDateChange={setCurrentDate} weekStart={weekStart} />
+                        </div>
+                    </div>
+
+                    {/* AREA DE TABLA CON SCROLL INTERNO */}
+                    <div className="flex-1 overflow-auto custom-scrollbar relative">
+                        <table className="w-full text-sm border-separate border-spacing-0">
+                            {/* THEAD STICKY: Incluye headers de fechas Y fila de supervisor */}
+                            <thead className="sticky top-0 z-[20] shadow-sm ring-1 ring-black/5">
+                                <tr className="bg-white">
+                                    <th className="p-4 text-left min-w-[320px] sticky left-0 z-[30] bg-white border-r border-gray-200 border-b border-gray-200">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                                                <User size={20} />
+                                            </div>
+                                            <span className="text-sm font-black text-gray-500 uppercase tracking-widest">Colaborador</span>
+                                        </div>
+                                    </th>
+                                    {weekDays.map((day, idx) => {
+                                        // Calcular estatus global del día (si alguna tienda falla, es fail)
+                                        let globalStatus = 'ok';
+
+                                        // Buscar turno del supervisor para usar como comodin global
+                                        const supShift = allSchedules.find(s => String(s.user_id) === String(selectedSupervisorId) && s.date === formatDateISO(day));
+
+                                        if (targetStores.length > 0) {
+                                            // SIMULACIÓN EXACTA DE PRIORIDAD: Iterar todas las tiendas en orden
+                                            // para ver si alguna queda descubierta tras consumir al supervisor.
+                                            let tempSupAvailable = { am: true, pm: true };
+
+                                            // Verificar si el supervisor ya "trabaja" ese día para saber si tiene capacidad inicial
+                                            // La capacidad real depende del turno (getShiftCoverage ya lo maneja dentro de calculateDailyStatus)
+                                            // Pero aquí solo pasamos los flags "Available". El "supShift" se pasa completo.
+
+                                            let hasOk = false;
+                                            let hasEmpty = false;
+                                            let hasBad = false;
+
+                                            for (const store of targetStores) {
+                                                const sUsers = localUsers.filter(u => String(u.store_id) === String(store.id) && String(u.id) !== String(selectedSupervisorId));
+                                                const sUserIds = new Set(sUsers.map(u => String(u.id)));
+
+                                                const sShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && sUserIds.has(String(s.user_id)));
+                                                const valShifts = sShifts.filter(s => String(s.user_id) !== String(selectedSupervisorId));
+
+                                                const status = calculateDailyStatus(formatDateISO(day), valShifts, sUsers, supShift, tempSupAvailable.am, tempSupAvailable.pm);
+
+                                                if (status.usedSupAM) tempSupAvailable.am = false;
+                                                if (status.usedSupPM) tempSupAvailable.pm = false;
+
+                                                if (status.status === 'bad') hasBad = true;
+                                                if (status.status === 'ok' || status.status === 'ok-sup') hasOk = true;
+                                                if (status.status === 'empty') hasEmpty = true;
+                                            }
+
+                                            globalStatus = hasBad ? 'bad' : (hasOk && hasEmpty ? 'progress' : (hasEmpty ? 'empty' : 'ok'));
+                                        }
+
+                                        return (
+                                            <th key={idx} className={`p-1 min-w-[105px] border-b border-gray-200 last:border-0 bg-white z-[20] ${idx === 6 ? 'border-r-4 border-slate-300' : 'border-r border-gray-200'}`}>
+                                                <div className="flex flex-col items-center gap-1 py-2">
+                                                    <span className="text-[14px] font-medium text-black uppercase tracking-wide">{getDayName(day)}</span>
+                                                    <span className="text-2xl font-black text-gray-900 -mt-1">{day.getDate()}</span>
+                                                    <div className={`mt-1 px-4 py-1 rounded-full text-[11px] font-black tracking-wide shadow-sm ${globalStatus === 'ok' ? 'bg-emerald-500 text-white' :
+                                                        globalStatus === 'progress' ? 'bg-blue-500 text-white' :
+                                                            globalStatus === 'empty' ? 'bg-gray-100 text-gray-400 border border-gray-200 shadow-none font-bold' :
+                                                                'bg-red-500 text-white animate-pulse'
+                                                        }`}>
+                                                        {globalStatus === 'ok' ? 'CUBIERTO' : globalStatus === 'progress' ? 'PROGRESO' : globalStatus === 'empty' ? 'VACÍO' : 'FALTA AM/PM'}
+                                                    </div>
+                                                </div>
+                                            </th>
+                                        );
+                                    })}
+                                </tr>
+                                {selectedSupervisorId && (() => {
+                                    const supervisorUser = localUsers.find(u => String(u.id) === String(selectedSupervisorId)) ||
+                                        allUsers.find(u => String(u.id) === String(selectedSupervisorId));
+
+                                    if (!supervisorUser) return null;
+
+                                    return (
+                                        <tr className="bg-indigo-50 border-b-4 border-slate-100 shadow-sm">
+                                            <th className="p-4 sticky left-0 z-[30] bg-indigo-50 border-r border-gray-200 text-left font-normal shadow-[4px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-14 h-14 rounded-xl bg-indigo-600 flex items-center justify-center text-xl font-black text-white shadow-indigo-200 shadow-lg ring-4 ring-indigo-50">
+                                                        {supervisorUser.full_name.substring(0, 1).toUpperCase()}
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-black text-gray-900 text-xl flex items-center gap-1">
+                                                            {supervisorUser.full_name}
+                                                            <span className="text-amber-500 text-base">👑</span>
+                                                        </span>
+                                                        <span className="text-[11px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded w-fit mt-0.5">SUPERVISOR DE ZONA</span>
+                                                    </div>
+                                                </div>
+                                            </th>
+                                            {weekDays.map((day, idx) => {
+                                                const dateStr = formatDateISO(day);
+                                                const currentShift = allSchedules.find(s =>
+                                                    String(s.user_id) === String(supervisorUser.id) &&
+                                                    s.date === dateStr
+                                                );
+
+                                                let cardContent = <div className="w-1.5 h-1.5 rounded-full bg-indigo-200/50 group-hover:bg-indigo-300"></div>;
+                                                let cardClass = "bg-transparent hover:bg-white/50 border border-transparent";
+
+                                                if (currentShift) {
+                                                    const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
+                                                    const color = preset ? preset.color : 'bg-indigo-100 text-indigo-900 group-hover:bg-indigo-200';
+                                                    cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                    cardContent = (
+                                                        <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
+                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                {formatTime12h(currentShift.start_time?.slice(0, 5))}
+                                                            </span>
+                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                {formatTime12h(currentShift.end_time?.slice(0, 5))}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <th
+                                                        key={`sup-${day.toISOString()}`}
+                                                        className={`p-1 h-[65px] last:border-0 align-middle font-normal z-[20] bg-indigo-50 ${idx === 6 ? 'border-r-4 border-indigo-200' : 'border-r border-indigo-100'}`}
+                                                        onMouseDown={(e) => handleCellMouseDown(e, supervisorUser, day, currentShift)}
+                                                        onMouseEnter={() => handleCellMouseEnter(supervisorUser, day)}
+                                                    >
+                                                        <div className={`w-full h-full rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer p-0.5 ${cardClass} ${!canEdit && 'cursor-default hover:translate-y-0 hover:shadow-none'}`}>
+                                                            {cardContent}
+                                                        </div>
+                                                    </th>
+                                                );
+                                            })}
+                                        </tr>
+                                    );
+                                })()}
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 bg-white">
+                                {/* 2. ITERAR POR TIENDAS (SIN REPETIR SUPERVISOR) */}
+                                {(() => {
+                                    // Inicializar mapa de uso del supervisor por día
+                                    // Key: DateString, Value: { amUsed: boolean, pmUsed: boolean }
+                                    const dailySupUsage = new Map<string, { amUsed: boolean, pmUsed: boolean }>();
+
+                                    return targetStores.map((currentStore: any) => {
+                                        // Filtrar datos por tienda
+                                        const storeUsers = localUsers.filter(u =>
+                                            String(u.store_id) === String(currentStore.id) &&
+                                            String(u.id) !== String(selectedSupervisorId)
+                                        );
+                                        const storeUserIds = new Set(storeUsers.map(u => String(u.id)));
+
+                                        // Filtrar datos por tienda y SOLO usuarios activos en esta vista
+                                        const storeSchedules = allSchedules.filter(s =>
+                                            String(s.store_id) === String(currentStore.id) &&
+                                            storeUserIds.has(String(s.user_id))
+                                        );
+
+                                        // Excluir al supervisor para la validación de cobertura de tienda
+                                        const validationSchedules = storeSchedules.filter(s => String(s.user_id) !== String(selectedSupervisorId));
+
+                                        const dailyStatuses = weekDays.map(d => {
+                                            const dateStr = formatDateISO(d);
+                                            const supShift = allSchedules.find(s => String(s.user_id) === String(selectedSupervisorId) && s.date === dateStr);
+
+                                            // Obtener estado de uso actual para este día
+                                            const usage = dailySupUsage.get(dateStr) || { amUsed: false, pmUsed: false };
+
+                                            // Calcular estatus pasando disponibilidad (Solo disponible si NO se ha usado)
+                                            const result = calculateDailyStatus(
+                                                dateStr,
+                                                validationSchedules,
+                                                storeUsers,
+                                                supShift,
+                                                !usage.amUsed, // Available AM
+                                                !usage.pmUsed  // Available PM
+                                            );
+
+                                            // Actualizar uso global si esta tienda consumió el recurso
+                                            if (result.usedSupAM || result.usedSupPM) {
+                                                dailySupUsage.set(dateStr, {
+                                                    amUsed: usage.amUsed || result.usedSupAM,
+                                                    pmUsed: usage.pmUsed || result.usedSupPM
+                                                });
+                                            }
+
+                                            return result; // Retorna el objeto extendido con status
+                                        });
+
+                                        return (
+                                            <React.Fragment key={currentStore.id}>
+                                                {/* FILA DE CABECERA DE TIENDA */}
+                                                <tr className="bg-slate-50 border-b border-slate-200">
+                                                    <td className="p-3 sticky left-0 z-[15] bg-slate-50 border-r border-gray-200 border-t-4 border-t-blue-200 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm">
+                                                                <Store size={16} />
+                                                            </div>
+                                                            <h3 className="font-headings font-black text-gray-900 uppercase tracking-tight text-lg">
+                                                                {formatStoreName(currentStore.name)}
+                                                            </h3>
+                                                        </div>
+                                                    </td>
+                                                    {dailyStatuses.map((status, idx) => (
+                                                        <td key={idx} className={`p-2 text-center bg-slate-50/50 border-t-4 border-t-blue-200 ${idx === 6 ? 'border-r-4 border-slate-300' : 'border-r border-gray-200'}`}>
+                                                            {status.status === 'ok' ? (
+                                                                <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 mx-auto shadow-sm ring-2 ring-emerald-100"></div>
+                                                            ) : status.status === 'ok-sup' ? (
+                                                                <div className="mx-auto px-2 py-1 rounded-lg bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-black tracking-wide shadow-sm whitespace-nowrap">
+                                                                    SUPLIDO
+                                                                </div>
+                                                            ) : status.status === 'bad' ? (
+                                                                <div className="mx-auto px-2 py-1 rounded-lg bg-red-400 text-white text-[10px] font-black tracking-wider animate-pulse shadow-sm shadow-red-200">
+                                                                    {status.label}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-gray-200 mx-auto"></div>
+                                                            )}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+
+                                                {/* FILAS DE USUARIOS */}
+                                                {storeUsers.map(user => (
+                                                    <tr key={`${currentStore.id}-${user.id}`} className="group hover:bg-gray-50 transition-colors">
+                                                        <td className="p-2 sticky left-0 z-[10] bg-white group-hover:bg-gray-50 border-r border-gray-200 transition-colors shadow-[4px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-lg font-black text-white shadow-md
+                                                                ${['manager'].some(r => user.role.toLowerCase().includes(r))
+                                                                        ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
+                                                                    {user.full_name.substring(0, 1).toUpperCase()}
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="font-medium text-gray-900 text-lg flex items-center gap-1">
+                                                                        {user.full_name}
+                                                                        {['manager'].some(r => user.role.toLowerCase().includes(r)) && <span className="text-amber-500">👑</span>}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-medium text-gray-400 uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded w-fit mt-1">{user.role}</span>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        {weekDays.map((day, idx) => {
+                                                            const dateStr = formatDateISO(day);
+                                                            const currentShift = storeSchedules.find(s =>
+                                                                String(s.user_id) === String(user.id) &&
+                                                                s.date === dateStr &&
+                                                                String(s.store_id) === String(currentStore.id)
+                                                            );
+                                                            const dayStatus = dailyStatuses[idx];
+
+                                                            let cardContent = <div className="w-1.5 h-1.5 rounded-full bg-gray-100 group-hover:bg-gray-200"></div>;
+                                                            let cardClass = "bg-transparent hover:bg-gray-100 border border-transparent";
+
+                                                            if (currentShift) {
+                                                                const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
+                                                                const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
+                                                                cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                                cardContent = (
+                                                                    <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
+                                                                        <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                            {formatTime12h(currentShift.start_time?.slice(0, 5))}
+                                                                        </span>
+                                                                        <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                            {formatTime12h(currentShift.end_time?.slice(0, 5))}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            return (
+                                                                <td
+                                                                    key={day.toISOString()}
+                                                                    className={`p-1 h-[65px] last:border-0 align-middle ${idx === 6 ? 'border-r-4 border-slate-300' : 'border-r border-gray-200'}`}
+                                                                    // PASAR EL ID DE LA TIENDA ACTUAL AL ABRIR EL MODAL
+                                                                    onMouseDown={(e) => handleCellMouseDown(e, user, day, currentShift, String(currentStore.id))}
+                                                                    onMouseEnter={() => handleCellMouseEnter(user, day)}
+                                                                >
+                                                                    <div className={`w-full h-full rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer p-0.5 ${cardClass} ${!canEdit && 'cursor-default hover:translate-y-0 hover:shadow-none'}`}>
+                                                                        {cardContent}
+                                                                    </div>
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </React.Fragment>
+                                        );
+                                    })
+                                }
+                                )()}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div >
+        );
+    };
 
     return (
-        <div className="flex bg-transparent font-sans text-gray-900 w-full animate-in fade-in duration-500">
-            <main className="flex-1 flex flex-col w-full relative transition-all duration-300">
+        <div className="flex bg-transparent font-sans text-gray-900 w-full h-[calc(100vh-64px)] animate-in fade-in duration-500">
+            <main className="flex-1 flex flex-col w-full relative transition-all duration-300 min-h-0">
 
                 {/* CONTENIDO PRINCIPAL SCROLLABLE */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-6 w-full">
+                <div className={`flex-1 w-full relative transition-all duration-300 min-h-0 ${viewMode === 'dashboard' ? 'overflow-y-auto p-4 md:p-6' : 'overflow-hidden flex flex-col'}`}>
                     {loading ? (
                         <div className="flex flex-col items-center justify-center h-64 gap-4">
                             <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -733,171 +1339,117 @@ function ScheduleManager() {
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
                                 onClick={() => setEditingShift(null)}
-                                className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+                                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                             />
 
                             {/* Modal Container */}
                             <motion.div
-                                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                                initial={{ scale: 0.95, opacity: 0, y: 10 }}
                                 animate={{ scale: 1, opacity: 1, y: 0 }}
-                                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                                className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden border border-white/20"
+                                exit={{ scale: 0.95, opacity: 0, y: 10 }}
+                                className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
                             >
-                                {/* Header Premium - Solid Dark */}
-                                <div className="bg-slate-950 px-8 py-8 text-white relative overflow-hidden">
-                                    <div className="relative flex justify-between items-start">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-2xl font-black shadow-xl">
-                                                {editingShift.userName?.[0]?.toUpperCase()}
-                                            </div>
-                                            <div>
-                                                <h3 className="text-2xl font-black tracking-tight leading-none mb-1">{editingShift.userName}</h3>
-                                                <div className="flex items-center gap-2 text-indigo-100">
-                                                    <Calendar size={14} className="opacity-70" />
-                                                    <span className="text-xs font-bold uppercase tracking-widest leading-none">
-                                                        {formatDateNice(editingShift.date)} • {getDayName(editingShift.date)}
-                                                    </span>
-                                                </div>
+                                {/* Header Estilo Pregunta (Indigo Gradient) */}
+                                <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 px-6 py-5 text-white flex items-center justify-between shrink-0">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold border border-white/20">
+                                            {editingShift.userName?.[0]?.toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold leading-tight">{editingShift.userName}</h3>
+                                            <div className="flex items-center gap-1 text-indigo-100 text-xs font-medium uppercase tracking-wide">
+                                                <Calendar size={12} />
+                                                {formatDateNice(editingShift.date)}
                                             </div>
                                         </div>
-                                        <button
-                                            onClick={() => setEditingShift(null)}
-                                            className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                                        >
-                                            <X size={20} />
-                                        </button>
                                     </div>
+                                    <button
+                                        onClick={() => setEditingShift(null)}
+                                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 flex items-center justify-center transition-colors"
+                                    >
+                                        <X size={16} />
+                                    </button>
                                 </div>
 
-                                <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                                    {/* Grid de Presets */}
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Seleccionar Turno</h4>
-                                            <div className="h-px flex-1 bg-slate-100 ml-4"></div>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {/* Botón OFF */}
-                                            <motion.button
-                                                whileHover={{ scale: 1.02 }}
-                                                whileTap={{ scale: 0.98 }}
+                                <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
+                                    {/* Presets Grid - Clean Style */}
+                                    <div className="space-y-3">
+                                        <label className="text-xs font-bold text-indigo-900 uppercase tracking-wider block">Turnos Comunes</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
                                                 onClick={() => setEditingShift({ ...editingShift, start: '', end: '', presetId: 'off' })}
-                                                className={`col-span-2 group flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${!editingShift.start
-                                                    ? 'bg-slate-900 border-slate-900 text-white shadow-lg'
-                                                    : 'bg-white border-slate-100 text-slate-600 hover:border-slate-200'
-                                                    }`}
+                                                className={`p-3 rounded-lg border text-sm font-bold flex items-center justify-center gap-2 transition-all
+                                                    ${!editingShift.start
+                                                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200'
+                                                        : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50'}`}
                                             >
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${!editingShift.start ? 'bg-white/10 text-white' : 'bg-slate-50 text-slate-400'}`}>
-                                                        <MoonStar size={18} />
-                                                    </div>
-                                                    <span className="font-bold text-sm">DIA DE DESCANSO (OFF)</span>
-                                                </div>
-                                                {!editingShift.start && <Sparkles size={16} className="text-amber-400" />}
-                                            </motion.button>
+                                                <MoonStar size={14} />
+                                                <span>DESCANSO</span>
+                                            </button>
 
-                                            {/* Presets Grid */}
                                             {PRESETS.map(p => {
                                                 const isSelected = editingShift.start === p.start && editingShift.end === p.end;
                                                 return (
-                                                    <motion.button
+                                                    <button
                                                         key={p.id}
-                                                        whileHover={{ scale: 1.02 }}
-                                                        whileTap={{ scale: 0.98 }}
                                                         onClick={() => setEditingShift({ ...editingShift, start: p.start, end: p.end, presetId: p.id })}
-                                                        className={`relative flex flex-col items-start p-4 rounded-2xl border-2 transition-all group overflow-hidden ${isSelected
-                                                            ? `border-purple-600 shadow-xl ring-2 ring-purple-600/10`
-                                                            : `border-slate-100 hover:border-slate-200`
-                                                            }`}
+                                                        className={`p-3 rounded-lg border text-sm font-bold transition-all
+                                                            ${isSelected
+                                                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200'
+                                                                : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50'}`}
                                                     >
-                                                        {/* Icono de fondo decorativo */}
-                                                        <div className={`absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity ${isSelected ? 'opacity-20 scale-150' : ''}`}>
-                                                            {p.icon}
-                                                        </div>
-
-                                                        <div className="flex items-center gap-2 mb-2">
-                                                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${isSelected ? 'bg-purple-600 text-white' : 'bg-slate-50 text-slate-400'}`}>
-                                                                {p.icon}
-                                                            </div>
-                                                            <span className={`text-[10px] font-black uppercase tracking-wider ${isSelected ? 'text-purple-600' : 'text-slate-400'}`}>
-                                                                {p.label}
-                                                            </span>
-                                                        </div>
-                                                        <span className={`text-sm font-black ${isSelected ? 'text-slate-900' : 'text-slate-700'}`}>
-                                                            {formatTime12h(p.start)} - {formatTime12h(p.end)}
-                                                        </span>
-
-                                                        {isSelected && (
-                                                            <motion.div
-                                                                layoutId="active-bg"
-                                                                className="absolute inset-0 bg-purple-50 -z-10"
-                                                            />
-                                                        )}
-                                                    </motion.button>
-                                                )
+                                                        {formatTime12h(p.start)} - {formatTime12h(p.end)}
+                                                    </button>
+                                                );
                                             })}
                                         </div>
                                     </div>
 
-                                    {/* Horario Personalizado */}
-                                    <div className="space-y-4 pt-4 border-t border-slate-100">
-                                        <div className="flex items-center justify-between">
-                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Horario Personalizado</h4>
-                                            <div className="h-px flex-1 bg-slate-100 ml-4"></div>
-                                        </div>
-
-                                        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 grid grid-cols-2 gap-8 relative overflow-hidden">
-                                            <div className="space-y-2">
-                                                <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                                                    <Sunrise size={12} className="text-amber-500" />
-                                                    Entrada
-                                                </label>
+                                    {/* Time Inputs - Digital Clock Style */}
+                                    <div className="space-y-3">
+                                        <label className="text-xs font-bold text-indigo-900 uppercase tracking-wider block">Horario Manual</label>
+                                        <div className="flex items-center gap-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                                            <div className="flex-1">
+                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Entrada</label>
                                                 <input
                                                     type="time"
                                                     value={editingShift.start}
                                                     onChange={(e) => setEditingShift({ ...editingShift, start: e.target.value, presetId: 'custom' })}
-                                                    className="w-full bg-white p-3 rounded-2xl border-2 border-slate-200 text-xl font-black text-slate-800 focus:border-indigo-500 outline-none shadow-sm transition-all"
+                                                    className="w-full bg-white px-3 py-2 rounded-lg border border-indigo-200 text-xl font-mono font-bold text-center text-zinc-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"
                                                 />
                                             </div>
-
-                                            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-2 text-slate-300">
-                                                <ArrowRight size={24} />
+                                            <div className="text-indigo-300 pt-4">
+                                                <ArrowRight size={20} />
                                             </div>
-
-                                            <div className="space-y-2 text-right">
-                                                <label className="flex items-center justify-end gap-2 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                                                    Salida
-                                                    <Moon size={12} className="text-indigo-500" />
-                                                </label>
+                                            <div className="flex-1 text-right">
+                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Salida</label>
                                                 <input
                                                     type="time"
                                                     value={editingShift.end}
                                                     onChange={(e) => setEditingShift({ ...editingShift, end: e.target.value, presetId: 'custom' })}
-                                                    className="w-full bg-white p-3 rounded-2xl border-2 border-slate-200 text-xl font-black text-slate-800 focus:border-indigo-500 outline-none shadow-sm transition-all"
+                                                    className="w-full bg-white px-3 py-2 rounded-lg border border-indigo-200 text-xl font-mono font-bold text-center text-zinc-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"
                                                 />
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Footer con Botones */}
-                                <div className="p-8 bg-slate-50 border-t border-slate-200/60 flex items-center justify-between gap-4">
+                                {/* Footer Actions */}
+                                <div className="p-4 border-t border-indigo-100 bg-indigo-50/30 flex items-center justify-end gap-3 shrink-0">
                                     <button
                                         onClick={() => setEditingShift(null)}
-                                        className="h-14 px-8 text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors"
+                                        className="px-5 py-3 rounded-xl text-sm font-bold text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 transition-colors"
                                     >
                                         Cancelar
                                     </button>
-
                                     <motion.button
                                         whileHover={{ scale: 1.02 }}
                                         whileTap={{ scale: 0.98 }}
                                         onClick={saveShift}
-                                        className="flex-1 h-14 bg-slate-900 hover:bg-black text-white rounded-2xl text-sm font-black shadow-lg shadow-slate-200 flex items-center justify-center gap-2 transition-all"
+                                        className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 flex items-center gap-2 transition-all"
                                     >
-                                        <Save size={18} />
-                                        GUARDAR CAMBIOS
+                                        <Save size={16} />
+                                        <span>Guardar</span>
                                     </motion.button>
                                 </div>
                             </motion.div>
@@ -905,6 +1457,71 @@ function ScheduleManager() {
                     )}
                 </AnimatePresence>
             </main>
+            {/* MODAL DE REPLICACIÓN */}
+            <AnimatePresence>
+                {showReplicationModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden"
+                        >
+                            <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 p-6 text-white text-center">
+                                <Sparkles size={48} className="mx-auto mb-4 opacity-80" />
+                                <h3 className="text-xl font-black">¿Copiar Semana Anterior?</h3>
+                                <p className="text-indigo-100 text-sm mt-2 leading-relaxed">
+                                    Detectamos tiendas sin horarios. ¿Deseas replicar los turnos anteriores?
+                                </p>
+                            </div>
+                            <div className="p-6">
+                                <div className="bg-indigo-50 rounded-lg p-4 mb-6 border border-indigo-100">
+                                    <div className="flex items-center gap-2 text-indigo-900 text-sm font-bold mb-2">
+                                        <Store size={16} className="text-indigo-500" />
+                                        <span>Tiendas a rellenar:</span>
+                                    </div>
+                                    <ul className="list-disc pl-8 mb-3 space-y-1">
+                                        {replicationCandidates.map(c => (
+                                            <li key={c.id} className="text-xs font-bold text-gray-600 uppercase tracking-wide">
+                                                {formatStoreName(c.name)}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <div className="h-px bg-indigo-200 my-2"></div>
+                                    <div className="flex items-center gap-2 text-indigo-900 text-xs font-medium">
+                                        <Calendar size={14} className="text-indigo-400" />
+                                        <span>Origen: {formatDateNice(addDays(weekStart, -7))} al {formatDateNice(addDays(weekStart, -1))}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-indigo-900 text-xs font-medium mt-1">
+                                        <ArrowRight size={14} className="text-emerald-500" />
+                                        <span>Destino: {formatDateNice(weekStart)} al {formatDateNice(addDays(weekStart, 6))} (Semana 1)</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={dismissReplication}
+                                        className="flex-1 py-3 px-4 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition-colors"
+                                    >
+                                        No, gracias
+                                    </button>
+                                    <button
+                                        onClick={handleReplicateWeek}
+                                        disabled={replicationLoading}
+                                        className="flex-1 py-3 px-4 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {replicationLoading ? 'Copiando...' : 'Sí, Copiar'}
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     )
 }

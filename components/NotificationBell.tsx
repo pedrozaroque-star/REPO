@@ -127,13 +127,14 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
           setTimeout(() => setShowAnimation(false), 3000)
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       // 🛡️ Manejo de errores de red (común con AdBlockers o pérdida de conexión)
-      if ((error as any).message === 'Failed to fetch') {
-        console.warn('⚠️ No se pudieron cargar las notificaciones. Es posible que un AdBlocker esté bloqueando la conexión a Supabase o que no haya internet.')
+      const msg = error?.message || error?.toString() || '';
+      if (msg.includes('Failed to fetch') || msg.includes('Network request failed')) {
+        console.warn('⚠️ (Silenciado) No se pudieron cargar las notificaciones por problema de red o bloqueo.');
         return
       }
-      console.error('Error al cargar notificaciones (catch):', (error as any).message, (error as any).details, (error as any).hint)
+      console.error('Error al cargar notificaciones (catch):', error)
     }
   }
 

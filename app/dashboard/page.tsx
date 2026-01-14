@@ -261,21 +261,21 @@ export default function DashboardPage() {
             <header className="bg-white sticky top-0 z-30 px-4 md:px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="bg-slate-900 text-white p-2 rounded-lg">
-                            <Target size={20} />
+                        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-lg shadow-slate-200">
+                            <Target size={28} />
                         </div>
                         <div>
-                            <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight leading-none flex items-center gap-2">
+                            <h1 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter leading-none flex items-center gap-3">
                                 Dashboard
-                                <span className="hidden sm:flex items-center gap-1.5 bg-red-50 text-red-600 px-2.5 py-1 rounded-full text-xs uppercase tracking-wider border border-red-100 font-bold">
-                                    <span className="relative flex h-2.5 w-2.5">
+                                <span className="hidden sm:flex items-center gap-2 bg-red-50 text-red-600 px-3 py-1.5 rounded-full text-[11px] uppercase tracking-widest border border-red-100 font-black">
+                                    <span className="relative flex h-3 w-3">
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
                                     </span>
-                                    Live
+                                    En Vivo
                                 </span>
                             </h1>
-                            <p className="hidden md:block text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Análisis Operativo en Tiempo Real</p>
+                            <p className="hidden md:block text-sm font-bold text-slate-400 uppercase tracking-widest mt-1.5">Análisis Operativo en Tiempo Real</p>
                         </div>
                     </div>
 
@@ -303,9 +303,9 @@ export default function DashboardPage() {
 
                     {/* Eficiencia Promedio - Hidden on mobile */}
                     <div className="hidden md:flex flex-col items-end">
-                        <span className="text-[10px] font-black text-slate-400 uppercase">Eficiencia Promedio</span>
-                        <span className="text-sm font-black text-slate-900 flex items-center gap-1">
-                            <Timer size={14} className="text-indigo-600" /> {stats.avgDuration}
+                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">Eficiencia Promedio</span>
+                        <span className="text-lg font-black text-slate-900 flex items-center gap-2">
+                            <Timer size={18} className="text-indigo-600" /> {stats.avgDuration}
                         </span>
                     </div>
                 </div>
@@ -342,49 +342,49 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex justify-between items-start">
                             <div>
-                                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Score Global</p>
-                                <h2 className="text-5xl font-black tracking-tighter mt-1">{stats.avgInspectionScore}<span className="text-2xl text-slate-500">%</span></h2>
+                                <p className="text-slate-400 text-xs font-black uppercase tracking-widest">Score Global</p>
+                                <h2 className="text-7xl font-black tracking-tighter mt-1">{stats.avgInspectionScore}<span className="text-3xl text-slate-500">%</span></h2>
                             </div>
-                            <div className={`px-2 py-1 rounded text-[10px] font-black uppercase ${stats.avgInspectionScore >= 85 ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                                {stats.avgInspectionScore >= 85 ? 'Objetivo Cumplido' : 'Requiere Atención'}
+                            <div className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide shadow-lg ${stats.avgInspectionScore >= 85 ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>
+                                {stats.avgInspectionScore >= 85 ? 'Buen Desempeño' : 'Alerta Roja'}
                             </div>
                         </div>
-                        <div className="mt-4 pt-4 border-t border-slate-800 flex justify-between items-end">
+                        <div className="mt-6 pt-6 border-t border-slate-800 flex justify-between items-end">
                             <div>
-                                <p className="text-slate-400 text-[10px] font-bold">NPS Clientes</p>
-                                <p className="text-xl font-black">{stats.avgNPS}</p>
+                                <p className="text-slate-400 text-xs font-bold uppercase tracking-wide">NPS Clientes</p>
+                                <p className="text-3xl font-black">{stats.avgNPS}</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-slate-400 text-[10px] font-bold">
+                                <p className="text-slate-400 text-xs font-bold uppercase tracking-wide">
                                     {timeFilter === 'today' ? 'Auditorías Hoy' :
                                         timeFilter === 'week' ? 'Auditorías Semana' :
                                             timeFilter === 'month' ? 'Auditorías Mes' :
                                                 timeFilter === 'year' ? 'Auditorías Año' : 'Total Auditorías'}
                                 </p>
-                                <p className="text-xl font-black text-indigo-400">{stats.totalInspections}</p>
+                                <p className="text-3xl font-black text-indigo-400">{stats.totalInspections}</p>
                             </div>
                         </div>
                     </div>
 
                     <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm md:col-span-2 flex flex-col">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                                <BarChart3 size={16} className="text-indigo-500" />
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="font-black text-slate-900 text-lg flex items-center gap-3">
+                                <BarChart3 size={24} className="text-indigo-500" />
                                 Desempeño por Categoría
                             </h3>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">Áreas Críticas (Menor a Mayor)</span>
+                            <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Áreas de Enfoque</span>
                         </div>
-                        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
                             {stats.sectionPerformance.map((cat, i) => (
-                                <div key={i} className="bg-slate-50 rounded-xl p-3 border border-slate-100 relative overflow-hidden">
-                                    <div className="flex justify-between items-center relative z-10">
-                                        <span className="text-xs font-bold text-slate-600">{cat.label}</span>
-                                        <span className={`text-sm font-black ${cat.score >= 85 ? 'text-green-600' : cat.score >= 75 ? 'text-yellow-600' : 'text-red-500'}`}>
+                                <div key={i} className="bg-slate-50 rounded-2xl p-4 border border-slate-100 relative overflow-hidden flex flex-col justify-center">
+                                    <div className="flex justify-between items-center relative z-10 mb-2">
+                                        <span className="text-xs font-black text-slate-500 uppercase tracking-wide">{cat.label}</span>
+                                        <span className={`text-xl font-black ${cat.score >= 85 ? 'text-green-600' : cat.score >= 75 ? 'text-yellow-600' : 'text-red-500'}`}>
                                             {cat.score}%
                                         </span>
                                     </div>
-                                    <div className="mt-2 w-full bg-slate-200 h-1 rounded-full overflow-hidden relative z-10">
-                                        <div className={`h-full rounded-full ${cat.score >= 85 ? 'bg-green-500' : cat.score >= 75 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${cat.score}%` }}></div>
+                                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden relative z-10">
+                                        <div className={`h-full rounded-full transition-all duration-1000 ${cat.score >= 85 ? 'bg-green-500' : cat.score >= 75 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${cat.score}%` }}></div>
                                     </div>
                                     {cat.score < 75 && <div className="absolute inset-0 bg-red-500/5 z-0 animate-pulse"></div>}
                                 </div>
@@ -393,22 +393,22 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex flex-col">
-                        <h3 className="font-bold text-slate-900 text-sm mb-4 flex items-center gap-2">
-                            <Award size={16} className="text-orange-500" />
+                        <h3 className="font-black text-slate-900 text-lg mb-6 flex items-center gap-3">
+                            <Award size={24} className="text-orange-500" />
                             Top Supervisores
                         </h3>
-                        <div className="space-y-3 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                        <div className="space-y-4 flex-1 overflow-y-auto pr-1 custom-scrollbar">
                             {stats.supervisorStats.map((sup, i) => (
-                                <div key={i} className="flex items-center justify-between text-xs group">
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-5 h-5 rounded bg-slate-100 text-slate-500 font-bold flex items-center justify-center text-[10px] group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-colors">
+                                <div key={i} className="flex items-center justify-between text-sm group">
+                                    <div className="flex items-center gap-3">
+                                        <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 font-black flex items-center justify-center text-[11px] group-hover:bg-indigo-600 group-hover:text-white transition-all transform group-hover:scale-110 shadow-sm">
                                             {i + 1}
                                         </span>
-                                        <span className="font-semibold text-slate-700">{sup.name}</span>
+                                        <span className="font-bold text-slate-700 text-base">{sup.name}</span>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-slate-400 font-medium">{sup.count} insp</span>
-                                        <span className="font-black text-slate-900 bg-slate-100 px-1.5 rounded">{sup.avgScore}%</span>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{sup.count} INSP</span>
+                                        <span className="font-black text-slate-900 bg-slate-100 px-2 py-1 rounded-lg text-sm shadow-sm group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">{sup.avgScore}%</span>
                                     </div>
                                 </div>
                             ))}
@@ -421,26 +421,26 @@ export default function DashboardPage() {
                     {/* Alerts with Hover Tooltips */}
                     {/* CUSTOMER FEEDBACK WIDGET */}
                     <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm flex flex-col h-[400px] relative">
-                        <div className="p-4 border-b border-slate-50 bg-indigo-50/30 flex justify-between items-center">
-                            <h3 className="font-bold text-indigo-900 text-sm flex items-center gap-2">
-                                <MessageSquare size={16} className="text-indigo-600" />
-                                Feedback Clientes
+                        <div className="p-5 border-b border-slate-100 bg-indigo-50/40 flex justify-between items-center">
+                            <h3 className="font-black text-indigo-950 text-base flex items-center gap-3">
+                                <MessageSquare size={20} className="text-indigo-600" />
+                                Feedback de Clientes
                             </h3>
-                            <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-0.5 rounded-full">Últimos {stats.recentFeedback?.length || 0}</span>
+                            <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-md shadow-indigo-100">Últimos {stats.recentFeedback?.length || 0}</span>
                         </div>
                         <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3 custom-scrollbar">
                             {stats.recentFeedback && stats.recentFeedback.length > 0 ? stats.recentFeedback.map((item: any, i: number) => (
                                 <div key={i} className="group relative">
-                                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex gap-3 hover:border-indigo-200 hover:shadow-md transition-all">
-                                        <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${item.score >= 9 ? 'bg-green-100 text-green-700' : item.score >= 7 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                    <div className="bg-white border-2 border-slate-100 rounded-2xl p-4 shadow-sm flex gap-4 hover:border-indigo-400 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                        <div className={`shrink-0 w-12 h-12 rounded-2xl shadow-inner flex items-center justify-center font-black text-lg ${item.score >= 9 ? 'bg-green-100 text-green-700' : item.score >= 7 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
                                             {item.score}
                                         </div>
                                         <div className="flex-1">
-                                            <div className="flex justify-between items-start">
-                                                <h4 className="font-bold text-slate-800 text-xs">{item.store}</h4>
-                                                <span className="text-[10px] text-slate-400 font-medium">{item.date}</span>
+                                            <div className="flex justify-between items-start mb-1">
+                                                <h4 className="font-black text-indigo-900 text-sm tracking-tight">{item.store}</h4>
+                                                <span className="text-[11px] text-slate-400 font-black uppercase tracking-widest">{item.date}</span>
                                             </div>
-                                            <p className="text-xs text-slate-600 font-medium mt-1 leading-relaxed line-clamp-2 group-hover:line-clamp-none transition-all duration-300">
+                                            <p className="text-sm text-slate-700 font-medium leading-relaxed group-hover:text-slate-900 transition-colors">
                                                 "{item.comment || 'Sin comentario'}"
                                             </p>
                                         </div>
@@ -456,28 +456,28 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[400px]">
-                        <div className="p-4 border-b border-slate-50 flex justify-between items-center">
-                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                                <Store size={16} className="text-blue-500" />
-                                Ranking Sucursales
+                        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-white">
+                            <h3 className="font-black text-slate-900 text-base flex items-center gap-3">
+                                <Store size={22} className="text-blue-600" />
+                                Ranking de Sucursales
                             </h3>
                         </div>
-                        <div className="flex-1 overflow-y-auto">
-                            <table className="w-full text-left text-xs">
-                                <thead className="bg-slate-50 text-slate-400 font-bold uppercase sticky top-0">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-slate-500 font-black text-[11px] uppercase tracking-widest sticky top-0 z-10">
                                     <tr>
-                                        <th className="pl-4 py-3">#</th>
-                                        <th className="py-3">Tienda</th>
-                                        <th className="pr-4 py-3 text-right">Score</th>
+                                        <th className="pl-6 py-4">#</th>
+                                        <th className="py-4">Tienda</th>
+                                        <th className="pr-6 py-4 text-right">Score</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-50">
+                                <tbody className="divide-y divide-slate-100">
                                     {stats.topStores.map((store, i) => (
-                                        <tr key={i} className="hover:bg-slate-50/50">
-                                            <td className="pl-4 py-3 text-slate-400 font-bold w-10">{i + 1}</td>
-                                            <td className="py-3 font-semibold text-slate-700">{store.name}</td>
-                                            <td className="pr-4 py-3 text-right">
-                                                <span className={`font-black px-2 py-0.5 rounded ${store.avg >= 85 ? 'bg-green-100 text-green-700' : store.avg >= 75 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                        <tr key={i} className="hover:bg-blue-50/50 transition-colors group">
+                                            <td className="pl-6 py-4 text-slate-400 font-black text-sm w-12">{i + 1}</td>
+                                            <td className="py-4 font-bold text-slate-800 text-base group-hover:text-blue-700 transition-colors">{store.name}</td>
+                                            <td className="pr-6 py-4 text-right">
+                                                <span className={`font-black px-3 py-1 rounded-lg text-sm shadow-sm ${store.avg >= 85 ? 'bg-green-100 text-green-700' : store.avg >= 75 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
                                                     {store.avg}%
                                                 </span>
                                             </td>
@@ -489,30 +489,30 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="bg-white rounded-2xl p-0 border border-slate-100 shadow-sm overflow-hidden flex flex-col h-[400px]">
-                        <div className="p-4 border-b border-slate-50 flex justify-between items-center bg-indigo-50/30">
-                            <h3 className="font-bold text-indigo-900 text-sm flex items-center gap-2">
-                                <Activity size={16} className="text-indigo-600" />
-                                Última Actividad
+                        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-indigo-50/40">
+                            <h3 className="font-black text-indigo-950 text-base flex items-center gap-3">
+                                <Activity size={22} className="text-indigo-600" />
+                                Historial de Actividad
                             </h3>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
                             {stats.recentActivity.map((act, i) => (
-                                <div key={i} className="flex gap-3 items-start relative pb-4 last:pb-0">
-                                    {i !== stats.recentActivity.length - 1 && <div className="absolute left-[11px] top-6 bottom-[-16px] w-[2px] bg-slate-100"></div>}
+                                <div key={i} className="flex gap-4 items-start relative pb-6 last:pb-0 group">
+                                    {i !== stats.recentActivity.length - 1 && <div className="absolute left-[13px] top-8 bottom-[-24px] w-[3px] bg-slate-100 rounded-full"></div>}
 
-                                    <div className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center bg-white z-10 ${act.score >= 80 ? 'border-green-500 text-green-500' : 'border-red-500 text-red-500'}`}>
-                                        <div className={`w-2 h-2 rounded-full ${act.score >= 80 ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                    <div className={`shrink-0 w-7 h-7 rounded-full border-4 flex items-center justify-center bg-white z-10 shadow-sm transition-transform group-hover:scale-125 ${act.score >= 80 ? 'border-green-500 text-green-500' : 'border-red-500 text-red-500'}`}>
+                                        <div className={`w-2.5 h-2.5 rounded-full ${act.score >= 80 ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
                                     </div>
-                                    <div>
-                                        <p className="text-xs font-bold text-slate-800">{act.store}</p>
-                                        <p className="text-[10px] text-slate-500">
-                                            Auditado por <span className="font-semibold text-indigo-600">{act.user}</span>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-black text-slate-900 leading-none group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{act.store}</p>
+                                        <p className="text-xs text-slate-500 mt-1 font-medium">
+                                            Auditoría de <span className="font-black text-slate-700">{act.user}</span>
                                         </p>
-                                        <span className={`text-[10px] font-black mt-1 inline-block ${act.score >= 80 ? 'text-green-600' : 'text-red-600'}`}>
-                                            Resultado: {act.score}%
+                                        <span className={`text-xs font-black mt-2 inline-flex items-center px-2 py-0.5 rounded-md shadow-inner ${act.score >= 80 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                                            Score: {act.score}%
                                         </span>
                                     </div>
-                                    <span className="ml-auto text-xs font-bold text-slate-500">
+                                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-lg self-start">
                                         {formatDateLA(act.date)}
                                     </span>
                                 </div>

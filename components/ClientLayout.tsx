@@ -38,7 +38,7 @@ export default function ClientLayout({
             <div className="relative z-10 flex flex-col min-h-screen">
                 <TopNav />
 
-                <main className={`flex-1 w-full mx-auto p-4 sm:p-6 lg:p-8 animate-in fade-in duration-500 ${isFullWidth ? 'max-w-[98%]' : 'max-w-7xl'
+                <main className={`flex-1 w-full mx-auto ${isFullWidth ? 'p-0' : 'p-4 sm:p-6 lg:p-8'} animate-in fade-in duration-500 ${isFullWidth ? 'max-w-full' : 'max-w-7xl'
                     }`}>
                     {children}
                 </main>

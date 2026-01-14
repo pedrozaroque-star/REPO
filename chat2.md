@@ -6038,4 +6038,4 @@ mmmm
 
 Tienes toda la razón. A veces me pongo en "modo ingeniero" y termino escribiendo scripts complejos para cosas que se resuelven con dos clics. Disculpa por el rodeo innecesario. 😅
 
-¿Hay algo más en el código o en la app que quieras revisar?
+¿Hay algo más en el código o en la app que quieras revisar? 
