@@ -5,10 +5,12 @@ import { useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { motion, AnimatePresence } from 'framer-motion'
+import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
 import {
     X, Clock, Coffee, Sun, Sunrise, Moon, MoonStar,
     Calendar, User, Save, Trash2, ArrowRight, Sparkles, Zap, Store,
-    ChevronLeft, ChevronRight
+    ChevronLeft, ChevronRight, ShieldCheck, AlertTriangle, AlertCircle,
+    Briefcase, Activity, ShieldAlert
 } from 'lucide-react'
 
 // --- CONFIGURACIÓN DE DATOS ---
@@ -444,10 +446,218 @@ function ScheduleManager() {
     // --- ESTADO PARA CONTROLAR REPETICIÓN DEL MODAL ---
     const dismissedReplicationsRef = useRef<Set<string>>(new Set());
 
-    // 🔍 VERIFICAR OPORTUNIDAD DE RÉPLICA (Automático al cambiar de semana)
+    // --- TOUR DE BIENVENIDA ---
+    const [showTour, setShowTour] = useState(false);
+
+    // --- COMPONENTE INTERNO DEL TOUR ---
+    const OnboardingTour = ({ onComplete }: { onComplete: () => void }) => {
+        return (
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[200] bg-black/40 flex flex-col items-center justify-center p-4"
+            >
+                <div className="relative w-full max-w-[1600px] h-full pointer-events-none">
+
+                    {/* 1. SEMÁFORO (Top Right - Moved Left) */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="absolute top-[65px] right-[400px] flex flex-col items-end"
+                    >
+                        <motion.div
+                            animate={{ y: [0, -10, 0] }}
+                            transition={{ repeat: Infinity, duration: 2 }}
+                        >
+                            <ArrowRight size={40} className="text-white drop-shadow-lg rotate-[-45deg] mb-2" strokeWidth={3} />
+                        </motion.div>
+                        <div className="bg-white text-gray-900 px-5 py-3 rounded-2xl shadow-2xl max-w-xs text-right">
+                            <h3 className="font-black text-lg mb-1">🚦 Semáforo de Control</h3>
+                            <p className="font-medium text-sm text-gray-600">
+                                Tu guía visual rapida: <br />
+                                <span className="text-emerald-600 font-bold">VERDE:</span> Todo cubierto.<br />
+                                <span className="text-red-500 font-bold">ROJO:</span> ¡Atención inmediata!
+                            </p>
+                        </div>
+                    </motion.div>
+
+                    {/* 2. NAVEGACIÓN (Top Right Corner - Fixed) */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.8 }}
+                        className="absolute top-[65px] right-[30px] flex flex-col items-end"
+                    >
+                        <motion.div
+                            animate={{ x: [0, 10, 0] }}
+                            transition={{ repeat: Infinity, duration: 2 }}
+                        >
+                            <ArrowRight size={40} className="text-white drop-shadow-lg rotate-[-45deg] mb-2 mr-10" strokeWidth={3} />
+                        </motion.div>
+                        <div className="bg-white text-indigo-900 px-5 py-3 rounded-2xl shadow-2xl max-w-xs text-right">
+                            <h3 className="font-black text-lg mb-1">📅 Cambia de Semana</h3>
+                            <p className="font-medium text-sm opacity-90">
+                                Muévete entre semanas aquí para planificar con anticipación.
+                            </p>
+                        </div>
+                    </motion.div>
+
+                    {/* 3. FILA MAESTRA (Lowered slightly) */}
+                    <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 1.4 }}
+                        className="absolute top-[250px] left-[10px] lg:left-[50px] flex gap-4 items-center"
+                    >
+                        <div className="bg-white text-indigo-900 px-6 py-4 rounded-2xl shadow-2xl max-w-sm border-l-8 border-indigo-500">
+                            <h3 className="font-black text-xl mb-1">👑 Tu Fila Maestra</h3>
+                            <p className="font-medium text-sm leading-relaxed opacity-90">
+                                Define aquí TU horario. El sistema lo usará para rellenar huecos automáticamente.
+                            </p>
+                        </div>
+                        <motion.div
+                            animate={{ x: [0, 10, 0] }}
+                            transition={{ repeat: Infinity, duration: 1.5 }}
+                        >
+                            <ArrowRight size={48} className="text-white drop-shadow-xl" strokeWidth={3} />
+                        </motion.div>
+                    </motion.div>
+
+                    {/* 4. TIENDAS (Lower Left) */}
+                    <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 2.0 }}
+                        className="absolute top-[400px] left-[10px] lg:left-[50px] flex gap-4 items-center"
+                    >
+                        <div className="bg-white text-gray-900 px-6 py-4 rounded-2xl shadow-2xl max-w-sm border-l-8 border-gray-800">
+                            <h3 className="font-black text-xl mb-1">🏢 Tus Tiendas</h3>
+                            <p className="font-medium text-sm leading-relaxed opacity-90">
+                                Cada bloque representa una tienda. Busca los huecos <span className="category-badge-bad">ROJOS</span> para asignar personal.
+                            </p>
+                        </div>
+                        <motion.div
+                            animate={{ x: [0, 10, 0] }}
+                            transition={{ repeat: Infinity, duration: 1.5, delay: 0.2 }}
+                        >
+                            <ArrowRight size={48} className="text-white drop-shadow-xl" strokeWidth={3} />
+                        </motion.div>
+                    </motion.div>
+
+                    {/* 5. ESCENARIOS (Right Side Panel - Lowered to avoid overlap) */}
+                    <motion.div
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 2.4 }}
+                        className="absolute top-[300px] right-[50px] flex flex-col items-end"
+                    >
+                        <div className="bg-white text-gray-900 rounded-2xl shadow-2xl p-6 max-w-sm border-r-8 border-indigo-600">
+                            <h3 className="font-black text-xl mb-4 text-gray-800 border-b pb-2 flex items-center gap-2">
+                                <ShieldCheck size={24} className="text-indigo-600" />
+                                Escenarios de Cobertura
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                                        <AlertCircle size={20} className="text-red-600" />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-red-600 text-sm">Falta Personal</p>
+                                        <p className="text-xs text-gray-500 leading-tight">Hueco crítico en AM o PM.</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                                        <Clock size={20} className="text-amber-600" />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-amber-600 text-sm">Vacío / Pendiente</p>
+                                        <p className="text-xs text-gray-500 leading-tight">Turno aún no asignado.</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                                        <ShieldCheck size={20} className="text-emerald-600" />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-emerald-600 text-sm">Cubierto</p>
+                                        <p className="text-xs text-gray-500 leading-tight">Personal asignado correctamente.</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                                        <span className="text-lg">👑</span>
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-indigo-600 text-sm">Cubierto por Ti</p>
+                                        <p className="text-xs text-gray-500 leading-tight">Tu horario cubre este hueco.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+
+                    {/* 6. INTERACCIÓN (Bottom Center - Darker) */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 3.0 }}
+                        className="absolute bottom-[100px] left-1/2 -translate-x-1/2 flex flex-col items-center"
+                    >
+                        <div className="bg-gray-900 text-white px-8 py-5 rounded-2xl border border-gray-700 shadow-2xl flex items-center gap-5 max-w-lg">
+                            <div className="bg-yellow-500/20 p-3 rounded-full">
+                                <Sparkles size={32} className="text-yellow-400" />
+                            </div>
+                            <div className="text-left">
+                                <h3 className="font-bold text-lg leading-tight">Tip Profesional</h3>
+                                <p className="text-sm font-medium opacity-90">
+                                    Haz <span className="font-bold text-yellow-300">CLIC</span> para editar. <br />
+                                    Mantén <span className="font-bold text-yellow-300">SHIFT + CLICK</span> y arrastra para copiar.
+                                </p>
+                            </div>
+                        </div>
+                        <motion.div
+                            animate={{ y: [0, 10, 0] }}
+                            transition={{ repeat: Infinity, duration: 1.5 }}
+                            className="mt-4"
+                        >
+                            <ArrowRight size={40} className="text-white drop-shadow-lg rotate-90" strokeWidth={3} />
+                        </motion.div>
+                    </motion.div>
+
+                </div>
+
+                <div className="absolute bottom-10 z-[210] flex justify-center pointer-events-auto">
+                    <button
+                        onClick={onComplete}
+                        className="bg-indigo-600 text-white px-12 py-4 rounded-full font-black text-xl shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3 ring-4 ring-white/20 hover:bg-indigo-500"
+                    >
+                        <span>¡Entendido, a trabajar!</span>
+                        <ArrowRight size={24} />
+                    </button>
+                </div>
+            </motion.div>
+        );
+    };
+
+    // 🔍 CONTROL DE CAMBIO DE VISTA (Para el Tour)
+    const prevViewMode = useRef('dashboard');
+
+    // ACTIVAR TOUR SOLO AL ENTRAR AL EDITOR (Transición)
     useEffect(() => {
+        if (viewMode === 'editor' && prevViewMode.current !== 'editor') {
+            setShowTour(true);
+        }
+        prevViewMode.current = viewMode;
+    }, [viewMode]);
+
+    // 🔍 VERIFICAR OPORTUNIDAD DE RÉPLICA (Automático al cambiar de semana o CERRAR tour)
+    useEffect(() => {
+        // Separated logic above
         const checkReplication = async () => {
-            if (viewMode !== 'editor' || loading) return;
+            if (viewMode !== 'editor' || loading || showTour) return;
 
             // Generar una clave única para esta combinación de vista/semana
             const currentKey = `${formatDateISO(weekStart)}-${selectedStoreId || selectedSupervisorId}`;
@@ -509,7 +719,7 @@ function ScheduleManager() {
         };
 
         if (!loading) checkReplication();
-    }, [weekStart, viewMode, selectedSupervisorId, selectedStoreId, stores, loading]); // Quitada la dependencia de dismissed
+    }, [showTour, weekStart, viewMode, selectedSupervisorId, selectedStoreId, stores, loading]); // Agregado showTour
 
     const dismissReplication = () => {
         const currentKey = `${formatDateISO(weekStart)}-${selectedStoreId || selectedSupervisorId}`;
@@ -810,13 +1020,28 @@ function ScheduleManager() {
                     stores: [],
                     risk: false,
                     issues: [],
-                    stats: { empty: 0, bad: 0, ok: 0, progress: 0 }
+                    stats: { empty: 0, bad: 0, ok: 0, progress: 0 },
+                    lastCapture: null as string | null
                 };
             }
 
             // Calcular riesgo de esta tienda: SOLO para personal de esta tienda
             const storeUserIds = new Set(allUsers?.filter(u => String(u.store_id) === String(store.id)).map(u => String(u.id)) || []);
             const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && storeUserIds.has(String(s.user_id)));
+
+            // BUSCAR ÚLTIMA CAPTURA (Max created_at o similar de esta tienda)
+            // Nota: created_at viene de Supabase por defecto en el select *
+            const storeLatest = storeShifts.reduce((max, s) => {
+                const ts = s.created_at || s.inserted_at; // Soporte para ambos nombres comunes
+                if (!ts) return max;
+                return !max || ts > max ? ts : max;
+            }, null as string | null);
+
+            if (storeLatest) {
+                if (!acc[supId].lastCapture || storeLatest > acc[supId].lastCapture) {
+                    acc[supId].lastCapture = storeLatest;
+                }
+            }
 
             // Calculo seguro de estado semanal
             const weekStatuses = weekDays.map(d => {
@@ -853,15 +1078,28 @@ function ScheduleManager() {
             const anyEmpty = weekStatuses.some(s => s.status === 'empty');
             const allEmpty = weekStatuses.every(s => s.status === 'empty');
 
-            const storeRes = anyBad ? 'bad' : (allOk ? 'ok' : (allEmpty ? 'empty' : 'progress'));
-
+            const storeRes = anyBad ? 'bad' : (allOk ? 'ok' : 'empty');
             acc[supId].stats[storeRes]++;
+
+            // Calcular Estatus General del Supervisor
+            if (anyBad) acc[supId].overallStatus = 'bad';
+            else if (acc[supId].overallStatus !== 'bad') {
+                // Si no hay errores, solo marcamos OK si TODO está OK
+                // De lo contrario, queda como EMPTY (Pendiente de terminar)
+                if (allOk) acc[supId].overallStatus = 'ok';
+                else acc[supId].overallStatus = 'empty';
+            }
 
             return acc;
         }, {} as Record<string, any>));
 
         // Refinar mensajes para cada supervisor
         supervisorsList.forEach((sup: any) => {
+            // Asegurar que progress se detecte si hay mezcla de tiendas OK y EMPTY
+            if (!sup.overallStatus) sup.overallStatus = 'empty';
+            // if (sup.stats.progress > 0 || (sup.stats.ok > 0 && sup.stats.empty > 0)) sup.overallStatus = 'progress'; // ELIMINADO POR SOLICITUD
+            if (sup.stats.bad > 0) sup.overallStatus = 'bad';
+            if (sup.stats.ok === sup.stores.length) sup.overallStatus = 'ok';
             const badIssues = sup.issues.filter((i: any) => i.type === 'bad');
             const emptyIssues = sup.issues.filter((i: any) => i.type === 'empty');
             sup.alertLines = [];
@@ -873,20 +1111,17 @@ function ScheduleManager() {
                         color: 'text-red-600 bg-red-50'
                     });
                 });
-            } else if (sup.stats.progress > 0 || (emptyIssues.length > 0 && sup.stats.ok > 0)) {
-                sup.alertLines.push({
-                    text: `En progreso: ${sup.stats.ok + sup.stats.progress} ${sup.stats.ok + sup.stats.progress === 1 ? 'tienda iniciada' : 'tiendas iniciadas'}; ${emptyIssues.length - sup.stats.progress} pendientes.`,
-                    color: 'text-blue-600 bg-blue-50'
-                });
             } else if (emptyIssues.length > 0) {
+                // Si hay problemas de progreso o vacío, lo contamos como pendiente (Ambar)
+                const totalPending = emptyIssues.length;
                 sup.alertLines.push({
-                    text: `${emptyIssues.length} ${emptyIssues.length === 1 ? 'tienda está' : 'tiendas están'} sin horarios programados.`,
+                    text: `${totalPending} ${totalPending === 1 ? 'tienda está' : 'tiendas están'} sin horarios programados.`,
                     color: 'text-amber-600 bg-amber-50'
                 });
-            } else {
+            } else if (sup.alertLines.length === 0) { // Fallback si no hay bad ni empty 
                 sup.alertLines.push({
-                    text: "Todo cubierto y programado correctamente.",
-                    color: 'text-emerald-600 bg-emerald-50'
+                    text: `${sup.stores.length} tiendas sin horarios programados.`,
+                    color: 'text-amber-600 bg-amber-50'
                 });
             }
         });
@@ -910,8 +1145,8 @@ function ScheduleManager() {
         }
 
         return (
-            <div className="animate-fade-in h-full relative overflow-y-auto p-4 lg:p-8 bg-gray-50/50">
-                <div className="max-w-[1440px] mx-auto">
+            <div className="animate-fade-in h-full relative overflow-y-auto p-4 lg:p-8">
+                <div className="max-w-[1536px] mx-auto">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
                         <div>
                             <h2 className="text-4xl font-black text-gray-900 tracking-tight text-balance">Control de Operaciones</h2>
@@ -934,8 +1169,13 @@ function ScheduleManager() {
                             <div
                                 key={sup.id}
                                 onClick={() => { setSelectedSupervisorId(String(sup.id)); setViewMode('editor'); }}
-                                className={`bg-white rounded-2xl p-6 border-2 border-gray-100 transition-all duration-300 cursor-pointer group hover:scale-[1.02] hover:shadow-xl relative overflow-hidden`}
+                                className={`bg-white rounded-3xl p-8 border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300 cursor-pointer group hover:scale-[1.01] hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)] relative overflow-hidden`}
                             >
+                                {/* Barra de Estatus Superior */}
+                                <div className={`absolute top-0 left-0 right-0 h-1.5 
+                                        ${sup.overallStatus === 'bad' ? 'bg-red-500' :
+                                        sup.overallStatus === 'empty' ? 'bg-amber-500' :
+                                            'bg-emerald-500'}`} />
                                 {/* Fondo decorativo */}
                                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 blur-3xl group-hover:bg-indigo-100 transition-all"></div>
 
@@ -946,23 +1186,33 @@ function ScheduleManager() {
                                 )}
 
                                 <div className="flex items-center gap-5 relative z-10">
-                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl shadow-sm
-                                        ${sup.risk ? 'bg-red-50 text-red-500' : 'bg-indigo-50 text-indigo-600'}`}>
-                                        {sup.risk ? '⚠️' : '👔'}
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm
+                                        ${sup.overallStatus === 'bad' ? 'bg-red-50 text-red-500' :
+                                            sup.overallStatus === 'empty' ? 'bg-amber-50 text-amber-500' :
+                                                'bg-emerald-50 text-emerald-600'}`}>
+                                        {sup.overallStatus === 'bad' && <ShieldAlert size={32} strokeWidth={2.5} />}
+                                        {sup.overallStatus === 'empty' && <AlertCircle size={32} strokeWidth={2.5} />}
+                                        {sup.overallStatus === 'ok' && <ShieldCheck size={32} strokeWidth={2.5} />}
                                     </div>
                                     <div>
                                         <h3 className="font-black text-gray-900 text-2xl leading-tight group-hover:text-indigo-600 transition-colors">
                                             {sup.name}
                                         </h3>
-                                        <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">
+                                        <p className="text-sm text-gray-500 font-medium uppercase tracking-wide mt-1">
                                             {sup.stores.length} Tiendas Asignadas
                                         </p>
+                                        {sup.lastCapture && (
+                                            <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider mt-1.5 flex items-center gap-1.5 bg-indigo-50 px-2 py-0.5 rounded-md w-fit">
+                                                <Clock size={12} />
+                                                Última captura: {formatDateLA(sup.lastCapture)} {formatTimeLA(sup.lastCapture)}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
                                 <div className="mt-8 flex flex-wrap gap-2 relative z-10">
                                     {sup.stores.map((s: any) => (
-                                        <span key={s.id} className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-100 text-gray-600 text-[11px] font-black group-hover:bg-white group-hover:border-gray-200 transition-colors uppercase tracking-tight">
+                                        <span key={s.id} className="px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-100 text-gray-700 text-xs font-normal group-hover:bg-white group-hover:border-gray-200 transition-colors uppercase tracking-tight">
                                             {formatStoreName(s.name)}
                                         </span>
                                     ))}
@@ -1067,7 +1317,7 @@ function ScheduleManager() {
                                                 if (status.status === 'empty') hasEmpty = true;
                                             }
 
-                                            globalStatus = hasBad ? 'bad' : (hasOk && hasEmpty ? 'progress' : (hasEmpty ? 'empty' : 'ok'));
+                                            globalStatus = hasBad ? 'bad' : ((hasOk && !hasEmpty) ? 'ok' : 'empty');
                                         }
 
                                         return (
@@ -1076,11 +1326,10 @@ function ScheduleManager() {
                                                     <span className="text-[14px] font-medium text-black uppercase tracking-wide">{getDayName(day)}</span>
                                                     <span className="text-2xl font-black text-gray-900 -mt-1">{day.getDate()}</span>
                                                     <div className={`mt-1 px-4 py-1 rounded-full text-[11px] font-black tracking-wide shadow-sm ${globalStatus === 'ok' ? 'bg-emerald-500 text-white' :
-                                                        globalStatus === 'progress' ? 'bg-blue-500 text-white' :
-                                                            globalStatus === 'empty' ? 'bg-gray-100 text-gray-400 border border-gray-200 shadow-none font-bold' :
-                                                                'bg-red-500 text-white animate-pulse'
+                                                        globalStatus === 'empty' ? 'bg-amber-100 text-amber-700 border border-amber-200 font-bold' :
+                                                            'bg-red-500 text-white animate-pulse'
                                                         }`}>
-                                                        {globalStatus === 'ok' ? 'CUBIERTO' : globalStatus === 'progress' ? 'PROGRESO' : globalStatus === 'empty' ? 'VACÍO' : 'FALTA AM/PM'}
+                                                        {globalStatus === 'ok' ? 'CUBIERTO' : globalStatus === 'empty' ? 'PENDIENTE' : 'FALTA AM/PM'}
                                                     </div>
                                                 </div>
                                             </th>
@@ -1282,6 +1531,11 @@ function ScheduleManager() {
                                                                         </span>
                                                                     </div>
                                                                 );
+                                                            } else if (dayStatus.status === 'bad') {
+                                                                // SOLO Marcar espacios vacíos si hay un ERROR de cobertura (Falta AM o PM)
+                                                                // No marcar si está simplemente vacío (sin iniciar)
+                                                                cardClass = "bg-red-50/50 border-2 border-dashed border-red-200 hover:bg-red-100 hover:border-red-300 animate-pulse";
+                                                                cardContent = <div className="w-1.5 h-1.5 rounded-full bg-red-200 group-hover:bg-red-300"></div>;
                                                             }
 
                                                             return (
@@ -1313,8 +1567,17 @@ function ScheduleManager() {
         );
     };
 
+    const handleTourComplete = () => {
+        setShowTour(false);
+    };
+
     return (
         <div className="flex bg-transparent font-sans text-gray-900 w-full h-[calc(100vh-64px)] animate-in fade-in duration-500">
+            {/* TOUR OVERLAY */}
+            <AnimatePresence>
+                {showTour && <OnboardingTour onComplete={handleTourComplete} />}
+            </AnimatePresence>
+
             <main className="flex-1 flex flex-col w-full relative transition-all duration-300 min-h-0">
 
                 {/* CONTENIDO PRINCIPAL SCROLLABLE */}

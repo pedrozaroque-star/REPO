@@ -71,7 +71,7 @@ export const formatDateLA = (dateString: any) => {
 export const formatTimeLA = (dateString: any) => {
   if (!dateString) return '--:--';
   try {
-    if (typeof dateString === 'string' && dateString.includes(':')) return dateString;
+    // Forzar siempre el formateo si es una fecha válida
     const date = new Date(dateString);
     if (!isValidDate(date)) return '--:--';
     return new Intl.DateTimeFormat('es-MX', {
