@@ -1027,8 +1027,8 @@ function ScheduleManager() {
 
             // Calcular riesgo de esta tienda: SOLO para personal de esta tienda
             const storeUserIds = new Set(allUsers?.filter(u => String(u.store_id) === String(store.id)).map(u => String(u.id)) || []);
-            // Calcular riesgo de esta tienda: Usar todos los horarios asignados a esta tienda
-            const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id));
+            // Calcular riesgo de esta tienda: SOLO para personal ACTIVO de esta tienda (Evita shifts fantasma)
+            const storeShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && storeUserIds.has(String(s.user_id)));
 
             // BUSCAR ÚLTIMA CAPTURA (Max created_at o similar de esta tienda)
             // Nota: created_at viene de Supabase por defecto en el select *
