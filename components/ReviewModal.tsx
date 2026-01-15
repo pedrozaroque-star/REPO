@@ -117,9 +117,9 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
 
     return Object.entries(INSPECTION_DICT).map(([areaKey, dictInfo]: [string, any]) => {
       const areaData = answersData[areaKey] || {}
-      
+
       // Colores por área
-      const colors: any = { 
+      const colors: any = {
         servicio: 'bg-blue-50 text-blue-800', carnes: 'bg-red-50 text-red-800',
         alimentos: 'bg-orange-50 text-orange-800', tortillas: 'bg-yellow-50 text-yellow-800',
         limpieza: 'bg-green-50 text-green-800', bitacoras: 'bg-purple-50 text-purple-800',
@@ -128,7 +128,7 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
 
       // Calcular score (prioridad: json nuevo > columna sql vieja > 0)
       let areaScore = areaData.score !== undefined ? areaData.score : (item[`${areaKey}_score`] ?? 0)
-      
+
       let renderedItems: any[] = []
 
       // Lógica para detectar tipo de datos (Nuevo vs Viejo)
@@ -160,8 +160,8 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
               if (q.status === 'legacy') badge = <span className="text-gray-400 text-xs italic">--</span>
               else if (q.status === 'missing') badge = <span className="text-gray-300 text-xs">N/A</span>
               else badge = (
-                <span className={`font-bold text-[10px] px-2 py-0.5 rounded ${q.score===100?'bg-green-100 text-green-700':q.score===60?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'}`}>
-                  {q.score===100?'CUMPLE':q.score===60?'PARCIAL':'FALLA'}
+                <span className={`font-bold text-[10px] px-2 py-0.5 rounded ${q.score === 100 ? 'bg-green-100 text-green-700' : q.score === 60 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                  {q.score === 100 ? 'CUMPLE' : q.score === 60 ? 'PARCIAL' : 'FALLA'}
                 </span>
               )
               return (
@@ -180,9 +180,13 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-50 p-4 animate-in fade-in duration-200">
+      <div
+        className="absolute inset-0 z-0 opacity-[0.3] invert pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
+        aria-hidden="true"
+      />
       <div className="bg-white w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl flex overflow-hidden">
-        
+
         {/* COLUMNA IZQUIERDA: LISTA */}
         <div className="w-1/3 bg-gray-50 border-r flex flex-col">
           <div className="p-4 bg-white border-b shadow-sm z-10">
@@ -196,11 +200,10 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
                 <button
                   key={item.id}
                   onClick={() => setSelectedId(item.id)}
-                  className={`w-full text-left p-3 rounded-lg border transition-all group ${
-                    selectedId === item.id 
-                      ? 'bg-white border-indigo-500 shadow-md ring-1 ring-indigo-500' 
-                      : 'bg-white border-gray-200 hover:border-indigo-300'
-                  }`}
+                  className={`w-full text-left p-3 rounded-lg border transition-all group ${selectedId === item.id
+                    ? 'bg-white border-indigo-500 shadow-md ring-1 ring-indigo-500'
+                    : 'bg-white border-gray-200 hover:border-indigo-300'
+                    }`}
                 >
                   <div className="flex justify-between font-bold text-sm text-gray-800 mb-1">
                     <span className="group-hover:text-indigo-600 transition-colors">{item.store_name}</span>
@@ -212,13 +215,12 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
                   </div>
                   {/* Etiqueta de estado pequeña */}
                   <div className="mt-1 flex justify-end">
-                     <span className={`text-[10px] px-1.5 rounded ${
-                       item.estatus_admin === 'cerrado' ? 'bg-blue-100 text-blue-700' : 
-                       item.estatus_admin === 'rechazado' ? 'bg-red-100 text-red-700' : 
-                       'bg-yellow-100 text-yellow-700'
-                     }`}>
-                       {item.estatus_admin || 'pendiente'}
-                     </span>
+                    <span className={`text-[10px] px-1.5 rounded ${item.estatus_admin === 'cerrado' ? 'bg-blue-100 text-blue-700' :
+                      item.estatus_admin === 'rechazado' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                      {item.estatus_admin || 'pendiente'}
+                    </span>
                   </div>
                 </button>
               ))
@@ -251,7 +253,7 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
               {/* Contenido Scrollable */}
               <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  
+
                   {/* LADO IZQUIERDO: Respuestas */}
                   <div>
                     <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">📋 Resultados</h3>
@@ -260,52 +262,52 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
 
                   {/* LADO DERECHO: Evidencias y Acciones */}
                   <div className="space-y-6">
-                    
+
                     {/* FOTOS (Con soporte Drive) */}
                     <div className="bg-white p-4 rounded-xl border shadow-sm">
                       <h3 className="font-bold text-gray-700 mb-3 flex justify-between">
                         <span>📸 Evidencias</span>
                         <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">{currentItem.photos?.length || 0}</span>
                       </h3>
-                      
+
                       {currentItem.photos && currentItem.photos.length > 0 ? (
                         <div className="grid grid-cols-3 gap-2">
                           {/* BLOQUE DE FOTOS CORREGIDO */}
-{currentItem.photos.map((url: string, i: number) => {
-  const thumbUrl = getImageUrl(url)
-  const isDrive = url.includes('drive.google.com')
-  return (
-    <a 
-      key={i} 
-      href={url} 
-      target="_blank" 
-      rel="noopener noreferrer" 
-      className="relative aspect-square rounded-lg overflow-hidden border bg-gray-100 hover:ring-2 ring-indigo-500 transition-all group"
-    >
-      <img 
-        src={thumbUrl} 
-        className="w-full h-full object-cover" 
-        alt={`Evidencia ${i+1}`}
-        referrerPolicy="no-referrer"  // 👈 ¡ESTA ES LA CLAVE!
-        onError={(e: any) => {
-          // Si falla la miniatura, intentamos con el enlace directo de visualización
-          if (e.target.src.includes('thumbnail')) {
-             const id = url.match(/[\w-]{25,}/)?.[0];
-             if(id) e.target.src = `https://drive.google.com/uc?export=view&id=${id}`;
-          } else {
-             e.target.onerror = null; 
-             e.target.src='https://placehold.co/400x400/e2e8f0/64748b?text=No+Vista+Previa';
-          }
-        }}
-      />
-      {isDrive && (
-        <div className="absolute bottom-0 right-0 bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded-tl-md font-bold">
-          DRIVE
-        </div>
-      )}
-    </a>
-  )
-})}
+                          {currentItem.photos.map((url: string, i: number) => {
+                            const thumbUrl = getImageUrl(url)
+                            const isDrive = url.includes('drive.google.com')
+                            return (
+                              <a
+                                key={i}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative aspect-square rounded-lg overflow-hidden border bg-gray-100 hover:ring-2 ring-indigo-500 transition-all group"
+                              >
+                                <img
+                                  src={thumbUrl}
+                                  className="w-full h-full object-cover"
+                                  alt={`Evidencia ${i + 1}`}
+                                  referrerPolicy="no-referrer"  // 👈 ¡ESTA ES LA CLAVE!
+                                  onError={(e: any) => {
+                                    // Si falla la miniatura, intentamos con el enlace directo de visualización
+                                    if (e.target.src.includes('thumbnail')) {
+                                      const id = url.match(/[\w-]{25,}/)?.[0];
+                                      if (id) e.target.src = `https://drive.google.com/uc?export=view&id=${id}`;
+                                    } else {
+                                      e.target.onerror = null;
+                                      e.target.src = 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Vista+Previa';
+                                    }
+                                  }}
+                                />
+                                {isDrive && (
+                                  <div className="absolute bottom-0 right-0 bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded-tl-md font-bold">
+                                    DRIVE
+                                  </div>
+                                )}
+                              </a>
+                            )
+                          })}
                         </div>
                       ) : (
                         <div className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-lg text-center border border-dashed border-gray-200">
@@ -325,11 +327,11 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
                     {/* Panel de Acción */}
                     <div className="bg-indigo-50 p-5 rounded-xl border border-indigo-100 shadow-sm sticky bottom-0">
                       <h3 className="font-bold text-indigo-900 mb-3 text-sm uppercase tracking-wide">👮‍♂️ Decisión Gerencial</h3>
-                      
+
                       <div className="space-y-3">
                         <div>
                           <label className="block text-xs font-bold text-indigo-800 mb-1">Estado</label>
-                          <select 
+                          <select
                             value={reviewStatus}
                             onChange={(e) => setReviewStatus(e.target.value)}
                             className="w-full p-2 border border-indigo-200 rounded-lg font-bold text-sm bg-white text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -373,8 +375,8 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
         </div>
 
         {/* Botón Cerrar Flotante */}
-        <button 
-          onClick={onClose} 
+        <button
+          onClick={onClose}
           className="absolute top-4 right-4 bg-white/90 p-2 rounded-full shadow-lg text-gray-500 hover:text-red-600 hover:bg-white hover:scale-110 transition-all z-50"
           title="Cerrar (Esc)"
         >

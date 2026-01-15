@@ -784,11 +784,17 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                 {isOpen && (
                     <motion.div
                         key="modal-overlay"
-                        className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] pb-32 text-left overflow-hidden"
+                        className="fixed inset-0 z-[9999] pb-32 text-left overflow-hidden bg-gray-50"
                         initial={{ opacity: 0, y: 50 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 50 }}
                     >
+                        {/* Background Pattern */}
+                        <div
+                            className="absolute inset-0 z-0 opacity-[0.3] invert pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
+                            aria-hidden="true"
+                        />
+
                         {/* CLOSE BUTTON (Floating Top Right) */}
                         <button
                             onClick={onClose}
