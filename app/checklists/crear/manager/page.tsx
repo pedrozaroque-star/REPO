@@ -9,6 +9,7 @@ import '@/app/checklists/checklists.css'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 interface Store {
   id: string
@@ -182,12 +183,12 @@ function ManagerChecklistContent() {
   }
 
   if (!user) return null
-  if (checklistLoading) return <div className="min-h-screen grid place-items-center bg-gray-50"><div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" /></div>
+  if (checklistLoading) return <SurpriseLoader />
   if (checklistError) return <div className="min-h-screen grid place-items-center text-red-600 font-bold">Error: {checklistError}</div>
 
   if (showThanks) {
     return (
-      <div className="min-h-screen bg-gray-50 grid place-items-center animate-in zoom-in duration-500">
+      <div className="min-h-screen bg-transparent grid place-items-center animate-in zoom-in duration-500">
         <div className="text-center p-8 bg-white rounded-3xl shadow-2xl border border-gray-100 max-w-sm mx-auto">
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-8xl mb-6">👔</motion.div>
           <h1 className="text-4xl font-black text-gray-900 mb-2">¡Todo Listo!</h1>
@@ -204,7 +205,7 @@ function ManagerChecklistContent() {
   const answeredCount = Object.keys(answers).length
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-32">
+    <div className="min-h-screen bg-transparent pb-32">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">

@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, FileText, Plus, Search, Edit } from 'lucide-react'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 interface Template {
     id: string
@@ -69,7 +70,7 @@ export default function TemplatesPage() {
             <main className="flex-1 flex flex-col h-full w-full relative">
                 {/* STICKY HEADER - Mobile & Desktop */}
                 <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0 transition-all top-[63px]">
-                    <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
+                    <div className="max-w-[1600px] mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
                         {/* Title Area */}
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
@@ -106,7 +107,7 @@ export default function TemplatesPage() {
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto h-full max-w-7xl mx-auto px-4 md:px-8 py-8 pb-24 w-full">
+                <div className="flex-1 overflow-y-auto h-full max-w-[1600px] mx-auto px-4 md:px-8 py-8 pb-24 w-full">
                     {/* Mobile Search - Visible only on small screens */}
                     <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 w-full max-w-[calc(100vw-2rem)] overflow-hidden">
                         <div className="relative group shadow-lg shadow-gray-200/50 rounded-full">
@@ -122,10 +123,7 @@ export default function TemplatesPage() {
                     </div>
 
                     {loading ? (
-                        <div className="text-center py-20 opacity-50 animate-pulse">
-                            <FileText size={48} className="mx-auto text-gray-300 mb-4" />
-                            <p className="text-gray-900 font-bold">Cargando plantillas...</p>
-                        </div>
+                        <SurpriseLoader />
                     ) : (
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             {filteredTemplates.map((template) => (

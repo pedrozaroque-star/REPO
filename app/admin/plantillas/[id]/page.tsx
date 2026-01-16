@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { motion, Reorder } from 'framer-motion'
 import { Trash2, Plus, GripVertical, Save, Edit2, Camera, Star, BarChart3, Type, Hash, CheckSquare, ArrowLeft, Sparkles, ClipboardList } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 // --- Types ---
 interface Question {
@@ -281,11 +282,11 @@ export default function TemplateEditorPage() {
         }))
     }
 
-    if (loading) return <div className="p-10 text-center animate-pulse">Cargando editor premium...</div>
+    if (loading) return <SurpriseLoader />
     if (!template) return <div className="p-10 text-center">No encontrado.</div>
 
     return (
-        <div className="min-h-screen bg-gray-50 pb-32">
+        <div className="min-h-screen bg-transparent pb-32">
             {/* Header */}
             <div className="sticky top-16 md:top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
                 <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">

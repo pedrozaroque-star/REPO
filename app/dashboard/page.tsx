@@ -22,6 +22,7 @@ import {
     Info,
     ShieldAlert
 } from 'lucide-react'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 export default function DashboardPage() {
     const router = useRouter()
@@ -254,7 +255,7 @@ export default function DashboardPage() {
         }
     }
 
-    if (loading) return <div className="flex h-screen items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
+    if (loading) return <SurpriseLoader />
 
     return (
         <div className="bg-[#F8FAFC] min-h-screen font-sans w-full pb-10">
