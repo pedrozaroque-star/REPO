@@ -19,7 +19,7 @@ interface QuestionProps {
     onChange: (val: any) => void
     onPhotosChange: (urls: string[]) => void
     comment?: string
-    onCommentChange: (val: string) => void
+    onCommentChange?: (val: string) => void
     checklistType?: string
 }
 
@@ -297,18 +297,20 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
 
                 </div>
                 {/* Comment Input */}
-                <div className="mt-3 relative">
-                    <input
-                        type="text"
-                        value={comment || ''}
-                        onChange={(e) => onCommentChange(e.target.value)}
-                        placeholder="Agregar comentario..."
-                        className="w-full pl-9 pr-3 py-2.5 bg-gray-50/50 hover:bg-gray-100 focus:bg-white rounded-xl text-xs font-medium text-gray-700 placeholder:text-gray-400 border border-transparent focus:border-blue-300 outline-none transition-all"
-                    />
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                        <MessageSquare size={14} />
+                {onCommentChange && (
+                    <div className="mt-3 relative">
+                        <input
+                            type="text"
+                            value={comment || ''}
+                            onChange={(e) => onCommentChange(e.target.value)}
+                            placeholder="Agregar comentario..."
+                            className="w-full pl-9 pr-3 py-2.5 bg-gray-50/50 hover:bg-gray-100 focus:bg-white rounded-xl text-xs font-medium text-gray-700 placeholder:text-gray-400 border border-transparent focus:border-blue-300 outline-none transition-all"
+                        />
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                            <MessageSquare size={14} />
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </motion.div>
     )
