@@ -56,6 +56,15 @@ export const formatDateLA = (dateString: any) => {
     const date = new Date(dateString);
     if (!isValidDate(date)) return 'Fecha Inválida';
 
+    // [FIX] Si viene solo YYYY-MM-DD, asumimos que YA ES la fecha correcta y evitamos conversión de zonas que reste un día
+    if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      const [y, m, d] = dateString.split('-');
+      // Creamos fecha local a mediodía para evitar cualquier borde de mes/día
+      const localDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d), 12, 0, 0);
+      const mName = new Intl.DateTimeFormat('es-MX', { month: 'short' }).format(localDate).replace('.', '').toLowerCase();
+      return `${d}-${mName}-${y.slice(2)}`;
+    }
+
     const fmt = (opts: any) => new Intl.DateTimeFormat('es-MX', { timeZone: TIMEZONE, ...opts }).format(date);
 
     const m = fmt({ month: 'short' }).replace('.', '').toLowerCase();
