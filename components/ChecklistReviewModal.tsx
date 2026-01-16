@@ -1255,6 +1255,26 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                     </div>
 
 
+                                                                    {/* Render Comment if exists */}
+                                                                    {(() => {
+                                                                        let comment = ''
+                                                                        // Try to find comment in structured items
+                                                                        if (checklist.answers?.[section.title]?.items) {
+                                                                            const item = checklist.answers[section.title].items[`i${qIdx}`] || checklist.answers[section.title].items[qIdx]
+                                                                            if (item?.comment) comment = item.comment
+                                                                        }
+
+                                                                        if (comment) {
+                                                                            return (
+                                                                                <div className="mt-2 p-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-medium text-gray-600 flex gap-2">
+                                                                                    <MessageSquare size={14} className="shrink-0 mt-0.5 text-gray-400" />
+                                                                                    <span className="italic">"{comment}"</span>
+                                                                                </div>
+                                                                            )
+                                                                        }
+                                                                        return null
+                                                                    })()}
+
                                                                     {qPhotos.length > 0 && (
                                                                         <div className="flex justify-center gap-3 overflow-x-auto pb-2 pt-1 border-t border-gray-50 mt-1">
                                                                             {qPhotos.map((url: string, idx: number) => {

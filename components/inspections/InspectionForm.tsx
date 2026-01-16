@@ -35,6 +35,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   })
 
   const [answers, setAnswers] = useState<{ [key: string]: any }>({})
+  const [questionComments, setQuestionComments] = useState<{ [key: string]: string }>({})
   const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
   const [startTime, setStartTime] = useState<string>('')
 
@@ -51,6 +52,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   useEffect(() => {
     if (initialData?.answers) {
       const initialAnswers: { [key: string]: any } = {}
+      const initialComments: { [key: string]: string } = {}
 
       // [FIX] Iterate by sections to match saving structure (Local Index)
       sections.forEach((section: any) => {
@@ -60,12 +62,14 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             const itm = initialData.answers[sectionTitle].items?.[`i${idx}`] || initialData.answers[sectionTitle].items?.[idx]
             if (itm !== undefined) {
               initialAnswers[q.id] = itm.score !== undefined ? itm.score : itm
+              if (itm.comment) initialComments[q.id] = itm.comment
             }
           })
         }
       })
 
       setAnswers(initialAnswers)
+      setQuestionComments(initialComments)
 
       // Load photos from __question_photos if available
       if (initialData.answers['__question_photos']) {
@@ -76,6 +80,10 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   const handleAnswer = (questionId: string, val: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: val }))
+  }
+
+  const handleCommentChange = (questionId: string, val: string) => {
+    setQuestionComments(prev => ({ ...prev, [questionId]: val }))
   }
 
   const handlePhotosChange = (questionId: string, urls: string[]) => {
@@ -118,7 +126,10 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     const missingAnswers = allQuestions.filter(q => {
       const val = answers[q.id]
       if (q.type === 'text') return !val || val.trim().length === 0
-      if (q.type === 'photo') return !questionPhotos[q.id] || questionPhotos[q.id].length === 0
+      // Enforce strict photo requirement from template
+      if (q.required_photo || q.type === 'photo') {
+        return !questionPhotos[q.id] || questionPhotos[q.id].length === 0
+      }
       return val === undefined || val === null
     })
 
@@ -139,7 +150,11 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
       sections.forEach((section: any) => {
         const itemsObj: any = {}
         section.questions.forEach((q: any, idx: number) => {
-          itemsObj[`i${idx}`] = { label: q.text, score: answers[q.id] }
+          itemsObj[`i${idx}`] = {
+            label: q.text,
+            score: answers[q.id],
+            comment: questionComments[q.id] || ''
+          }
         })
         richAnswers[section.title] = { score: sectionScores[section.title] || 0, items: itemsObj }
       })
@@ -366,6 +381,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                       photos={questionPhotos[question.id] || []}
                       onChange={(val) => handleAnswer(question.id, val)}
                       onPhotosChange={(urls) => handlePhotosChange(question.id, urls)}
+                      comment={questionComments[question.id] || ''}
+                      onCommentChange={(val) => handleCommentChange(question.id, val)}
                     />
                   ))}
                 </div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Video, Upload } from 'lucide-react'
+import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Video, Upload, MessageSquare } from 'lucide-react'
 import { uploadPhotos } from '@/lib/uploadPhotos'
 
 interface QuestionProps {
@@ -18,6 +18,8 @@ interface QuestionProps {
     photos: string[]
     onChange: (val: any) => void
     onPhotosChange: (urls: string[]) => void
+    comment?: string
+    onCommentChange: (val: string) => void
     checklistType?: string
 }
 
@@ -34,7 +36,7 @@ const isVideo = (url: string) => {
     return url.toLowerCase().match(/\.(mp4|mov|webm|ogg|quicktime)$/)
 }
 
-export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType }: QuestionProps) {
+export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType, comment, onCommentChange }: QuestionProps) {
     const [uploading, setUploading] = useState(false)
 
     // Separate refs for distinct Android intents
@@ -293,6 +295,19 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                     </button>
                     <input type="file" ref={galleryInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*,video/*" multiple />
 
+                </div>
+                {/* Comment Input */}
+                <div className="mt-3 relative">
+                    <input
+                        type="text"
+                        value={comment || ''}
+                        onChange={(e) => onCommentChange(e.target.value)}
+                        placeholder="Agregar comentario..."
+                        className="w-full pl-9 pr-3 py-2.5 bg-gray-50/50 hover:bg-gray-100 focus:bg-white rounded-xl text-xs font-medium text-gray-700 placeholder:text-gray-400 border border-transparent focus:border-blue-300 outline-none transition-all"
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                        <MessageSquare size={14} />
+                    </div>
                 </div>
             </div>
         </motion.div>
