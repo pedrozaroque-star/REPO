@@ -43,6 +43,7 @@ import {
     Image as ImageIcon
 } from 'lucide-react'
 import '@/app/checklists/checklists.css'
+import { ScoreGauge } from '@/components/checklists/ScoreGauge'
 
 interface ChecklistReviewModalProps {
     isOpen: boolean
@@ -87,60 +88,12 @@ const SECTION_SCORES_MAP: Record<string, string> = {
 }
 
 import { calculateInspectionScore, getNumericValue } from '@/lib/scoreCalculator'
+import { getTempValidation } from '@/lib/checklistValidators'
+import { AnswerDisplay } from '@/components/checklists/AnswerDisplay'
+import { ImageViewer } from '@/components/checklists/ImageViewer'
+import { getEmbeddableImageUrl } from '@/lib/imageUtils'
 
-// Animated Score Gauge Component
-function ScoreGauge({ score, size = 120 }: { score: number, size?: number }) {
-    const radius = (size - 16) / 2
-    const circumference = 2 * Math.PI * radius
-    const offset = circumference - (score / 100) * circumference
 
-    const getColor = () => {
-        if (score >= 80) return { stroke: '#10b981', bg: 'from-emerald-400 to-green-500', text: 'text-emerald-600' }
-        if (score >= 60) return { stroke: '#f59e0b', bg: 'from-amber-400 to-orange-500', text: 'text-amber-600' }
-        return { stroke: '#ef4444', bg: 'from-red-400 to-rose-500', text: 'text-red-600' }
-    }
-
-    const colors = getColor()
-
-    return (
-        <div className="relative" style={{ width: size, height: size }}>
-            <svg className="transform -rotate-90" width={size} height={size}>
-                <circle
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    fill="none"
-                    stroke="#e5e7eb"
-                    strokeWidth="8"
-                />
-                <motion.circle
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={radius}
-                    fill="none"
-                    stroke={colors.stroke}
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeDasharray={circumference}
-                    initial={{ strokeDashoffset: circumference }}
-                    animate={{ strokeDashoffset: offset }}
-                    transition={{ duration: 1, ease: "easeOut" }}
-                />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <motion.span
-                    className={`text-3xl font-black ${colors.text}`}
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ delay: 0.5, type: "spring" }}
-                >
-                    {score}%
-                </motion.span>
-                <span className="text-xs text-gray-400 font-medium">Score</span>
-            </div>
-        </div>
-    )
-}
 
 const isNew = (dateStr?: string) => {
     if (!dateStr) return false
@@ -172,31 +125,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
     const [currentImageIndex, setCurrentImageIndex] = useState(0)
     const [galleryImages, setGalleryImages] = useState<string[]>([])
 
-    // Helper for Drive Images
-    const getEmbeddableImageUrl = (url: string) => {
-        if (!url) return ''
-        if (url.includes('lh3.googleusercontent.com')) return url
 
-        try {
-            let id = ''
-            const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/)
-            if (idMatch) {
-                id = idMatch[1]
-            } else if (url.includes('/file/d/')) {
-                const parts = url.split('/file/d/')
-                if (parts.length > 1) {
-                    id = parts[1].split('/')[0]
-                }
-            }
-
-            if (id) {
-                return `https://lh3.googleusercontent.com/d/${id}`
-            }
-        } catch (e) {
-            console.error('Error parsing Drive URL:', e)
-        }
-        return url
-    }
 
     // Load Data Effect
     useEffect(() => {
@@ -206,17 +135,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         }
     }, [isOpen, checklist])
 
-    // Keyboard Navigation for Viewer
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (!viewerOpen) return
-            if (e.key === 'Escape') setViewerOpen(false)
-            if (e.key === 'ArrowRight') nextImage()
-            if (e.key === 'ArrowLeft') prevImage()
-        }
-        window.addEventListener('keydown', handleKeyDown)
-        return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [viewerOpen, currentImageIndex, galleryImages])
+
 
     // Scroll to bottom effect
     useEffect(() => {
@@ -318,6 +237,21 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         }
     }
 
+    // Image Viewer Functions
+    const openViewer = (index: number, images: string[]) => {
+        setGalleryImages(images)
+        setCurrentImageIndex(index)
+        setViewerOpen(true)
+    }
+
+    const nextImage = () => {
+        setCurrentImageIndex(prev => (prev + 1) % galleryImages.length)
+    }
+
+    const prevImage = () => {
+        setCurrentImageIndex(prev => (prev - 1 + galleryImages.length) % galleryImages.length)
+    }
+
     const type = checklist?.checklist_type || (checklist?.inspector_id ? 'supervisor' : 'daily')
     const theme = TYPE_THEMES[type] || TYPE_THEMES['daily']
     const ThemeIcon = theme.icon
@@ -378,165 +312,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
         window.print()
     }
 
-    const openViewer = (index: number, images: string[]) => {
-        setGalleryImages(images)
-        setCurrentImageIndex(index)
-        setViewerOpen(true)
-    }
 
-    const nextImage = () => {
-        setCurrentImageIndex(prev => (prev + 1) % galleryImages.length)
-    }
+    // -- HELPERS MOVED TO COMPONENTS/LIB --
 
-    const prevImage = () => {
-        setCurrentImageIndex(prev => (prev - 1 + galleryImages.length) % galleryImages.length)
-    }
 
-    // -- MOVE HELPERS HERE --
-    const getTempValidation = (questionText: string, value: number, sectionTitle?: string) => {
-        const textToCheck = `${questionText} ${sectionTitle || ''}`.toLowerCase()
-        const isRefrig = textToCheck.includes('refrig') || textToCheck.includes('frio')
-        const isValid = isRefrig ? (value >= 34 && value <= 41) : (value >= 165)
-        return { isValid, isRefrig }
-    }
-
-    const renderAnswerValue = (question: any, rawValue: any, sectionTitle?: string) => {
-        let value = rawValue
-        if (value && typeof value === 'object') {
-            if (value.value !== undefined) value = value.value
-            else if (value.score !== undefined) value = value.score
-            else if (value.response !== undefined) value = value.response
-        }
-        const displayValue = String(value ?? 'N/A')
-        const numValue = Number(value)
-        const isAnswered = value !== undefined && value !== '' && value !== null
-
-        // YES/NO TYPE (Blocky Buttons style)
-        if (question.type === 'yes_no' || displayValue.toUpperCase() === 'SI' || displayValue.toUpperCase() === 'NO' || displayValue.toUpperCase() === 'NA' || displayValue.toUpperCase() === 'N/A') {
-            const valUpper = displayValue.toUpperCase().replace('Í', 'I')
-            // Normalizing input to align with button keys
-            const target = valUpper === 'SI' ? 'SI' : valUpper === 'NO' ? 'NO' : 'NA'
-
-            return (
-                <div className="flex gap-2 min-w-[120px]">
-                    {['SI', 'NO', 'NA'].map(opt => {
-                        const isActive = target === opt
-                        let activeClass = ''
-                        if (isActive) {
-                            if (opt === 'SI') activeClass = 'bg-green-600 border-green-600 text-white shadow-green-200'
-                            else if (opt === 'NO') activeClass = 'bg-red-600 border-red-600 text-white shadow-red-200'
-                            else activeClass = 'bg-gray-600 border-gray-600 text-white'
-                        } else {
-                            // Inactive read-only state
-                            activeClass = 'bg-gray-100/80 border-gray-400 text-gray-700 font-bold'
-                        }
-                        return (
-                            <div key={opt} className={`flex-1 py-3 px-2 rounded-xl font-bold text-xs text-center transition-all border-2 ${activeClass}`}>
-                                {opt === 'SI' ? 'SÍ' : opt === 'NO' ? 'NO' : 'N/A'}
-                            </div>
-                        )
-                    })}
-                </div>
-            )
-        }
-
-        // RATING 5 (Stars)
-        if (question.type === 'rating_5') {
-            return (
-                <div className="flex items-center gap-1 bg-gray-50 rounded-2xl border border-gray-100 px-2 py-1">
-                    {[1, 2, 3, 4, 5].map(val => (
-                        <Star
-                            key={val}
-                            size={16}
-                            fill={numValue >= val ? '#facc15' : 'none'}
-                            className={numValue >= val ? 'text-yellow-400' : 'text-gray-200'}
-                            strokeWidth={3}
-                        />
-                    ))}
-                </div>
-            )
-        }
-
-        // NPS 10 (Circles)
-        if (question.type === 'nps_10') {
-            return (
-                <div className="flex items-center gap-1">
-                    <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm border
-                        ${numValue >= 9 ? 'bg-green-500 text-white border-green-600' :
-                                numValue >= 7 ? 'bg-yellow-500 text-white border-yellow-600' :
-                                    'bg-red-500 text-white border-red-600'}`}
-                    >
-                        {numValue}
-                    </div>
-                    <span className="text-[10px] font-bold text-gray-400">NPS</span>
-                </div>
-            )
-        }
-
-        // SCORE 100 (Cumple/Parcial/No) - used in Supervisor
-        if (type === 'supervisor' && (numValue === 100 || numValue === 60 || numValue === 0)) {
-            return (
-                <div className="flex gap-1 min-w-[150px]">
-                    {[
-                        { label: 'CUMPLE', val: 100, color: 'bg-green-500', bgOff: 'bg-green-50' },
-                        { label: 'PARCIAL', val: 60, color: 'bg-orange-500', bgOff: 'bg-orange-50' },
-                        { label: 'NO', val: 0, color: 'bg-red-500', bgOff: 'bg-red-50' }
-                    ].map(opt => {
-                        const isSelected = numValue === opt.val
-                        return (
-                            <div
-                                key={opt.val}
-                                className={`flex-1 py-2 px-1 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all text-xs font-bold border-2
-                                ${isSelected ? `${opt.color} text-white border-transparent shadow-sm` : 'bg-gray-100 text-gray-500 border-gray-300'}`}
-                            >
-                                {opt.label}
-                            </div>
-                        )
-                    })}
-                </div>
-            )
-        }
-
-        // TEMPERATURES
-        if (type === 'temperaturas' && !isNaN(numValue) && value !== null && value !== '') {
-            const { isValid } = getTempValidation(question.text, numValue, sectionTitle)
-            return (
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 font-bold text-sm ${isValid
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                    : 'bg-red-50 text-red-700 border-red-300'
-                    }`}>
-                    <span>{displayValue}°F</span>
-                    {isValid ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-                </div>
-            )
-        }
-
-        // SOBRANTES
-        if (type === 'sobrante' && !isNaN(numValue) && value !== null && value !== '') {
-            const isAlarm = numValue > 2
-            return (
-                <div className="relative">
-                    <div className={`w-full px-4 py-2 bg-gray-50 border-2 rounded-xl text-gray-900 font-black text-lg transition-all text-center
-                        ${isAlarm ? 'border-red-500 bg-red-50' : 'border-emerald-200'}`}>
-                        {displayValue} <span className="text-xs font-normal text-gray-500">Lbs</span>
-                    </div>
-                </div>
-            )
-        }
-
-        // TEXT / DEFAULT
-        if (displayValue && displayValue !== 'undefined' && displayValue !== 'null') {
-            return (
-                <div className="px-4 py-2 rounded-xl bg-gray-50 text-gray-700 font-medium text-sm border border-gray-200 max-w-[200px] truncate" title={displayValue}>
-                    {displayValue}
-                </div>
-            )
-        }
-
-        return <span className="text-gray-300 text-xs italic">Sin respuesta</span>
-    }
-    // -- END HELPERS --
 
     // Dynamic Score Calculation (especially for Sobrantes/Temperaturas with rules changing)
     const finalScore = useMemo(() => {
@@ -1249,7 +1028,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                             </h4>
                                                                             {/* Render Answer HERE for better mobile flow */}
                                                                             <div className="mt-4">
-                                                                                {renderAnswerValue(q, value, section.title)}
+                                                                                <AnswerDisplay question={q} value={value} type={type} sectionTitle={section.title} />
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -1604,80 +1383,14 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                 )}
             </AnimatePresence >
 
-            <AnimatePresence>
-                {viewerOpen && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center backdrop-blur-sm"
-                        onClick={() => setViewerOpen(false)}
-                    >
-                        {/* Close Button */}
-                        <button
-                            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition z-20"
-                            onClick={() => setViewerOpen(false)}
-                        >
-                            <X size={24} />
-                        </button>
-
-                        {/* Navigation Buttons */}
-                        {galleryImages.length > 1 && (
-                            <>
-                                <button
-                                    className="absolute left-4 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition z-20"
-                                    onClick={(e) => { e.stopPropagation(); prevImage() }}
-                                >
-                                    <ChevronLeft size={32} />
-                                </button>
-                                <button
-                                    className="absolute right-4 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition z-20"
-                                    onClick={(e) => { e.stopPropagation(); nextImage() }}
-                                >
-                                    <ChevronRight size={32} />
-                                </button>
-                            </>
-                        )}
-
-                        {/* Image Container */}
-                        <div className="relative w-full h-full max-w-7xl max-h-screen p-4 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                            {(() => {
-                                const currentUrl = getEmbeddableImageUrl(galleryImages[currentImageIndex])
-                                const isVideo = currentUrl?.toLowerCase().match(/\.(mp4|webm|ogg|mov)$/)
-
-                                return isVideo ? (
-                                    <motion.video
-                                        key={`vid-${currentImageIndex}`}
-                                        initial={{ opacity: 0, scale: 0.9 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                        src={currentUrl}
-                                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl bg-black"
-                                        controls
-                                        autoPlay
-                                        playsInline
-                                    />
-                                ) : (
-                                    <motion.img
-                                        key={currentImageIndex}
-                                        initial={{ opacity: 0, scale: 0.9 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                        src={currentUrl}
-                                        alt="Evidence Fullscreen"
-                                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-                                    />
-                                )
-                            })()}
-
-                            {/* Counter */}
-                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/50 backdrop-blur rounded-full text-white text-sm font-medium">
-                                {currentImageIndex + 1} / {galleryImages.length}
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            <ImageViewer
+                isOpen={viewerOpen}
+                onClose={() => setViewerOpen(false)}
+                images={galleryImages}
+                currentIndex={currentImageIndex}
+                onNext={nextImage}
+                onPrev={prevImage}
+            />
             <style jsx global>{`
                 @media print {
                     body * {
@@ -1730,6 +1443,16 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                     }
                 }
             `}</style>
+
+            {/* Image Viewer */}
+            <ImageViewer
+                isOpen={viewerOpen}
+                onClose={() => setViewerOpen(false)}
+                images={galleryImages}
+                currentIndex={currentImageIndex}
+                onNext={nextImage}
+                onPrev={prevImage}
+            />
         </>
     )
 }

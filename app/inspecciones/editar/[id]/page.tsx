@@ -7,6 +7,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import InspectionForm from '@/components/inspections/InspectionForm'
 import { supabase } from '@/lib/supabase'
 import { canEditChecklist } from '@/lib/checklistPermissions'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 function EditarInspeccionContent() {
   const { id } = useParams()
@@ -61,7 +62,7 @@ function EditarInspeccionContent() {
     }
   }
 
-  if (loading) return <div className="flex h-screen items-center justify-center">Cargando...</div>
+  if (loading) return <SurpriseLoader />
 
   if (error) return (
     <div className="flex h-screen items-center justify-center flex-col">

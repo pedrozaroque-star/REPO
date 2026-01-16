@@ -7,18 +7,16 @@ export default function SurpriseLoader() {
 
     // Sequence: 
     // 0: Logo (Tacos Gavilan)
-    // 1: Tacos (Cooking...)
-    // 2: Ya Esta (Ready!)
+    // 1: Ya Esta (Ready!)
     const images = [
         { src: '/logo.png', alt: 'Tacos Gavilan', width: 150 },
-        { src: '/tacos.png', alt: 'Preparando Tacos...', width: 180 },
-        { src: '/ya esta.png', alt: '¡Ya Casi!', width: 160 }
+        { src: '/ya%20esta.png', alt: '¡Ya Casi!', width: 160 }
     ]
 
     useEffect(() => {
         const timer = setInterval(() => {
             setStage((prev) => (prev + 1) % images.length)
-        }, 800) // Change image every 800ms
+        }, 600) // Change image every 600ms
         return () => clearInterval(timer)
     }, [])
 
@@ -55,18 +53,7 @@ export default function SurpriseLoader() {
                 </div>
             </div>
 
-            <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-800 animate-pulse">
-                    {stage === 0 && 'Cargando Sistema...'}
-                    {stage === 1 && 'Preparando Ingredientes...'}
-                    {stage === 2 && '¡Ya casi está listo!'}
-                </h2>
-                <div className="flex justify-center space-x-2 mt-4">
-                    <div className={`w-3 h-3 rounded-full transition-colors duration-300 ${stage === 0 ? 'bg-red-600 scale-125' : 'bg-gray-300'}`}></div>
-                    <div className={`w-3 h-3 rounded-full transition-colors duration-300 ${stage === 1 ? 'bg-yellow-500 scale-125' : 'bg-gray-300'}`}></div>
-                    <div className={`w-3 h-3 rounded-full transition-colors duration-300 ${stage === 2 ? 'bg-green-600 scale-125' : 'bg-gray-300'}`}></div>
-                </div>
-            </div>
+
 
             <style>{`
                 @keyframes spin {

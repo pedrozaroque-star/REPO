@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
 import { Menu, X, LogOut, ChevronDown, User, QrCode } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -95,6 +95,7 @@ export default function TopNav() {
 
     // Aplanamos la lista para el menú móvil
     const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
+    const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     // Aplanamos la lista para el menú móvil
     const allLinks = filteredGroups.flatMap(g => g.items)
@@ -111,7 +112,7 @@ export default function TopNav() {
     }, [openDropdownId])
 
     return (
-        <nav className="sticky top-0 z-50 w-full border-b border-gray-200/50 bg-white/80 backdrop-blur-xl transition-all">
+        <nav className="sticky top-0 z-[60] w-full border-b border-gray-200/50 bg-white/80 backdrop-blur-xl transition-all">
             <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
 
                 {/* Logo Section */}
@@ -132,7 +133,18 @@ export default function TopNav() {
                             // En este diseño "SaaS Cloud", a veces es mejor tener un solo nivel si son pocos.
                             // Como son 4 grupos, probemos renderizar un Dropdown por grupo.
                             <div key={group.id} className="relative group"
-                                onMouseEnter={() => setOpenDropdownId(group.id)}
+                                onMouseEnter={() => {
+                                    if (closeTimeoutRef.current) {
+                                        clearTimeout(closeTimeoutRef.current)
+                                        closeTimeoutRef.current = null
+                                    }
+                                    setOpenDropdownId(group.id)
+                                }}
+                                onMouseLeave={() => {
+                                    closeTimeoutRef.current = setTimeout(() => {
+                                        setOpenDropdownId(null)
+                                    }, 500)
+                                }}
                             >
                                 <button
                                     onClick={(e) => {
@@ -147,7 +159,7 @@ export default function TopNav() {
                                 </button>
 
                                 {/* Dropdown Menu */}
-                                <div className={`absolute left-0 top-full mt-1 w-56 origin-top-left rounded-xl border border-gray-100 bg-white p-2 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in slide-in-from-top-2 duration-200 ${openDropdownId === group.id ? 'block' : 'hidden md:group-hover:block'
+                                <div className={`absolute left-0 top-full mt-1 w-56 origin-top-left rounded-xl border border-gray-100 bg-white p-2 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in slide-in-from-top-2 duration-200 z-[100] ${openDropdownId === group.id ? 'block' : 'hidden md:group-hover:block'
                                     }`}>
                                     <div className="mb-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
                                         {group.title}

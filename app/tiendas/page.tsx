@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Store, MapPin, Search, Plus, X, Save, Trash2, Edit } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 export default function TiendasPage() {
   const [stores, setStores] = useState<any[]>([])
@@ -147,14 +148,7 @@ export default function TiendasPage() {
   )
 
   if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-transparent">
-        <div className="text-center animate-pulse">
-          <Store size={48} className="mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-400 font-medium">Cargando sucursales...</p>
-        </div>
-      </div>
-    )
+    return <SurpriseLoader />
   }
 
   return (

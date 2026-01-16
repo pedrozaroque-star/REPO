@@ -12,6 +12,7 @@ import {
     ChevronLeft, ChevronRight, ShieldCheck, AlertTriangle, AlertCircle,
     Briefcase, Activity, ShieldAlert
 } from 'lucide-react'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 // --- CONFIGURACIÓN DE DATOS ---
 const PRESETS = [
@@ -1805,7 +1806,7 @@ function ScheduleManager() {
 export default function HorariosPage() {
     return (
         <ProtectedRoute>
-            <Suspense fallback={<div className="p-10 text-center">Cargando Horarios...</div>}>
+            <Suspense fallback={<SurpriseLoader />}>
                 <ScheduleManager />
             </Suspense>
         </ProtectedRoute>

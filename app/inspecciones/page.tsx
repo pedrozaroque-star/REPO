@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { getEmbeddableImageUrl } from '@/lib/imageUtils'
+import SurpriseLoader from '@/components/SurpriseLoader'
 import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
 import { MessageCircleMore, Edit } from 'lucide-react'
 
@@ -186,7 +188,7 @@ function InspeccionesContent() {
   }
 
   // --- RENDER ---
-  if (loading) return <div className="flex h-screen items-center justify-center">Cargando inspecciones...</div>
+  if (loading) return <SurpriseLoader />
 
   return (
     <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
@@ -401,9 +403,23 @@ function InspeccionesContent() {
                           </td>
                           <td className="p-4 text-center">
                             {(item.photos && item.photos.length > 0) ? (
-                              <span className="inline-flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-full text-lg font-bold hover:bg-blue-100 transition-colors" title={`${item.photos.length} fotos`}>
-                                📷
-                              </span>
+                              <div className="flex items-center justify-center gap-1">
+                                {item.photos.slice(0, 3).map((url: string, idx: number) => (
+                                  <img
+                                    key={idx}
+                                    src={getEmbeddableImageUrl(url)}
+                                    alt={`Evidence ${idx + 1}`}
+                                    className="w-10 h-10 object-cover rounded-lg border border-gray-200 hover:scale-110 transition-transform shadow-sm"
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                  />
+                                ))}
+                                {item.photos.length > 3 && (
+                                  <span className="w-10 h-10 rounded-lg bg-gray-100 text-gray-500 text-xs font-bold flex items-center justify-center border border-gray-200">
+                                    +{item.photos.length - 3}
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-gray-300 text-xs font-medium">-</span>
                             )}
@@ -461,9 +477,22 @@ function InspeccionesContent() {
                   </div>
 
                   {item.photos && item.photos.length > 0 && (
-                    <div className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-full">
-                      <span className="text-sm">📷</span>
-                      <span>{item.photos.length}</span>
+                    <div className="flex items-center gap-1">
+                      {item.photos.slice(0, 2).map((url: string, idx: number) => (
+                        <img
+                          key={idx}
+                          src={getEmbeddableImageUrl(url)}
+                          alt={`Evidence ${idx + 1}`}
+                          className="w-8 h-8 object-cover rounded-md border border-gray-200 shadow-sm"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      ))}
+                      {item.photos.length > 2 && (
+                        <span className="w-8 h-8 rounded-md bg-blue-50 text-blue-600 text-[10px] font-bold flex items-center justify-center border border-blue-100">
+                          +{item.photos.length - 2}
+                        </span>
+                      )}
                     </div>
                   )}
 

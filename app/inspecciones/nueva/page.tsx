@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import InspectionForm from '@/components/inspections/InspectionForm'
 import { supabase } from '@/lib/supabase'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 function NuevaInspeccionContent() {
   const { user } = useAuth()
@@ -20,7 +21,7 @@ function NuevaInspeccionContent() {
     fetchStores()
   }, [])
 
-  if (loading) return <div className="flex h-screen items-center justify-center">Cargando...</div>
+  if (loading) return <SurpriseLoader />
 
   return (
     <div className="flex min-h-screen">

@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { MessageSquare, Plus, Filter } from 'lucide-react'
+import { Star, MessageSquare, ThumbsUp, ThumbsDown, Filter, Calendar, Search, MapPin, TrendingUp, TrendingDown, Minus, Plus } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 function FeedbackContent() {
   const router = useRouter()
@@ -185,7 +186,7 @@ function FeedbackContent() {
   }
 
   // -- RENDER --
-  if (loading) return <div className="flex h-screen items-center justify-center">Cargando feedback...</div>
+  if (loading) return <SurpriseLoader />
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (

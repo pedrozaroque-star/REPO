@@ -143,7 +143,13 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     try {
       const supabase = await getSupabaseClient()
       const { sectionScores, overall } = calculateScores()
-      const allPhotos = [...(initialData?.photos || []), ...Object.values(questionPhotos).flat()]
+
+      // FIX: Use Set to prevent duplicate photos
+      const allPhotosSet = new Set([
+        ...(initialData?.photos || []),
+        ...Object.values(questionPhotos).flat()
+      ])
+      const allPhotos = Array.from(allPhotosSet).filter(url => url && typeof url === 'string')
 
       // Map answers back to rich structure for compatibility
       const richAnswers: any = {}
