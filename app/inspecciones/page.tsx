@@ -130,7 +130,13 @@ function InspeccionesContent() {
 
       // 4. Filtrar por estado si aplica
       const finalData = statusFilter !== 'all'
-        ? mappedData.filter(item => (item.estatus_admin || 'pendiente') === statusFilter)
+        ? mappedData.filter(item => {
+          const s = (item.estatus_admin || 'pendiente').toLowerCase().trim()
+          if (statusFilter === 'aprobado') {
+            return s === 'aprobado' || s === 'cerrado'
+          }
+          return s === statusFilter
+        })
         : mappedData
 
       setInspections(finalData)
