@@ -5,6 +5,11 @@
     --foreground: #171717;
 }
 
+.dark {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+}
+
 @theme inline {
     --color-background: var(--background);
     --color-foreground: var(--foreground);
@@ -12,10 +17,13 @@
     --font-mono: var(--font-geist-mono);
 }
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 body {
-    background-color: #e2e8f0 !important;
-    color: #171717 !important;
+    background-color: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans), system-ui, sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Utilities to hide scrollbars while keeping functionality */

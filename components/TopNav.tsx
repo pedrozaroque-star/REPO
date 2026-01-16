@@ -162,7 +162,7 @@ export default function TopNav() {
                                 {/* Dropdown Menu */}
                                 <div className={`absolute left-0 top-full mt-1 w-56 origin-top-left rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in slide-in-from-top-2 duration-200 z-[100] ${openDropdownId === group.id ? 'block' : 'hidden md:group-hover:block'
                                     }`}>
-                                    <div className="mb-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">
+                                    <div className="mb-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">
                                         {group.title}
                                     </div>
                                     {group.items.map((item) => {
@@ -247,7 +247,7 @@ export default function TopNav() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="md:hidden border-t border-gray-100 bg-white"
+                            className="md:hidden border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900"
                         >
                             <div className="space-y-1 p-4">
                                 {filteredGroups.map(group => (
@@ -261,8 +261,8 @@ export default function TopNav() {
                                                 href={item.path}
                                                 onClick={() => setMobileMenuOpen(false)}
                                                 className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm ${pathname === item.path
-                                                    ? 'bg-red-50 text-red-700 font-medium'
-                                                    : 'text-gray-600 hover:bg-gray-50 text-gray-900'
+                                                    ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 font-medium'
+                                                    : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-white'
                                                     }`}
                                             >
                                                 <span className="text-lg">{item.icon}</span>

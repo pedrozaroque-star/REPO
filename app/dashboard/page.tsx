@@ -277,7 +277,7 @@ export default function DashboardPage() {
                                     En Vivo
                                 </span>
                             </h1>
-                            <p className="hidden md:block text-sm font-bold text-slate-400 uppercase tracking-widest mt-1.5">Análisis Operativo en Tiempo Real</p>
+                            <p className="hidden md:block text-sm font-bold text-slate-400 dark:text-slate-300 uppercase tracking-widest mt-1.5">Análisis Operativo en Tiempo Real</p>
                         </div>
                     </div>
 
@@ -305,7 +305,7 @@ export default function DashboardPage() {
 
                     {/* Eficiencia Promedio - Hidden on mobile */}
                     <div className="hidden md:flex flex-col items-end">
-                        <span className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Eficiencia Promedio</span>
+                        <span className="text-[11px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-wider">Eficiencia Promedio</span>
                         <span className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                             <Timer size={18} className="text-indigo-600 dark:text-indigo-400" /> {stats.avgDuration}
                         </span>
@@ -344,7 +344,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex justify-between items-start">
                             <div>
-                                <p className="text-slate-400 text-xs font-black uppercase tracking-widest">Score Global</p>
+                                <p className="text-slate-400 dark:text-slate-300 text-xs font-black uppercase tracking-widest">Score Global</p>
                                 <h2 className="text-7xl font-black tracking-tighter mt-1">{stats.avgInspectionScore}<span className="text-3xl text-slate-500">%</span></h2>
                             </div>
                             <div className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide shadow-lg ${stats.avgInspectionScore >= 85 ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>
@@ -353,11 +353,11 @@ export default function DashboardPage() {
                         </div>
                         <div className="mt-6 pt-6 border-t border-slate-800 flex justify-between items-end">
                             <div>
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-wide">NPS Clientes</p>
+                                <p className="text-slate-400 dark:text-slate-300 text-xs font-bold uppercase tracking-wide">NPS Clientes</p>
                                 <p className="text-3xl font-black">{stats.avgNPS}</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-wide">
+                                <p className="text-slate-400 dark:text-slate-300 text-xs font-bold uppercase tracking-wide">
                                     {timeFilter === 'today' ? 'Auditorías Hoy' :
                                         timeFilter === 'week' ? 'Auditorías Semana' :
                                             timeFilter === 'month' ? 'Auditorías Mes' :
@@ -374,13 +374,13 @@ export default function DashboardPage() {
                                 <BarChart3 size={24} className="text-indigo-500" />
                                 Desempeño por Categoría
                             </h3>
-                            <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Áreas de Enfoque</span>
+                            <span className="text-xs font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest">Áreas de Enfoque</span>
                         </div>
                         <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
                             {stats.sectionPerformance.map((cat, i) => (
                                 <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700 relative overflow-hidden flex flex-col justify-center">
                                     <div className="flex justify-between items-center relative z-10 mb-2">
-                                        <span className="text-xs font-black text-slate-500 uppercase tracking-wide">{cat.label}</span>
+                                        <span className="text-xs font-black text-slate-500 dark:text-slate-300 uppercase tracking-wide">{cat.label}</span>
                                         <span className={`text-xl font-black ${cat.score >= 85 ? 'text-green-600 dark:text-green-400' : cat.score >= 75 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-500 dark:text-red-400'}`}>
                                             {cat.score}%
                                         </span>
@@ -409,7 +409,7 @@ export default function DashboardPage() {
                                         <span className="font-bold text-slate-700 dark:text-slate-200 text-base">{sup.name}</span>
                                     </div>
                                     <div className="flex items-center gap-4">
-                                        <span className="text-slate-400 dark:text-slate-500 font-bold uppercase text-[10px] tracking-widest">{sup.count} INSP</span>
+                                        <span className="text-slate-400 dark:text-slate-300 font-bold uppercase text-[10px] tracking-widest">{sup.count} INSP</span>
                                         <span className="font-black text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg text-sm shadow-sm group-hover:bg-indigo-50 dark:group-hover:bg-slate-700 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{sup.avgScore}%</span>
                                     </div>
                                 </div>
@@ -440,7 +440,7 @@ export default function DashboardPage() {
                                         <div className="flex-1">
                                             <div className="flex justify-between items-start mb-1">
                                                 <h4 className="font-black text-indigo-900 dark:text-indigo-100 text-sm tracking-tight">{item.store}</h4>
-                                                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-black uppercase tracking-widest">{item.date}</span>
+                                                <span className="text-[11px] text-slate-400 dark:text-slate-300 font-black uppercase tracking-widest">{item.date}</span>
                                             </div>
                                             <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
                                                 "{item.comment || 'Sin comentario'}"

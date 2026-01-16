@@ -28,7 +28,7 @@ export default function ClientLayout({
 
     // Si es página privada, renderizar con TopNav (Option A: SaaS Style)
     return (
-        <div className="min-h-screen bg-slate-200 dark:bg-neutral-950 relative transition-colors duration-300">
+        <div className="min-h-screen bg-transparent relative transition-colors duration-300">
             {/* Fondo decorativo global: Cubos (Invertido: Oscuros sobre Claro en light, y Viceversa en dark) */}
             <div
                 className="fixed inset-0 z-0 opacity-[0.2] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"

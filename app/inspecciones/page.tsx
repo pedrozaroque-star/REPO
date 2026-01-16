@@ -195,7 +195,7 @@ function InspeccionesContent() {
       <div className="flex-1 flex flex-col h-full w-full relative">
 
         {/* 1. STICKY HEADER (Matches Reportes Design) */}
-        <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shadow-sm shrink-0">
+        <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shadow-sm shrink-0">
           <div className="w-full md:w-auto">
             <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white leading-none">Inspecciones de Supervisor</h1>
             <p className="text-xs font-bold text-gray-400 dark:text-gray-500 mt-1 uppercase tracking-wide">Auditoría y control de calidad</p>
@@ -305,7 +305,7 @@ function InspeccionesContent() {
           <div className="hidden lg:flex bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 flex-col overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse relative">
-                <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800 text-base uppercase text-gray-500 dark:text-slate-400 font-bold tracking-wide">
+                <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800 text-base uppercase text-gray-500 dark:text-slate-300 font-bold tracking-wide">
                   <tr>
                     <th className="p-4 pl-6">Tienda</th>
                     <th className="p-4">Supervisor</th>
@@ -367,25 +367,25 @@ function InspeccionesContent() {
                         <tr
                           key={item.id}
                           onClick={() => handleRowClick(item)}
-                          className="hover:bg-blue-50/50 cursor-pointer transition-colors group border-b border-gray-50/50"
+                          className="hover:bg-blue-50/50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group border-b border-gray-50/50 dark:border-slate-800/50"
                         >
-                          <td className="p-4 pl-6 font-black text-gray-900 text-lg">{item.store_name}</td>
-                          <td className="p-4 text-gray-600 text-base font-semibold">{item.supervisor_name}</td>
-                          <td className="p-4 text-center text-gray-500 text-base font-semibold">{formatDateLA(item.checklist_date)}</td>
+                          <td className="p-4 pl-6 font-black text-gray-900 dark:text-white text-lg">{item.store_name}</td>
+                          <td className="p-4 text-gray-600 dark:text-slate-200 text-base font-semibold">{item.supervisor_name}</td>
+                          <td className="p-4 text-center text-gray-500 dark:text-slate-400 text-base font-semibold">{formatDateLA(item.checklist_date)}</td>
                           <td className="p-4 text-center">
                             {displayShift ? (
-                              <span className={`px-2.5 py-1 rounded text-base font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                              <span className={`px-2.5 py-1 rounded text-base font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'}`}>
                                 {displayShift}
                               </span>
                             ) : (
-                              <span className="text-gray-300 font-bold text-base">-</span>
+                              <span className="text-gray-300 dark:text-slate-600 font-bold text-base">-</span>
                             )}
                           </td>
                           <td className="p-4 text-center">
-                            <span className="text-sm font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
+                            <span className="text-sm font-bold text-gray-500 dark:text-slate-300 bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded-full">{duration}</span>
                           </td>
                           <td className="p-4 text-center">
-                            <span className={`text-xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
+                            <span className={`text-xl font-black ${item.overall_score >= 87 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
                               {item.overall_score}%
                             </span>
                           </td>
@@ -395,7 +395,7 @@ function InspeccionesContent() {
                                 {getStatusLabel(item.estatus_admin || 'pendiente')}
                               </span>
                               {item.has_comments && (
-                                <div className="p-1 text-blue-600 bg-blue-50 rounded-full border border-blue-100" title="Hay comentarios">
+                                <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-100 dark:border-blue-900/30" title="Hay comentarios">
                                   <MessageCircleMore size={16} strokeWidth={2.5} />
                                 </div>
                               )}
@@ -428,7 +428,7 @@ function InspeccionesContent() {
                           <td className="p-4 text-center">
                             <button
                               onClick={(e) => handleEdit(item, e)}
-                              className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              className="p-2 text-gray-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
                               title="Editar Inspección"
                             >
                               <Edit size={18} />
@@ -449,29 +449,29 @@ function InspeccionesContent() {
               <div
                 key={item.id}
                 onClick={() => handleRowClick(item)}
-                className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200 active:scale-[0.98] transition-transform"
+                className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-gray-200 dark:border-slate-800 active:scale-[0.98] transition-transform"
               >
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex flex-col">
-                    <h3 className="text-lg font-black text-gray-900 leading-tight">{item.store_name}</h3>
-                    <span className="text-sm font-bold text-gray-500 mt-1">{formatDateLA(item.checklist_date)}</span>
+                    <h3 className="text-lg font-black text-gray-900 dark:text-white leading-tight">{item.store_name}</h3>
+                    <span className="text-sm font-bold text-gray-500 dark:text-slate-400 mt-1">{formatDateLA(item.checklist_date)}</span>
                   </div>
-                  <span className={`text-2xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
+                  <span className={`text-2xl font-black ${item.overall_score >= 87 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
                     {item.overall_score}%
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50">
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50 dark:border-slate-800">
                   <div className="flex items-center gap-2">
                     <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
                       {getStatusLabel(item.estatus_admin || 'pendiente')}
                     </span>
                     {item.has_comments && (
-                      <div className="p-1 text-blue-600 bg-blue-50 rounded-full border border-blue-100">
+                      <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-100 dark:border-blue-900/30">
                         <MessageCircleMore size={18} strokeWidth={3} />
                       </div>
                     )}
-                    <span className={`px-2.5 py-0.5 rounded text-xs font-bold ${item.shift === 'AM' ? 'bg-yellow-50 text-yellow-700' : 'bg-blue-50 text-blue-700'}`}>
+                    <span className={`px-2.5 py-0.5 rounded text-xs font-bold ${item.shift === 'AM' ? 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'}`}>
                       {item.shift}
                     </span>
                   </div>

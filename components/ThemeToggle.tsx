@@ -5,16 +5,21 @@ import { Sun, Moon } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 export default function ThemeToggle() {
+    // Iniciamos siempre en falso (modo claro) por defecto
     const [isDark, setIsDark] = useState(false)
 
     useEffect(() => {
-        // Al montar, revisar si ya existe una preferencia o si el sistema prefiere oscuro
+        // Al montar, revisar si ya existe una preferencia guardada
         const savedTheme = localStorage.getItem('teg-theme')
-        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
-        if (savedTheme === 'dark' || (!savedTheme && systemPrefersDark)) {
+        // Si hay una preferencia guardada como 'dark', aplicarla.
+        // Si no hay nada, por defecto se queda en claro (false).
+        if (savedTheme === 'dark') {
             setIsDark(true)
             document.documentElement.classList.add('dark')
+        } else {
+            setIsDark(false)
+            document.documentElement.classList.remove('dark')
         }
     }, [])
 
