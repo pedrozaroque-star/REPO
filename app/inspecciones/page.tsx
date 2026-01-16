@@ -197,8 +197,8 @@ function InspeccionesContent() {
         {/* 1. STICKY HEADER (Matches Reportes Design) */}
         <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shadow-sm shrink-0">
           <div className="w-full md:w-auto">
-            <h1 className="text-xl md:text-2xl font-black text-gray-900 leading-none">Inspecciones de Supervisor</h1>
-            <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wide">Auditoría y control de calidad</p>
+            <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white leading-none">Inspecciones de Supervisor</h1>
+            <p className="text-xs font-bold text-gray-400 dark:text-gray-500 mt-1 uppercase tracking-wide">Auditoría y control de calidad</p>
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto">
@@ -207,7 +207,7 @@ function InspeccionesContent() {
 
             <button
               onClick={() => router.push('/inspecciones/nueva')}
-              className="bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 w-full md:w-auto text-sm"
+              className="bg-gray-900 dark:bg-red-600 hover:bg-black dark:hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 w-full md:w-auto text-sm"
             >
               <span>+</span> Nueva Inspección
             </button>
@@ -219,27 +219,27 @@ function InspeccionesContent() {
 
           {/* STATS CARDS */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl shadow-sm p-4 border border-indigo-100 border-l-4 border-l-indigo-500">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
-              <p className="text-2xl font-black text-gray-900 mt-0.5">{inspections.length}</p>
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-indigo-100 dark:border-slate-800 border-l-4 border-l-indigo-500">
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Total</p>
+              <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">{inspections.length}</p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm p-4 border border-green-100 border-l-4 border-l-green-500">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Promedio</p>
-              <p className="text-2xl font-black text-gray-900 mt-0.5">
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-green-100 dark:border-slate-800 border-l-4 border-l-green-500">
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Promedio</p>
+              <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.length > 0
                   ? Math.round(inspections.reduce((acc, curr) => acc + (curr.overall_score || 0), 0) / inspections.length) + '%'
                   : 'N/A'}
               </p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm p-4 border border-yellow-100 border-l-4 border-l-yellow-500">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Pendientes</p>
-              <p className="text-2xl font-black text-gray-900 mt-0.5">
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-yellow-100 dark:border-slate-800 border-l-4 border-l-yellow-500">
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Pendientes</p>
+              <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.filter(i => (i.estatus_admin || 'pendiente').toLowerCase().trim() === 'pendiente').length}
               </p>
             </div>
-            <div className="bg-white rounded-xl shadow-sm p-4 border border-blue-100 border-l-4 border-l-blue-500">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Aprobados</p>
-              <p className="text-2xl font-black text-gray-900 mt-0.5">
+            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-blue-100 dark:border-slate-800 border-l-4 border-l-blue-500">
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Aprobados</p>
+              <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.filter(i => {
                   const s = (i.estatus_admin || '').toLowerCase().trim()
                   return s === 'aprobado' || s === 'cerrado'
@@ -256,7 +256,7 @@ function InspeccionesContent() {
                 <select
                   value={supervisorFilter}
                   onChange={(e) => setSupervisorFilter(e.target.value)}
-                  className="appearance-none bg-white border border-gray-200 text-gray-700 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
+                  className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
                 >
                   <option value="all">🧑‍🏫 Todos los Supervisores</option>
                   {users
@@ -275,25 +275,25 @@ function InspeccionesContent() {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setStatusFilter('all')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'}`}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
               >
                 Todos
               </button>
               <button
                 onClick={() => setStatusFilter('pendiente')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-yellow-50 hover:text-yellow-600'}`}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/30 hover:text-yellow-600 dark:hover:text-yellow-400'}`}
               >
                 Pendientes
               </button>
               <button
                 onClick={() => setStatusFilter('aprobado')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-green-50 hover:text-green-600'}`}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-green-50 dark:hover:bg-green-900/30 hover:text-green-600 dark:hover:text-green-400'}`}
               >
                 Aprobados
               </button>
               <button
                 onClick={() => setStatusFilter('rechazado')}
-                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md transform scale-105' : 'bg-white text-gray-500 border border-gray-200 hover:bg-red-50 hover:text-red-600'}`}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400'}`}
               >
                 Rechazados
               </button>
@@ -302,10 +302,10 @@ function InspeccionesContent() {
 
 
           {/* DESKTOP TABLE VIEW (HIDDEN ON MOBILE) */}
-          <div className="hidden lg:flex bg-white rounded-xl shadow-sm border border-gray-200 flex-col overflow-hidden">
+          <div className="hidden lg:flex bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 flex-col overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse relative">
-                <thead className="bg-gray-50 border-b border-gray-200 text-base uppercase text-gray-500 font-bold tracking-wide">
+                <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800 text-base uppercase text-gray-500 dark:text-slate-400 font-bold tracking-wide">
                   <tr>
                     <th className="p-4 pl-6">Tienda</th>
                     <th className="p-4">Supervisor</th>
@@ -318,7 +318,7 @@ function InspeccionesContent() {
                     <th className="p-4 text-center">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="text-base divide-y divide-gray-100">
+                <tbody className="text-base divide-y divide-gray-100 dark:divide-slate-800">
                   {errorMsg ? (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-red-500 font-bold">

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
+import ThemeToggle from './ThemeToggle'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
 import { Menu, X, LogOut, ChevronDown, User, QrCode } from 'lucide-react'
@@ -112,7 +113,7 @@ export default function TopNav() {
     }, [openDropdownId])
 
     return (
-        <nav className="sticky top-0 z-[60] w-full border-b border-gray-200/50 bg-white/80 backdrop-blur-xl transition-all">
+        <nav className="sticky top-0 z-[60] w-full border-b border-gray-200/50 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl transition-all">
             <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-8">
 
                 {/* Logo Section */}
@@ -121,7 +122,7 @@ export default function TopNav() {
                         <div className="h-8 w-8 overflow-hidden rounded-lg bg-red-600 shadow-sm flex items-center justify-center">
                             <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
                         </div>
-                        <span className="text-xl font-bold tracking-tight text-gray-900">
+                        <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
                             TEG<span className="text-red-600">Admin</span>
                         </span>
                     </Link>
@@ -151,17 +152,17 @@ export default function TopNav() {
                                         e.preventDefault()
                                         setOpenDropdownId(openDropdownId === group.id ? null : group.id)
                                     }}
-                                    className={`flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${openDropdownId === group.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                                    className={`flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${openDropdownId === group.id ? 'bg-gray-100 dark:bg-slate-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-white'
                                         }`}
                                 >
                                     {group.title}
-                                    <ChevronDown size={14} className={`text-gray-400 transition-transform ${openDropdownId === group.id ? 'rotate-180 text-gray-600' : 'group-hover:text-gray-600 group-hover:rotate-180'}`} />
+                                    <ChevronDown size={14} className={`text-gray-400 transition-transform ${openDropdownId === group.id ? 'rotate-180 text-gray-600 dark:text-white' : 'group-hover:text-gray-600 dark:group-hover:text-white group-hover:rotate-180'}`} />
                                 </button>
 
                                 {/* Dropdown Menu */}
-                                <div className={`absolute left-0 top-full mt-1 w-56 origin-top-left rounded-xl border border-gray-100 bg-white p-2 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in slide-in-from-top-2 duration-200 z-[100] ${openDropdownId === group.id ? 'block' : 'hidden md:group-hover:block'
+                                <div className={`absolute left-0 top-full mt-1 w-56 origin-top-left rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in slide-in-from-top-2 duration-200 z-[100] ${openDropdownId === group.id ? 'block' : 'hidden md:group-hover:block'
                                     }`}>
-                                    <div className="mb-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                                    <div className="mb-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">
                                         {group.title}
                                     </div>
                                     {group.items.map((item) => {
@@ -172,8 +173,8 @@ export default function TopNav() {
                                                 href={item.path}
                                                 onClick={() => setOpenDropdownId(null)}
                                                 className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors ${isActive
-                                                    ? 'bg-red-50 text-red-700'
-                                                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                                    ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                                                    : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-white'
                                                     }`}
                                             >
                                                 <span className="text-lg">{item.icon}</span>
@@ -189,19 +190,20 @@ export default function TopNav() {
 
                 {/* Right Section: Notifications & Profile */}
                 <div className="flex items-center gap-3">
+                    <ThemeToggle />
                     <NotificationBell />
 
                     <div className="relative">
                         <button
                             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                            className="flex items-center gap-2 rounded-full border border-gray-200 bg-white p-1 pr-3 shadow-sm hover:shadow-md transition-all ml-2"
+                            className="flex items-center gap-2 rounded-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 pr-3 shadow-sm hover:shadow-md transition-all ml-2"
                         >
                             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-tr from-red-500 to-orange-500 text-white">
                                 <User size={16} />
                             </div>
                             <div className="hidden text-left text-xs sm:block">
-                                <p className="font-medium text-gray-700">{user?.name?.split(' ')[0] || 'Usuario'}</p>
-                                <p className="text-[10px] text-gray-500 capitalize">{user?.role || 'Staff'}</p>
+                                <p className="font-medium text-gray-700 dark:text-slate-200">{user?.name?.split(' ')[0] || 'Usuario'}</p>
+                                <p className="text-[10px] text-gray-500 dark:text-slate-400 capitalize">{user?.role || 'Staff'}</p>
                             </div>
                             <ChevronDown size={14} className={`text-gray-400 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
                         </button>
@@ -213,7 +215,7 @@ export default function TopNav() {
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
                                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    className="absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-gray-100 bg-white p-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none"
+                                    className="absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none"
                                 >
                                     <button
                                         onClick={handleLogout}
@@ -235,52 +237,54 @@ export default function TopNav() {
                         {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                     </button>
                 </div>
-            </div>
+            </div >
 
             {/* Mobile Menu Overlay */}
             <AnimatePresence>
-                {mobileMenuOpen && (
-                    <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="md:hidden border-t border-gray-100 bg-white"
-                    >
-                        <div className="space-y-1 p-4">
-                            {filteredGroups.map(group => (
-                                <div key={group.id} className="py-2">
-                                    <div className="px-2 py-1 text-xs font-semibold uppercase text-gray-400">
-                                        {group.title}
+                {
+                    mobileMenuOpen && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="md:hidden border-t border-gray-100 bg-white"
+                        >
+                            <div className="space-y-1 p-4">
+                                {filteredGroups.map(group => (
+                                    <div key={group.id} className="py-2">
+                                        <div className="px-2 py-1 text-xs font-semibold uppercase text-gray-400">
+                                            {group.title}
+                                        </div>
+                                        {group.items.map(item => (
+                                            <Link
+                                                key={item.path}
+                                                href={item.path}
+                                                onClick={() => setMobileMenuOpen(false)}
+                                                className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm ${pathname === item.path
+                                                    ? 'bg-red-50 text-red-700 font-medium'
+                                                    : 'text-gray-600 hover:bg-gray-50 text-gray-900'
+                                                    }`}
+                                            >
+                                                <span className="text-lg">{item.icon}</span>
+                                                {item.name}
+                                            </Link>
+                                        ))}
                                     </div>
-                                    {group.items.map(item => (
-                                        <Link
-                                            key={item.path}
-                                            href={item.path}
-                                            onClick={() => setMobileMenuOpen(false)}
-                                            className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm ${pathname === item.path
-                                                ? 'bg-red-50 text-red-700 font-medium'
-                                                : 'text-gray-600 hover:bg-gray-50 text-gray-900'
-                                                }`}
-                                        >
-                                            <span className="text-lg">{item.icon}</span>
-                                            {item.name}
-                                        </Link>
-                                    ))}
+                                ))}
+                                <div className="border-t border-gray-100 pt-2 mt-2">
+                                    <button
+                                        onClick={handleLogout}
+                                        className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-red-600 hover:bg-red-50"
+                                    >
+                                        <LogOut size={18} />
+                                        Cerrar Sesión
+                                    </button>
                                 </div>
-                            ))}
-                            <div className="border-t border-gray-100 pt-2 mt-2">
-                                <button
-                                    onClick={handleLogout}
-                                    className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-red-600 hover:bg-red-50"
-                                >
-                                    <LogOut size={18} />
-                                    Cerrar Sesión
-                                </button>
                             </div>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </nav>
+                        </motion.div>
+                    )
+                }
+            </AnimatePresence >
+        </nav >
     )
 }
