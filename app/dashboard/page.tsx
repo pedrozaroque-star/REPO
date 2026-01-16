@@ -234,6 +234,7 @@ export default function DashboardPage() {
                     : 0,
                 avgNPS,
                 recentActivity: validInspections.slice(0, 50).map((i: any) => ({
+                    id: i.id,
                     store: formatStoreName(i.stores?.name),
                     user: i.users?.full_name?.split(' ')[0],
                     date: i.inspection_date,
@@ -497,8 +498,14 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
                             {stats.recentActivity.map((act, i) => (
-                                <div key={i} className="flex gap-4 items-start relative pb-6 last:pb-0 group">
-                                    {i !== stats.recentActivity.length - 1 && <div className="absolute left-[13px] top-8 bottom-[-24px] w-[3px] bg-slate-100 rounded-full"></div>}
+                                <div
+                                    key={i}
+                                    onClick={() => router.push(`/inspecciones?openId=${act.id}`)}
+                                    // Modified classes: added px-2 pt-2 -mx-2 for hover effect, kept pb-6
+                                    className="flex gap-4 items-start relative px-2 pt-2 pb-6 last:pb-0 group cursor-pointer hover:bg-slate-50 -mx-2 rounded-xl transition-all"
+                                >
+                                    {/* Adjusted line position: left-[22px] (was 13) to center on icon which moved due to px-2. top-10 (was 8) due to pt-2. */}
+                                    {i !== stats.recentActivity.length - 1 && <div className="absolute left-[22px] top-10 bottom-[-24px] w-[3px] bg-slate-100 rounded-full"></div>}
 
                                     <div className={`shrink-0 w-7 h-7 rounded-full border-4 flex items-center justify-center bg-white z-10 shadow-sm transition-transform group-hover:scale-125 ${act.score >= 80 ? 'border-green-500 text-green-500' : 'border-red-500 text-red-500'}`}>
                                         <div className={`w-2.5 h-2.5 rounded-full ${act.score >= 80 ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
@@ -512,9 +519,12 @@ export default function DashboardPage() {
                                             Score: {act.score}%
                                         </span>
                                     </div>
-                                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-lg self-start">
-                                        {formatDateLA(act.date)}
-                                    </span>
+                                    <div className="flex flex-col items-end gap-1">
+                                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-lg self-start">
+                                            {formatDateLA(act.date)}
+                                        </span>
+                                        <span className="text-[10px] font-bold text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">Ver detalle →</span>
+                                    </div>
                                 </div>
                             ))}
                         </div>

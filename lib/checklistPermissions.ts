@@ -62,7 +62,7 @@ export const formatDateLA = (dateString: any) => {
     const d = fmt({ day: '2-digit' });
     const y = fmt({ year: '2-digit' });
 
-    return `${m}-${d}-${y}`;
+    return `${d}-${m}-${y}`;
   } catch (e) {
     return 'Error Fecha';
   }

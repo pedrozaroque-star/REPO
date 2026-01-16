@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
@@ -11,6 +11,8 @@ import { MessageCircleMore, Edit } from 'lucide-react'
 
 function InspeccionesContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const openId = searchParams.get('openId')
   const { user } = useAuth()
   const [inspections, setInspections] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,6 +27,16 @@ function InspeccionesContent() {
   const [isModalOpen, setIsModalOpen] = useState(false)
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Auto-open modal if query param exists
+  useEffect(() => {
+    if (openId && inspections.length > 0 && !isModalOpen) {
+      const target = inspections.find(i => i.id.toString() === openId)
+      if (target) {
+        handleRowClick(target)
+      }
+    }
+  }, [openId, inspections])
 
   useEffect(() => {
     if (user) fetchData()

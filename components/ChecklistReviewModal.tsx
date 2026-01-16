@@ -1368,7 +1368,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                     const isMe = String(comment.user_id) === String(currentUser.id)
                                     return (
                                         <div key={`chat-${idx}`} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-1`}>
-                                            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs shadow-sm ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}`}>
+                                            <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs shadow-sm ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-slate-800 text-white border border-slate-700 rounded-bl-none'}`}>
                                                 {comment.content}
                                             </div>
                                             <span className="text-[9px] text-gray-400 mt-1 px-1">{isMe ? 'Tú' : comment.user_name} • {formatDateLA(comment.created_at).split(',')[1]}</span>
