@@ -305,7 +305,7 @@ function InspeccionesContent() {
           <div className="hidden lg:flex bg-white rounded-xl shadow-sm border border-gray-200 flex-col overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse relative">
-                <thead className="bg-gray-50 border-b border-gray-200 text-sm uppercase text-gray-500 font-bold tracking-wide">
+                <thead className="bg-gray-50 border-b border-gray-200 text-base uppercase text-gray-500 font-bold tracking-wide">
                   <tr>
                     <th className="p-4 pl-6">Tienda</th>
                     <th className="p-4">Supervisor</th>
@@ -318,7 +318,7 @@ function InspeccionesContent() {
                     <th className="p-4 text-center">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="text-sm divide-y divide-gray-100">
+                <tbody className="text-base divide-y divide-gray-100">
                   {errorMsg ? (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-red-500 font-bold">
@@ -369,20 +369,20 @@ function InspeccionesContent() {
                           onClick={() => handleRowClick(item)}
                           className="hover:bg-blue-50/50 cursor-pointer transition-colors group border-b border-gray-50/50"
                         >
-                          <td className="p-4 pl-6 font-black text-gray-900 text-base">{item.store_name}</td>
-                          <td className="p-4 text-gray-600 text-sm font-semibold">{item.supervisor_name}</td>
-                          <td className="p-4 text-center text-gray-500 text-sm font-semibold">{formatDateLA(item.checklist_date)}</td>
+                          <td className="p-4 pl-6 font-black text-gray-900 text-lg">{item.store_name}</td>
+                          <td className="p-4 text-gray-600 text-base font-semibold">{item.supervisor_name}</td>
+                          <td className="p-4 text-center text-gray-500 text-base font-semibold">{formatDateLA(item.checklist_date)}</td>
                           <td className="p-4 text-center">
                             {displayShift ? (
-                              <span className={`px-2.5 py-1 rounded text-xs font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                              <span className={`px-2.5 py-1 rounded text-base font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {displayShift}
                               </span>
                             ) : (
-                              <span className="text-gray-300 font-bold text-xs">-</span>
+                              <span className="text-gray-300 font-bold text-base">-</span>
                             )}
                           </td>
                           <td className="p-4 text-center">
-                            <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
+                            <span className="text-sm font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
                           </td>
                           <td className="p-4 text-center">
                             <span className={`text-xl font-black ${item.overall_score >= 87 ? 'text-green-600' : 'text-red-500'}`}>
@@ -391,7 +391,7 @@ function InspeccionesContent() {
                           </td>
                           <td className="p-4 text-left">
                             <div className="flex items-center justify-start gap-2">
-                              <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase border tracking-wide ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
+                              <span className={`px-3 py-1 rounded-full text-xs font-black uppercase border tracking-wide ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
                                 {getStatusLabel(item.estatus_admin || 'pendiente')}
                               </span>
                               {item.has_comments && (
