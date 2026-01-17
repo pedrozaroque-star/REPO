@@ -7,6 +7,7 @@ import { MapPin, Send, CheckCircle2, User, UserCheck, Briefcase } from 'lucide-r
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 const ROLES = ['Cajero(a)', 'Cocinero', 'Shift Leader', 'Asistente', 'Manager', 'Supervisor']
 const LEAD_ROLES = new Set(['shift leader', 'asistente', 'manager', 'supervisor'])
