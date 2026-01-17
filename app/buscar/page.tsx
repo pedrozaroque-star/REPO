@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 import Link from 'next/link'
@@ -22,7 +22,7 @@ export default function BuscarPage() {
   const [searched, setSearched] = useState(false)
   const [mounted, setMounted] = useState(false)
 
-  React.useEffect(() => {
+  useEffect(() => {
     setMounted(true)
     if (initialQuery) handleSearch()
   }, [])
