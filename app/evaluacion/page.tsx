@@ -285,7 +285,7 @@ export default function StaffEvaluationPage() {
             className="mt-8 w-64 h-24 flex items-center justify-center"
           >
             <img
-              src="/ya esta.png"
+              src="/ya_esta.png"
               alt="¡Ya está!"
               className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(253,200,47,0.5)]"
             />
@@ -340,7 +340,7 @@ export default function StaffEvaluationPage() {
 
           <div className="w-48 h-16 mb-2 flex items-center justify-center">
             <img
-              src="/ya esta.png"
+              src="/ya_esta.png"
               alt="Ya está"
               className="w-full h-full object-contain"
             />
@@ -355,7 +355,7 @@ export default function StaffEvaluationPage() {
         <div className="flex justify-center mt-4">
           <button
             onClick={() => setLang(lang === 'es' ? 'en' : 'es')}
-            className="px-4 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs font-bold text-white hover:bg-white/20 transition-all"
+            className="px-4 py-1.5 rounded-full bg-white/10 dark:bg-slate-800 border border-white/20 dark:border-slate-700 text-xs font-bold text-white hover:bg-white/20 dark:hover:bg-slate-700 transition-all"
           >
             {lang === 'es' ? '🇬🇧 EN' : '🇪🇸 ES'}
           </button>
@@ -365,29 +365,29 @@ export default function StaffEvaluationPage() {
       <form onSubmit={handleSubmit} className="w-full max-w-md z-20 space-y-4 pb-8">
 
         {/* TARJETA 1: Selección de Tienda */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
           <div className="p-6">
-            <label className="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+            <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-3 flex items-center gap-2">
               <MapPin size={16} className="text-red-600" /> {t.store}
             </label>
             <select
               value={selectedStore}
               onChange={(e) => setSelectedStore(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
               required
             >
-              <option value="">{t.storePlaceholder}</option>
+              <option value="" className="dark:bg-slate-900">{t.storePlaceholder}</option>
               {stores.map(s => (
-                <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
+                <option key={s.id} value={s.id} className="dark:bg-slate-900">{formatStoreName(s.name)}</option>
               ))}
             </select>
 
             {currentStoreInfo && (
-              <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="mt-3 flex items-start gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
                 <span className="text-base">📍</span>
-                <div className="text-xs text-blue-700 leading-relaxed">
-                  <span className="block font-bold text-blue-800">¿Estás aquí?</span>
+                <div className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+                  <span className="block font-bold text-blue-800 dark:text-blue-200">¿Estás aquí?</span>
                   {currentStoreInfo.address}<br />
                   {currentStoreInfo.city}
                 </div>
@@ -398,7 +398,7 @@ export default function StaffEvaluationPage() {
               type="button"
               onClick={detectLocation}
               disabled={detectingLocation}
-              className="w-full mt-3 py-2.5 rounded-lg bg-gray-100 border border-gray-300 text-gray-700 font-bold text-sm hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50"
+              className="w-full mt-3 py-2.5 rounded-lg bg-gray-100 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 font-bold text-sm hover:bg-gray-200 dark:hover:bg-slate-700 active:scale-95 transition-all disabled:opacity-50"
             >
               {detectingLocation ? '📍 Detectando...' : `📍 ${t.detectBtn}`}
             </button>
@@ -406,56 +406,56 @@ export default function StaffEvaluationPage() {
         </div>
 
         {/* TARJETA 2: Información Personal */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
           <div className="p-6 space-y-5">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2 flex items-center gap-2">
                 <User size={16} className="text-gray-400" /> {t.evaluator}
               </label>
               <input
                 type="text"
                 value={formData.evaluator_name}
                 onChange={e => setFormData({ ...formData, evaluator_name: e.target.value })}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2 flex items-center gap-2">
                 <UserCheck size={16} className="text-red-600" /> {t.evaluatedName}
               </label>
               <input
                 type="text"
                 value={formData.evaluated_name}
                 onChange={e => setFormData({ ...formData, evaluated_name: e.target.value })}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2 flex items-center gap-2">
                 <Briefcase size={16} className="text-red-600" /> {t.evaluatedRole}
               </label>
               <select
                 value={formData.evaluated_role}
                 onChange={e => setFormData({ ...formData, evaluated_role: e.target.value })}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
               >
-                <option value="">{t.rolePlaceholder}</option>
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                <option value="" className="dark:bg-slate-900">{t.rolePlaceholder}</option>
+                {ROLES.map(r => <option key={r} value={r} className="dark:bg-slate-900">{r}</option>)}
               </select>
             </div>
           </div>
         </div>
 
         {/* TARJETA 3: Checklist Dinámico */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
           <div className="p-6">
             {checklistLoading ? (
-              <div className="p-8 text-center animate-pulse text-gray-400 font-bold uppercase tracking-widest">
-                Cargando Preguntas...
+              <div className="p-8 flex justify-center scale-75">
+                <SurpriseLoader />
               </div>
             ) : (
               <div className="space-y-8">
@@ -466,9 +466,9 @@ export default function StaffEvaluationPage() {
                   return (
                     <div key={section.id} className="space-y-4">
                       <div className="flex items-center gap-4">
-                        <div className="h-[1px] flex-1 bg-gray-200" />
-                        <h2 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">{section.title}</h2>
-                        <div className="h-[1px] flex-1 bg-gray-200" />
+                        <div className="h-[1px] flex-1 bg-gray-200 dark:bg-slate-800" />
+                        <h2 className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em]">{section.title}</h2>
+                        <div className="h-[1px] flex-1 bg-gray-200 dark:bg-slate-800" />
                       </div>
                       <div className="space-y-4">
                         {section.questions.map((q: any, idx: number) => {
@@ -497,69 +497,69 @@ export default function StaffEvaluationPage() {
         </div>
 
         {/* TARJETA 4: Evaluación Cualitativa */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
           <div className="p-6 space-y-5">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">{t.fortalezas}</label>
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">{t.fortalezas}</label>
               <textarea
                 value={formData.fortalezas}
                 onChange={e => setFormData({ ...formData, fortalezas: e.target.value })}
                 rows={3}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 resize-none"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white resize-none"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">{t.areasMejora}</label>
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">{t.areasMejora}</label>
               <textarea
                 value={formData.areas_mejora}
                 onChange={e => setFormData({ ...formData, areas_mejora: e.target.value })}
                 rows={3}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 resize-none"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white resize-none"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">{t.recomendaria}</label>
+                <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">{t.recomendaria}</label>
                 <select
                   value={formData.recomendaria}
                   onChange={e => setFormData({ ...formData, recomendaria: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+                  className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
                 >
-                  <option value="si">{t.yes}</option>
-                  <option value="no">{t.no}</option>
+                  <option value="si" className="dark:bg-slate-900">{t.yes}</option>
+                  <option value="no" className="dark:bg-slate-900">{t.no}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">{t.general}</label>
+                <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">{t.general}</label>
                 <input
                   type="number"
                   min="1"
                   max="10"
                   value={formData.desempeno_general || ''}
                   onChange={e => setFormData({ ...formData, desempeno_general: parseInt(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+                  className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">{t.comentarios}</label>
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">{t.comentarios}</label>
               <textarea
                 value={formData.comentarios}
                 onChange={e => setFormData({ ...formData, comentarios: e.target.value })}
                 rows={3}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 resize-none"
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white resize-none"
               />
             </div>
           </div>
         </div>
 
         {/* TARJETA 5: Botón Enviar */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
           <div className="p-6">
             <button

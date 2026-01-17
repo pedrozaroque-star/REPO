@@ -7,6 +7,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { canEditChecklist } from '@/lib/checklistPermissions'
 import { getSupabaseClient } from '@/lib/supabase'
 import ChecklistForm from '@/components/checklists/ChecklistForm' // ✅ Importamos el Universal
+import SurpriseLoader from '@/components/SurpriseLoader'
 import '@/app/checklists/checklists.css'
 
 function EditChecklistContent() {
@@ -57,11 +58,7 @@ function EditChecklistContent() {
     }
   }
 
-  if (loading) return (
-    <div className="flex min-h-screen">
-      <div className="flex-1 flex items-center justify-center"><p className="animate-pulse">Cargando...</p></div>
-    </div>
-  )
+  if (loading) return <SurpriseLoader />
 
   if (error) return (
     <div className="flex min-h-screen">

@@ -170,11 +170,11 @@ function FeedbackContent() {
 
   const getCategoryBadge = (category: string) => {
     const colors: any = {
-      promoter: 'bg-green-100 text-green-800 border-green-200',
-      passive: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      detractor: 'bg-red-100 text-red-800 border-red-200'
+      promoter: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800',
+      passive: 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-300 dark:border-yellow-800',
+      detractor: 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-800'
     }
-    return colors[category] || 'bg-gray-100 text-gray-800 border-gray-200'
+    return colors[category] || 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
   }
 
   // Permission Logic: Only Admin can review/edit
@@ -190,7 +190,8 @@ function FeedbackContent() {
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
+    <div className="flex bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-hidden w-full">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* 🚨 BANNER DE DEBUG DE EMERGENCIA */}
@@ -207,16 +208,16 @@ function FeedbackContent() {
         )}
 
         {/* STICKY HEADER - Mobile & Desktop */}
-        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0">
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0 transition-all">
           <div className="w-full mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
             {/* Title Area */}
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                 <MessageSquare size={18} />
               </div>
               <div>
-                <h1 className="text-lg md:text-xl font-black text-gray-900 tracking-tight leading-none">Feedback</h1>
-                <p className="hidden md:block text-xs text-gray-400 font-medium">Encuestas de satisfacción y NPS</p>
+                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Feedback</h1>
+                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest mt-1">Encuestas de satisfacción y NPS</p>
               </div>
             </div>
 
@@ -227,7 +228,7 @@ function FeedbackContent() {
                 <select
                   value={storeFilter}
                   onChange={(e) => setStoreFilter(e.target.value)}
-                  className="px-3 py-1.5 rounded-full bg-gray-100 border-none outline-none focus:ring-2 focus:ring-indigo-200 text-sm font-bold text-gray-600 cursor-pointer"
+                  className="px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border-none outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-bold text-gray-600 dark:text-slate-300 cursor-pointer"
                 >
                   <option value="all">Todas las tiendas</option>
                   {stores.map(s => (
@@ -238,7 +239,7 @@ function FeedbackContent() {
 
               <button
                 onClick={() => router.push('/feedback/nuevo')}
-                className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 text-white flex items-center justify-center gap-2 hover:bg-black transition-transform active:scale-95 shadow-lg shadow-gray-200"
+                className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-gray-200 dark:shadow-none"
               >
                 <Plus size={16} strokeWidth={3} />
                 <span className="hidden md:inline font-bold text-xs tracking-wide">NUEVO FEEDBACK</span>
@@ -252,11 +253,11 @@ function FeedbackContent() {
 
           {/* Mobile Filters */}
           <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6">
-            <div className="relative group shadow-lg shadow-gray-200/50 rounded-full">
+            <div className="relative group shadow-lg shadow-gray-200/50 dark:shadow-none rounded-full">
               <select
                 value={storeFilter}
                 onChange={(e) => setStoreFilter(e.target.value)}
-                className="w-full pl-4 pr-10 py-3 rounded-full bg-white border border-gray-100 outline-none focus:border-indigo-300 text-sm font-bold text-gray-900 appearance-none"
+                className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 text-sm font-bold text-gray-900 dark:text-white appearance-none"
               >
                 <option value="all">Todas las tiendas</option>
                 {stores.map(s => (
@@ -271,39 +272,39 @@ function FeedbackContent() {
 
           {/* Stats Cards - Adaptive Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4 mb-6 lg:mb-8">
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-gray-800 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Total</p>
-              <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.total}</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-gray-800 dark:border-slate-100 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Total</p>
+              <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.total}</p>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-indigo-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">NPS Score</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-indigo-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">NPS Score</p>
               <p className={`text-xl md:text-2xl font-black md:mt-1 ${getNPSColor(stats.nps)}`}>{stats.nps}</p>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-green-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Servicio</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-green-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Servicio</p>
               <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900">{stats.avgService}</span>
+                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgService}</span>
                 <span className="text-yellow-500 text-xs">⭐</span>
               </div>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-red-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Calidad</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-red-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Calidad</p>
               <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900">{stats.avgQuality}</span>
+                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgQuality}</span>
                 <span className="text-yellow-500 text-xs">⭐</span>
               </div>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-purple-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Limpieza</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-purple-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Limpieza</p>
               <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900">{stats.avgCleanliness}</span>
+                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgCleanliness}</span>
                 <span className="text-yellow-500 text-xs">⭐</span>
               </div>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-yellow-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Rapidez</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-yellow-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Rapidez</p>
               <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900">{stats.avgSpeed}</span>
+                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgSpeed}</span>
                 <span className="text-yellow-500 text-xs">⭐</span>
               </div>
             </div>
@@ -312,8 +313,8 @@ function FeedbackContent() {
           {/* FEEDBACK LIST - Mobile Cards & Desktop Table */}
           {feedbacks.length === 0 ? (
             <div className="text-center py-20 opacity-50">
-              <MessageSquare size={64} className="mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-900 font-bold">No hay feedbacks registrados</p>
+              <MessageSquare size={64} className="mx-auto text-gray-300 dark:text-slate-700 mb-4" />
+              <p className="text-gray-900 dark:text-slate-400 font-bold">No hay feedbacks registrados</p>
             </div>
           ) : (
             <>
@@ -323,12 +324,12 @@ function FeedbackContent() {
                   <div
                     key={item.id}
                     onClick={() => handleRowClick(item)}
-                    className="bg-white rounded-3xl p-5 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border border-gray-100 transition-all active:scale-[0.98]"
+                    className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl p-5 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border border-gray-100 dark:border-slate-800 transition-all active:scale-[0.98]"
                   >
                     <div className="flex justify-between items-start mb-3">
                       <div>
-                        <h3 className="font-black text-lg text-gray-900">{formatStoreName(item.stores?.name)}</h3>
-                        <p className="text-xs text-gray-500 font-medium">
+                        <h3 className="font-black text-lg text-gray-900 dark:text-white">{formatStoreName(item.stores?.name)}</h3>
+                        <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
                           {formatDateLA(item.submission_date)} • {formatTimeLA(item.submission_date)}
                         </p>
                       </div>
@@ -340,12 +341,12 @@ function FeedbackContent() {
                     </div>
 
                     <div className="flex flex-col gap-2 mb-4">
-                      <div className={`flex items-center gap-2 text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 italic' : 'text-gray-800'}`}>
+                      <div className={`flex items-center gap-2 text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 dark:text-slate-600 italic' : 'text-gray-800 dark:text-slate-200'}`}>
                         {item.customer_name || 'Anónimo'}
                       </div>
                       {item.comments && (
-                        <div className="bg-gray-50 p-3 rounded-xl">
-                          <p className="text-xs text-gray-600 italic">"{item.comments}"</p>
+                        <div className="bg-gray-50 dark:bg-slate-800/50 p-3 rounded-xl">
+                          <p className="text-xs text-gray-600 dark:text-slate-400 italic">"{item.comments}"</p>
                         </div>
                       )}
 
@@ -358,13 +359,13 @@ function FeedbackContent() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end pt-3 border-t border-dashed border-gray-100 gap-3">
+                    <div className="flex items-center justify-end pt-3 border-t border-dashed border-gray-100 dark:border-slate-800 gap-3">
                       {(item.photo_urls && item.photo_urls.length > 0) && (
-                        <span className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">
+                        <span className="flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-lg">
                           📷 Con Fotos
                         </span>
                       )}
-                      <button className="text-indigo-600 font-bold text-xs bg-indigo-50 px-3 py-1.5 rounded-lg">
+                      <button className="text-indigo-600 dark:text-indigo-400 font-bold text-xs bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg active:scale-95 transition-transform">
                         VER DETALLE
                       </button>
                     </div>
@@ -373,11 +374,11 @@ function FeedbackContent() {
               </div>
 
               {/* DESKTOP TABLE (Hidden on Mobile) */}
-              <div className="hidden md:block bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+              <div className="hidden md:block bg-white dark:bg-slate-900 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-slate-800">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse relative">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                      <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                    <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800">
+                      <tr className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
                         <th className="px-6 py-4">Fecha</th>
                         <th className="px-6 py-4">Sucursal</th>
                         <th className="px-6 py-4">Cliente</th>
@@ -388,21 +389,21 @@ function FeedbackContent() {
                         <th className="px-6 py-4 text-center">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                       {feedbacks.map((item) => (
                         <tr
                           key={item.id}
                           onClick={() => handleRowClick(item)}
-                          className="hover:bg-gray-50/80 cursor-pointer transition-colors group"
+                          className="hover:bg-gray-50/80 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group"
                         >
-                          <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
-                            <div className="font-bold text-gray-900">{formatDateLA(item.submission_date)}</div>
-                            <div className="text-xs text-gray-400">{formatTimeLA(item.submission_date)}</div>
+                          <td className="px-6 py-4 text-sm text-gray-500 dark:text-slate-400 whitespace-nowrap">
+                            <div className="font-bold text-gray-900 dark:text-white">{formatDateLA(item.submission_date)}</div>
+                            <div className="text-xs text-gray-400 dark:text-slate-500">{formatTimeLA(item.submission_date)}</div>
                           </td>
-                          <td className="px-6 py-4 font-medium text-gray-700">{formatStoreName(item.stores?.name)}</td>
+                          <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">{formatStoreName(item.stores?.name)}</td>
                           <td className="px-6 py-4">
-                            <div className={`text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 italic' : 'text-gray-900'}`}>{item.customer_name || 'Anónimo'}</div>
-                            {item.customer_email && <div className="text-xs text-gray-400 truncate max-w-[150px]">{item.customer_email}</div>}
+                            <div className={`text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 dark:text-slate-600 italic' : 'text-gray-900 dark:text-slate-200'}`}>{item.customer_name || 'Anónimo'}</div>
+                            {item.customer_email && <div className="text-xs text-gray-400 dark:text-slate-500 truncate max-w-[150px]">{item.customer_email}</div>}
                           </td>
                           <td className="px-6 py-4 text-center">
                             <span className={`px-2 py-1 rounded-lg text-xs font-black border ${getCategoryBadge(item.nps_category)}`}>
@@ -416,24 +417,24 @@ function FeedbackContent() {
                           </td>
                           <td className="px-6 py-4 text-center">
                             {(item.photo_urls && item.photo_urls.length > 0) ? (
-                              <span className="inline-flex items-center justify-center p-2 bg-blue-50 text-blue-600 rounded-lg">
+                              <span className="inline-flex items-center justify-center p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg">
                                 📷
                               </span>
                             ) : (
-                              <span className="text-gray-300">-</span>
+                              <span className="text-gray-300 dark:text-slate-700">-</span>
                             )}
                           </td>
                           <td className="px-6 py-4 text-center">
                             {item.comments ? (
-                              <div className="text-xs text-gray-500 italic truncate max-w-[200px]" title={item.comments}>
+                              <div className="text-xs text-gray-500 dark:text-slate-400 italic truncate max-w-[200px]" title={item.comments}>
                                 "{item.comments}"
                               </div>
                             ) : (
-                              <span className="text-gray-200 text-xs">-</span>
+                              <span className="text-gray-200 dark:text-slate-800 text-xs">-</span>
                             )}
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <button className="text-indigo-600 hover:text-indigo-800 font-bold text-xs bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors">
+                            <button className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold text-xs bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors">
                               REVISAR
                             </button>
                           </td>

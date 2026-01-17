@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Lock as LockIcon, ShieldCheck, Trophy, ClipboardList, LogOut, RefreshCw, Store as StoreIcon, Star, Heart, Filter, Search } from 'lucide-react'
 import { formatDateLA } from '@/lib/checklistPermissions'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 interface Feedback {
   id: number
@@ -171,10 +172,10 @@ export default function AdminPage() {
 
   const getNPSColor = (category: string) => {
     switch (category) {
-      case 'promoter': return 'bg-green-100 text-green-800'
-      case 'passive': return 'bg-yellow-100 text-yellow-800'
-      case 'detractor': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'promoter': return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 border-green-200 dark:border-green-900/50'
+      case 'passive': return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 border-yellow-200 dark:border-yellow-900/50'
+      case 'detractor': return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 border-red-200 dark:border-red-900/50'
+      default: return 'bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-slate-400 border-gray-200 dark:border-slate-700'
     }
   }
 
@@ -190,23 +191,25 @@ export default function AdminPage() {
   // Login screen
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="bg-white rounded-3xl shadow-xl p-8 w-full max-w-md border border-gray-100"
+          className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 w-full max-w-md border border-gray-100 dark:border-slate-800 relative z-10"
         >
           <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+            <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600 dark:text-red-400">
               <LockIcon size={40} />
             </div>
-            <h1 className="text-2xl font-black text-gray-900 mb-1">Admin Panel</h1>
-            <p className="text-gray-500 font-medium">Acceso Restringido</p>
+            <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-1">Admin Panel</h1>
+            <p className="text-gray-500 dark:text-slate-400 font-medium tracking-tight">Acceso Restringido</p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label htmlFor="password" className="block text-xs font-bold text-gray-700 uppercase mb-2">
+              <label htmlFor="password" className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-3">
                 Contraseña
               </label>
               <input
@@ -214,15 +217,15 @@ export default function AdminPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all bg-gray-50 focus:bg-white"
-                placeholder="Ingresa la contraseña"
+                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-2xl text-gray-900 dark:text-white font-bold focus:ring-4 focus:ring-red-500/10 focus:border-red-500 outline-none transition-all"
+                placeholder="••••••••"
                 required
               />
             </div>
 
             <button
               type="submit"
-              className="w-full bg-gray-900 hover:bg-black text-white font-bold py-4 rounded-xl transition-transform active:scale-95 shadow-lg shadow-gray-200"
+              className="w-full bg-gray-900 dark:bg-slate-100 dark:text-slate-900 text-white font-black py-4 rounded-2xl transition-all active:scale-[0.98] shadow-xl shadow-gray-200 dark:shadow-none uppercase tracking-widest"
             >
               INGRESAR
             </button>
@@ -233,28 +236,29 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="bg-transparent h-screen overflow-hidden font-sans pt-20 lg:pt-0">
+    <div className="bg-transparent dark:bg-neutral-900 h-screen overflow-hidden font-sans pt-20 lg:pt-0 relative">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
 
       {/* STICKY HEADER - Mobile & Desktop */}
-      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0">
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0 transition-all">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
           {/* Title Area */}
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
+            <div className="w-8 h-8 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400">
               <ShieldCheck size={18} />
             </div>
             <div>
-              <h1 className="text-lg md:text-xl font-black text-gray-900 tracking-tight leading-none">Admin Panel</h1>
-              <p className="hidden md:block text-xs text-gray-400 font-medium">Tacos Gavilan</p>
+              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Admin Panel</h1>
+              <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wider">Tacos Gavilan</p>
             </div>
           </div>
 
           {/* Actions */}
           <div className="flex items-center gap-3">
-            <div className="flex bg-gray-100 rounded-full p-1">
+            <div className="flex bg-gray-100 dark:bg-slate-800 rounded-full p-1">
               <button
                 onClick={() => setView('leaderboard')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'leaderboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'leaderboard' ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-500'
                   }`}
               >
                 <Trophy size={14} className="inline mr-1 -mt-0.5" />
@@ -262,7 +266,7 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={() => setView('historial')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${view === 'historial' ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-slate-500'
                   }`}
               >
                 <ClipboardList size={14} className="inline mr-1 -mt-0.5" />
@@ -270,21 +274,21 @@ export default function AdminPage() {
               </button>
             </div>
 
-            <div className="h-6 w-px bg-gray-200 mx-1 hidden md:block"></div>
+            <div className="h-6 w-px bg-gray-200 dark:bg-slate-800 mx-1 hidden md:block"></div>
 
-            <label className="hidden md:flex items-center gap-2 cursor-pointer bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-full border border-gray-200 transition-colors">
+            <label className="hidden md:flex items-center gap-2 cursor-pointer bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 px-3 py-1.5 rounded-full border border-gray-200 dark:border-slate-700 transition-colors">
               <input
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="w-3 h-3 text-red-600 rounded focus:ring-red-500 border-gray-300"
+                className="w-3 h-3 text-red-600 rounded focus:ring-red-500 border-gray-300 dark:border-slate-600"
               />
-              <span className="text-xs font-bold text-gray-600">Auto (60s)</span>
+              <span className="text-[10px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-widest">Auto (60s)</span>
             </label>
 
             <button
               onClick={() => setIsAuthenticated(false)}
-              className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors"
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/40 hover:text-red-600 dark:hover:text-red-400 flex items-center justify-center transition-colors border border-transparent dark:border-slate-700"
               title="Cerrar Sesión"
             >
               <LogOut size={16} />
@@ -295,48 +299,47 @@ export default function AdminPage() {
 
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 pb-24">
         {loading && (
-          <div className="text-center py-20 opacity-50 animate-pulse">
-            <RefreshCw size={48} className="mx-auto text-gray-300 mb-4 animate-spin" />
-            <p className="text-gray-900 font-bold">Actualizando datos...</p>
+          <div className="py-20 flex justify-center scale-75">
+            <SurpriseLoader />
           </div>
         )}
 
         {!loading && view === 'leaderboard' && (
           <div className="animate-in fade-in zoom-in duration-300">
             {/* Stats overview */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-8">
-              <div className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100">
-                <div className="flex items-center gap-2 mb-2 text-gray-400">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-8 text-center md:text-left">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800">
+                <div className="flex items-center justify-center md:justify-start gap-2 mb-2 text-gray-400 dark:text-slate-500">
                   <ClipboardList size={16} />
-                  <span className="text-[10px] uppercase font-bold tracking-wider">Total Feedbacks</span>
+                  <span className="text-[10px] uppercase font-black tracking-widest">Total Feedbacks</span>
                 </div>
-                <div className="text-3xl font-black text-gray-900">{feedbacks.length}</div>
+                <div className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">{feedbacks.length}</div>
               </div>
 
-              <div className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100">
-                <div className="flex items-center gap-2 mb-2 text-gray-400">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800">
+                <div className="flex items-center justify-center md:justify-start gap-2 mb-2 text-gray-400 dark:text-slate-500">
                   <StoreIcon size={16} />
-                  <span className="text-[10px] uppercase font-bold tracking-wider">Tiendas Activas</span>
+                  <span className="text-[10px] uppercase font-black tracking-widest">Tiendas Activas</span>
                 </div>
-                <div className="text-3xl font-black text-gray-900">{leaderboard.length}</div>
+                <div className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">{leaderboard.length}</div>
               </div>
 
-              <div className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100">
-                <div className="flex items-center gap-2 mb-2 text-yellow-500">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800">
+                <div className="flex items-center justify-center md:justify-start gap-2 mb-2 text-yellow-500 dark:text-yellow-400">
                   <Star size={16} fill="currentColor" />
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">Promedio Gral.</span>
+                  <span className="text-[10px] uppercase font-black tracking-widest text-gray-400 dark:text-slate-500">Promedio Gral.</span>
                 </div>
-                <div className="text-3xl font-black text-gray-900">
+                <div className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">
                   {leaderboard.length > 0 ? (leaderboard.reduce((sum, s) => sum + s.avg_rating, 0) / leaderboard.length).toFixed(2) : '0'}
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl shadow-sm p-4 border border-gray-100">
-                <div className="flex items-center gap-2 mb-2 text-indigo-500">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800">
+                <div className="flex items-center justify-center md:justify-start gap-2 mb-2 text-indigo-500 dark:text-indigo-400">
                   <Heart size={16} fill="currentColor" />
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">NPS Promedio</span>
+                  <span className="text-[10px] uppercase font-black tracking-widest text-gray-400 dark:text-slate-500">NPS Promedio</span>
                 </div>
-                <div className="text-3xl font-black text-gray-900">
+                <div className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">
                   {leaderboard.length > 0 ? (leaderboard.reduce((sum, s) => sum + s.avg_nps, 0) / leaderboard.length).toFixed(1) : '0'}
                 </div>
               </div>
@@ -344,10 +347,10 @@ export default function AdminPage() {
 
             {/* Leaderboard Heading */}
             <div className="text-center mb-8">
-              <span className="inline-block px-4 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-black uppercase tracking-widest mb-2 border border-yellow-200">
+              <span className="inline-block px-4 py-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 border border-yellow-200 dark:border-yellow-900/50">
                 En tiempo real
               </span>
-              <h2 className="text-3xl md:text-4xl font-black text-gray-900">Ranking de Sucursales</h2>
+              <h2 className="text-3xl md:text-4xl font-black text-gray-900 dark:text-white tracking-tighter">Ranking de Sucursales</h2>
             </div>
 
             <div className="max-w-4xl mx-auto space-y-4">
@@ -364,27 +367,27 @@ export default function AdminPage() {
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
                       transition={{ duration: 0.4, type: "spring" }}
-                      className={`relative flex items-center gap-4 p-5 rounded-3xl shadow-sm border transaction-all group ${isTop3
-                        ? `bg-gradient-to-br from-white to-${index === 0 ? 'yellow' : index === 1 ? 'gray' : 'orange'}-50 border-${index === 0 ? 'yellow' : index === 1 ? 'gray' : 'orange'}-200 shadow-${index === 0 ? 'yellow' : index === 1 ? 'gray' : 'orange'}-100`
-                        : 'bg-white border-gray-100 hover:border-gray-200'
+                      className={`relative flex items-center gap-4 p-5 rounded-3xl shadow-sm border transition-all group ${isTop3
+                        ? `bg-gradient-to-br from-white/90 to-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-50/90 dark:from-slate-900/90 dark:to-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-900/40 backdrop-blur-sm border-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-200 dark:border-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-900/50 shadow-${index === 0 ? 'yellow' : index === 1 ? 'indigo' : 'orange'}-100 dark:shadow-none`
+                        : 'bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm border-gray-100 dark:border-slate-800 hover:border-gray-200 dark:hover:border-slate-700'
                         }`}
                     >
                       {/* Rank Medal */}
                       <div className={`relative w-16 h-16 shrink-0 rounded-2xl flex items-center justify-center font-black text-2xl shadow-inner ${index === 0 ? 'bg-yellow-400 text-yellow-900' :
-                        index === 1 ? 'bg-gray-300 text-gray-800' :
+                        index === 1 ? 'bg-slate-300 dark:bg-slate-700 text-slate-800 dark:text-slate-200' :
                           index === 2 ? 'bg-orange-400 text-white' :
-                            'bg-gray-100 text-gray-400'
+                            'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-600'
                         }`}>
                         {index === 0 ? '1' : index === 1 ? '2' : index === 2 ? '3' : item.rank}
-                        {isTop3 && <Trophy size={16} className="absolute -top-2 -right-2 text-white drop-shadow-md" fill="currentColor" />}
+                        {isTop3 && <Trophy size={16} className={`absolute -top-2 -right-2 drop-shadow-md ${index === 0 ? 'text-yellow-600' : index === 1 ? 'text-slate-500' : 'text-orange-600'}`} fill="currentColor" />}
                       </div>
 
                       {/* Store Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-lg font-black text-gray-900 truncate">{item.store_name}</h3>
+                          <h3 className="text-lg font-black text-gray-900 dark:text-white truncate tracking-tight">{item.store_name}</h3>
                           {rankChange && (
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${rankChange > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest ${rankChange > 0 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>
                               {rankChange > 0 ? `▲ ${rankChange}` : `▼ ${Math.abs(rankChange)}`}
                             </span>
                           )}
@@ -392,20 +395,20 @@ export default function AdminPage() {
 
                         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-500">
                           <div className="flex items-center gap-1.5">
-                            <div className="flex text-yellow-500">
+                            <div className="flex text-yellow-500 dark:text-yellow-400">
                               <Star size={14} fill="currentColor" />
                             </div>
-                            <span className="font-bold text-gray-900">{item.avg_rating.toFixed(2)}</span>
-                            <span className="text-xs">Rating</span>
+                            <span className="font-black text-gray-900 dark:text-white">{item.avg_rating.toFixed(2)}</span>
+                            <span className="text-xs font-bold text-gray-400 dark:text-slate-500">RATING</span>
                           </div>
 
                           <div className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
-                            <span className="font-bold text-gray-900">{item.avg_nps.toFixed(1)}</span>
-                            <span className="text-xs">NPS</span>
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-indigo-400"></div>
+                            <span className="font-black text-gray-900 dark:text-white">{item.avg_nps.toFixed(1)}</span>
+                            <span className="text-xs font-bold text-gray-400 dark:text-slate-500">NPS</span>
                           </div>
 
-                          <div className="text-xs font-medium bg-gray-100 px-2 py-0.5 rounded text-gray-500">
+                          <div className="text-[10px] font-black bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded text-gray-500 dark:text-slate-400 uppercase tracking-widest">
                             {item.count} reseñas
                           </div>
                         </div>
@@ -419,95 +422,97 @@ export default function AdminPage() {
         )}
 
         {!loading && view === 'historial' && (
-          <div className="animate-in slide-in-from-bottom-4 duration-500">
-            {/* Filters */}
-            <div className="sticky top-32 md:top-20 z-10 bg-white/90 backdrop-blur-md p-2 rounded-2xl shadow-lg shadow-gray-200/50 mb-6 border border-gray-100">
-              <div className="flex items-center gap-2">
-                <div className="bg-gray-100 p-2 rounded-xl">
-                  <Filter size={18} className="text-gray-500" />
-                </div>
-                <div className="flex-1">
-                  <select
-                    id="storeFilter"
-                    value={selectedStore}
-                    onChange={(e) => setSelectedStore(e.target.value)}
-                    className="w-full bg-transparent font-bold text-gray-900 text-sm outline-none"
-                  >
-                    <option value="all">Todas las tiendas</option>
-                    {stores.map(store => (
-                      <option key={store.id} value={store.id}>{store.name}</option>
-                    ))}
-                  </select>
-                </div>
-                {selectedStore !== 'all' && (
-                  <button onClick={() => setSelectedStore('all')} className="text-xs font-bold text-red-500 bg-red-50 px-3 py-1.5 rounded-lg">
-                    Borrar
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Feedbacks list */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {feedbacks
-                .filter(f => selectedStore === 'all' || f.store_id === selectedStore)
-                .map(feedback => (
-                  <div key={feedback.id} className="bg-white rounded-3xl shadow-sm hover:shadow-md transition-shadow p-5 border border-gray-100 flex flex-col h-full">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="font-black text-lg text-gray-900 leading-tight mb-1">{feedback.store_name}</h3>
-                        <p className="text-xs text-gray-500 font-medium">
-                          {formatDateLA(feedback.submission_date)} • {feedback.customer_name || 'Anónimo'}
-                        </p>
-                      </div>
-                      <span className={`px-2 py-1 rounded-lg text-xs font-black uppercase border ${getNPSColor(feedback.nps_category)}`}>
-                        NPS {feedback.nps_score}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-2 mb-4 bg-gray-50 p-3 rounded-2xl">
-                      <div className="text-center">
-                        <div className="text-[10px] text-gray-400 uppercase font-bold mb-1">Serv</div>
-                        <div className="font-black text-gray-800">{feedback.service_rating}</div>
-                      </div>
-                      <div className="text-center border-l border-gray-200">
-                        <div className="text-[10px] text-gray-400 uppercase font-bold mb-1">Rap</div>
-                        <div className="font-black text-gray-800">{feedback.speed_rating}</div>
-                      </div>
-                      <div className="text-center border-l border-gray-200">
-                        <div className="text-[10px] text-gray-400 uppercase font-bold mb-1">Cal</div>
-                        <div className="font-black text-gray-800">{feedback.food_quality_rating}</div>
-                      </div>
-                      <div className="text-center border-l border-gray-200">
-                        <div className="text-[10px] text-gray-400 uppercase font-bold mb-1">Lim</div>
-                        <div className="font-black text-gray-800">{feedback.cleanliness_rating}</div>
-                      </div>
-                    </div>
-
-                    {feedback.comments ? (
-                      <div className="flex-1 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
-                        <p className="text-xs text-gray-600 italic">"{feedback.comments}"</p>
-                      </div>
-                    ) : (
-                      <div className="flex-1 flex items-center justify-center text-gray-300 text-xs italic">
-                        Sin comentarios
-                      </div>
-                    )}
+          <div className="animate-in slide-in-from-bottom-4 duration-500 overflow-y-auto max-h-[calc(100vh-280px)] md:max-h-[calc(100vh-220px)] pb-32 no-scrollbar">
+            <div className="max-w-4xl mx-auto px-4">
+              {/* Filters */}
+              <div className="sticky top-0 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-2 rounded-2xl shadow-lg shadow-gray-200/50 dark:shadow-none mb-6 border border-gray-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="bg-gray-100 dark:bg-slate-800 p-2 rounded-xl">
+                    <Filter size={18} className="text-gray-500 dark:text-slate-400" />
                   </div>
-                ))}
-            </div>
-
-            {feedbacks.filter(f => selectedStore === 'all' || f.store_id === selectedStore).length === 0 && (
-              <div className="text-center py-20 opacity-50">
-                <div className="bg-gray-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-                  <Search size={24} />
+                  <div className="flex-1">
+                    <select
+                      id="storeFilter"
+                      value={selectedStore}
+                      onChange={(e) => setSelectedStore(e.target.value)}
+                      className="w-full bg-transparent font-black text-gray-900 dark:text-white text-sm outline-none px-2"
+                    >
+                      <option value="all" className="dark:bg-slate-900">Todas las tiendas</option>
+                      {stores.map(store => (
+                        <option key={store.id} value={store.id} className="dark:bg-slate-900">{store.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedStore !== 'all' && (
+                    <button onClick={() => setSelectedStore('all')} className="text-[10px] font-black text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-lg uppercase tracking-widest transition-all hover:bg-red-100 dark:hover:bg-red-900/40">
+                      Limpiar
+                    </button>
+                  )}
                 </div>
-                <p className="text-gray-900 font-bold">No se encontraron resultados</p>
               </div>
-            )}
+
+              {/* Historial list */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {feedbacks
+                  .filter(f => selectedStore === 'all' || f.store_id === selectedStore)
+                  .map(feedback => (
+                    <div key={feedback.id} className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm hover:shadow-md transition-all p-5 border border-gray-100 dark:border-slate-800 flex flex-col h-full group">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="min-w-0">
+                          <h3 className="font-black text-lg text-gray-900 dark:text-white leading-tight mb-0.5 tracking-tight truncate">{feedback.store_name}</h3>
+                          <p className="text-[10px] text-gray-500 dark:text-slate-500 font-bold uppercase tracking-wider">
+                            {formatDateLA(feedback.submission_date)} • {feedback.customer_name || 'Anónimo'}
+                          </p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase border shrink-0 ${getNPSColor(feedback.nps_category)}`}>
+                          NPS {feedback.nps_score}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 mb-4 bg-gray-50 dark:bg-slate-800/50 p-3 rounded-2xl border border-gray-100 dark:border-slate-800/50">
+                        <div className="text-center">
+                          <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Serv</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.service_rating}</div>
+                        </div>
+                        <div className="text-center border-l border-gray-200 dark:border-slate-800">
+                          <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Rap</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.speed_rating}</div>
+                        </div>
+                        <div className="text-center border-l border-gray-200 dark:border-slate-800">
+                          <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Cal</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.food_quality_rating}</div>
+                        </div>
+                        <div className="text-center border-l border-gray-200 dark:border-slate-800">
+                          <div className="text-[9px] text-gray-400 dark:text-slate-500 uppercase font-black mb-1">Lim</div>
+                          <div className="font-black text-gray-800 dark:text-slate-200">{feedback.cleanliness_rating}</div>
+                        </div>
+                      </div>
+
+                      {feedback.comments ? (
+                        <div className="flex-1 bg-gray-50/50 dark:bg-slate-800/30 p-4 rounded-2xl border border-gray-100 dark:border-slate-800">
+                          <p className="text-xs text-gray-600 dark:text-slate-400 font-medium italic leading-relaxed">"{feedback.comments}"</p>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center text-gray-300 dark:text-slate-700 text-[10px] font-bold uppercase tracking-widest italic">
+                          Sin comentarios
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+
+              {feedbacks.filter(f => selectedStore === 'all' || f.store_id === selectedStore).length === 0 && (
+                <div className="text-center py-20 opacity-50">
+                  <div className="bg-gray-100 dark:bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400 dark:text-slate-600">
+                    <Search size={24} />
+                  </div>
+                  <p className="text-gray-900 dark:text-white font-black uppercase tracking-widest">No se encontraron resultados</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
-      </div>
-    </div>
+      </div >
+    </div >
   )
 }

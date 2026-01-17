@@ -189,11 +189,11 @@ function ManagerChecklistContent() {
   if (showThanks) {
     return (
       <div className="min-h-screen bg-transparent grid place-items-center animate-in zoom-in duration-500">
-        <div className="text-center p-8 bg-white rounded-3xl shadow-2xl border border-gray-100 max-w-sm mx-auto">
+        <div className="text-center p-8 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 max-w-sm mx-auto">
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-8xl mb-6">👔</motion.div>
-          <h1 className="text-4xl font-black text-gray-900 mb-2">¡Todo Listo!</h1>
-          <p className="text-gray-500 font-medium mb-8">El checklist de manager ha sido registrado correctamente.</p>
-          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-100 transition-transform active:scale-95">
+          <h1 className="text-4xl font-black text-gray-900 dark:text-white mb-2">¡Todo Listo!</h1>
+          <p className="text-gray-500 dark:text-slate-400 font-medium mb-8">El checklist de manager ha sido registrado correctamente.</p>
+          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-100 dark:shadow-none transition-transform active:scale-95">
             Volver al Inicio
           </button>
         </div>
@@ -205,15 +205,17 @@ function ManagerChecklistContent() {
   const answeredCount = Object.keys(answers).length
 
   return (
-    <div className="min-h-screen bg-transparent pb-32">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+    <div className="min-h-screen bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-hidden">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+
+      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 sticky top-0 z-40 shadow-sm shrink-0 transition-all">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <button onClick={() => router.back()} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors text-gray-600">
+            <button onClick={() => router.back()} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-gray-600 dark:text-slate-400">
               <ChevronLeft size={24} />
             </button>
             <div>
-              <h1 className="text-lg font-black text-gray-900 flex items-center gap-2">
+              <h1 className="text-lg font-black text-gray-900 dark:text-white flex items-center gap-2">
                 {template?.title || 'Manager Checklist'}
                 {isCached && (
                   <span className="bg-yellow-500/10 text-yellow-600 text-[10px] px-2 py-0.5 rounded-full border border-yellow-400/20 font-bold uppercase tracking-widest">
@@ -221,50 +223,50 @@ function ManagerChecklistContent() {
                   </span>
                 )}
               </h1>
-              <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{user.name || user.email}</div>
+              <div className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">{user.name || user.email}</div>
             </div>
           </div>
-          <div className="bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg shadow-indigo-100 flex flex-col items-center min-w-[80px]">
+          <div className="bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg shadow-indigo-100 dark:shadow-none flex flex-col items-center min-w-[80px]">
             <div className="text-xl font-black leading-none">{score}%</div>
             <div className="text-[10px] font-bold uppercase opacity-80 mt-1">{answeredCount}/{questions.length}</div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sucursal *</label>
+              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Sucursal *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
-                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all">
+                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
                 <option value="">Selecciona...</option>
                 {stores.map(store => <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha *</label>
-              <input type="date" required value={formData.checklist_date}
-                onChange={(e) => setFormData({ ...formData, checklist_date: e.target.value })}
-                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
+              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Fecha y Turno *</label>
+              <div className="grid grid-cols-2 gap-3">
+                <input type="date" required value={formData.checklist_date}
+                  onChange={(e) => setFormData({ ...formData, checklist_date: e.target.value })}
+                  className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all" />
+                <select value={formData.shift} onChange={(e) => setFormData({ ...formData, shift: e.target.value as 'AM' | 'PM' })}
+                  className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
+                  <option value="AM">AM (Mañana)</option>
+                  <option value="PM">PM (Tarde)</option>
+                </select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno *</label>
-              <select value={formData.shift} onChange={(e) => setFormData({ ...formData, shift: e.target.value as 'AM' | 'PM' })}
-                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all">
-                <option value="AM">AM (Mañana)</option>
-                <option value="PM">PM (Tarde)</option>
-              </select>
-            </div>
+
           </div>
 
           <div className="space-y-12">
             {sections.map((section: any) => (
               <div key={section.id} className="space-y-6">
                 <div className="flex items-center gap-4 px-2">
-                  <div className="h-[2px] flex-1 bg-gray-100" />
-                  <h2 className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em]">{section.title}</h2>
-                  <div className="h-[2px] flex-1 bg-gray-100" />
+                  <div className="h-[2px] flex-1 bg-gray-100 dark:bg-slate-800" />
+                  <h2 className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-[0.3em]">{section.title}</h2>
+                  <div className="h-[2px] flex-1 bg-gray-100 dark:bg-slate-800" />
                 </div>
                 <div className="space-y-4">
                   {section.questions.map((question: any, idx: number) => (
@@ -283,16 +285,16 @@ function ManagerChecklistContent() {
             ))}
           </div>
 
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 space-y-3">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Observaciones del Manager</label>
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800 space-y-3">
+            <label className="text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-widest">Feedback General del Checklist</label>
             <textarea value={formData.comments} onChange={(e) => setFormData({ ...formData, comments: e.target.value })} rows={3}
-              className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-indigo-100 transition-all resize-none"
-              placeholder="Escribe aquí cualquier observación relevante..." />
+              className="w-full p-4 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-800 rounded-2xl font-medium text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all resize-none shadow-sm"
+              placeholder="Notas generales sobre la operación de hoy..." />
           </div>
 
           <div className="pt-4">
             <button type="submit" disabled={loading}
-              className="w-full bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-700 hover:to-violet-800 text-white font-black text-lg py-5 rounded-3xl shadow-xl shadow-indigo-100 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3">
+              className="w-full bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-700 hover:to-violet-800 text-white font-black text-lg py-5 rounded-3xl shadow-xl shadow-indigo-100 dark:shadow-none transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3">
               {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : 'Finalizar Checklist'}
             </button>
           </div>

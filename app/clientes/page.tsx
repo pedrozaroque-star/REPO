@@ -353,7 +353,7 @@ export default function ClientesFeedbackPage() {
             className="mt-8 w-64 h-24 flex items-center justify-center"
           >
             <img
-              src="/ya esta.png"
+              src="/ya_esta.png"
               alt="¡Ya está!"
               className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(253,200,47,0.5)]"
             />
@@ -404,7 +404,7 @@ export default function ClientesFeedbackPage() {
           {/* Imagen del Eslogan */}
           <div className="w-48 h-16 mb-2 flex items-center justify-center">
             <img
-              src="/ya esta.png"
+              src="/ya_esta.png"
               alt="Ya está"
               className="w-full h-full object-contain"
             />
@@ -431,16 +431,16 @@ export default function ClientesFeedbackPage() {
       <form onSubmit={handleSubmit} className="w-full max-w-md z-20 space-y-4 pb-8">
 
         {/* TARJETA 1: Selección de Tienda */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
-          <div className="h-2 bg-red-600 w-full"></div>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
+          <div className="h-2 bg-red-600 w-full text-center"></div>
           <div className="p-6">
-            <label className="block text-sm font-bold text-gray-700 mb-3">
+            <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-3">
               📍 {t.store}
             </label>
             <select
               value={selectedStore}
               onChange={(e) => setSelectedStore(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900"
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
               required
             >
               <option value="">{t.storePlaceholder}</option>
@@ -488,43 +488,44 @@ export default function ClientesFeedbackPage() {
           </div>
         </div>
 
-        {/* TARJETA 3: Preguntas con Estrellas */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        {/* TARJETA 2: Ratings */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
-          <div className="p-6">
-            <h3 className="text-lg font-bold text-gray-800 mb-6 text-center flex items-center justify-center gap-2">
-              <span className="text-2xl">⭐</span>
-              {t.sectionExp}
-            </h3>
-            <div className="space-y-5">
-              {[
-                { key: 'q1_caja', label: t.q1 },
-                { key: 'q2_entrega', label: t.q2 },
-                { key: 'q3_calidad', label: t.q3 },
-                { key: 'q4_limpieza', label: t.q4 }
-              ].map((item) => (
-                <div key={item.key} className="space-y-2">
-                  <p className="text-sm font-bold text-gray-700">{item.label}</p>
-                  <div className="flex justify-between px-2">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <StarIcon
-                        key={star}
-                        filled={formData[item.key as keyof typeof formData] as number >= star}
-                        onClick={() => setFormData({ ...formData, [item.key]: star })}
-                      />
-                    ))}
-                  </div>
+          <div className="p-6 space-y-8">
+            {/* Preguntas de Rating */}
+            {[
+              { id: 'q1_caja', label: t.q1, icon: '💰' },
+              { id: 'q2_entrega', label: t.q2, icon: '🥡' },
+              { id: 'q3_calidad', label: t.q3, icon: '🌮' },
+              { id: 'q4_limpieza', label: t.q4, icon: '✨' }
+            ].map((q) => (
+              <div key={q.id}>
+                <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-4 text-center">
+                  <span className="mr-2">{q.icon}</span> {q.label}
+                </label>
+                <div className="flex justify-between items-center max-w-xs mx-auto">
+                  {[1, 2, 3, 4, 5].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, [q.id]: val })}
+                      className={`text-4xl transition-all transform active:scale-95 ${formData[q.id as keyof typeof formData] >= val ? 'text-yellow-400 scale-110 drop-shadow-md' : 'text-gray-200 dark:text-slate-700'
+                        }`}
+                    >
+                      ★
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* TARJETA 4: NPS */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        {/* TARJETA 3: NPS */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
           <div className="p-6">
-            <label className="block text-center text-sm font-bold text-gray-700 mb-4">
+            <label className="block text-center text-sm font-bold text-gray-700 dark:text-slate-300 mb-4">
               {t.q5}
             </label>
             <div className="grid grid-cols-6 gap-2">
@@ -537,7 +538,7 @@ export default function ClientesFeedbackPage() {
                      aspect-square rounded-lg font-bold text-sm transition-all duration-200 border-2
                      ${formData.q5_nps === num
                       ? 'bg-red-600 text-white border-red-600 scale-110 shadow-lg'
-                      : 'bg-gray-50 text-gray-600 border-gray-300 hover:bg-gray-100'
+                      : 'bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-white border-gray-300 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700'
                     }
                      ${num === 10 ? 'col-span-2 aspect-auto' : ''}
                    `}
@@ -546,34 +547,51 @@ export default function ClientesFeedbackPage() {
                 </button>
               ))}
             </div>
-            <div className="flex justify-between text-[10px] text-gray-500 mt-3 font-medium">
+            <div className="flex justify-between text-[10px] text-gray-500 dark:text-slate-400 mt-3 font-medium">
               <span>{t.hint5.split('·')[0]}</span>
               <span>{t.hint5.split('·')[1]}</span>
             </div>
           </div>
         </div>
 
-        {/* TARJETA 5: Comentarios y Fotos */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        {/* TARJETA 4: Comentarios */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
           <div className="h-2 bg-red-600 w-full"></div>
           <div className="p-6 space-y-5">
-            {/* Comentarios */}
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-3">
-                💬 {t.comments}
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">
+                ✍️ {t.comments}
               </label>
               <textarea
-                rows={3}
                 value={formData.comentarios}
                 onChange={(e) => setFormData({ ...formData, comentarios: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white min-h-[100px]"
                 placeholder={t.commentsPlaceholder}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 placeholder-gray-400 resize-none"
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">
+                👤 {t.customerNick}
+              </label>
+              <input
+                type="text"
+                value={formData.clienteNick}
+                onChange={(e) => setFormData({ ...formData, clienteNick: e.target.value })}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 dark:text-white"
+                placeholder={t.namePlaceholder}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* TARJETA 5: Fotos */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-100 dark:border-slate-800">
+          <div className="h-2 bg-red-600 w-full"></div>
+          <div className="p-6 space-y-5">
             {/* Fotos/Videos */}
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-3 flex justify-between">
+              <label className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-3 flex justify-between">
                 <span>📷 {t.photos}</span>
                 <span className="text-gray-400 text-xs font-normal">Max 5</span>
               </label>

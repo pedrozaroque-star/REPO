@@ -191,7 +191,8 @@ function InspeccionesContent() {
   if (loading) return <SurpriseLoader />
 
   return (
-    <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
+    <div className="flex bg-transparent dark:bg-neutral-900 font-sans w-full animate-in fade-in duration-500 relative overflow-hidden min-h-screen">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       <div className="flex-1 flex flex-col h-full w-full relative">
 
         {/* 1. STICKY HEADER (Matches Reportes Design) */}
@@ -219,11 +220,11 @@ function InspeccionesContent() {
 
           {/* STATS CARDS */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-indigo-100 dark:border-slate-800 border-l-4 border-l-indigo-500">
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-indigo-100 dark:border-slate-800 border-l-4 border-l-indigo-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Total</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">{inspections.length}</p>
             </div>
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-green-100 dark:border-slate-800 border-l-4 border-l-green-500">
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-green-100 dark:border-slate-800 border-l-4 border-l-green-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Promedio</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.length > 0
@@ -231,13 +232,13 @@ function InspeccionesContent() {
                   : 'N/A'}
               </p>
             </div>
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-yellow-100 dark:border-slate-800 border-l-4 border-l-yellow-500">
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-yellow-100 dark:border-slate-800 border-l-4 border-l-yellow-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Pendientes</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.filter(i => (i.estatus_admin || 'pendiente').toLowerCase().trim() === 'pendiente').length}
               </p>
             </div>
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 border border-blue-100 dark:border-slate-800 border-l-4 border-l-blue-500">
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-blue-100 dark:border-slate-800 border-l-4 border-l-blue-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Aprobados</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.filter(i => {
@@ -302,7 +303,7 @@ function InspeccionesContent() {
 
 
           {/* DESKTOP TABLE VIEW (HIDDEN ON MOBILE) */}
-          <div className="hidden lg:flex bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 flex-col overflow-hidden">
+          <div className="hidden lg:flex bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 flex-col overflow-hidden transition-all">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse relative">
                 <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800 text-base uppercase text-gray-500 dark:text-slate-300 font-bold tracking-wide">
@@ -449,7 +450,7 @@ function InspeccionesContent() {
               <div
                 key={item.id}
                 onClick={() => handleRowClick(item)}
-                className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-gray-200 dark:border-slate-800 active:scale-[0.98] transition-transform"
+                className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl p-5 shadow-sm border border-gray-200 dark:border-slate-800 active:scale-[0.98] transition-transform"
               >
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex flex-col">

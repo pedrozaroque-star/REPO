@@ -8,6 +8,7 @@ import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA, isOverdue } from '@/lib/checklistPermissions'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 function ManagerChecklistsContent() {
   const searchParams = useSearchParams()
@@ -212,37 +213,27 @@ function ManagerChecklistsContent() {
     return editCheck.canEdit
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-6xl mb-4">👔</div>
-            <p className="text-gray-600">Cargando checklists de manager...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (loading) return <SurpriseLoader />
 
   if (!user) return null
 
   // --- DISEÑO ACTUALIZADO MOBILE-FIRST ---
   return (
-    <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
+    <div className="flex bg-transparent dark:bg-neutral-900 font-sans w-full animate-in fade-in duration-500 relative overflow-hidden min-h-screen">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* STICKY HEADER - Mobile & Desktop */}
-        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 lg:top-0 z-30 shrink-0">
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 shadow-sm sticky top-14 lg:top-0 z-30 shrink-0 transition-all">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
             {/* Title Area */}
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                 <FileCheck size={18} />
               </div>
               <div>
-                <h1 className="text-lg md:text-xl font-black text-gray-900 tracking-tight leading-none">Checklists</h1>
-                <p className="hidden md:block text-xs text-gray-400 font-medium">Gestión de supervisión (53 pts)</p>
+                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Checklists</h1>
+                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-black uppercase tracking-widest mt-1">Gestión de supervisión (53 pts)</p>
               </div>
             </div>
 
@@ -253,7 +244,7 @@ function ManagerChecklistsContent() {
                 <select
                   value={storeFilter}
                   onChange={(e) => setStoreFilter(e.target.value)}
-                  className="px-3 py-1.5 rounded-full bg-gray-100 border-none outline-none focus:ring-2 focus:ring-indigo-200 text-sm font-bold text-gray-600 cursor-pointer"
+                  className="px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border-none outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-bold text-gray-600 dark:text-slate-300 cursor-pointer transition-all"
                 >
                   <option value="all">Todas las sucursales</option>
                   {stores.map(store => (
@@ -265,7 +256,7 @@ function ManagerChecklistsContent() {
               {canCreate() && (
                 <button
                   onClick={() => router.push('/checklists/crear/manager')}
-                  className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 text-white flex items-center justify-center gap-2 hover:bg-blue-700 transition-transform active:scale-95 shadow-lg shadow-blue-200"
+                  className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-blue-700 dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-blue-200 dark:shadow-none"
                 >
                   <Plus size={16} strokeWidth={3} />
                   <span className="hidden md:inline font-bold text-xs tracking-wide">NUEVO CHECKLIST</span>
@@ -280,18 +271,18 @@ function ManagerChecklistsContent() {
 
           {/* Mobile Filters */}
           <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3">
-            <div className="relative group shadow-lg shadow-gray-200/50 rounded-full">
+            <div className="relative group shadow-lg shadow-gray-200/50 dark:shadow-none rounded-full">
               <select
                 value={storeFilter}
                 onChange={(e) => setStoreFilter(e.target.value)}
-                className="w-full pl-4 pr-10 py-3 rounded-full bg-white border border-gray-100 outline-none focus:border-indigo-300 text-sm font-bold text-gray-900 appearance-none"
+                className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-800 text-sm font-bold text-gray-900 dark:text-white appearance-none transition-all"
               >
                 <option value="all">Todas las sucursales</option>
                 {stores.map(store => (
                   <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>
                 ))}
               </select>
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 dark:text-slate-400">
                 <Filter size={16} />
               </div>
             </div>
@@ -303,8 +294,8 @@ function ManagerChecklistsContent() {
                     key={status}
                     onClick={() => setStatusFilter(status)}
                     className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border ${statusFilter === status
-                      ? 'bg-gray-900 text-white border-gray-900'
-                      : 'bg-white text-gray-500 border-gray-200'
+                      ? 'bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 border-gray-900 dark:border-slate-100'
+                      : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700'
                       }`}
                   >
                     {status === 'all' ? 'Todos' : getStatusLabel(status)}
@@ -316,25 +307,25 @@ function ManagerChecklistsContent() {
 
           {/* Stats Cards - Adaptive Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4 mb-6 lg:mb-8">
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-indigo-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Total</p>
-              <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.total}</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-indigo-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Total</p>
+              <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.total}</p>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-yellow-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Pendientes</p>
-              <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.pendientes}</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-yellow-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Pendientes</p>
+              <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.pendientes}</p>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-green-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Aprobados</p>
-              <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.aprobados}</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-green-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Aprobados</p>
+              <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.aprobados}</p>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-red-500 border-y border-r border-gray-100">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Rechazados</p>
-              <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.rechazados}</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-red-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Rechazados</p>
+              <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.rechazados}</p>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-blue-500 border-y border-r border-gray-100 col-span-2 md:col-span-1">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 uppercase">Cerrados</p>
-              <p className="text-xl md:text-2xl font-black text-gray-900 md:mt-1">{stats.cerrados}</p>
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-blue-500 border-y border-r border-gray-100 dark:border-slate-800 col-span-2 md:col-span-1 transition-all">
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Cerrados</p>
+              <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.cerrados}</p>
             </div>
           </div>
 
@@ -362,24 +353,24 @@ function ManagerChecklistsContent() {
                           setShowReviewModal(true)
                         }
                       }}
-                      className={`bg-white rounded-3xl p-5 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border transition-all active:scale-[0.98] ${isItemOverdue ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}
+                      className={`bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl p-5 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border transition-all active:scale-[0.98] ${isItemOverdue ? 'border-red-200 dark:border-red-900/50 bg-red-50/30' : 'border-gray-100 dark:border-slate-800'}`}
                     >
                       <div className="flex justify-between items-start mb-3">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-black text-lg text-gray-900">{item.store_name}</h3>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${item.shift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-800'}`}>
+                            <h3 className="font-black text-lg text-gray-900 dark:text-white">{item.store_name}</h3>
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${item.shift === 'AM' ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400' : 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300'}`}>
                               {item.shift}
                             </span>
                           </div>
-                          <p className="text-xs text-gray-500 font-medium">{formatDateLA(item.checklist_date || item.created_at)}</p>
+                          <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">{formatDateLA(item.checklist_date || item.created_at)}</p>
                         </div>
                         <div className="text-right">
                           <span className={`text-2xl font-black ${scoreColor}`}>{item.score}%</span>
                           <div className="mt-1 flex items-center justify-end gap-1">
                             {getStatusBadge(item)}
                             {(item as any).has_comments && (
-                              <div className="p-0.5 text-blue-600 bg-blue-50 rounded-full border border-blue-100" title="Hay mensajes en el chat">
+                              <div className="p-0.5 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-full border border-blue-100 dark:border-blue-900/50" title="Hay mensajes en el chat">
                                 <MessageCircleMore size={14} strokeWidth={2.5} />
                               </div>
                             )}
@@ -387,10 +378,10 @@ function ManagerChecklistsContent() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-3 border-t border-dashed border-gray-100">
+                      <div className="flex items-center justify-between pt-3 border-t border-dashed border-gray-100 dark:border-slate-800">
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs">👤</div>
-                          <span className="text-xs font-bold text-gray-600 truncate max-w-[120px]">{item.manager_real_name}</span>
+                          <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-slate-800 flex items-center justify-center text-xs">👤</div>
+                          <span className="text-xs font-bold text-gray-600 dark:text-slate-400 truncate max-w-[120px]">{item.manager_real_name}</span>
                         </div>
                         {canEdit && (
                           <button
@@ -398,7 +389,7 @@ function ManagerChecklistsContent() {
                               e.stopPropagation()
                               handleEdit(item)
                             }}
-                            className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold"
+                            className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold"
                           >
                             ✏️ EDITAR
                           </button>
@@ -410,22 +401,22 @@ function ManagerChecklistsContent() {
               </div>
 
               {/* DESKTOP TABLE (Hidden on Mobile) */}
-              <div className="hidden lg:block bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+              <div className="hidden lg:block bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-slate-800 transition-all">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-gray-50 border-b border-gray-200">
+                    <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800">
                       <tr>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Fecha</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Sucursal</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Turno</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Manager</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Duración</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Score</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">Estado</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">Acciones</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Fecha</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Sucursal</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Turno</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Manager</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Duración</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Score</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Estado</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                       {checklists.map((item) => {
                         const scoreColor = item.score >= 87 ? 'text-green-600' : item.score >= 70 ? 'text-orange-600' : 'text-red-600'
                         const canEdit = canUserEdit(item)
@@ -452,7 +443,7 @@ function ManagerChecklistsContent() {
                         return (
                           <tr
                             key={item.id}
-                            className={`hover:bg-gray-50/80 transition-colors cursor-pointer ${isItemOverdue ? 'bg-red-50/50' : ''}`}
+                            className={`hover:bg-gray-50/80 dark:hover:bg-slate-800/50 transition-colors cursor-pointer ${isItemOverdue ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}
                             onClick={() => {
                               // Allow opening modal for everyone (read-only for non-reviewers)
                               setSelectedItem(item)
@@ -460,18 +451,18 @@ function ManagerChecklistsContent() {
                             }}
                           >
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm font-bold text-gray-900">{formatDateLA(item.checklist_date || item.created_at)}</div>
-                              <div className="text-xs text-gray-400">{item.start_time} - {item.end_time}</div>
+                              <div className="text-sm font-bold text-gray-900 dark:text-white">{formatDateLA(item.checklist_date || item.created_at)}</div>
+                              <div className="text-xs text-gray-400 dark:text-slate-500">{item.start_time} - {item.end_time}</div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-700">{item.store_name}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-700 dark:text-slate-300">{item.store_name}</td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2 py-1 rounded text-xs font-bold ${item.shift === 'AM' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                              <span className={`px-2 py-1 rounded text-xs font-bold ${item.shift === 'AM' ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400' : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'}`}>
                                 {item.shift}
                               </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{item.manager_real_name}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-slate-400">{item.manager_real_name}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-center">
-                              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{duration}</span>
+                              <span className="text-xs font-bold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded-full">{duration}</span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-center">
                               <span className={`text-lg font-black ${scoreColor}`}>{item.score}%</span>
@@ -480,7 +471,7 @@ function ManagerChecklistsContent() {
                               <div className="flex items-center justify-start gap-2">
                                 {getStatusBadge(item)}
                                 {(item as any).has_comments && (
-                                  <div className="p-1 text-blue-600 bg-blue-50 rounded-full border border-blue-100" title="Hay mensajes en el chat">
+                                  <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-full border border-blue-100 dark:border-blue-900/50" title="Hay mensajes en el chat">
                                     <MessageCircleMore size={16} strokeWidth={2.5} />
                                   </div>
                                 )}
@@ -493,7 +484,7 @@ function ManagerChecklistsContent() {
                                     e.stopPropagation()
                                     handleEdit(item)
                                   }}
-                                  className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-bold text-xs bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
                                 >
                                   EDITAR
                                 </button>

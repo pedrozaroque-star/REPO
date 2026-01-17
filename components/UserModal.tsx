@@ -137,13 +137,13 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
   const strengthColors = ['bg-gray-200', 'bg-red-400', 'bg-yellow-400', 'bg-green-500']
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden transform transition-all scale-100 flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[800px]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden transform transition-all scale-100 flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[800px] border border-gray-100 dark:border-slate-800">
 
         {/* SIDEBAR VISUAL (Desktop only) */}
-        <div className="hidden md:flex w-1/3 bg-slate-900 p-8 flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-slate-800 rounded-full blur-3xl -mr-32 -mt-32 opacity-50"></div>
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-900 rounded-full blur-3xl -ml-32 -mb-32 opacity-50"></div>
+        <div className="hidden md:flex w-1/3 bg-slate-900 dark:bg-black p-8 flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-slate-800 dark:bg-slate-900 rounded-full blur-3xl -mr-32 -mt-32 opacity-50"></div>
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-900 dark:bg-indigo-950 rounded-full blur-3xl -ml-32 -mb-32 opacity-50"></div>
 
           <div className="relative z-10">
             <h2 className="text-3xl font-black text-white tracking-tight leading-none mb-2">
@@ -182,7 +182,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
         <div className="flex-1 flex flex-col md:h-auto overflow-hidden">
 
           {/* Mobile Header */}
-          <div className="md:hidden p-4 bg-slate-900 text-white flex justify-between items-center">
+          <div className="md:hidden p-4 bg-slate-900 dark:bg-black text-white flex justify-between items-center transition-colors">
             <h2 className="font-bold text-lg">{initialData ? 'Editar Usuario' : 'Nuevo Usuario'}</h2>
             <button onClick={onClose}><X size={24} /></button>
           </div>
@@ -195,30 +195,30 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
               {/* SECCIÓN 1: DATOS PERSONALES */}
               <section className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">1</span>
-                  <h3 className="font-bold text-gray-900 text-lg">Información Personal</h3>
+                  <span className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">1</span>
+                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">Información Personal</h3>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="group">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1 group-focus-within:text-indigo-600 transition-colors">Nombre Completo</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Nombre Completo</label>
                     <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={18} />
                       <input
                         name="full_name"
                         value={formData.full_name}
                         onChange={handleChange}
                         required
-                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-transparent focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl outline-none transition-all font-medium text-gray-900 placeholder:text-gray-400"
+                        className="w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-indigo-950/40 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-600"
                         placeholder="Ej. Juan Pérez"
                       />
                     </div>
                   </div>
 
                   <div className="group">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1 group-focus-within:text-indigo-600 transition-colors">Email Corporativo</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Email Corporativo</label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={18} />
                       <input
                         name="email"
                         type="email"
@@ -226,64 +226,64 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         onChange={handleChange}
                         required
                         disabled={!!initialData}
-                        className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-transparent focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl outline-none transition-all font-medium text-gray-900 ${initialData ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        className={`w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white ${initialData ? 'opacity-50 cursor-not-allowed dark:bg-slate-900/50' : ''}`}
                         placeholder="juan@tacosgavilan.com"
                       />
                     </div>
                   </div>
 
                   <div className="group">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1 group-focus-within:text-indigo-600 transition-colors">Teléfono</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Teléfono</label>
                     <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={18} />
                       <input
                         name="phone"
                         type="tel"
                         value={formData.phone}
                         onChange={handleChange}
-                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-transparent focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl outline-none transition-all font-medium text-gray-900"
+                        className="w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white"
                         placeholder="(555) 000-0000"
                       />
                     </div>
                   </div>
 
                   {/* Estado Activo Toggle */}
-                  <div className="flex items-center justify-between bg-white border border-gray-200 p-3 rounded-xl shadow-sm">
-                    <span className="text-sm font-bold text-gray-700 ml-1">Cuenta Activa</span>
+                  <div className="flex items-center justify-between bg-gray-50/50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 p-3 px-4 rounded-2xl transition-colors">
+                    <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Cuenta Activa</span>
                     <button
                       type="button"
                       onClick={handleToggleActive}
-                      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${formData.is_active ? 'bg-green-500' : 'bg-gray-200'}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all focus:outline-none ${formData.is_active ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-slate-700'}`}
                     >
-                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${formData.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${formData.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
                   </div>
                 </div>
               </section>
 
               {/* SECCIÓN 2: SEGURIDAD */}
-              <section className="space-y-4 pt-4 border-t border-gray-100">
+              <section className="space-y-4 pt-4 border-t border-gray-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">2</span>
-                  <h3 className="font-bold text-gray-900 text-lg">Seguridad</h3>
+                  <span className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">2</span>
+                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">Seguridad</h3>
                 </div>
 
-                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-5">
+                <div className="p-5 bg-gray-50/50 dark:bg-slate-800/30 rounded-2xl border border-gray-100 dark:border-slate-800 space-y-5 transition-colors">
                   {/* Password Row */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div className="group relative">
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Nueva Contraseña</label>
+                      <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Nueva Contraseña</label>
                       <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
                         <input
                           name="password"
                           type={showPassword ? "text" : "password"}
                           value={formData.password}
                           onChange={handleChange}
-                          className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl outline-none transition-all font-medium text-gray-900"
-                          placeholder={initialData ? "Dejar vacío para no cambiar" : "••••••••"}
+                          className="w-full pl-10 pr-10 py-3.5 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white"
+                          placeholder={initialData ? "Dejar vacío para mantener" : "••••••••"}
                         />
-                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-500 transition-colors">
                           {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
                       </div>
@@ -298,22 +298,22 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                     </div>
 
                     <div className="group">
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Confirmar Contraseña</label>
+                      <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Confirmar Contraseña</label>
                       <div className="relative">
-                        <CheckCircle2 className={`absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${formData.confirmPassword && !passError ? 'text-green-500' : 'text-gray-400'}`} size={18} />
+                        <CheckCircle2 className={`absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${formData.confirmPassword && !passError ? 'text-emerald-500' : 'text-gray-400 dark:text-slate-500'}`} size={18} />
                         <input
                           name="confirmPassword"
                           type="password"
                           value={formData.confirmPassword}
                           onChange={handleChange}
                           disabled={!formData.password}
-                          className={`w-full pl-10 pr-4 py-3 bg-white border focus:ring-4 focus:ring-indigo-500/10 rounded-xl outline-none transition-all font-medium text-gray-900 
-                              ${passError ? 'border-red-300 focus:border-red-500 bg-red-50' : 'border-gray-200 focus:border-indigo-500'}`}
+                          className={`w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-800 border focus:ring-4 focus:ring-indigo-500/10 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white 
+                              ${passError ? 'border-red-300 dark:border-red-900/50 focus:border-red-500 dark:bg-red-900/10' : 'border-gray-100 dark:border-slate-700 focus:border-indigo-500'}`}
                           placeholder="Repetir contraseña"
                         />
                       </div>
                       {passError && (
-                        <div className="flex items-center gap-1 mt-1.5 ml-1 text-red-500 text-xs font-bold animate-pulse">
+                        <div className="flex items-center gap-1 mt-1.5 ml-1 text-red-500 text-[10px] font-black uppercase tracking-widest animate-pulse">
                           <AlertCircle size={12} /> {passError}
                         </div>
                       )}
@@ -323,29 +323,29 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
               </section>
 
               {/* SECCIÓN 3: ROLES */}
-              <section className="space-y-4 pt-4 border-t border-gray-100">
+              <section className="space-y-4 pt-4 border-t border-gray-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">3</span>
-                  <h3 className="font-bold text-gray-900 text-lg">Roles y Permisos</h3>
+                  <span className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">3</span>
+                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">Roles y Permisos</h3>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Selector de Rol */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2 ml-1">Rol del Usuario</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-3 ml-1">Rol del Usuario</label>
                     <div className="grid grid-cols-1 gap-2">
                       {['asistente', 'manager', 'supervisor', 'admin'].map((roleOp) => (
-                        <label key={roleOp} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${formData.role === roleOp ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500' : 'bg-white border-gray-200 hover:border-gray-300'}`}>
+                        <label key={roleOp} className={`flex items-center gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all ${formData.role === roleOp ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800/50 border-gray-100 dark:border-slate-800 hover:border-gray-200 dark:hover:border-slate-700'}`}>
                           <input
                             type="radio"
                             name="role"
                             value={roleOp}
                             checked={formData.role === roleOp}
                             onChange={handleChange}
-                            className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                            className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-slate-600 dark:bg-slate-900"
                           />
                           <div>
-                            <span className="block text-sm font-bold text-gray-900 capitalize">{roleOp}</span>
+                            <span className="block text-sm font-black text-gray-900 dark:text-white capitalize tracking-tight">{roleOp}</span>
                           </div>
                         </label>
                       ))}
@@ -353,49 +353,49 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                   </div>
 
                   {/* Selector de Tiendas Dinámico */}
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 h-fit">
+                  <div className="bg-gray-50/50 dark:bg-slate-800/30 p-5 rounded-2xl border border-gray-100 dark:border-slate-800/50 h-fit transition-colors">
 
                     {isAdmin && (
-                      <div className="text-center py-8">
-                        <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <div className="text-center py-10">
+                        <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 flex items-center justify-center mx-auto mb-4">
                           <span className="text-3xl">🌍</span>
                         </div>
-                        <h4 className="font-bold text-slate-700">Acceso Global</h4>
-                        <p className="text-xs text-slate-500 px-4 mt-2">Los administradores tienen acceso irrestricto a todas las tiendas.</p>
+                        <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-tight">Acceso Global</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-500 px-4 mt-2 font-bold leading-relaxed">Los administradores tienen acceso irrestricto a todas las tiendas.</p>
                       </div>
                     )}
 
                     {isStaff && (
-                      <div className="space-y-2">
-                        <label className="block text-xs font-bold text-slate-500 uppercase">Tienda Asignada</label>
+                      <div className="space-y-3">
+                        <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Tienda Asignada</label>
                         <select
                           name="store_id"
                           value={formData.store_id}
                           onChange={handleChange}
-                          className="w-full p-3 rounded-lg border border-slate-300 bg-white text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full px-4 py-3.5 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-gray-900 dark:text-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                         >
-                          <option value="">-- Seleccionar --</option>
+                          <option value="" className="dark:bg-slate-900">-- Seleccionar --</option>
                           {stores.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
+                            <option key={s.id} value={s.id} className="dark:bg-slate-900">{s.name}</option>
                           ))}
                         </select>
-                        <p className="text-[10px] text-slate-500 leading-tight">La tienda principal donde este usuario registra su actividad.</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-600 leading-tight font-bold italic">La tienda principal donde este usuario registra su actividad.</p>
                       </div>
                     )}
 
                     {isSupervisor && (
-                      <div className="space-y-2 h-full flex flex-col">
-                        <label className="block text-xs font-bold text-purple-600 uppercase">Supervisión (Múltiple)</label>
-                        <div className="flex-1 bg-white border border-slate-200 rounded-lg p-2 max-h-[200px] overflow-y-auto space-y-1">
+                      <div className="space-y-3 h-full flex flex-col">
+                        <label className="block text-[10px] font-black text-purple-600/70 dark:text-purple-400/70 uppercase tracking-widest ml-1">Supervisión (Múltiple)</label>
+                        <div className="flex-1 bg-white dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700 rounded-2xl p-2 max-h-[200px] overflow-y-auto space-y-1 transition-colors">
                           {stores.map(store => (
-                            <label key={store.id} className="flex items-center gap-2 p-2 hover:bg-purple-50 rounded-lg cursor-pointer transition-colors">
+                            <label key={store.id} className="flex items-center gap-3 p-2.5 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-xl cursor-pointer transition-colors group">
                               <input
                                 type="checkbox"
                                 checked={formData.store_scope.includes(store.name)}
                                 onChange={() => handleScopeChange(store.name)}
-                                className="rounded text-purple-600 focus:ring-purple-500"
+                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 dark:bg-slate-900 dark:border-slate-700"
                               />
-                              <span className="text-xs font-bold text-gray-700">{store.name}</span>
+                              <span className="text-xs font-black text-gray-700 dark:text-slate-300 group-hover:text-purple-700 dark:group-hover:text-purple-400 uppercase tracking-tight truncate">{store.name}</span>
                             </label>
                           ))}
                         </div>
@@ -409,19 +409,18 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
           </div>
 
           {/* Footer Actions */}
-          <div className="p-4 md:p-6 border-t border-gray-100 bg-white/80 backdrop-blur flex justify-end gap-3 z-10 shrink-0">
+          <div className="p-4 md:p-6 border-t border-gray-100 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex justify-end gap-3 z-10 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-100 transition-colors"
-              disabled={false}
+              className="px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
               form="userForm"
-              className="px-8 py-2.5 rounded-xl text-sm font-bold text-white bg-slate-900 hover:bg-black shadow-lg shadow-gray-200 hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-black dark:hover:bg-slate-100 shadow-xl shadow-gray-200 dark:shadow-none hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!!passError}
             >
               {initialData ? 'Guardar Cambios' : 'Crear Usuario'}

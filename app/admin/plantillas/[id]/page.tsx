@@ -288,22 +288,22 @@ export default function TemplateEditorPage() {
     return (
         <div className="min-h-screen bg-transparent pb-32">
             {/* Header */}
-            <div className="sticky top-16 md:top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
+            <div className="sticky top-16 md:top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-100 dark:border-slate-800 shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
                 <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <Link href="/admin/plantillas" className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors">
+                        <Link href="/admin/plantillas" className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-slate-800 flex items-center justify-center text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
                             <ArrowLeft size={20} />
                         </Link>
                         <div>
-                            <h1 className="text-xl font-black text-gray-900 leading-none">{template.title}</h1>
-                            <p className="text-xs text-gray-400 font-mono mt-0.5">{template.code}</p>
+                            <h1 className="text-xl font-black text-gray-900 dark:text-white leading-none">{template.title}</h1>
+                            <p className="text-xs text-gray-400 dark:text-slate-500 font-mono mt-0.5">{template.code}</p>
                         </div>
                     </div>
                     <div className="flex gap-2">
                         <button
                             onClick={handleSaveOrder}
                             disabled={savingOrder}
-                            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-100 disabled:opacity-50 text-sm"
+                            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-100 dark:shadow-none disabled:opacity-50 text-sm"
                         >
                             <Save size={16} />
                             {savingOrder ? 'Guardando...' : 'Guardar Orden'}
@@ -315,14 +315,14 @@ export default function TemplateEditorPage() {
             <main className="max-w-5xl mx-auto px-4 py-8">
                 <Reorder.Group axis="y" values={sections} onReorder={handleReorderSections} className="space-y-8">
                     {sections.map((section) => (
-                        <Reorder.Item key={section.id} value={section} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden group/section">
+                        <Reorder.Item key={section.id} value={section} className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden group/section">
                             {/* Section Header */}
-                            <div className={`px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50`}>
+                            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50/50 dark:bg-slate-800/50">
                                 <div className="flex items-center gap-3">
-                                    <div className="cursor-grab active:cursor-grabbing text-gray-400">
+                                    <div className="cursor-grab active:cursor-grabbing text-gray-400 dark:text-slate-600">
                                         <GripVertical size={20} />
                                     </div>
-                                    <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                                    <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
                                         <span className="w-3 h-3 rounded-full bg-indigo-500"></span>
                                         {section.title}
                                     </h2>
@@ -335,30 +335,30 @@ export default function TemplateEditorPage() {
                             </div>
 
                             {/* Questions List */}
-                            <div className="bg-white">
-                                <Reorder.Group axis="y" values={section.questions} onReorder={(newQs) => handleReorderQuestions(section.id, newQs)} className="divide-y divide-gray-100">
+                            <div className="bg-white dark:bg-slate-900/40">
+                                <Reorder.Group axis="y" values={section.questions} onReorder={(newQs) => handleReorderQuestions(section.id, newQs)} className="divide-y divide-gray-100 dark:divide-slate-800">
                                     {section.questions.length === 0 && (
-                                        <div className="p-8 text-center text-gray-400 italic text-sm">
+                                        <div className="p-8 text-center text-gray-400 dark:text-slate-600 italic text-sm">
                                             Sin preguntas en esta sección
                                         </div>
                                     )}
                                     {section.questions.map((q) => (
-                                        <Reorder.Item key={q.id} value={q} className="p-5 hover:bg-gray-50/80 transition flex flex-col gap-4 group">
+                                        <Reorder.Item key={q.id} value={q} className="p-5 hover:bg-gray-50/80 dark:hover:bg-slate-800/50 transition flex flex-col gap-4 group">
                                             <div className="flex items-start gap-4">
-                                                <div className="mt-1 text-gray-300 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <div className="mt-1 text-gray-300 dark:text-slate-700 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <GripVertical size={18} />
                                                 </div>
 
                                                 <div className="flex-1">
                                                     {editingQuestion === q.id ? (
-                                                        <div className="space-y-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                                                        <div className="space-y-4 bg-indigo-50/50 dark:bg-indigo-900/10 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                                                             <div>
                                                                 <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">Texto de la Pregunta</label>
                                                                 <input
                                                                     autoFocus
                                                                     defaultValue={q.text}
                                                                     onBlur={(e) => handleUpdateQuestion(q.id, { text: e.target.value })}
-                                                                    className="w-full p-2.5 bg-white border border-indigo-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-200 font-medium"
+                                                                    className="w-full p-2.5 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900/50 rounded-lg outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/30 text-gray-900 dark:text-white font-medium"
                                                                 />
                                                             </div>
 
@@ -368,7 +368,7 @@ export default function TemplateEditorPage() {
                                                                     <select
                                                                         value={q.section_id}
                                                                         onChange={(e) => handleUpdateQuestion(q.id, { section_id: e.target.value })}
-                                                                        className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-sm"
+                                                                        className="w-full p-2 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900/50 text-gray-900 dark:text-slate-200 rounded-lg text-sm outline-none"
                                                                     >
                                                                         {sections.map(s => (
                                                                             <option key={s.id} value={s.id}>{s.title}</option>
@@ -381,7 +381,7 @@ export default function TemplateEditorPage() {
                                                                     <select
                                                                         value={q.type}
                                                                         onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value })}
-                                                                        className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-sm"
+                                                                        className="w-full p-2 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900/50 text-gray-900 dark:text-slate-200 rounded-lg text-sm outline-none"
                                                                     >
                                                                         {QUESTION_TYPES.map(t => (
                                                                             <option key={t.value} value={t.value}>{t.label}</option>
@@ -418,23 +418,23 @@ export default function TemplateEditorPage() {
                                                         <div className="space-y-2">
                                                             <div
                                                                 onClick={() => setEditingQuestion(q.id)}
-                                                                className="text-gray-800 font-bold cursor-text hover:text-indigo-700 transition-colors"
+                                                                className="text-gray-800 dark:text-slate-100 font-bold cursor-text hover:text-indigo-700 dark:hover:text-indigo-400 transition-colors"
                                                             >
-                                                                <span className="text-indigo-400 mr-2 opacity-50 font-mono">#{q.order_index + 1}</span>
+                                                                <span className="text-indigo-400 dark:text-indigo-500 mr-2 opacity-50 font-mono">#{q.order_index + 1}</span>
                                                                 {q.text}
                                                                 {isNew(q.created_at) && (
-                                                                    <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] uppercase font-black rounded-full border border-indigo-200">
-                                                                        <Sparkles size={10} /> NEW <span className="text-indigo-400 font-medium normal-case tracking-normal ml-1">({new Date(q.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                                                    <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 text-[10px] uppercase font-black rounded-full border border-indigo-200 dark:border-indigo-900/50">
+                                                                        <Sparkles size={10} /> NEW <span className="text-indigo-400 dark:text-indigo-500 font-medium normal-case tracking-normal ml-1">({new Date(q.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
                                                                     </span>
                                                                 )}
                                                             </div>
                                                             <div className="flex items-center gap-3">
-                                                                <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px] uppercase font-black text-gray-500">
+                                                                <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded text-[10px] uppercase font-black text-gray-500 dark:text-slate-400">
                                                                     {React.createElement(QUESTION_TYPES.find(t => t.value === q.type)?.icon || CheckSquare, { size: 12 })}
                                                                     {QUESTION_TYPES.find(t => t.value === q.type)?.label}
                                                                 </div>
                                                                 {q.required_photo && (
-                                                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-red-50 border border-red-100 rounded text-[10px] uppercase font-black text-red-500">
+                                                                    <div className="flex items-center gap-1 px-2 py-0.5 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded text-[10px] uppercase font-black text-red-500 dark:text-red-400">
                                                                         <Camera size={12} /> Foto Req.
                                                                     </div>
                                                                 )}
@@ -469,7 +469,7 @@ export default function TemplateEditorPage() {
                             {/* Add Question Footer */}
                             <button
                                 onClick={() => handleAddQuestion(section.id)}
-                                className="w-full py-4 bg-gray-50/50 hover:bg-indigo-50/30 text-indigo-600 font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all border-t border-gray-100"
+                                className="w-full py-4 bg-gray-50/50 dark:bg-slate-800/50 hover:bg-indigo-50/30 dark:hover:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all border-t border-gray-100 dark:border-slate-800"
                             >
                                 <Plus size={16} />
                                 Agregar Pregunta
@@ -479,12 +479,12 @@ export default function TemplateEditorPage() {
                 </Reorder.Group>
 
                 {sections.length === 0 && (
-                    <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-200 shadow-inner">
-                        <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl">📋</div>
-                        <p className="text-gray-500 mb-6 font-medium">Esta plantilla está vacía. ¡Comienza agregando una sección!</p>
+                    <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-slate-800 shadow-inner dark:shadow-none">
+                        <div className="w-20 h-20 bg-gray-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl">📋</div>
+                        <p className="text-gray-500 dark:text-slate-400 mb-6 font-medium">Esta plantilla está vacía. ¡Comienza agregando una sección!</p>
                         <button
                             onClick={handleAddSection}
-                            className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black hover:bg-indigo-700 transition shadow-xl shadow-indigo-100 flex items-center gap-2 mx-auto"
+                            className="bg-indigo-600 dark:bg-slate-100 text-white dark:text-slate-900 px-8 py-4 rounded-2xl font-black hover:bg-indigo-700 dark:hover:bg-white transition shadow-xl shadow-indigo-100 dark:shadow-none flex items-center gap-2 mx-auto"
                         >
                             <Plus size={20} />
                             Crear Primera Sección
@@ -497,7 +497,7 @@ export default function TemplateEditorPage() {
                     <div className="flex justify-center pt-10">
                         <button
                             onClick={handleAddSection}
-                            className="bg-gray-900 text-white px-8 py-4 rounded-2xl font-black hover:bg-black transition shadow-2xl flex items-center gap-3 hover:-translate-y-1 transform duration-200"
+                            className="bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 px-8 py-4 rounded-2xl font-black hover:bg-black dark:hover:bg-white transition shadow-2xl dark:shadow-none flex items-center gap-3 hover:-translate-y-1 transform duration-200"
                         >
                             <Plus size={24} />
                             NUEVA SECCIÓN

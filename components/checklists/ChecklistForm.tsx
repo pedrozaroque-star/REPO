@@ -242,22 +242,22 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
 
   return (
     <div className="max-w-4xl mx-auto pb-24">
-      <header className={`bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm rounded-t-3xl overflow-hidden`}>
+      <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-0 z-40 shadow-sm rounded-t-3xl overflow-hidden transition-colors">
         <div className="px-6 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg ${styles.shadow} ${styles.bg}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg ${styles.shadow} dark:shadow-none ${styles.bg}`}>
               <Save size={20} />
             </div>
             <div>
-              <h1 className="text-lg font-black text-gray-900 flex items-center gap-2">
+              <h1 className="text-lg font-black text-gray-900 dark:text-white flex items-center gap-2">
                 {template?.title || 'Checklist'}
-                {isCached && <span className="text-[9px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full border border-yellow-200">Offline</span>}
+                {isCached && <span className="text-[9px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-2 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-900/50">Offline</span>}
               </h1>
               <div className={`text-[10px] font-black uppercase tracking-widest ${styles.text}`}>{user?.name || user?.email}</div>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className={`px-4 py-2 rounded-2xl flex flex-col items-center min-w-[80px] text-white shadow-lg ${styles.bg} ${styles.shadow}`}>
+            <div className={`px-4 py-2 rounded-2xl flex flex-col items-center min-w-[80px] text-white shadow-lg ${styles.bg} ${styles.shadow} dark:shadow-none`}>
               <div className="text-xl font-black leading-none">{score}%</div>
               <div className="text-[10px] font-bold uppercase opacity-80 mt-1">Score</div>
             </div>
@@ -265,52 +265,51 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         </div>
       </header>
 
-      <div className="bg-white border-x border-b border-gray-200 rounded-b-3xl p-6 shadow-sm space-y-8">
+      <div className="bg-white dark:bg-slate-900 border-x border-b border-gray-200 dark:border-slate-800 rounded-b-3xl p-6 shadow-sm space-y-8 transition-colors">
         <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha</label>
+            <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Fecha</label>
             <input type="date" value={formData.checklist_date} onChange={e => setFormData({ ...formData, checklist_date: e.target.value })}
-              className={`w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 ${styles.ring} transition-all`} />
+              className={`w-full p-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-xl font-bold text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all`} />
           </div>
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno</label>
+            <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Turno</label>
             <select value={formData.shift} onChange={e => setFormData({ ...formData, shift: e.target.value })}
-              className={`w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 ${styles.ring} transition-all`}>
-              <option value="AM">☀️ AM (Mañana)</option>
-              <option value="PM">🌙 PM (Tarde)</option>
+              className={`w-full p-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-xl font-bold text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all`}>
+              <option value="AM" className="dark:bg-slate-900">☀️ AM (Mañana)</option>
+              <option value="PM" className="dark:bg-slate-900">🌙 PM (Tarde)</option>
             </select>
           </div>
         </div>
 
         <div className="space-y-12">
           {checklistLoading && (
-            <div className="py-12 text-center animate-pulse">
-              <div className="text-4xl mb-4">⏳</div>
-              <p className="font-black text-gray-400 uppercase tracking-widest text-xs">Cargando preguntas...</p>
+            <div className="py-20 flex justify-center scale-75">
+              <SurpriseLoader />
             </div>
           )}
 
           {checklistError && (
-            <div className="p-8 bg-red-50 border border-red-100 rounded-3xl text-center">
-              <div className="text-red-500 font-bold mb-2">⚠️ Error al cargar la plantilla</div>
-              <p className="text-red-400 text-xs font-medium">{checklistError}</p>
-              <button type="button" onClick={() => window.location.reload()} className="mt-4 text-[10px] font-black uppercase text-red-600 underline">Reintentar</button>
+            <div className="p-8 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-3xl text-center">
+              <div className="text-red-500 dark:text-red-400 font-bold mb-2">⚠️ Error al cargar la plantilla</div>
+              <p className="text-red-400 dark:text-red-500/70 text-xs font-medium">{checklistError}</p>
+              <button type="button" onClick={() => window.location.reload()} className="mt-4 text-[10px] font-black uppercase text-red-600 dark:text-red-400 underline">Reintentar</button>
             </div>
           )}
 
           {!checklistLoading && !checklistError && sections.length === 0 && (
             <div className="py-12 text-center opacity-50">
               <div className="text-4xl mb-4">📭</div>
-              <p className="font-black text-gray-400 uppercase tracking-widest text-xs">No se encontraron preguntas para esta plantilla ({templateCode})</p>
+              <p className="font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest text-xs">No se encontraron preguntas para esta plantilla ({templateCode})</p>
             </div>
           )}
 
           {sections.map((section: any) => (
             <div key={section.id} className="space-y-6">
               <div className="flex items-center gap-4 px-2">
-                <div className="h-[2px] flex-1 bg-gray-100" />
+                <div className="h-[px] flex-1 bg-gray-100 dark:bg-slate-800" />
                 <h2 className={`text-[10px] font-black uppercase tracking-[0.3em] ${styles.text}`}>{section.title}</h2>
-                <div className="h-[2px] flex-1 bg-gray-100" />
+                <div className="h-[px] flex-1 bg-gray-100 dark:bg-slate-800" />
               </div>
               <div className="space-y-4">
                 {section.questions.map((question: any, idx: number) => (
@@ -331,14 +330,14 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         </div>
 
         <div className="space-y-3">
-          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Comentarios</label>
+          <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Comentarios</label>
           <textarea value={formData.comments} onChange={e => setFormData({ ...formData, comments: e.target.value })} rows={4}
-            className={`w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 ${styles.ring} transition-all resize-none`}
+            className={`w-full p-4 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-2xl font-medium text-gray-700 dark:text-slate-200 outline-none focus:ring-2 ${styles.ring} dark:focus:ring-indigo-900/40 transition-all resize-none`}
             placeholder="Notas adicionales..." />
         </div>
 
         <div className="pt-4 flex gap-4">
-          <button type="button" onClick={() => router.back()} className="flex-1 py-4 bg-gray-100 text-gray-500 font-bold rounded-2xl hover:bg-gray-200 transition-all">Cancelar</button>
+          <button type="button" onClick={() => router.back()} className="flex-1 py-4 bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 font-bold rounded-2xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-all">Cancelar</button>
           <button onClick={handleSubmit} disabled={loading}
             className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 ${styles.bg}`}>
             {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Save size={20} /><span>{initialData?.id ? 'Guardar Cambios' : 'Finalizar'}</span></>}

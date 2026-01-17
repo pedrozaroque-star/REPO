@@ -563,41 +563,40 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                 {isOpen && (
                     <motion.div
                         key="modal-overlay"
-                        className="fixed inset-0 z-[9999] pb-32 text-left overflow-hidden bg-gray-50"
+                        className="fixed inset-0 z-[9999] pb-32 text-left overflow-hidden bg-gray-50 dark:bg-neutral-900 transition-colors duration-300"
                         initial={{ opacity: 0, y: 50 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 50 }}
                     >
-                        {/* Background Pattern */}
                         <div
-                            className="absolute inset-0 z-0 opacity-[0.3] invert pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
+                            className="absolute inset-0 z-0 opacity-[0.3] dark:opacity-[0.4] invert dark:invert-0 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"
                             aria-hidden="true"
                         />
 
                         {/* CLOSE BUTTON (Floating Top Right) */}
                         <button
                             onClick={onClose}
-                            className="fixed top-6 right-6 z-[100] p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 border border-gray-200 text-gray-500 transition-colors"
+                            className="fixed top-6 right-6 z-[100] p-2 bg-white dark:bg-slate-800 rounded-full shadow-lg hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 transition-colors"
                         >
                             <X size={24} />
                         </button>
 
                         {/* 1. FLOATING HEADER PILL (Fixed at top) */}
                         <div className="fixed top-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
-                            <div className="pointer-events-auto bg-white/95 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.15)] rounded-full px-6 py-4 flex items-center gap-6 max-w-4xl w-full justify-between ring-1 ring-black/5">
+                            <div className="pointer-events-auto bg-white/95 dark:bg-slate-900/90 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.15)] rounded-full px-6 py-4 flex items-center gap-6 max-w-4xl w-full justify-between ring-1 ring-black/5 dark:ring-white/10 border border-transparent dark:border-slate-800">
 
                                 <div className="flex items-center gap-4 pl-1">
-                                    <button onClick={onClose} className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center text-gray-900 hover:bg-gray-100 hover:text-black transition-colors border-2 border-gray-200 shadow-sm">
+                                    <button onClick={onClose} className="w-12 h-12 rounded-full bg-gray-50 dark:bg-slate-800 flex items-center justify-center text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-black transition-colors border-2 border-gray-200 dark:border-slate-700 shadow-sm">
                                         <ArrowLeft size={24} strokeWidth={3} />
                                     </button>
                                     <div className="flex flex-col gap-0.5">
-                                        <h1 className="text-lg font-black text-gray-900 tracking-tight leading-none uppercase">{theme.label}</h1>
+                                        <h1 className="text-lg font-black text-gray-900 dark:text-white tracking-tight leading-none uppercase">{theme.label}</h1>
                                         <div className="flex items-center gap-3 hidden sm:flex">
-                                            <div className="text-xs flex items-center gap-1 font-bold text-gray-600 uppercase">
+                                            <div className="text-xs flex items-center gap-1 font-bold text-gray-600 dark:text-slate-400 uppercase">
                                                 <Store size={14} strokeWidth={2.5} /> {checklist.store_name || 'Tienda'}
                                             </div>
                                             {checklist.supervisor_name && (
-                                                <div className="text-xs flex items-center gap-1 font-bold text-gray-600 uppercase border-l-2 border-gray-300 pl-3">
+                                                <div className="text-xs flex items-center gap-1 font-bold text-gray-600 dark:text-slate-400 uppercase border-l-2 border-gray-300 dark:border-slate-700 pl-3">
                                                     <User size={14} strokeWidth={2.5} /> {checklist.supervisor_name}
                                                 </div>
                                             )}
@@ -608,7 +607,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 {/* Progress Pill */}
                                 <div className="flex items-center gap-3 pr-1">
                                     <div className="text-right hidden sm:block">
-                                        <div className="text-[11px] font-black text-gray-900 uppercase tracking-widest leading-none mb-1">PUNTAJE</div>
+                                        <div className="text-[11px] font-black text-gray-900 dark:text-slate-300 uppercase tracking-widest leading-none mb-1">PUNTAJE</div>
                                     </div>
                                     <div className={`px-6 py-2.5 rounded-full font-black text-2xl shadow-md border-2 flex items-center gap-1 ${finalScore >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
                                         finalScore >= 60 ? 'bg-amber-50 text-amber-600 border-amber-200' :
@@ -621,24 +620,23 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                             <MoreHorizontal size={24} strokeWidth={3} />
                                         </button>
 
-                                        {/* Dropdown for Status Actions */}
-                                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all transform origin-top-right z-50">
+                                        <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-gray-100 dark:border-slate-800 p-2 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all transform origin-top-right z-50">
                                             {(canApprove || canSupervisorFinalApprove) && status !== 'cerrado' && (
-                                                <button onClick={() => handleStatusChange('aprobado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors">
+                                                <button onClick={() => handleStatusChange('aprobado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors">
                                                     <CheckCircle size={14} /> Aprobar
                                                 </button>
                                             )}
                                             {canReject && status !== 'cerrado' && (
-                                                <button onClick={() => handleStatusChange('rechazado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 rounded-lg transition-colors">
+                                                <button onClick={() => handleStatusChange('rechazado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
                                                     <XCircle size={14} /> Rechazar
                                                 </button>
                                             )}
                                             {canClose && status !== 'cerrado' && (
-                                                <button onClick={() => handleStatusChange('cerrado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-50 rounded-lg transition-colors">
+                                                <button onClick={() => handleStatusChange('cerrado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors">
                                                     <Send size={14} /> Cerrar Ticket
                                                 </button>
                                             )}
-                                            <button onClick={handlePrint} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 rounded-lg transition-colors border-t border-gray-100 mt-1">
+                                            <button onClick={handlePrint} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg transition-colors border-t border-gray-100 dark:border-slate-800 mt-1">
                                                 <Printer size={14} /> Imprimir
                                             </button>
                                         </div>
@@ -652,40 +650,40 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             <div className="max-w-3xl mx-auto px-4 pt-36 space-y-8 relative z-10 pb-40">
 
                                 {/* 3. METADATA BUBBLE */}
-                                <div className="bg-white/95 backdrop-blur-sm rounded-3xl p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] text-center relative overflow-hidden group border border-gray-100 ring-1 ring-black/5">
+                                <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm rounded-3xl p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] dark:shadow-none text-center relative overflow-hidden group border border-gray-100 dark:border-slate-800 ring-1 ring-black/5 dark:ring-white/5">
                                     <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${theme.gradient}`} />
 
                                     <h2 className="text-xl font-black text-gray-900 mb-5 tracking-tight">Detalles de Visita</h2>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-blue-300">
-                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Sucursal</label>
-                                            <div className="text-base font-black text-gray-950 leading-tight">{checklist.store_name}</div>
+                                        <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-blue-300 dark:hover:border-blue-500">
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Sucursal</label>
+                                            <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{checklist.store_name}</div>
                                         </div>
 
-                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-purple-300">
-                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Turno</label>
-                                            <div className="text-base font-black text-gray-950 leading-tight">{checklist.shift || 'N/A'}</div>
+                                        <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-purple-300 dark:hover:border-purple-500">
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Turno</label>
+                                            <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{checklist.shift || 'N/A'}</div>
                                         </div>
 
-                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-pink-300">
-                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Fecha</label>
-                                            <div className="text-base font-black text-gray-950 leading-tight">{formatDateLA(checklist.inspection_date)}</div>
+                                        <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-pink-300 dark:hover:border-pink-500">
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Fecha</label>
+                                            <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{formatDateLA(checklist.inspection_date)}</div>
                                         </div>
 
-                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-indigo-300">
-                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Hora Inicial</label>
-                                            <div className="text-base font-black text-indigo-700 leading-tight">{checklist.start_time || 'N/A'}</div>
+                                        <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-indigo-300 dark:hover:border-indigo-500">
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Hora Inicial</label>
+                                            <div className="text-base font-black text-indigo-700 dark:text-indigo-400 leading-tight">{checklist.start_time || 'N/A'}</div>
                                         </div>
 
-                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-emerald-300">
-                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Hora Final</label>
-                                            <div className="text-base font-black text-emerald-700 leading-tight">{checklist.end_time || 'N/A'}</div>
+                                        <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-emerald-300 dark:hover:border-emerald-500">
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Hora Final</label>
+                                            <div className="text-base font-black text-emerald-700 dark:text-emerald-400 leading-tight">{checklist.end_time || 'N/A'}</div>
                                         </div>
 
-                                        <div className="bg-white rounded-xl p-3 border-2 border-gray-200 shadow-sm transition-all hover:border-orange-300">
-                                            <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest mb-1.5 block">Duración</label>
-                                            <div className="text-base font-black text-gray-950 leading-tight">{getDuration()}</div>
+                                        <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-orange-300 dark:hover:border-orange-500">
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Duración</label>
+                                            <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{getDuration()}</div>
                                         </div>
                                     </div>
                                 </div>
@@ -748,9 +746,9 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         const sectionAvg = sCount > 0 ? Math.round(sSum / sCount) : null
 
                                         return (
-                                            <div key={`section-${sIdx}`} className="relative bg-white/40 backdrop-blur-sm rounded-[2rem] p-3 md:p-6 border border-white/60 shadow-sm mb-12 ring-1 ring-black/5">
+                                            <div key={`section-${sIdx}`} className="relative bg-white/40 dark:bg-slate-900/40 backdrop-blur-sm rounded-[2rem] p-3 md:p-6 border border-white/60 dark:border-slate-800 shadow-sm mb-12 ring-1 ring-black/5 dark:ring-white/5">
                                                 {/* Section Header */}
-                                                <div className="sticky md:static top-0 z-40 -mx-3 md:-mx-6 px-3 md:px-6 py-4 bg-slate-900 md:bg-white/40 backdrop-blur-xl md:backdrop-blur-sm shadow-lg md:shadow-none mb-6 flex items-center gap-4 rounded-t-[2rem] transition-all border-b border-white/10 md:border-transparent">
+                                                <div className="sticky md:static top-0 z-40 -mx-3 md:-mx-6 px-3 md:px-6 py-4 bg-slate-900 md:bg-white/40 dark:md:bg-slate-900/40 backdrop-blur-xl md:backdrop-blur-sm shadow-lg md:shadow-none mb-6 flex items-center gap-4 rounded-t-[2rem] transition-all border-b border-white/10 md:border-transparent">
                                                     <span className="shrink-0 bg-white md:bg-gray-900 text-slate-900 md:text-white w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center font-black text-sm md:text-base shadow-lg shadow-black/20 md:shadow-purple-900/20">
                                                         {sIdx + 1}
                                                     </span>
@@ -1007,18 +1005,18 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                         }
 
                                                         return (
-                                                            <div key={`q-${sIdx}-${qIdx}`} className="relative rounded-3xl p-5 transition-all duration-300 bg-white shadow-sm border border-gray-100 opacity-90 hover:opacity-100">
+                                                            <div key={`q-${sIdx}-${qIdx}`} className="relative rounded-3xl p-5 transition-all duration-300 bg-white dark:bg-slate-900/80 shadow-sm border border-gray-100 dark:border-slate-800 opacity-90 hover:opacity-100">
                                                                 <div className="flex flex-col gap-4">
 
                                                                     {/* Header: Number and Text */}
                                                                     <div className="flex gap-4 items-start">
-                                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0 transition-colors mt-1 ${value !== undefined ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0 transition-colors mt-1 ${value !== undefined ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500'
                                                                             }`}>
                                                                             {qIdx + 1}
                                                                         </div>
 
                                                                         <div className="flex-1">
-                                                                            <h4 className="font-bold text-base leading-snug text-gray-600">
+                                                                            <h4 className="font-bold text-base leading-snug text-gray-600 dark:text-slate-300">
                                                                                 {q.text}
                                                                                 {isNew(q.created_at) && (
                                                                                     <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] uppercase font-black rounded-full border border-blue-200 align-middle">
@@ -1099,9 +1097,9 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                                 {/* 6. OBSERVATIONS */}
                                 {(checklist.comments || checklist.observaciones) && (
-                                    <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 text-center shadow-sm">
-                                        <h3 className="font-bold text-yellow-700 uppercase tracking-widest text-sm mb-4">Notas Finales</h3>
-                                        <p className="text-lg font-medium text-gray-800 italic">
+                                    <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 dark:border-yellow-900/50 text-center shadow-sm">
+                                        <h3 className="font-bold text-yellow-700 dark:text-yellow-500 uppercase tracking-widest text-sm mb-4">Notas Finales</h3>
+                                        <p className="text-lg font-medium text-gray-800 dark:text-slate-200 italic">
                                             "{checklist.comments || checklist.observaciones}"
                                         </p>
                                     </div>
@@ -1145,7 +1143,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         initial={{ opacity: 0, scale: 0.9, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                        className="fixed bottom-20 right-4 z-[10000] w-[350px] max-w-[90vw] h-[500px] max-h-[60vh] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden"
+                        className="fixed bottom-20 right-4 z-[10000] w-[350px] max-w-[90vw] h-[500px] max-h-[60vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 flex flex-col overflow-hidden"
                     >
                         {/* Chat Header */}
                         <div className="bg-indigo-600 text-white p-3 flex justify-between items-center shadow-md">
@@ -1159,7 +1157,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         </div>
 
                         {/* Messages */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 relative" ref={chatContainerRef}>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 dark:bg-slate-950 relative" ref={chatContainerRef}>
                             {loadingComments && comments.length === 0 ? (
                                 <div className="flex justify-center p-8"><div className="w-5 h-5 border-2 border-indigo-500 rounded-full animate-spin border-t-transparent"></div></div>
                             ) : (
@@ -1191,14 +1189,14 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         )}
 
                         {/* Input */}
-                        <div className="p-2 bg-white border-t border-gray-200 flex gap-2">
+                        <div className="p-2 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 flex gap-2">
                             <input
                                 value={newComment}
                                 onChange={(e) => setNewComment(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendComment()}
                                 placeholder={status === 'cerrado' && !['supervisor', 'admin'].includes(role) ? "El chat está cerrado" : "Escribe un mensaje..."}
                                 disabled={status === 'cerrado' && !['supervisor', 'admin'].includes(role)}
-                                className="flex-1 px-3 py-2 bg-gray-100 rounded-xl text-xs border-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                                className="flex-1 px-3 py-2 bg-gray-100 dark:bg-slate-800 rounded-xl text-xs border-none text-gray-900 dark:text-white focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
                             />
                             <button
                                 onClick={handleSendComment}

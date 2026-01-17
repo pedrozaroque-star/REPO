@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ChevronLeft, Thermometer, Snowflake, Flame } from 'lucide-react'
+import { ChevronLeft, Thermometer, Snowflake, Flame, MoreHorizontal } from 'lucide-react'
+import SurpriseLoader from '@/components/SurpriseLoader'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import '@/app/checklists/checklists.css'
 import { getSupabaseClient } from '@/lib/supabase'
@@ -195,7 +196,7 @@ function TemperaturasContent() {
   }
 
   if (!user) return null
-  if (checklistLoading) return <div className="min-h-screen grid place-items-center bg-transparent"><div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin" /></div>
+  if (checklistLoading) return <SurpriseLoader />
   if (checklistError) return <div className="min-h-screen grid place-items-center text-red-600 font-bold">Error: {checklistError}</div>
 
   if (showThanks) {
@@ -217,15 +218,17 @@ function TemperaturasContent() {
   const capturedCount = Object.keys(temperatures).length
 
   return (
-    <div className="min-h-screen checklist-container flex flex-col animate-in fade-in duration-500">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm shrink-0">
+    <div className="min-h-screen bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-hidden">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+
+      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 sticky top-0 z-40 shadow-sm shrink-0 transition-all">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <button onClick={() => router.back()} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors text-gray-600">
               <ChevronLeft size={24} />
             </button>
             <div>
-              <h1 className="text-lg font-black text-gray-900 flex items-center gap-2">
+              <h1 className="text-lg font-black text-gray-900 dark:text-white flex items-center gap-2">
                 {template?.title || 'Control de Temperaturas'}
                 {isCached && (
                   <span className="bg-yellow-500/10 text-yellow-600 text-[10px] px-2 py-0.5 rounded-full border border-yellow-400/20 font-bold uppercase tracking-widest">
@@ -245,25 +248,25 @@ function TemperaturasContent() {
 
       <div className="max-w-4xl mx-auto px-4 py-8 pb-32 w-full">
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sucursal *</label>
+              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Sucursal *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
-                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all">
+                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-red-100 dark:focus:ring-red-900/20 transition-all">
                 <option value="">Selecciona...</option>
                 {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha *</label>
+              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Fecha *</label>
               <input type="date" required value={formData.checklist_date}
                 onChange={(e) => setFormData({ ...formData, checklist_date: e.target.value })}
-                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all" />
+                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-red-100 dark:focus:ring-red-900/20 transition-all" />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Turno *</label>
+              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Turno *</label>
               <select value={formData.shift} onChange={(e) => setFormData({ ...formData, shift: e.target.value as 'AM' | 'PM' })}
-                className="w-full p-3 bg-gray-50 border-gray-100 rounded-xl font-bold text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all">
+                className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-red-100 dark:focus:ring-red-900/20 transition-all">
                 <option value="AM">AM (Mañana)</option>
                 <option value="PM">PM (Tarde)</option>
               </select>
@@ -290,19 +293,19 @@ function TemperaturasContent() {
                       <motion.div
                         layout
                         key={item.id}
-                        className={`bg-white rounded-3xl shadow-sm p-6 border transition-all ${status === 'good' ? 'border-green-200 bg-green-50/30' :
-                          status === 'bad' ? 'border-red-200 bg-red-50/30' :
-                            'border-gray-100'
+                        className={`bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border transition-all ${status === 'good' ? 'border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-900/10' :
+                          status === 'bad' ? 'border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10' :
+                            'border-gray-100 dark:border-slate-800'
                           }`}
                       >
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${itemType === 'cold' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${itemType === 'cold' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
                               }`}>
                               {itemType === 'cold' ? <Snowflake size={20} /> : <Flame size={20} />}
                             </div>
                             <div>
-                              <h4 className="font-bold text-gray-900">{item.text}</h4>
+                              <h4 className="font-bold text-gray-900 dark:text-white">{item.text}</h4>
                               <span className="text-[10px] font-black uppercase tracking-widest opacity-40">
                                 {itemType === 'cold' ? 'Rango: 34-41°F' : 'Rango: ≥165°F'}
                               </span>
@@ -321,14 +324,14 @@ function TemperaturasContent() {
                             {itemType === 'cold' ? (
                               [35, 38, 40].map(v => (
                                 <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
-                                  className="flex-1 md:w-16 h-10 bg-gray-100 hover:bg-blue-600 hover:text-white rounded-xl font-bold text-xs transition-colors">
+                                  className="flex-1 md:w-16 h-10 bg-gray-100 dark:bg-slate-800 hover:bg-blue-600 dark:hover:bg-blue-500 hover:text-white rounded-xl font-bold text-xs transition-colors text-gray-600 dark:text-slate-400">
                                   {v}°F
                                 </button>
                               ))
                             ) : (
                               [165, 175, 185].map(v => (
                                 <button key={v} type="button" onClick={() => setQuickTemp(item.id, v)}
-                                  className="flex-1 md:w-16 h-10 bg-gray-100 hover:bg-orange-600 hover:text-white rounded-xl font-bold text-xs transition-colors">
+                                  className="flex-1 md:w-16 h-10 bg-gray-100 dark:bg-slate-800 hover:bg-orange-600 dark:hover:bg-orange-500 hover:text-white rounded-xl font-bold text-xs transition-colors text-gray-600 dark:text-slate-400">
                                   {v}°F
                                 </button>
                               ))
@@ -337,7 +340,7 @@ function TemperaturasContent() {
 
                           <div className="flex-1 flex items-center gap-2 w-full">
                             <button type="button" onClick={() => adjustTemp(item.id, -1)}
-                              className="w-12 h-12 bg-gray-100 hover:bg-gray-200 rounded-xl font-black text-xl flex items-center justify-center transition-colors">
+                              className="w-12 h-12 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl font-black text-xl flex items-center justify-center transition-colors text-gray-600 dark:text-white">
                               -
                             </button>
                             <div className="flex-1 relative">
@@ -345,11 +348,11 @@ function TemperaturasContent() {
                                 value={currentTemp || ''}
                                 onChange={(e) => handleManualInput(item.id, e.target.value)}
                                 placeholder="--"
-                                className="w-full h-12 bg-gray-50 border-none rounded-xl text-center font-black text-2xl text-gray-900 focus:ring-2 focus:ring-red-100" />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400">°F</span>
+                                className="w-full h-12 bg-gray-50 dark:bg-slate-800 border-none rounded-xl text-center font-black text-2xl text-gray-900 dark:text-white focus:ring-2 focus:ring-red-100 dark:focus:ring-red-900/20" />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-gray-400 dark:text-slate-500">°F</span>
                             </div>
                             <button type="button" onClick={() => adjustTemp(item.id, 1)}
-                              className="w-12 h-12 bg-gray-100 hover:bg-gray-200 rounded-xl font-black text-xl flex items-center justify-center transition-colors">
+                              className="w-12 h-12 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl font-black text-xl flex items-center justify-center transition-colors text-gray-600 dark:text-white">
                               +
                             </button>
                           </div>
@@ -362,10 +365,10 @@ function TemperaturasContent() {
             ))}
           </div>
 
-          <div className="bg-white rounded-3xl shadow-sm p-6 border border-gray-100 space-y-3">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Observaciones Adicionales</label>
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800 space-y-3">
+            <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Observaciones Adicionales</label>
             <textarea value={formData.comments} onChange={(e) => setFormData({ ...formData, comments: e.target.value })} rows={3}
-              className="w-full p-4 bg-gray-50 border-gray-100 rounded-2xl font-medium text-gray-700 outline-none focus:ring-2 focus:ring-red-100 transition-all resize-none"
+              className="w-full p-4 bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-700 rounded-2xl font-medium text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-red-100 dark:focus:ring-red-900/20 transition-all resize-none shadow-inner"
               placeholder="Escribe aquí si hubo algún equipo fuera de rango..." />
           </div>
 

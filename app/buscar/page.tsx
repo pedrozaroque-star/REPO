@@ -20,6 +20,14 @@ export default function BuscarPage() {
   })
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+    if (initialQuery) handleSearch()
+  }, [])
+
+  if (!mounted) return null
 
   const handleSearch = async () => {
     if (!query.trim()) return
@@ -85,32 +93,33 @@ export default function BuscarPage() {
     results.checklists.length
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-transparent dark:bg-neutral-900 pb-20 font-sans relative overflow-hidden">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
 
       <main className="flex-1 p-8">
         <div className="max-w-5xl mx-auto">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Búsqueda Global</h1>
-            <p className="text-gray-600 mt-2">Busca en todas las secciones del sistema</p>
+            <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight leading-none italic uppercase">Búsqueda Global</h1>
+            <p className="text-gray-400 dark:text-slate-500 mt-2 font-bold uppercase tracking-widest text-[10px]">Busca en todas las secciones del sistema</p>
           </div>
 
           {/* Search Bar */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-            <div className="flex space-x-4">
+          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-[2rem] shadow-xl dark:shadow-none p-6 mb-12 border border-gray-100 dark:border-slate-800">
+            <div className="flex flex-col md:flex-row gap-4">
               <input
                 type="text"
+                placeholder="Tiendas, usuarios, inspecciones..."
+                className="flex-1 p-4 bg-gray-50 dark:bg-slate-800/50 border-gray-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/40 text-gray-900 dark:text-white font-bold transition-all"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="Buscar tiendas, usuarios, inspecciones..."
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-red-500"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               />
               <button
                 onClick={handleSearch}
                 disabled={loading}
-                className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors disabled:bg-gray-400"
+                className="bg-gray-900 dark:bg-indigo-600 hover:bg-black dark:hover:bg-indigo-700 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {loading ? '⏳' : '🔍'} Buscar
+                {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <span>🔍 Buscar</span>}
               </button>
             </div>
           </div>
@@ -119,22 +128,22 @@ export default function BuscarPage() {
           {searched && !loading && (
             <div className="space-y-6">
               {totalResults === 0 ? (
-                <div className="text-center py-12 bg-white rounded-xl shadow-md">
+                <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800">
                   <div className="text-6xl mb-4">🔍</div>
-                  <p className="text-gray-600">No se encontraron resultados para "{query}"</p>
+                  <p className="text-gray-600 dark:text-slate-400 font-bold">No se encontraron resultados para "{query}"</p>
                 </div>
               ) : (
                 <>
-                  <div className="bg-white rounded-xl shadow-md p-6">
-                    <p className="text-gray-900 font-semibold">
-                      Se encontraron <span className="text-red-600">{totalResults}</span> resultados
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-6 border border-gray-100 dark:border-slate-800">
+                    <p className="text-gray-900 dark:text-white font-bold">
+                      Se encontraron <span className="text-red-600 dark:text-red-400">{totalResults}</span> resultados
                     </p>
                   </div>
 
                   {/* Tiendas */}
                   {results.stores.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-md p-6">
-                      <h2 className="text-xl font-bold text-gray-900 mb-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800">
+                      <h2 className="text-xl font-black text-gray-900 dark:text-white mb-4 uppercase tracking-tight">
                         🏪 Tiendas ({results.stores.length})
                       </h2>
                       <div className="space-y-3">
@@ -142,10 +151,10 @@ export default function BuscarPage() {
                           <Link
                             key={store.id}
                             href="/tiendas"
-                            className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="block p-4 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-2xl border border-transparent dark:border-slate-700/50 transition-all group"
                           >
-                            <p className="font-semibold text-gray-900">{formatStoreName(store.name)}</p>
-                            <p className="text-sm text-gray-600">{store.address}, {store.city}</p>
+                            <p className="font-bold text-gray-900 dark:text-white group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">{formatStoreName(store.name)}</p>
+                            <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">{store.address}, {store.city}</p>
                           </Link>
                         ))}
                       </div>
@@ -154,8 +163,8 @@ export default function BuscarPage() {
 
                   {/* Usuarios */}
                   {results.users.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-md p-6">
-                      <h2 className="text-xl font-bold text-gray-900 mb-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800">
+                      <h2 className="text-xl font-black text-gray-900 dark:text-white mb-4 uppercase tracking-tight">
                         👥 Usuarios ({results.users.length})
                       </h2>
                       <div className="space-y-3">
@@ -163,10 +172,10 @@ export default function BuscarPage() {
                           <Link
                             key={user.id}
                             href="/usuarios"
-                            className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="block p-4 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-2xl border border-transparent dark:border-slate-700/50 transition-all group"
                           >
-                            <p className="font-semibold text-gray-900">{user.full_name}</p>
-                            <p className="text-sm text-gray-600">{user.email} • {user.role}</p>
+                            <p className="font-bold text-gray-900 dark:text-white group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">{user.full_name}</p>
+                            <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">{user.email} • {user.role}</p>
                           </Link>
                         ))}
                       </div>
@@ -175,8 +184,8 @@ export default function BuscarPage() {
 
                   {/* Inspecciones */}
                   {results.inspections.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-md p-6">
-                      <h2 className="text-xl font-bold text-gray-900 mb-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800">
+                      <h2 className="text-xl font-black text-gray-900 dark:text-white mb-4 uppercase tracking-tight">
                         📋 Inspecciones ({results.inspections.length})
                       </h2>
                       <div className="space-y-3">
@@ -184,12 +193,12 @@ export default function BuscarPage() {
                           <Link
                             key={insp.id}
                             href="/inspecciones"
-                            className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="block p-4 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-2xl border border-transparent dark:border-slate-700/50 transition-all group"
                           >
-                            <p className="font-semibold text-gray-900">
+                            <p className="font-bold text-gray-900 dark:text-white group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">
                               {formatStoreName(insp.stores?.name)} - {insp.overall_score}%
                             </p>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">
                               {new Date(insp.inspection_date).toLocaleDateString('es-MX')} • {insp.users?.full_name}
                             </p>
                           </Link>
@@ -200,8 +209,8 @@ export default function BuscarPage() {
 
                   {/* Feedbacks */}
                   {results.feedbacks.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-md p-6">
-                      <h2 className="text-xl font-bold text-gray-900 mb-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800">
+                      <h2 className="text-xl font-black text-gray-900 dark:text-white mb-4 uppercase tracking-tight">
                         💬 Feedbacks ({results.feedbacks.length})
                       </h2>
                       <div className="space-y-3">
@@ -209,12 +218,12 @@ export default function BuscarPage() {
                           <Link
                             key={fb.id}
                             href="/feedback"
-                            className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="block p-4 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-2xl border border-transparent dark:border-slate-700/50 transition-all group"
                           >
-                            <p className="font-semibold text-gray-900">
+                            <p className="font-bold text-gray-900 dark:text-white group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">
                               {formatStoreName(fb.stores?.name)} - NPS: {fb.nps_score}
                             </p>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">
                               {new Date(fb.submission_date).toLocaleDateString('es-MX')}
                             </p>
                           </Link>
@@ -225,8 +234,8 @@ export default function BuscarPage() {
 
                   {/* Checklists */}
                   {results.checklists.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-md p-6">
-                      <h2 className="text-xl font-bold text-gray-900 mb-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800">
+                      <h2 className="text-xl font-black text-gray-900 dark:text-white mb-4 uppercase tracking-tight">
                         ✅ Checklists ({results.checklists.length})
                       </h2>
                       <div className="space-y-3">
@@ -234,12 +243,12 @@ export default function BuscarPage() {
                           <Link
                             key={check.id}
                             href="/checklists"
-                            className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="block p-4 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-2xl border border-transparent dark:border-slate-700/50 transition-all group"
                           >
-                            <p className="font-semibold text-gray-900">
+                            <p className="font-bold text-gray-900 dark:text-white group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">
                               {formatStoreName(check.stores?.name)} - {check.checklist_type}
                             </p>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-500 dark:text-slate-400 font-medium">
                               {new Date(check.submission_date).toLocaleDateString('es-MX')} • {check.shift}
                             </p>
                           </Link>
@@ -253,9 +262,9 @@ export default function BuscarPage() {
           )}
 
           {!searched && (
-            <div className="text-center py-12 bg-white rounded-xl shadow-md">
-              <div className="text-6xl mb-4">🔎</div>
-              <p className="text-gray-600">Escribe algo para comenzar a buscar</p>
+            <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-[2rem] shadow-sm border border-gray-100 dark:border-slate-800">
+              <div className="text-6xl mb-6 grayscale group-hover:grayscale-0 transition-all">🔎</div>
+              <p className="text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest text-xs">Escribe algo para comenzar a buscar</p>
             </div>
           )}
         </div>

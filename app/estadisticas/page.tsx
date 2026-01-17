@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react'
 
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
-export default function EstadisticasPage() {
+function EstadisticasPage() {
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -113,65 +115,61 @@ export default function EstadisticasPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-6xl mb-4">📊</div>
-            <p className="text-gray-600">Cargando estadísticas...</p>
-          </div>
-        </div>
-      </div>
-    )
+    return <SurpriseLoader />
   }
 
   return (
     <div className="flex bg-transparent w-full animate-in fade-in duration-500">
 
-      <main className="flex-1 overflow-y-auto p-8 w-full">
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 w-full">
         <div className="max-w-7xl mx-auto">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Estadísticas Avanzadas</h1>
-            <p className="text-gray-600 mt-2">Análisis visual de datos del sistema</p>
+            <h1 className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">Estadísticas Avanzadas</h1>
+            <p className="text-xs md:text-sm text-gray-500 dark:text-slate-400 mt-2 font-medium">Análisis visual de datos del sistema</p>
           </div>
 
           <div className="space-y-8">
             {/* Feedbacks por Tienda */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">Feedbacks por Tienda (Top 10)</h2>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm md:shadow-md p-4 md:p-6 border border-gray-100 dark:border-slate-800">
+              <h2 className="text-lg md:text-xl font-black text-gray-900 dark:text-white mb-6">Feedbacks por Tienda (Top 10)</h2>
               <ResponsiveContainer width="100%" height={400}>
                 <BarChart data={stats.feedbacksByStore}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-                  <YAxis />
-                  <Tooltip />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" opacity={0.3} />
+                  <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} stroke="#94a3b8" fontSize={11} fontWeight="600" />
+                  <YAxis stroke="#94a3b8" fontSize={11} fontWeight="600" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: 'none', borderRadius: '12px', color: '#fff' }}
+                    itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                  />
                   <Legend />
-                  <Bar dataKey="feedbacks" fill="#ef4444" name="Cantidad" />
-                  <Bar dataKey="avgNPS" fill="#3b82f6" name="NPS Promedio" />
+                  <Bar dataKey="feedbacks" fill="#ef4444" name="Cantidad" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="avgNPS" fill="#3b82f6" name="NPS Promedio" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             {/* Inspecciones por Tienda */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">Inspecciones por Tienda (Top 10)</h2>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm md:shadow-md p-4 md:p-6 border border-gray-100 dark:border-slate-800">
+              <h2 className="text-lg md:text-xl font-black text-gray-900 dark:text-white mb-6">Inspecciones por Tienda (Top 10)</h2>
               <ResponsiveContainer width="100%" height={400}>
                 <LineChart data={stats.inspectionsByStore}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-                  <YAxis />
-                  <Tooltip />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" opacity={0.3} />
+                  <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} stroke="#94a3b8" fontSize={11} fontWeight="600" />
+                  <YAxis stroke="#94a3b8" fontSize={11} fontWeight="600" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: 'none', borderRadius: '12px', color: '#fff' }}
+                  />
                   <Legend />
-                  <Line type="monotone" dataKey="inspecciones" stroke="#8b5cf6" strokeWidth={2} name="Cantidad" />
-                  <Line type="monotone" dataKey="avgScore" stroke="#10b981" strokeWidth={2} name="Score Promedio" />
+                  <Line type="monotone" dataKey="inspecciones" stroke="#8b5cf6" strokeWidth={3} name="Cantidad" dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="avgScore" stroke="#10b981" strokeWidth={3} name="Score Promedio" dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Checklists por Tipo */}
-              <div className="bg-white rounded-xl shadow-md p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-6">Checklists por Tipo</h2>
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm md:shadow-md p-4 md:p-6 border border-gray-100 dark:border-slate-800">
+                <h2 className="text-lg md:text-xl font-black text-gray-900 dark:text-white mb-6">Checklists por Tipo</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
@@ -188,14 +186,16 @@ export default function EstadisticasPage() {
                         <Cell key={`cell-${index}`} fill={['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'][index % 6]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', border: 'none', borderRadius: '12px', color: '#fff' }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
 
               {/* Distribución NPS */}
-              <div className="bg-white rounded-xl shadow-md p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-6">Distribución NPS</h2>
+              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm md:shadow-md p-4 md:p-6 border border-gray-100 dark:border-slate-800">
+                <h2 className="text-lg md:text-xl font-black text-gray-900 dark:text-white mb-6">Distribución NPS</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
@@ -219,7 +219,15 @@ export default function EstadisticasPage() {
             </div>
           </div>
         </div>
-      </main>
-    </div>
+      </main >
+    </div >
+  )
+}
+
+export default function ProtectedEstadisticasPage() {
+  return (
+    <ProtectedRoute>
+      <EstadisticasPage />
+    </ProtectedRoute>
   )
 }

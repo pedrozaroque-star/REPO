@@ -4,8 +4,9 @@ import React, { useState, useEffect, useMemo } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { Download, TrendingUp, AlertOctagon, UserCheck, ArrowUpRight, ArrowDownRight, Search, Printer, ChevronRight } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import * as XLSX from 'xlsx'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 // --- TYPES ---
 interface Inspection {
@@ -216,35 +217,38 @@ function ReportesContent() {
         XLSX.writeFile(wb, `Reporte_Calidad_${new Date().toISOString().split('T')[0]}.xlsx`)
     }
 
+    if (loading) return <SurpriseLoader />
+
     return (
-        <div className="flex bg-transparent text-gray-900 font-sans w-full animate-in fade-in duration-500">
+        <div className="flex bg-transparent dark:bg-neutral-900 text-gray-900 dark:text-white font-sans w-full animate-in fade-in duration-500 relative overflow-hidden min-h-screen">
+            <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
             <div className="flex-1 flex flex-col h-full w-full relative pl-0 md:pl-0">
 
                 {/* 1. COMPACT HEADER BAR */}
-                <div className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-14 lg:top-0 z-20 shadow-sm">
+                <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-14 md:top-0 z-20 shadow-sm transition-all">
                     <div className="flex items-center gap-3 w-full md:w-auto">
-                        <div className="p-2 bg-slate-900 text-white rounded-lg">
+                        <div className="p-2 bg-slate-900 dark:bg-red-600 text-white rounded-lg">
                             <TrendingUp size={20} />
                         </div>
                         <div>
-                            <h1 className="text-lg md:text-xl font-black text-gray-900 leading-none">Inteligencia Operativa</h1>
-                            <p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wide">Reporte Consolidado</p>
+                            <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white leading-none">Inteligencia Operativa</h1>
+                            <p className="text-[10px] font-black text-gray-400 dark:text-slate-500 mt-1 uppercase tracking-widest">Reporte Consolidado</p>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 hide-scrollbar">
-                        <div className="flex bg-gray-100 p-1 rounded-lg shrink-0">
+                        <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg shrink-0">
                             {['week', 'month', 'quarter', 'year'].map(r => (
                                 <button
                                     key={r}
                                     onClick={() => setTimeRange(r)}
-                                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all uppercase ${timeRange === r ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                    className={`px-3 py-1.5 text-[10px] font-black rounded-md transition-all uppercase tracking-wider ${timeRange === r ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'}`}
                                 >
                                     {r === 'week' ? 'Sem' : r === 'month' ? 'Mes' : r === 'quarter' ? 'QTD' : 'Año'}
                                 </button>
                             ))}
                         </div>
-                        <button onClick={exportExcel} className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors border border-transparent hover:border-green-200 shrink-0" title="Exportar Excel">
+                        <button onClick={exportExcel} className="p-2 text-gray-500 dark:text-slate-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors border border-transparent hover:border-green-200 dark:hover:border-green-800 shrink-0" title="Exportar Excel">
                             <Download size={20} />
                         </button>
                     </div>
@@ -253,106 +257,102 @@ function ReportesContent() {
                 <div className="p-4 md:p-8 space-y-4 md:space-y-8 overflow-y-auto pb-24 no-scrollbar">
 
                     {/* 2. STORE PERFORMANCE MATRIX (THE CORE REPORT) */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div className="px-4 md:px-6 py-4 border-b border-gray-100 flex flex-col md:flex-row justify-block md:justify-between items-start md:items-center bg-gray-50/50 gap-3">
-                            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                <TrendingUp size={16} className="text-blue-500" />
+                    <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden transition-all">
+                        <div className="px-4 md:px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center bg-gray-50/50 dark:bg-slate-800/30 gap-3">
+                            <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                                <TrendingUp size={16} className="text-blue-500 dark:text-blue-400" />
                                 Matriz de Rendimiento
                             </h3>
                             <div className="relative w-full md:w-auto">
-                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-600" />
                                 <input
                                     type="text"
-                                    placeholder="Filtrar..."
-                                    className="pl-8 pr-4 py-1.5 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-blue-400 font-medium w-full"
+                                    placeholder="Filtrar sucursal..."
+                                    className="pl-8 pr-4 py-2 text-xs bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl outline-none focus:border-blue-400 dark:focus:border-blue-600 text-gray-900 dark:text-white font-medium w-full md:w-64"
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
                             </div>
                         </div>
 
-                        {/* DESKTOP TABLE (Hidden on Mobile) */}
+                        {/* DESKTOP TABLE */}
                         <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-xs">
+                                <thead className="bg-gray-50 dark:bg-slate-800/50 text-gray-500 dark:text-slate-400 font-black uppercase text-[10px] tracking-widest">
                                     <tr>
-                                        <th className="px-6 py-3">Sucursal</th>
-                                        <th className="px-6 py-3 text-center text-xs">Score Global</th>
-                                        <th className="px-6 py-3 text-center text-xs">Tendencia</th>
-                                        <th className="px-6 py-3 text-center text-xs text-blue-500">Servicio</th>
-                                        <th className="px-6 py-3 text-center text-xs text-purple-500">Limpieza</th>
-                                        <th className="px-6 py-3 text-center text-xs text-orange-500">Producto/Temps</th>
-                                        <th className="px-6 py-3 text-center text-xs"># Auditorías</th>
+                                        <th className="px-6 py-4">Sucursal</th>
+                                        <th className="px-6 py-4 text-center">Score Global</th>
+                                        <th className="px-6 py-4 text-center">Tendencia</th>
+                                        <th className="px-6 py-4 text-center text-blue-500 dark:text-blue-400">Servicio</th>
+                                        <th className="px-6 py-4 text-center text-purple-500 dark:text-purple-400">Limpieza</th>
+                                        <th className="px-6 py-4 text-center text-orange-500 dark:text-orange-400">Producto</th>
+                                        <th className="px-6 py-4 text-center">Auditorías</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-gray-100">
+                                <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                                     {storeMatrix.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).map((store) => (
-                                        <tr key={store.id} className="hover:bg-blue-50/30 transition-colors group">
-                                            <td className="px-6 py-4 font-bold text-gray-900 group-hover:text-blue-700">
+                                        <tr key={store.id} className="hover:bg-blue-50/30 dark:hover:bg-slate-800/50 transition-colors group">
+                                            <td className="px-6 py-4 font-black text-gray-900 dark:text-white group-hover:text-blue-700 dark:group-hover:text-blue-400">
                                                 {store.name}
                                             </td>
                                             <td className="px-6 py-4 text-center">
                                                 <ScoreBadge score={store.avgScore} />
                                             </td>
                                             <td className="px-6 py-4 text-center">
-                                                <div className={`flex items-center justify-center gap-1 font-bold ${store.trend >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                                <div className={`flex items-center justify-center gap-1 font-black ${store.trend >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
                                                     {store.trend > 0 ? <ArrowUpRight size={14} /> : store.trend < 0 ? <ArrowDownRight size={14} /> : '-'}
                                                     {store.trend !== 0 && Math.abs(store.trend)}%
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 text-center text-gray-600 font-medium">{store.service}%</td>
-                                            <td className="px-6 py-4 text-center text-gray-600 font-medium">{store.hygiene}%</td>
-                                            <td className="px-6 py-4 text-center text-gray-600 font-medium">{store.product}%</td>
-                                            <td className="px-6 py-4 text-center text-gray-400 font-medium">{store.inspections}</td>
+                                            <td className="px-6 py-4 text-center text-gray-600 dark:text-slate-300 font-bold">{store.service}%</td>
+                                            <td className="px-6 py-4 text-center text-gray-600 dark:text-slate-300 font-bold">{store.hygiene}%</td>
+                                            <td className="px-6 py-4 text-center text-gray-600 dark:text-slate-300 font-bold">{store.product}%</td>
+                                            <td className="px-6 py-4 text-center text-gray-400 dark:text-slate-500 font-medium">{store.inspections}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
 
-                        {/* MOBILE CARDS (Visible only on Mobile) */}
-                        <div className="md:hidden divide-y divide-gray-100">
+                        {/* MOBILE CARDS */}
+                        <div className="md:hidden divide-y divide-gray-100 dark:divide-slate-800">
                             {storeMatrix.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).map((store) => (
-                                <div key={store.id} className="p-4 active:bg-gray-50">
+                                <div key={store.id} className="p-4 active:bg-gray-50 dark:active:bg-slate-800">
                                     <div className="flex justify-between items-start mb-3">
-                                        <div className="font-bold text-gray-900">{store.name}</div>
+                                        <div className="font-black text-gray-900 dark:text-white">{store.name}</div>
                                         <ScoreBadge score={store.avgScore} />
                                     </div>
                                     <div className="grid grid-cols-3 gap-2 text-center mb-3">
-                                        <div className="bg-blue-50 p-2 rounded-lg">
-                                            <div className="text-[10px] text-blue-400 font-bold uppercase">Servicio</div>
-                                            <div className="font-black text-blue-700">{store.service}%</div>
+                                        <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded-xl">
+                                            <div className="text-[9px] text-blue-400 dark:text-blue-500 font-black uppercase">Servicio</div>
+                                            <div className="font-black text-blue-700 dark:text-blue-400">{store.service}%</div>
                                         </div>
-                                        <div className="bg-purple-50 p-2 rounded-lg">
-                                            <div className="text-[10px] text-purple-400 font-bold uppercase">Limpieza</div>
-                                            <div className="font-black text-purple-700">{store.hygiene}%</div>
+                                        <div className="bg-purple-50 dark:bg-purple-900/20 p-2 rounded-xl">
+                                            <div className="text-[9px] text-purple-400 dark:text-purple-500 font-black uppercase">Limpieza</div>
+                                            <div className="font-black text-purple-700 dark:text-purple-400">{store.hygiene}%</div>
                                         </div>
-                                        <div className="bg-orange-50 p-2 rounded-lg">
-                                            <div className="text-[10px] text-orange-400 font-bold uppercase">Producto</div>
-                                            <div className="font-black text-orange-700">{store.product}%</div>
+                                        <div className="bg-orange-50 dark:bg-orange-900/20 p-2 rounded-xl">
+                                            <div className="text-[9px] text-orange-400 dark:text-orange-500 font-black uppercase">Producto</div>
+                                            <div className="font-black text-orange-700 dark:text-orange-400">{store.product}%</div>
                                         </div>
                                     </div>
-                                    <div className="flex justify-between items-center text-xs text-gray-400 font-medium">
-                                        <span>{store.inspections} visitas</span>
-                                        <div className={`flex items-center gap-1 ${store.trend >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                            {store.trend > 0 ? <ArrowUpRight size={14} /> : store.trend < 0 ? <ArrowDownRight size={14} /> : '-'}
-                                            {store.trend !== 0 && Math.abs(store.trend)}% vs mes pasado
+                                    <div className="flex justify-between items-center text-[10px] text-gray-400 dark:text-slate-500 font-bold">
+                                        <span>{store.inspections} auditorías</span>
+                                        <div className={`flex items-center gap-1 ${store.trend >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                                            {store.trend > 0 ? <ArrowUpRight size={12} /> : store.trend < 0 ? <ArrowDownRight size={12} /> : '-'}
+                                            {store.trend !== 0 && Math.abs(store.trend)}% vs mes ant.
                                         </div>
                                     </div>
                                 </div>
                             ))}
                         </div>
-
-                        {storeMatrix.length === 0 && (
-                            <div className="p-12 text-center text-gray-400 font-medium">No hay datos para el periodo seleccionado.</div>
-                        )}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8">
 
-                        {/* 3. COMMON FAILURES REPORT (TOP ISSUES) */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-                            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-red-50/30">
-                                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        {/* 3. COMMON FAILURES REPORT */}
+                        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col overflow-hidden transition-all">
+                            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-red-50/30 dark:bg-red-900/10">
+                                <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
                                     <AlertOctagon size={16} className="text-red-500" />
                                     Top 5 Incidencias
                                 </h3>
@@ -362,29 +362,29 @@ function ReportesContent() {
                                 {failureAnalysis.length > 0 ? (
                                     <div className="space-y-4">
                                         {failureAnalysis.map((fail, idx) => (
-                                            <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                            <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-gray-50/50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 group hover:border-red-200 dark:hover:border-red-900/50 transition-all">
                                                 <div className="flex-1 pr-4">
-                                                    <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">{fail.section}</div>
-                                                    <div className="text-sm font-bold text-gray-800 leading-tight">{fail.label}</div>
+                                                    <div className="text-[9px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">{fail.section}</div>
+                                                    <div className="text-sm font-bold text-gray-800 dark:text-slate-200 leading-tight group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">{fail.label}</div>
                                                 </div>
-                                                <div className="flex flex-col items-center justify-center bg-white w-10 h-10 rounded-lg shadow-sm border border-gray-100 shrink-0">
-                                                    <span className="text-sm font-black text-red-500">{fail.count}</span>
+                                                <div className="flex flex-col items-center justify-center bg-white dark:bg-slate-900 w-12 h-12 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 shrink-0">
+                                                    <span className="text-sm font-black text-red-500 dark:text-red-400">{fail.count}</span>
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="h-full flex items-center justify-center text-gray-400 font-medium">
-                                        Excelente trabajo. No se detectaron fallas recurrentes. 🌟
+                                    <div className="h-full flex items-center justify-center text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest text-xs italic">
+                                        Sin fallas detectadas 🌟
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        {/* 4. SUPERVISOR METRICS (AUDIT THE AUDITOR) */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200">
-                            <div className="px-6 py-4 border-b border-gray-100 bg-purple-50/30">
-                                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                        {/* 4. SUPERVISOR METRICS */}
+                        <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden transition-all">
+                            <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 bg-purple-50/30 dark:bg-purple-900/10">
+                                <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
                                     <UserCheck size={16} className="text-purple-500" />
                                     Actividad de Supervisores
                                 </h3>
@@ -394,9 +394,17 @@ function ReportesContent() {
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart data={supervisorStats} layout="vertical" barSize={12} margin={{ left: 0, right: 20 }}>
                                             <XAxis type="number" hide />
-                                            <YAxis dataKey="name" type="category" width={90} tick={{ fontSize: 10, fontWeight: 600, fill: '#64748B' }} axisLine={false} tickLine={false} />
-                                            <Tooltip cursor={{ fill: '#F1F5F9' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                                            <Bar dataKey="count" name="Inspecciones" fill="#8B5CF6" radius={[0, 4, 4, 0]} />
+                                            <YAxis dataKey="name" type="category" width={90} tick={{ fontSize: 10, fontWeight: 700, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
+                                            <Tooltip
+                                                cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }}
+                                                contentStyle={{ backgroundColor: '#0F172A', borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3)', color: '#F8FAFC' }}
+                                                itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                                            />
+                                            <Bar dataKey="count" name="Inspecciones" radius={[0, 4, 4, 0]}>
+                                                {supervisorStats.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#8B5CF6' : '#6366F1'} />
+                                                ))}
+                                            </Bar>
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -412,12 +420,12 @@ function ReportesContent() {
 }
 
 function ScoreBadge({ score }: { score: number }) {
-    let colorClass = 'bg-red-100 text-red-700'
-    if (score >= 90) colorClass = 'bg-green-100 text-green-700'
-    else if (score >= 80) colorClass = 'bg-yellow-100 text-yellow-700'
+    let colorClass = 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/50'
+    if (score >= 90) colorClass = 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-900/50'
+    else if (score >= 80) colorClass = 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-900/50'
 
     return (
-        <span className={`px-2.5 py-1 rounded-md text-xs font-black border border-transparent ${colorClass}`}>
+        <span className={`px-2.5 py-1 rounded-lg text-xs font-black border ${colorClass}`}>
             {score}%
         </span>
     )

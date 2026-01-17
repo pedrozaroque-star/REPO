@@ -10,7 +10,7 @@ export default function SurpriseLoader() {
     // 1: Ya Esta (Ready!)
     const images = [
         { src: '/logo.png', alt: 'Tacos Gavilan', width: 150 },
-        { src: '/ya%20esta.png', alt: '¡Ya Casi!', width: 160 }
+        { src: '/ya_esta.png', alt: '¡Ya Casi!', width: 160 }
     ]
 
     useEffect(() => {
@@ -21,7 +21,7 @@ export default function SurpriseLoader() {
     }, [])
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <div className="flex flex-col items-center justify-center min-h-screen bg-transparent">
             <div className="relative w-64 h-64 flex items-center justify-center mb-8">
                 {/* We absolutely position images to cross-fade or just swap cleanly */}
                 {images.map((img, index) => (

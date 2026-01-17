@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin, LayoutGrid, List } from 'lucide-react'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import SurpriseLoader from '@/components/SurpriseLoader'
 
 import UserModal from '@/components/UserModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 
-export default function UsuariosPage() {
+function UsuariosPage() {
   const [users, setUsers] = useState<any[]>([])
   const [stores, setStores] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -183,10 +185,10 @@ export default function UsuariosPage() {
 
   // Helpers visuales para etiquetas
   const roleColors: any = {
-    admin: 'bg-slate-800 text-white',
-    supervisor: 'bg-purple-100 text-purple-700 border-purple-200 border',
-    manager: 'bg-blue-100 text-blue-700 border-blue-200 border',
-    asistente: 'bg-emerald-100 text-emerald-700 border-emerald-200 border'
+    admin: 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 border-transparent',
+    supervisor: 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900/50',
+    manager: 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/50',
+    asistente: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
   }
 
   // Helper para mostrar ubicación (Tienda fija o Alcance múltiple)
@@ -205,21 +207,22 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="flex bg-transparent font-sans w-full animate-in fade-in duration-500">
+    <div className="flex bg-transparent dark:bg-neutral-900 font-sans w-full animate-in fade-in duration-500 relative overflow-hidden min-h-screen">
+      <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       <main className="flex-1 flex flex-col h-full w-full relative">
 
         {/* STICKY HEADER - Mobile & Desktop */}
-        <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20 shrink-0 transition-all top-[63px]">
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0 transition-all">
           <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
 
             {/* Title Area */}
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                 <Users size={18} />
               </div>
               <div>
-                <h1 className="text-lg md:text-xl font-black text-gray-900 tracking-tight leading-none">Usuarios</h1>
-                <p className="hidden md:block text-xs text-gray-400 font-medium">Gestión de personal</p>
+                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Usuarios</h1>
+                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-black uppercase tracking-widest">Gestión de personal</p>
               </div>
             </div>
 
@@ -227,13 +230,13 @@ export default function UsuariosPage() {
             <div className="flex items-center gap-3">
               {/* Desktop Search */}
               <div className="hidden md:flex relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" size={16} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={16} />
                 <input
                   type="text"
                   placeholder="Buscar usuario..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 pr-4 py-1.5 rounded-full bg-gray-100 border-none outline-none focus:ring-2 focus:ring-indigo-200 text-sm font-medium w-64 transition-all"
+                  className="pl-9 pr-4 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border border-transparent dark:border-slate-700 outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-bold text-gray-900 dark:text-white w-64 transition-all"
                 />
               </div>
 
@@ -242,28 +245,28 @@ export default function UsuariosPage() {
                 <select
                   value={roleFilter}
                   onChange={e => setRoleFilter(e.target.value)}
-                  className="pl-3 pr-8 py-1.5 rounded-full bg-gray-100 border-none outline-none focus:ring-2 focus:ring-indigo-200 text-sm font-bold text-gray-600 cursor-pointer"
+                  className="pl-3 pr-8 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border-none outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-black text-gray-600 dark:text-slate-400 cursor-pointer"
                 >
-                  <option value="all">Todos</option>
-                  <option value="admin">Admin</option>
-                  <option value="supervisor">Supervisor</option>
-                  <option value="manager">Manager</option>
-                  <option value="asistente">Asistente</option>
+                  <option value="all" className="dark:bg-slate-900">Todos</option>
+                  <option value="admin" className="dark:bg-slate-900">Admin</option>
+                  <option value="supervisor" className="dark:bg-slate-900">Supervisor</option>
+                  <option value="manager" className="dark:bg-slate-900">Manager</option>
+                  <option value="asistente" className="dark:bg-slate-900">Asistente</option>
                 </select>
               </div>
 
               {/* View Toggle (Desktop) */}
-              <div className="hidden md:flex bg-gray-100 p-1 rounded-full mr-2">
+              <div className="hidden md:flex bg-gray-100 dark:bg-slate-800 p-1 rounded-full mr-2">
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded-full transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-gray-900 ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`p-1.5 rounded-full transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-slate-700 shadow-sm text-gray-900 dark:text-white ring-1 ring-black/5 dark:ring-white/10' : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'}`}
                   title="Vista Cuadrícula"
                 >
                   <LayoutGrid size={16} />
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded-full transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-gray-900 ring-1 ring-black/5' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`p-1.5 rounded-full transition-all ${viewMode === 'list' ? 'bg-white dark:bg-slate-700 shadow-sm text-gray-900 dark:text-white ring-1 ring-black/5 dark:ring-white/10' : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'}`}
                   title="Vista Lista"
                 >
                   <List size={16} />
@@ -272,10 +275,10 @@ export default function UsuariosPage() {
 
               <button
                 onClick={() => { setEditingUser(null); setIsModalOpen(true); }}
-                className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 text-white flex items-center justify-center gap-2 hover:bg-black transition-transform active:scale-95 shadow-lg shadow-gray-200"
+                className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-all active:scale-[0.98] shadow-lg shadow-gray-200 dark:shadow-none"
               >
                 <Plus size={16} strokeWidth={3} />
-                <span className="hidden md:inline font-bold text-xs tracking-wide">NUEVO USUARIO</span>
+                <span className="hidden md:inline font-black text-[10px] tracking-[0.1em]">NUEVO USUARIO</span>
               </button>
             </div>
           </div>
@@ -286,14 +289,14 @@ export default function UsuariosPage() {
 
           {/* Mobile Search & Filter */}
           <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3 w-full max-w-[calc(100vw-2rem)] overflow-hidden">
-            <div className="relative group shadow-lg shadow-gray-200/50 rounded-full">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <div className="relative group shadow-lg shadow-gray-200/50 dark:shadow-none rounded-full">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
                 placeholder="Buscar por nombre..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 rounded-full bg-white border border-gray-100 outline-none focus:border-indigo-300 text-sm font-bold text-gray-900 placeholder:text-gray-400"
+                className="w-full pl-11 pr-4 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-900 text-sm font-bold text-gray-900 dark:text-white placeholder:text-gray-400"
               />
             </div>
 
@@ -302,12 +305,12 @@ export default function UsuariosPage() {
                 <button
                   key={role}
                   onClick={() => setRoleFilter(role)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border ${roleFilter === role
-                    ? 'bg-gray-900 text-white border-gray-900'
-                    : 'bg-white text-gray-500 border-gray-200'
+                  className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all border ${roleFilter === role
+                    ? 'bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 border-gray-900 dark:border-slate-100 shadow-md'
+                    : 'bg-white dark:bg-slate-900 text-gray-500 dark:text-slate-500 border-gray-200 dark:border-slate-800'
                     }`}
                 >
-                  {role === 'all' ? 'Todos' : role.charAt(0).toUpperCase() + role.slice(1)}
+                  {role === 'all' ? 'Todos' : role}
                 </button>
               ))}
             </div>
@@ -315,36 +318,34 @@ export default function UsuariosPage() {
 
           {/* Grid de Tarjetas o Tabla Lista */}
           {loading ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-pulse">
-              {[1, 2, 3, 4, 5, 6].map(i => (
-                <div key={i} className="h-40 bg-gray-200 rounded-3xl"></div>
-              ))}
+            <div className="py-20 flex justify-center scale-75">
+              <SurpriseLoader />
             </div>
           ) : (
             <>
               {viewMode === 'list' ? (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all">
                   <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-50 border-b border-gray-100">
+                    <thead className="bg-gray-50/50 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
                       <tr>
-                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider">Usuario</th>
-                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider">Rol</th>
-                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider">Ubicación</th>
-                        <th className="px-6 py-4 font-black text-xs text-gray-400 uppercase tracking-wider text-center">Estado</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">Usuario</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">Rol</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">Ubicación</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest text-center">Estado</th>
                         <th className="px-6 py-4 text-right"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                       {filteredUsers.map(user => (
                         <tr
                           key={user.id}
-                          className="hover:bg-gray-50 transition-colors group cursor-pointer"
+                          className="hover:bg-gray-50/50 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer"
                           onClick={() => { setEditingUser(user); setIsModalOpen(true); }}
                         >
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
-                              <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm shrink-0
-                                ${user.role === 'admin' ? 'bg-slate-800' :
+                              <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-xs shadow-sm shrink-0 uppercase
+                                ${user.role === 'admin' ? 'bg-slate-800 dark:bg-slate-200 dark:text-slate-900' :
                                   user.role === 'manager' ? 'bg-blue-600' :
                                     user.role === 'supervisor' ? 'bg-purple-600' :
                                       'bg-emerald-500'
@@ -352,8 +353,8 @@ export default function UsuariosPage() {
                                 {user.full_name?.charAt(0).toUpperCase()}
                               </div>
                               <div>
-                                <div className="font-bold text-gray-900 leading-tight">{user.full_name}</div>
-                                <div className="text-xs text-gray-500">{user.email}</div>
+                                <div className="font-bold text-gray-900 dark:text-white leading-tight">{user.full_name}</div>
+                                <div className="text-[10px] text-gray-500 dark:text-slate-500 font-bold">{user.email}</div>
                               </div>
                             </div>
                           </td>
@@ -363,8 +364,8 @@ export default function UsuariosPage() {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
-                              <MapPin size={12} className="text-gray-400" />
+                            <span className="text-xs font-bold text-gray-600 dark:text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
+                              <MapPin size={12} className="text-gray-400 dark:text-slate-500" />
                               {getLocationLabel(user)}
                             </span>
                           </td>
@@ -393,25 +394,24 @@ export default function UsuariosPage() {
                   </table>
 
                   {filteredUsers.length === 0 && (
-                    <div className="p-12 text-center text-gray-400">
-                      <p>No se encontraron usuarios</p>
+                    <div className="p-12 text-center text-gray-400 dark:text-slate-600">
+                      <p className="font-bold uppercase tracking-widest text-xs">No se encontraron usuarios</p>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                   {filteredUsers.map(user => (
                     <div
                       key={user.id}
                       onClick={() => {
-                        // On mobile make the whole card clickable for edit
                         if (window.innerWidth < 768) {
                           setEditingUser(user);
                           setIsModalOpen(true);
                         }
                       }}
-                      className={`bg-white p-5 rounded-3xl shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] border transition-all duration-200 hover:shadow-lg relative group active:scale-[0.98] cursor-pointer md:cursor-default
-                        ${!user.is_active ? 'opacity-60 border-gray-100 grayscale' : 'border-gray-100'}
+                      className={`bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm p-5 rounded-3xl shadow-sm border transition-all duration-200 hover:shadow-lg relative group active:scale-[0.98] cursor-pointer md:cursor-default
+                        ${!user.is_active ? 'opacity-60 grayscale' : 'border-gray-100 dark:border-slate-800'}
                       `}
                     >
                       {/* Botón Editar Flotante (Visible siempre) */}
@@ -429,8 +429,8 @@ export default function UsuariosPage() {
 
                       {/* Info Principal */}
                       <div className="flex items-center gap-4 mb-5">
-                        <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl md:text-2xl shadow-md shrink-0
-                          ${user.role === 'admin' ? 'bg-gradient-to-br from-slate-700 to-slate-900' :
+                        <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center text-white font-black text-xl md:text-2xl shadow-md shrink-0 uppercase
+                          ${user.role === 'admin' ? 'bg-gradient-to-br from-slate-700 to-slate-900 dark:from-slate-100 dark:to-slate-300 dark:text-slate-900' :
                             user.role === 'manager' ? 'bg-gradient-to-br from-blue-500 to-blue-600' :
                               user.role === 'supervisor' ? 'bg-gradient-to-br from-purple-500 to-purple-600' :
                                 'bg-gradient-to-br from-emerald-400 to-emerald-600'
@@ -438,14 +438,14 @@ export default function UsuariosPage() {
                           {user.full_name?.charAt(0).toUpperCase()}
                         </div>
                         <div className="overflow-hidden min-w-0">
-                          <h3 className="font-bold text-gray-900 text-base md:text-lg truncate leading-tight" title={user.full_name}>
+                          <h3 className="font-black text-gray-900 dark:text-white text-base md:text-lg truncate leading-tight tracking-tight" title={user.full_name}>
                             {user.full_name}
                           </h3>
-                          <p className="text-xs text-gray-500 truncate" title={user.email}>
+                          <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 truncate" title={user.email}>
                             {user.email}
                           </p>
                           {!user.is_active && (
-                            <span className="inline-block mt-1 text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
+                            <span className="inline-block mt-1 text-[9px] font-black text-red-500 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-lg uppercase tracking-widest">
                               INACTIVO
                             </span>
                           )}
@@ -453,21 +453,21 @@ export default function UsuariosPage() {
                       </div>
 
                       {/* Detalles Footer */}
-                      <div className="space-y-3 pt-4 border-t border-dashed border-gray-100">
+                      <div className="space-y-3 pt-4 border-t border-dashed border-gray-100 dark:border-slate-800">
                         <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                            <User size={12} /> Rol
+                          <span className="text-[9px] font-black text-gray-400 dark:text-slate-600 uppercase tracking-[0.2em] flex items-center gap-1.5">
+                            <User size={12} /> ROL
                           </span>
-                          <span className={`px-2.5 py-1 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-wide ${roleColors[user.role] || 'bg-gray-100'}`}>
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${roleColors[user.role] || 'bg-gray-100'}`}>
                             {user.role}
                           </span>
                         </div>
 
                         <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                            <MapPin size={12} /> Ubicación
+                          <span className="text-[9px] font-black text-gray-400 dark:text-slate-600 uppercase tracking-[0.2em] flex items-center gap-1.5">
+                            <MapPin size={12} /> UBICACIÓN
                           </span>
-                          <span className="text-xs font-bold text-gray-700 truncate max-w-[150px] text-right" title={getLocationLabel(user)}>
+                          <span className="text-[11px] font-bold text-gray-700 dark:text-slate-400 truncate max-w-[150px] text-right" title={getLocationLabel(user)}>
                             {getLocationLabel(user)}
                           </span>
                         </div>
@@ -490,5 +490,13 @@ export default function UsuariosPage() {
         />
       </main>
     </div>
+  )
+}
+
+export default function ProtectedUsuariosPage() {
+  return (
+    <ProtectedRoute>
+      <UsuariosPage />
+    </ProtectedRoute>
   )
 }
