@@ -509,7 +509,7 @@ export default function ClientesFeedbackPage() {
                       key={val}
                       type="button"
                       onClick={() => setFormData({ ...formData, [q.id]: val })}
-                      className={`text-4xl transition-all transform active:scale-95 ${formData[q.id as keyof typeof formData] >= val ? 'text-yellow-400 scale-110 drop-shadow-md' : 'text-gray-200 dark:text-slate-700'
+                      className={`text-4xl transition-all transform active:scale-95 ${(formData[q.id as keyof typeof formData] as number) >= val ? 'text-yellow-400 scale-110 drop-shadow-md' : 'text-gray-200 dark:text-slate-700'
                         }`}
                     >
                       ★
