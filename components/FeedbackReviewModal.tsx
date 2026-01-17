@@ -227,19 +227,24 @@ export default function FeedbackReviewModal({
     }
 
     return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden ring-1 ring-gray-900/5">
+    return (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[5000] flex items-center justify-center p-2 sm:p-6 animate-in fade-in duration-300">
+            {/* Modal Container */}
+            <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col relative overflow-hidden ring-1 ring-gray-900/5">
 
-                {/* Header Compacto */}
-                <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-white sticky top-0 z-10 shrink-0">
-                    <div className="flex items-center gap-2 text-gray-400">
-                        <MessageSquare size={18} />
-                        <span className="text-sm font-semibold uppercase tracking-wider">Feedback ID #{feedback.id}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={onClose} className="text-gray-400 hover:text-gray-900 p-1 bg-gray-100 rounded-full">
-                            <X size={20} />
-                        </button>
+                {/* Close Button (Floating & Always Visible) */}
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 z-50 bg-white/50 hover:bg-white text-gray-500 hover:text-gray-900 p-2.5 rounded-full transition-all backdrop-blur-md shadow-sm border border-gray-100"
+                >
+                    <X size={26} />
+                </button>
+
+                {/* Header Info (Integrated) */}
+                <div className="px-8 pt-8 pb-2 bg-white shrink-0">
+                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
+                        <MessageSquare size={14} />
+                        <span>Feedback ID #{feedback.id}</span>
                     </div>
                 </div>
 
