@@ -1274,7 +1274,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         <div className="p-2 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 flex gap-2">
                             {(() => {
                                 const isCreator = String(checklist?.inspector_id) === String(currentUser.id)
-                                const isAdmin = ['admin', 'administrador', 'auditor'].includes(role)
+                                const isAdmin = ['admin', 'administrador', 'auditor'].includes(currentUser.role)
 
                                 // REGLA: Si vacío, SOLO Admin inicia. Si no, Admin o Creador.
                                 const canWrite = (comments.length === 0 && isAdmin) || (comments.length > 0 && (isAdmin || isCreator))
