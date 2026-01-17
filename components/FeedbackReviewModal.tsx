@@ -227,7 +227,6 @@ export default function FeedbackReviewModal({
     }
 
     return (
-    return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[5000] flex items-center justify-center p-2 sm:p-6 animate-in fade-in duration-300">
             {/* Modal Container */}
             <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col relative overflow-hidden ring-1 ring-gray-900/5">
