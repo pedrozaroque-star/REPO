@@ -14,7 +14,7 @@ import { MessageCircleMore, Edit } from 'lucide-react'
 function InspeccionesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const openId = searchParams.get('openId')
+  const openId = searchParams.get('openId') || searchParams.get('id')
   const { user } = useAuth()
   const [inspections, setInspections] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,6 +36,8 @@ function InspeccionesContent() {
       const target = inspections.find(i => i.id.toString() === openId)
       if (target) {
         handleRowClick(target)
+        // Clean URL smoothly
+        window.history.replaceState(null, '', '/inspecciones')
       }
     }
   }, [openId, inspections])

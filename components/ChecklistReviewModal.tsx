@@ -220,6 +220,88 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
             setComments(prev => prev.filter(c => c.id !== tempId)) // Revert
         } else {
             fetchComments() // Refresh for real ID
+
+            // 🔔 SEND NOTIFICATION
+
+            try {
+                // 🔔 EXTRA: Notify Manager if toggled (Parallel)
+                if (includeManager && managerId && String(managerId) !== String(currentUser.id)) {
+                    await supabase.from('notifications').insert({
+                        user_id: managerId,
+                        title: '💬 Actualización de Inspección',
+                        message: `${currentUser.name} comentó en la inspección de ${checklist.store_name}`,
+                        type: 'info',
+                        link: `/inspecciones?id=${checklist.id}`,
+                        is_read: false
+                    })
+                }
+                const isCreator = String(checklist.inspector_id) === String(currentUser.id)
+
+                if (isCreator) {
+                    // I am the Supervisor -> Target the specific Admin who commented previously
+
+                    // 1. Find the LAST comment made by someone else (The Admin)
+                    const { data: lastAdminComment } = await supabase
+                        .from('inspection_comments')
+                        .select('user_id')
+                        .eq('inspection_id', checklist.id)
+                        .neq('user_id', currentUser.id) // Not me
+                        .order('created_at', { ascending: false })
+                        .limit(1)
+                        .single()
+
+                    let targetAdminId = lastAdminComment?.user_id
+
+                    // 2. Fallback: If no comments yet (Supervisor just starting a note), notify ALL Admins as broadcast
+                    if (!targetAdminId) {
+                        const { data: admins } = await supabase
+                            .from('users')
+                            .select('id')
+                            .in('role', ['admin', 'administrador', 'auditor'])
+
+                        // If multiple admins, we notify all (broadcast) or picking the first one
+                        if (admins && admins.length > 0) {
+                            const notifPayloads = admins.map(admin => ({
+                                user_id: admin.id,
+                                title: '💬 Nota de Supervisor',
+                                message: `${currentUser.name} dejó una nota en la inspección de ${checklist.store_name}`,
+                                type: 'info',
+                                link: `/inspecciones?id=${checklist.id}`,
+                                is_read: false
+                            }))
+                            await supabase.from('notifications').insert(notifPayloads)
+                        }
+                        return // Exit after broadcast
+                    }
+
+                    // 3. Notify the SPECIFIC Admin found
+                    if (targetAdminId) {
+                        await supabase.from('notifications').insert({
+                            user_id: targetAdminId,
+                            title: '💬 Respuesta de Supervisor',
+                            message: `${currentUser.name} respondió en la inspección de ${checklist.store_name}`,
+                            type: 'info',
+                            link: `/inspecciones?id=${checklist.id}`,
+                            is_read: false
+                        })
+                    }
+
+                } else {
+                    // I am Admin/Manager -> Notify the Supervisor (Creator)
+                    if (checklist.inspector_id) {
+                        await supabase.from('notifications').insert({
+                            user_id: checklist.inspector_id,
+                            title: '💬 Revisión de Admin',
+                            message: `${currentUser.name} comentó en tu inspección de ${checklist.store_name}`,
+                            type: 'info',
+                            link: `/inspecciones?id=${checklist.id}`,
+                            is_read: false
+                        })
+                    }
+                }
+            } catch (notifyError) {
+                console.error('Error sending notification:', notifyError)
+            }
         }
     }
 
@@ -1190,21 +1272,43 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                         {/* Input */}
                         <div className="p-2 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 flex gap-2">
-                            <input
-                                value={newComment}
-                                onChange={(e) => setNewComment(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendComment()}
-                                placeholder={status === 'cerrado' && !['supervisor', 'admin'].includes(role) ? "El chat está cerrado" : "Escribe un mensaje..."}
-                                disabled={status === 'cerrado' && !['supervisor', 'admin'].includes(role)}
-                                className="flex-1 px-3 py-2 bg-gray-100 dark:bg-slate-800 rounded-xl text-xs border-none text-gray-900 dark:text-white focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-                            />
-                            <button
-                                onClick={handleSendComment}
-                                disabled={!newComment.trim() || saving || (status === 'cerrado' && !['supervisor', 'admin'].includes(role))}
-                                className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition shadow disabled:opacity-50"
-                            >
-                                <Send size={16} />
-                            </button>
+                            {(() => {
+                                const isCreator = String(checklist?.inspector_id) === String(currentUser.id)
+                                const isAdmin = ['admin', 'administrador', 'auditor'].includes(role)
+
+                                // REGLA: Si vacío, SOLO Admin inicia. Si no, Admin o Creador.
+                                const canWrite = (comments.length === 0 && isAdmin) || (comments.length > 0 && (isAdmin || isCreator))
+
+                                const isClosed = status === 'cerrado' && !isAdmin
+                                const isDisabled = !canWrite || isClosed
+
+                                let placeholderText = "Escribe un mensaje..."
+                                if (isClosed) placeholderText = "El chat está cerrado"
+                                else if (!canWrite) {
+                                    if (comments.length === 0) placeholderText = "Esperando que un Admin inicie la revisión..."
+                                    else placeholderText = "Solo lectura"
+                                }
+
+                                return (
+                                    <>
+                                        <input
+                                            value={newComment}
+                                            onChange={(e) => setNewComment(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !isDisabled && handleSendComment()}
+                                            placeholder={placeholderText}
+                                            disabled={isDisabled}
+                                            className="flex-1 px-3 py-2 bg-gray-100 dark:bg-slate-800 rounded-xl text-xs border-none text-gray-900 dark:text-white focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        />
+                                        <button
+                                            onClick={handleSendComment}
+                                            disabled={!newComment.trim() || saving || isDisabled}
+                                            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            <Send size={16} />
+                                        </button>
+                                    </>
+                                )
+                            })()}
                         </div>
                     </motion.div>
                 )}
