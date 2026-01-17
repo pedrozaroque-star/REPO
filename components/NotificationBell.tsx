@@ -239,13 +239,13 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
               onClick={() => setIsOpen(false)}
             />
 
-            <div className={`fixed z-50 bottom-0 left-0 right-0 mx-4 mb-4 max-h-[70vh] flex flex-col ${isCollapsed ? 'md:left-20' : 'md:left-64'} md:bottom-20 md:w-96 md:mx-0 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden ring-1 ring-black ring-opacity-5 animate-in slide-in-from-bottom-2 fade-in duration-200 transition-all`}>
+            <div className={`fixed z-50 top-16 ${isCollapsed ? 'left-20' : 'left-64'} w-96 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-gray-200 dark:border-slate-700 overflow-hidden ring-1 ring-black/5 dark:ring-white/5 animate-in slide-in-from-top-2 fade-in duration-200 transition-all max-h-[80vh] flex flex-col md:top-16 md:left-auto md:right-4`}>
 
-              <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-                <h3 className="text-sm font-semibold text-gray-700">Notificaciones</h3>
+              <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Notificaciones</h3>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="text-gray-400 hover:text-gray-600 md:hidden"
+                  className="text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200 md:hidden"
                 >
                   ✕
                 </button>
@@ -253,30 +253,30 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
 
               <div className="overflow-y-auto overscroll-contain max-h-[60vh] md:max-h-96">
                 {notifications.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-gray-500">
+                  <div className="px-4 py-8 text-center text-gray-500 dark:text-slate-400">
                     <p className="text-3xl mb-2">🔕</p>
                     <p className="text-sm">No tienes notificaciones nuevas</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-gray-100">
+                  <div className="divide-y divide-gray-100 dark:divide-slate-800">
                     {notifications.map((notification) => (
                       <div
                         key={notification.id}
                         onClick={() => handleNotificationClick(notification)}
-                        className={`flex flex-col gap-1 p-3 rounded-lg transition-all ${!notification.is_read ? 'bg-indigo-50 hover:bg-indigo-100 border-l-4 border-indigo-500' : 'hover:bg-gray-50'}`}
+                        className={`flex flex-col gap-1 p-3 rounded-lg transition-all cursor-pointer ${!notification.is_read ? 'bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 border-l-4 border-indigo-500' : 'hover:bg-gray-50 dark:hover:bg-slate-800'}`}
                       >
                         <div className="flex items-start gap-3">
                           <span className="text-xl mt-1 select-none">
                             {getIcon(notification.type)}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                               {notification.title}
                             </p>
-                            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 line-clamp-2">
                               {notification.message}
                             </p>
-                            <p className="text-[10px] text-gray-400 mt-1">
+                            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
                               {new Date(notification.created_at).toLocaleString('es-MX', {
                                 day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
                               })}
@@ -289,7 +289,7 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
                 )}
               </div>
 
-              <div className="bg-gray-50 px-4 py-2 border-t border-gray-100 text-center">
+              <div className="bg-gray-50 dark:bg-slate-800 px-4 py-2 border-t border-gray-100 dark:border-slate-700 text-center">
                 <button
                   onClick={() => setIsOpen(false)}
                   className="text-xs text-blue-600 font-medium hover:text-blue-800"
