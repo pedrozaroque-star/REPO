@@ -10,25 +10,31 @@ export const uploadPhotos = async (
 
   for (const file of files) {
     try {
-      // 1. Limpiar nombre de archivo y generar ID único
+      // 1. Limpiar nombre de archivo base
       const fileExt = file.name.split('.').pop()
       const cleanFileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
 
-      // 1.5 Compresión de Imagen
+      let finalFileName = cleanFileName
+      let fileToUpload = file
+
+      // 1.5 Súper Compresión de Imagen (Updated by Antigravity)
       const options = {
-        maxSizeMB: 0.8,          // Aim for under 1MB
-        maxWidthOrHeight: 1920,  // Full HD is enough for evidence
+        maxSizeMB: 0.3,          // Aim for ~300KB
+        maxWidthOrHeight: 1280,  // HD 720p is enough for evidence
         useWebWorker: true,
-        initialQuality: 0.8
+        fileType: 'image/webp',  // WebP saves ~30% more space
+        initialQuality: 0.7
       }
 
-      let fileToUpload = file
       try {
         // Only compress images
         if (file.type.startsWith('image/')) {
-          // console.log(`Compressing ${file.name} (${file.size / 1024 / 1024} MB)...`)
           fileToUpload = await imageCompression(file, options)
-          // console.log(`Compressed to ${fileToUpload.size / 1024 / 1024} MB`)
+
+          // Si se convirtió a WebP, actualizar la extensión
+          if (fileToUpload.type === 'image/webp') {
+            finalFileName = cleanFileName.replace(/\.[^/.]+$/, ".webp")
+          }
         }
       } catch (e) {
         console.warn('Compression failed, uploading original:', e)
@@ -37,7 +43,8 @@ export const uploadPhotos = async (
       // 2. Subir usando el cliente de Supabase
       const { error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(cleanFileName, fileToUpload, {
+        .upload(finalFileName, fileToUpload, {
+          contentType: fileToUpload.type,
           cacheControl: '3600',
           upsert: false
         })
@@ -47,11 +54,10 @@ export const uploadPhotos = async (
       // 3. Obtener la URL pública
       const { data } = supabase.storage
         .from(bucket)
-        .getPublicUrl(cleanFileName)
+        .getPublicUrl(finalFileName)
 
       if (data?.publicUrl) {
         urls.push(data.publicUrl)
-
       }
 
     } catch (error: any) {

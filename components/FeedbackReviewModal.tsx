@@ -394,8 +394,8 @@ export default function FeedbackReviewModal({
                                                     <span className="text-[9px] font-bold text-slate-400 uppercase">{c.user_name}</span>
                                                 </div>
                                                 <div className={`px-3 py-2 rounded-2xl max-w-[85%] text-sm font-medium shadow-sm ${isMe
-                                                        ? 'bg-indigo-600 text-white rounded-tr-none'
-                                                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-tl-none'
+                                                    ? 'bg-indigo-600 text-white rounded-tr-none'
+                                                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-tl-none'
                                                     }`}>
                                                     {c.content}
                                                 </div>
@@ -439,8 +439,12 @@ export default function FeedbackReviewModal({
                         <button onClick={() => setViewerOpen(false)} className="p-2 bg-white/10 rounded-full hover:bg-white/20"><X size={20} /></button>
                     </div>
                     {/* Image */}
-                    <div className="flex-1 flex items-center justify-center p-4">
-                        <img src={getEmbeddableImageUrl(galleryImages[currentImageIndex])} className="max-h-full max-w-full object-contain shadow-2xl rounded-lg" alt="Zoomed evidence" />
+                    <div className="flex-1 w-full h-full flex items-center justify-center p-4 overflow-hidden relative">
+                        <img
+                            src={getEmbeddableImageUrl(galleryImages[currentImageIndex])}
+                            className="max-h-[85vh] max-w-[95vw] object-contain shadow-2xl rounded-lg"
+                            alt="Zoomed evidence"
+                        />
                     </div>
                     {/* Nav */}
                     {galleryImages.length > 1 && (
