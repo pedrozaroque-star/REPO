@@ -6,19 +6,25 @@ import path from 'path'
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
 
-// Cliente directo para chequeo rápido
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-async function populateYear() {
-    console.log('🚀 Iniciando Carga Masiva - AÑO 2024 COMPLETO')
-    console.log('📅 Rango: 01 Ene 2024 -> 31 Dic 2024')
-    console.log('⚡ Modo Inteligente: Saltará días ya cacheados.\n')
+async function populateRange() {
+    const startArg = process.argv[2]
+    const endArg = process.argv[3]
 
-    const startDate = new Date('2024-12-01')
-    const endDate = new Date('2024-12-31')
+    if (!startArg || !endArg) {
+        console.error("❌ Uso: npx tsx populate-range.ts YYYY-MM-DD YYYY-MM-DD")
+        process.exit(1)
+    }
 
+    console.log(`🚀 Iniciando Rango: ${startArg} -> ${endArg}`)
+
+    const startDate = new Date(startArg)
+    const endDate = new Date(endArg)
     let current = new Date(startDate)
-    let totalDays = 366 // 2024 fue bisiesto
+
+    // Total días para log
+    const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1
     let processed = 0
 
     while (current <= endDate) {
@@ -33,7 +39,9 @@ async function populateYear() {
                 .eq('business_date', dateStr)
 
             if (count && count >= 14) {
-                console.log(`⏩ [${processed}/${totalDays}] ${dateStr}: YA EXISTE (${count} tiendas). Saltando...`)
+                // Log ligero para no spamear
+                // process.stdout.write('.') 
+                if (processed % 10 === 0) console.log(`⏩ [${processed}/${totalDays}] ${dateStr}: YA EXISTE (${count} tiendas). Saltando...`)
                 return 'SKIPPED'
             }
 
@@ -58,7 +66,6 @@ async function populateYear() {
             const timeoutPromise = new Promise((_, reject) =>
                 setTimeout(() => reject(new Error("TIMEOUT EXTREMO (60s)")), 60000)
             )
-
             // @ts-ignore
             await Promise.race([processDay(), timeoutPromise])
 
@@ -66,12 +73,15 @@ async function populateYear() {
             console.error(`💀 SALTO DE EMERGENCIA en ${dateStr}:`, e.message)
         }
 
+        // Avanzar día
         current.setDate(current.getDate() + 1)
-        // Pequeña pausa
+
+        // Garbage collection manual hint y pausa
+        if (global.gc) { global.gc(); }
         await new Promise(r => setTimeout(r, 200))
     }
 
-    console.log('\n✨ ¡AÑO 2024 COMPLETADO! ✨')
+    console.log(`✨ Rango ${startArg} - ${endArg} COMPLETADO.`)
 }
 
-populateYear()
+populateRange()

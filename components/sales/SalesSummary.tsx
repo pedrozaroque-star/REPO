@@ -3,7 +3,7 @@
 import React from 'react'
 import { DollarSign, ShoppingBag, Tag, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { Card } from '@/components/ui/card'
+
 
 interface SummaryProps {
     data: {
