@@ -431,7 +431,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
 
     try {
         console.log("Attempting Toast Auth...")
-        token = await getAuthToken()
+        token = (await getAuthToken()) || ''
         if (token) {
             realStores = await getRestaurants(token)
             console.log(`Found ${realStores.length} real stores via API`)
