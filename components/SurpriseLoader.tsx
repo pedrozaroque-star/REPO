@@ -21,7 +21,7 @@ export default function SurpriseLoader() {
     }, [])
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-transparent">
+        <div className="flex flex-col items-center justify-center h-[400px] bg-transparent">
             <div className="relative w-64 h-64 flex items-center justify-center mb-8">
                 {/* We absolutely position images to cross-fade or just swap cleanly */}
                 {images.map((img, index) => (

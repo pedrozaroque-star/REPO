@@ -1,4 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
+import dotenv from 'dotenv'
+import path from 'path'
+
+// Cargar variables si no existen (para scripts de backend)
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+  dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
+}
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!

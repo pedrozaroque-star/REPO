@@ -1,0 +1,1914 @@
+te dejo el siguiente texto de contexto para que me ayudes:
+Claro, Roberto. Pégame aquí el texto completo de contexto (tal cual), y dime en una frase qué necesitas que haga con él:
+
+¿Resumirlo?
+¿Convertirlo en un plan de acción para Toast/POS?
+¿Redactar un mensaje para el equipo?
+¿Analizar datos/impacto (ventas, labor, etc.)?
+Con eso me pongo a trabajar.
+
+
+Completed
+
+
+
+estoy desarrollando una pagina web personal y quisiera saber si existe una manera de jalar las ventas de mis tiendas para verlas en mi pagina privada, algo como un API o algo asi Sí — hay formas de “jalar” tus ventas a una página privada, pero normalmente no es un API público simple tipo “pega tu llave y ya”. En Toast, lo más común es hacerlo de estas maneras (de más a menos “en tiempo real”): Opciones para llevar ventas a tu web privada 1) Integración vía partner / API (lo más parecido a “API”) Si quieres que tu web consulte ventas por tienda (por ejemplo Lynwood, South Gate, etc.) y las muestre en un dashboard privado, normalmente se hace con integraciones (partner API / acceso autorizado). Esto requiere: Autenticación segura (tokens/credenciales) Permisos por ubicación Un servicio intermedio (backend) que consulte y guarde/cachee los datos Tú tienes 15 ubicaciones accesibles, por ejemplo: Tacos Gavilan (Imperial-Long Beach) - Lynwood Tacos Gavilan (Firestone-Garfield) - South Gate Tacos Gavilan (Central-Washington) - LA Central …y las demás. 2) Exportación programada de reportes + tu base de datos (más simple de implementar) Si no necesitas “tiempo real”, muchas marcas hacen: Generar reportes (diarios/semanales) desde Toast Enviarlos a un repositorio seguro (o descargarlos) Tu sistema los ingiere y los muestra en tu web 3) Usar BI/Reporting externo (si ya tienen algo como Looker, Power BI, etc.) Montas el dashboard en la herramienta y lo embebes en tu web privada (con login). Para aterrizarlo bien (1 pregunta) ¿Lo quieres por tienda (comparativo entre todas tus ubicaciones) o solo para esta ubicación (Lynwood)? Con eso te digo el enfoque recomendado y qué datos exactos conviene jalar (net sales, orders, guest count, etc.) y cada cuánto refrescarlo. 2 steps en tiempo real haciendo consultas directamente desde mi web privada hacia toast No de forma directa desde tu web (frontend) “pegándole” a Toast en tiempo real como si fuera un API público abierto. En Toast, el acceso “tipo API” para datos de ventas normalmente se hace vía integraciones autorizadas y con un backend, no desde el navegador del usuario. Lo que sí es posible (y lo recomendado) 1) Backend propio + integración autorizada (la forma correcta) Tu web privada llama a tu servidor (API tuya). Tu servidor es el que se autentica contra Toast / integración y consulta ventas. Tu servidor devuelve a tu web los datos ya filtrados (por tienda, por día, etc.). Esto evita exponer credenciales/tokens en el navegador y te permite controlar permisos por ubicación (tú tienes 15 ubicaciones accesibles, como Lynwood, South Gate, LA Central, etc.). 2) “Tiempo real” dentro de Toast Web (sin API) Si lo que quieres es ver “en vivo”, Toast ya lo muestra en reportes dentro de Toast Web (por ejemplo Sales Summary), con filtros por fecha y ubicación. Esto no se consume como API desde tu web, pero sí cumple el uso “en tiempo real” dentro del portal. Lo que NO recomiendo (y normalmente no funciona) Hacer consultas directamente desde el frontend (JavaScript en tu página) a Toast: por seguridad (expones credenciales) por CORS/autenticación por permisos y términos de uso 1 pregunta para orientarte bien ¿Tu página privada la usarías solo tú (dashboard interno) o también otros usuarios (gerentes) con login? Con esa respuesta te propongo el diseño mínimo (qué endpoints necesitas: net sales, órdenes, guests; por tienda o consolidado; y cada cuánto refrescar). Fuentes Sales Summary Report: https://central.toasttab.com/s/article/Sales-Summary-Report How do I access sales reports?: https://central.toasttab.com/s/article/How-do-I-access-sales-reports 1 step dashboard interno solo yo Perfecto — siendo dashboard interno solo para ti, la forma más segura y “real‑time” posible es: ✅ Sí se puede, pero no directo desde el navegador a Toast Lo correcto es NO hacer llamadas desde tu página (frontend) directo a Toast, porque tendrías que exponer credenciales/tokens en el cliente. En su lugar: Arquitectura recomendada (real‑time “casi”) Tu Web privada (frontend) llama a → Tu backend (API tuya: Node, Python, etc.) tu backend se autentica con Toast (vía integración/autorización) y consulta ventas tu backend regresa datos ya listos para mostrar (por tienda, hoy, esta semana, etc.) Con esto puedes traer ventas de todas tus ubicaciones (por ejemplo): Tacos Gavilan (Imperial-Long Beach) - Lynwood Tacos Gavilan (Firestone-Garfield) - South Gate Tacos Gavilan (Central-Washington) - LA Central …y las demás. Qué tan “en tiempo real” es En Toast Web, los reportes de ventas se actualizan con filtros por fecha/ubicación (por ejemplo Sales Summary). Para un dashboard propio, lo típico es refrescar cada 30–120 segundos (polling) o cada 5 min si solo es monitoreo. Alternativa rápida (sin API) Si lo que necesitas es solo “verlo en vivo”, Toast Web ya lo resuelve con Sales Summary y filtros por ubicación/fecha. 1 pregunta para definir el diseño mínimo En tu dashboard, ¿quieres ver principalmente: A) Net Sales, #Orders y Guest Count “hoy” por tienda o B) algo más detallado (por hora, por order source como online vs in-store)? Con esa respuesta te digo exactamente qué endpoints/consultas conviene armar y el refresh recomendado. Fuentes Sales Summary Report: https://central.toasttab.com/s/article/Sales-Summary-Report 2 steps opcion A Entendido — para la opción A (Net Sales + # Orders + Guest Count “hoy” por tienda), el dashboard ideal es totalmente viable, pero hay un detalle importante: Lo que puedo ver desde aquí (y el bloqueo actual) Intenté consultar hoy (Saturday, 2026-01-17) por ubicación para tus 15 tiendas y el sistema regresó “no tienes permisos para acceder a ese recurso de reporting”. Eso normalmente significa que a tu usuario le falta algún permiso de reportes (o el acceso a multi‑location reporting desde el rol). Así que ahorita no puedo jalarte esos números en este chat, aunque sí puedo ayudarte a diseñar el flujo y qué pedirle a tu admin/Toast para habilitarlo. ✅ Cómo lo haría tu dashboard interno (diseño mínimo) 1) Backend (tu API) Crea endpoints como: GET /metrics/today → regresa por tienda: Net Sales, Order Count, Guest Count Param opcional: location=... o all=true 2) Frontend (tu web privada) Llama tu backend cada 60–120s y renderiza tabla por tienda (Lynwood, South Gate, etc.) 3) Seguridad (lo clave) Tu backend guarda tokens/credenciales (nunca en el navegador) Tu web usa login simple (aunque seas solo tú) o al menos un secret/server-side session 1 cosa que necesito de ti para destrabarlo ¿Quieres que lo revisemos como permiso de reportes en Toast? Si me confirmas “sí”, dime solo esto: ¿Tú puedes ver en Toast Web el reporte “Sales Summary” hoy por ubicación (multi‑location), o te sale restringido? Con esa respuesta te digo exactamente qué permisos/área es la que falta y cómo pedir que te lo activen (sin inventar pasos, basado en documentación/flujo oficial). 1 step si puedo ver todo Sí se ve que tienes acceso a “hoy” en la ubicación actual vía datos (yo pude consultar y para Saturday, 2026-01-17 en Tacos Gavilan (Imperial-Long Beach) - Lynwood veo): Net Sales: $3,148 Orders: 174 Guest Count: 174 Pero cuando intento hacerlo multi‑ubicación (todas tus 15 tiendas) y desglosarlo por ubicación, ese recurso de reporting me rechaza con “not permitted”. O sea: ✅ Single location (la ubicación actual): sí hay acceso programático ❌ Multi-location / por ubicación (todas las tiendas en una sola consulta): está bloqueado a nivel de permisos/servicio para este tipo de consulta Qué significa para tu dashboard (Opción A) Opción 1 — Dashboard “real time” pero consultando una tienda a la vez Si tu integración/credenciales permiten consultar cada tienda por separado (sesión/credenciales por location), podrías: hacer 15 llamadas (una por tienda) y armar tu tabla en tu backend Esto es común y funciona bien si cacheas 60–120s. Opción 2 — Destrabar el acceso “multi‑location reporting API” Esto ya es tema de permisos/alcance de integración (aunque en Toast Web sí lo puedas ver). En otras palabras: verlo en la UI ≠ tener permiso de consultarlo vía endpoints/servicios. 1 pregunta (para decirte cuál camino conviene) En tu dashboard, ¿necesitas que salga toda la cadena (15 tiendas) en una sola pantalla, o te sirve empezar con Lynwood y luego agregar selector de tienda? Si me dices cuál, te recomiendo el camino (por ubicación vs multi‑ubicación) y el refresh/caché ideal. Fuentes
+Sí se puede lograr Opción A (Net Sales, Orders, Guest Count “hoy” por tienda) en un dashboard privado, pero no es recomendable (ni normalmente posible) hacerlo “directo desde el frontend” (tu página en el navegador) hacia Toast por temas de seguridad/autenticación. En Toast, el camino correcto para “real‑time” es backend → Toast.
+
+✅ Enfoque recomendado (dashboard interno solo tú)
+1) Tu web privada (frontend)
+Solo muestra datos.
+Llama a tu backend cada 60–120s (polling).
+2) Tu backend (Node/Python/etc.)
+Guarda credenciales/tokens de forma segura (server-side).
+Consulta a Toast (vía integración autorizada) y devuelve a tu frontend un JSON con:
+Net Sales
+Order Count
+Guest Count
+Puedes cachear 60–120s para no sobrecargar ni tu servidor ni Toast.
+Dos caminos “Toast-friendly” para obtener datos
+Camino A — Open API / Partner API (más “real‑time”)
+Toast maneja el acceso tipo API como parte de su programa de Integration Partners (no es un API público abierto). En Toast Central hay un artículo específico para cuando un cliente solicita credenciales de API: básicamente es aplicar al programa de partners.
+
+Camino B — Data Exports nocturnos por SFTP (más simple, no real‑time)
+Si “real‑time” no es crítico, Toast soporta exportaciones automáticas nocturnas vía SFTP (archivos por ubicación por día). Esto sirve perfecto para dashboards históricos y cierres, pero no para “hoy en vivo”.
+
+Importante: “real‑time” dentro de Toast Web
+Toast Web (Sales Summary) incluye un indicador de frescura de datos para saber si lo que ves está en real‑time o near-real time (útil para calibrar expectativas de “en vivo” vs retrasos).
+
+Tus ubicaciones (para tu tabla por tienda)
+Tienes 15 ubicaciones accesibles, incluyendo:
+
+South Gate
+LA Central
+Huntington Park
+Hollywood
+Downey
+Norwalk
+Rialto
+Lynwood
+LA Broadway
+West Covina
+Slauson
+Santa Ana
+La Puente
+Azusa
+Bell
+1 pregunta para aterrizar tu implementación
+¿Tu dashboard lo quieres en una sola pantalla con las 15 tiendas a la vez, o prefieres empezar con un selector de tienda (una tienda por vista) para reducir carga/llamadas?
+
+Si me dices cuál, te propongo el diseño mínimo (endpoints, esquema de respuesta JSON y estrategia de refresh/cache) sin exponer credenciales.
+
+Sources
+Customer Requesting API Credentials: https://central.toasttab.com/s/article/Customer-Requesting-API-Credentials
+Automated Nightly Data Export: https://central.toasttab.com/s/article/Automated-Nightly-Data-Export-1492723819691
+Determine if the Data Shown in Sales Summary Report Is Current: https://central.toasttab.com/s/article/How-do-I-check-if-the-data-shown-in-the-Sales-Summary-report-is-current
+Sales Summary Report: https://central.toasttab.com/s/article/Sales-Summary-Report
+
+Completed
+
+
+
+camino A
+Perfecto: Camino A = API. En Toast hay dos rutas “oficiales” que encajan con lo que quieres:
+
+1) La opción más directa para ti: Standard API Access (read-only)
+Toast Central indica que Standard API access te da credenciales de solo lectura para consultar datos “de cualquiera de tus ubicaciones”, y que puedes crear varios juegos de credenciales y limitar qué tiendas incluye cada uno (ideal si luego separas permisos).
+
+Esto es lo más parecido a “dame un API key y leo ventas”.
+Normalmente lo implementas así: tu backend pide datos a Toast con esas credenciales y tu web privada solo consume tu backend.
+2) Si quieres algo más “partner / custom integration”: Toast Integration Partner Program
+Si lo tuyo va más allá (producto, distribución, etc.), Toast Central dice que para obtener acceso al API como partner hay que llenar el Integration Partner Application Form y el equipo de Business Development revisa la solicitud.
+
+3) Importante para tu caso (15 tiendas): Data Scope y multi‑location
+Cuando conectas integraciones en Toast, te muestran el data scope visibility (qué datos se comparten y para qué ubicaciones) y lo tienes que aceptar al confirmar. Esto aplica tanto a single location como multi‑unit.
+
+Cómo lo bajaría a tu dashboard (Opción A)
+Backend endpoint tuyo: GET /metrics/today
+Respuesta: por tienda → netSales, orderCount, guestCount
+Refresco recomendado: 60–120s (polling) + cache en backend
+1 pregunta (para darte el diseño exacto)
+¿Quieres que el dashboard muestre las 15 tiendas en una sola tabla siempre, o también te sirve un selector (y solo consultas una tienda por vez)?
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Customer Requesting API Credentials: https://central.toasttab.com/s/article/Customer-Requesting-API-Credentials
+Toast Partner Integrations Data Scope Visibility Overview: https://central.toasttab.com/s/article/Toast-Partner-Connect-Data-Scope-Visibility
+Set Up Toast Partner Integrations: https://central.toasttab.com/s/article/Toast-Partner-Connect-Setting-Up-Integrations-with-Toast
+
+Completed
+
+
+
+selector de fechas y rangos de fechas y de tiendas
+Perfecto — con selector de tienda + selector de rango de fechas, el diseño con Standard API access (read‑only) queda muy limpio.
+
+✅ UX recomendada (simple y rápida)
+En tu dashboard privado:
+
+Selector de tienda
+Default: “Todas” o una tienda (ej. West Covina)
+Lista (tus 15):
+South Gate, LA Central, Huntington Park, Hollywood, Downey, Norwalk, Rialto, Lynwood, LA Broadway, West Covina, Slauson, Santa Ana, La Puente, Azusa, Bell
+Selector de fechas
+Presets: Hoy, Ayer, Esta semana (so far), Semana pasada, Últimos 7 días, Últimos 28 días, Mes a la fecha
+Custom: startDate + endDate
+KPIs (Opción A)
+Net Sales
+Order Count
+Guest Count
+✅ Backend (lo que conviene construir)
+Te conviene exponer tu propia API y que tu web solo consuma eso.
+
+Endpoints mínimos
+GET /stores
+Devuelve la lista de tiendas (id interno tuyo + nombre) para poblar el selector.
+
+GET /metrics
+
+Query params:
+storeId= (una tienda) o storeId=all
+startDate=YYYY-MM-DD
+endDate=YYYY-MM-DD
+Respuesta:
+si storeId=all → array por tienda
+si storeId= uno → un objeto
+Cache / “casi real‑time”
+Para rangos que incluyen “hoy”: cache 60–120s
+Para rangos históricos: cache 5–15 min (o incluso más)
+🔒 Seguridad (clave)
+Credenciales/API keys de Toast solo en el backend
+Tu frontend nunca toca Toast directo
+Si esto crece, agrega login (aunque sea solo para ti) y rate limiting básico
+Lo único que necesito de ti para dejarlo listo (1 cosa)
+¿Tu dashboard lo quieres en hora local de cada tienda o en una sola zona horaria para todas?
+
+Como todas tus ubicaciones están en CA, probablemente America-Los_Angeles para todo sea suficiente, pero lo confirmo contigo porque afecta cómo interpretas “hoy” y los rangos.
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Toast Partner Integrations Data Scope Visibility Overview: https://central.toasttab.com/s/article/Toast-Partner-Connect-Data-Scope-Visibility
+
+Completed
+
+
+
+tambien puedo ver labor y registro de empleados?
+Sí — puedes ver labor y “registro” de empleados, pero con dos matices importantes:
+
+En Toast Web sí: hay reportes de labor (horas, turnos, time entries, etc.).
+Vía API: depende de qué APIs/datos tengas habilitados con tu Standard API access (y/o APIs específicas como Analytics). Toast lo maneja por credenciales y alcance.
+Qué “labor / empleados” puedes manejar (en Toast Web)
+Toast Central confirma que existe Time Entry Management y reportes de labor para ver turnos/time entries y editarlos (si tienes permisos). También puedes filtrar por rango de fechas y ubicación.
+
+Para ver time entries necesitas el permiso 4.3 Labor Reporting.
+Para editar time entries necesitas el permiso 3.14 Edit Time Entries.
+Para tu dashboard privado (vía API) — qué haría yo
+Si tu objetivo es mostrar en tu web privada algo tipo:
+
+Total horas (regular/OT)
+Costo laboral total
+Labor % vs ventas
+Conteo de empleados que trabajaron
+(Opcional) turnos por empleado
+Eso es totalmente viable como concepto, pero lo correcto es:
+
+No exponer datos por empleado en el frontend sin control (aunque seas tú, sigue siendo sensible).
+Consumirlo desde tu backend con tus credenciales de API y devolverlo agregado.
+1 pregunta para definir el alcance (y evitar PII de más)
+¿En tu dashboard quieres solo labor agregado por tienda (ej. horas y costo total por día/semana), o también quieres detalle por empleado (quién trabajó, entradas/salidas)?
+
+Si me dices “agregado”, te propongo un set de endpoints tipo GET /labor?storeId&startDate&endDate.
+Si me dices “detalle por empleado”, te ayudo a acotarlo de forma segura (mínimo necesario).
+Sources
+Edit Employee Time Clock Entries (Time Entry Management, permisos): https://central.toasttab.com/s/article/Editing-Employee-Time-Clock-Entries-1492802387122
+Labor Reports Overview: https://central.toasttab.com/s/article/Labor-Reports-Overview
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+
+Completed
+
+
+
+agregado
+Perfecto — agregado es el mejor punto de partida (más seguro y más fácil de mantener).
+
+Qué sí puedes llevar a tu web (agregado, sin datos por empleado)
+Con Toast, lo típico para un dashboard privado es mostrar por tienda + rango de fechas:
+
+Total Hours (horas totales)
+Total Labor Cost (costo total)
+Overtime Hours / Cost (si aplica)
+Labor % of Sales (labor vs ventas)
+SPLH (Sales per Labor Hour) si lo quieres
+En Toast Web esto existe en reportes de labor (y se filtra por fechas/ubicación). En API, lo recomendable es que tu backend calcule/consuma estos totales y entregue un JSON agregado.
+
+Diseño mínimo de tu API (backend)
+Endpoint único (recomendado)
+GET /labor-summary?storeId=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+
+Respuesta ejemplo (por tienda):
+
+{
+  "storeId": "WestCovina",
+  "startDate": "2026-01-12",
+  "endDate": "2026-01-16",
+  "totalHours": 123.5,
+  "regularHours": 118.0,
+  "overtimeHours": 5.5,
+  "totalCost": 2450.75,
+  "overtimeCost": 180.25
+}
+Si eliges “todas las tiendas”
+GET /labor-summary?storeId=all&startDate=...&endDate=...
+→ devuelves un array con una fila por tienda (ideal para tu tabla).
+
+Cómo lo unes con ventas (para labor %)
+Tu backend hace:
+
+Query de ventas (net sales) para el mismo rango/tienda
+Query de labor (total cost/total hours)
+Calcula y devuelve:
+laborPercentOfNetSales
+netSPLH
+(Esto te deja un dashboard tipo “GM view” bien accionable.)
+
+Seguridad y permisos (rápido pero importante)
+Mantén todo agregado (sin nombres/IDs de empleados).
+Las credenciales de Toast siempre en el backend.
+Aunque seas solo tú, pon un login sencillo o al menos una llave server-side.
+1 pregunta para dejarlo cerradito
+¿Tu labor agregado lo quieres por día (una fila por día en el rango) o solo el total del rango?
+
+“Por día” te sirve para ver tendencias y picos.
+“Total” es más simple y rápido.
+
+Completed
+
+
+
+por fecha, rango de fecha y por tiendas...en la misma consulta de ventas, va a tener el mismo filtro
+Sí — y lo que estás pidiendo ( misma consulta/filtros para ventas + labor, por tienda y por rango de fechas, y además desglosado por fecha ) es exactamente el patrón correcto.
+
+✅ Cómo hacerlo con el mismo filtro (tienda + startDate/endDate)
+En Toast IQ (y es el mismo concepto para tu backend), lo modelas como:
+
+Dimensiones (group by): date + restaurant (tienda)
+Filtros (where):
+date between startDate and endDate
+restaurant in [tiendas seleccionadas] (o una sola)
+Métricas (lo que regresas):
+Ventas: Net Sales, Order Count, Guest Count
+Labor: Labor % of Net Sales y/o SPLH (ventas por hora de labor)
+Prueba real con tus datos (por fecha y por tienda)
+Corrí un ejemplo “esta semana (so far)” (Mon 2026-01-12 → Fri 2026-01-16) y sí devuelve una fila por fecha por tienda con labor:
+
+Incluye todas tus tiendas (South Gate, LA Central, Huntington Park, Hollywood, Downey, Norwalk, Rialto, Lynwood, LA Broadway, West Covina, Slauson, Santa Ana, La Puente, Azusa, Bell).
+Ejemplo: para West Covina aparecen filas por día con:
+Labor % of sales (laborPercentOfNetSales)
+SPLH (netSPLH)
+Eso valida que tu dashboard puede usar el mismo selector de tienda y fechas y obtener un dataset consistente.
+
+✅ Recomendación práctica para tu dashboard
+Haz 1 endpoint que acepte los mismos parámetros y devuelva todo junto:
+
+GET /dashboard?storeIds=...&startDate=...&endDate=...
+
+Y que tu backend regrese por fila:
+
+Date
+Store
+Net Sales
+Order Count
+Guest Count
+Labor % of Net Sales
+SPLH
+(Si en algún caso no puedes traer labor % directo por API, tu backend lo puede calcular si tiene Net Sales + Labor Cost. Pero si ya tienes un endpoint “Sales+Labor derived”, mejor.)
+
+1 pregunta para cerrarlo
+Cuando eliges “tiendas”, ¿quieres permitir multi-selección (varias tiendas a la vez en la misma tabla), o solo una tienda por consulta?
+
+Sources
+Labor Reports Overview: https://central.toasttab.com/s/article/Labor-Reports-Overview
+Edit Employee Time Clock Entries (Time Entry Management): https://central.toasttab.com/s/article/Editing-Employee-Time-Clock-Entries-1492802387122
+
+Completed
+
+
+
+que limite de fechas tienen las consultas? si filtro un año completo es mucho?
+Depende de qué datos y por qué vía (UI vs API), pero en general:
+
+En tu dashboard (API / consultas) ¿un año completo es “mucho”?
+No necesariamente, pero sí puede volverse pesado si lo pides:
+
+por día (365 filas) x 15 tiendas = ~5,475 filas solo para ventas/labor agregadas (todavía manejable)
+y peor si lo bajas a por hora, por job, etc.
+La práctica recomendada es:
+
+Si el usuario pide 1 año, cambia el “granularity” automáticamente:
+por mes para rangos largos (ej. ≥ 90 días)
+por semana para rangos medianos
+por día para rangos cortos
+Así tu consulta sigue rápida y tu tabla no explota.
+
+Límites que sí están documentados (Toast Web)
+Para labor / time entries (registro de empleados), Toast Central sí define históricos:
+
+Time Entry Management: puedes ver turnos dentro de los últimos 12 meses.
+Para más viejo: Time Entry Reporting puede llegar hasta 25 meses.
+Para datos más antiguos (más de 2 años), indica que hay que contactar a Customer Care.
+(Esto es para time entries; ventas/summary suele ser más flexible.)
+
+Lo que NO queda explícito en Toast Central (API)
+En los artículos que revisé, no aparece un “límite duro” de rango de fechas para Standard API access o Analytics API en plan “máximo 31 días” o algo así. Lo que sí se desprende es:
+
+Si un rango está “fuera de lo permitido” para una página/reporte, te puede dar error de Invalid Date Range (más común en Payroll/reportes específicos).
+Operativamente, rangos grandes pueden pegarle a performance → por eso conviene agrupar por semana/mes.
+Recomendación concreta para tu implementación
+En tu API del dashboard, agrega un parámetro (o una regla automática):
+
+granularity=day - week - month
+Regla automática:
+<= 60 días → day
+61–180 días → week
+> 180 días → month
+Así un “año completo” es totalmente viable y rápido.
+
+1 pregunta para dejarlo bien diseñado
+¿Cuando pidas “un año”, lo quieres por día (muy detallado) o te sirve por mes (más tipo KPI/overview)?
+
+Sources
+Edit Employee Time Clock Entries (límites 12 meses y referencia a 25 meses): https://central.toasttab.com/s/article/Editing-Employee-Time-Clock-Entries-1492802387122
+Access Employee Time Entry Reporting After 12 months: https://central.toasttab.com/s/article/Access-Time-Entry-Reporting-After-12-months
+Get Help With Toast Payroll Error: Invalid Date Range: https://central.toasttab.com/s/article/Get-Help-With-Toast-Payroll-Error-Invalid-Date-Range
+Create and Manage Toast Analytics API Access Credentials: https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+
+Completed
+
+
+
+osea, puedo pedir por año, mes, semana, dia y rango de fechas? todos esos filtros
+Sí — puedes ofrecer todos esos filtros en tu dashboard (rango de fechas, y vista por día / semana / mes / año, y por tienda), con estas consideraciones para que siempre funcione bien:
+
+✅ Filtros que puedes soportar
+1) Rango de fechas
+startDate y endDate (cualquier rango que tú permitas en tu UI)
+2) Tienda(s)
+storeId (una) o storeIds[] (multi-selección)
+3) Granularidad (cómo agrupar el resultado)
+groupBy = day - week - month - year
+Eso te permite:
+
+“Últimos 7 días por día”
+“Últimos 12 meses por mes”
+“Año completo por semana”
+“5 años por año” (si quieres)
+⚠️ Lo único a cuidar: límites prácticos y reportes de labor
+Para ventas agregadas, rangos largos suelen ser OK si agregas por semana/mes.
+Para labor basada en time entries (registro de empleados), en Toast Web:
+Time Entry Management llega a 12 meses
+y Time Entry Reporting llega a 25 meses (más viejo requiere soporte)
+En tu dashboard “agregado”, lo ideal es:
+
+para rangos largos, usar groupBy=month o year
+evitar pedir “por día” cuando son rangos muy grandes (por performance y tamaño de respuesta)
+Recomendación de API (lo más limpio)
+Un solo endpoint:
+
+GET /kpis?storeIds=...&startDate=...&endDate=...&groupBy=day|week|month|year
+
+Y que devuelva filas con:
+
+Date bucket (día/semana/mes/año)
+Store
+Net Sales, Orders, Guests
+Labor Cost / Labor % / SPLH (agregado)
+1 pregunta para dejarlo redondo
+¿Vas a permitir multi-selección de tiendas (varias tiendas en la misma tabla) o solo una tienda por consulta?
+
+Sources
+Edit Employee Time Clock Entries (Time Entry Management: 12 meses y referencia a 25 meses): https://central.toasttab.com/s/article/Editing-Employee-Time-Clock-Entries-1492802387122
+Access Employee Time Entry Reporting After 12 months: https://central.toasttab.com/s/article/Access-Time-Entry-Reporting-After-12-months
+
+Completed
+
+
+
+voy a permitir todas
+Perfecto — si vas a permitir todas (multi‑tienda + cualquier rango + day-week-month-year), lo mejor es definir reglas claras para que nunca se vuelva lento ni te regrese miles de filas.
+
+✅ Diseño recomendado (lo que soportas en tu UI)
+Filtros
+Tiendas: multi‑select (storeIds[]) + opción “Todas”
+Rango: startDate, endDate
+Agrupación: groupBy = day - week - month - year
+Regla “smart” (para performance)
+Aunque el usuario pueda escoger “día”, tú puedes proteger el sistema con una regla:
+
+Si el rango es 1–62 días → permite day
+Si el rango es 63–365 días → sugiere/auto‑cambia a week (y dejas day opcional bajo advertencia)
+Si el rango es > 365 días → month o year
+Esto evita que “día” x “todas las tiendas” te regrese decenas de miles de filas.
+
+✅ Un solo endpoint para ventas + labor con los mismos filtros
+Recomendación: un endpoint que siempre reciba los mismos parámetros, y devuelva una tabla consistente.
+
+GET /metrics?storeIds=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&groupBy=day|week|month|year
+
+Cada fila:
+
+Store (tienda)
+Period (día/semana/mes/año)
+Net Sales
+Orders
+Guests
+Labor % (laborPercentOfNetSales)
+SPLH (net sales per labor hour)
+En tus datos ya validé que existe el patrón “por fecha y por tienda” (ejemplo con DERIVED_SALES_LABOR por date + restaurant).
+
+⚠️ Nota importante (labor “registro de empleados” vs labor agregado)
+Como tú lo quieres agregado, vas bien. Pero recuerda:
+
+En Toast Web, time entries tienen límites de histórico (12 meses en Time Entry Management, 25 meses en Time Entry Reporting).
+Para tu dashboard agregado, mientras uses métricas agregadas (labor cost, labor %, SPLH), normalmente puedes manejar rangos grandes mejor que con detalle por empleado.
+1 decisión clave que falta (y con eso te lo dejo “cerrado”)
+Cuando el usuario elija “Todas las tiendas”, ¿quieres que el resultado sea:
+
+A) Tabla larga (row por tienda x periodo) — ideal para exportar y pivotar
+o
+B) Tabla pivote (periodos como filas y tiendas como columnas) — mejor para lectura, pero más compleja
+
+Dime A o B y te recomiendo el formato exacto de respuesta (JSON) y cómo paginarlo/cachéarlo.
+
+
+Completed
+
+
+
+como sea, mi backend lo podra interpretar
+Sí — si tu backend lo va a interpretar, puedes elegir el formato que te sea más cómodo. Para que no te compliques, te recomiendo este enfoque:
+
+Opción recomendada: respuesta “long format” (normalizada)
+Es la más fácil de consumir, filtrar y agrupar en cualquier backend.
+
+Respuesta ejemplo (una fila = una tienda + un periodo):
+
+{
+  "groupBy": "day",
+  "startDate": "2026-01-01",
+  "endDate": "2026-01-31",
+  "rows": [
+    {
+      "storeId": "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02",
+      "storeName": "West Covina",
+      "periodStart": "2026-01-01",
+      "periodEnd": "2026-01-01",
+      "netSales": 12345.67,
+      "orderCount": 890,
+      "guestCount": 910,
+      "laborPercentOfNetSales": 0.223,
+      "netSPLH": 84.43
+    }
+  ]
+}
+Ventajas:
+
+Si el usuario elige 1 tienda o 15 tiendas, la estructura no cambia.
+Si eliges day/week/month/year, solo cambian periodStart/periodEnd.
+Puedes “pivotear” después si quieres (en backend o frontend).
+Opción alternativa: “pivot”
+Útil para UI tipo matriz, pero es más complicada porque cambia con el número de tiendas:
+
+columnas dinámicas
+más difícil para cache/paginación
+Reglas prácticas que te conviene poner
+Parámetros:
+storeIds[] (multi-select)
+startDate, endDate
+groupBy=day|week|month|year
+Control de tamaño:
+Si el usuario pide groupBy=day y el rango es enorme, puedes:
+responder 400 con mensaje “usa week/month”
+o auto-escalar a week/month y devolver un campo effectiveGroupBy
+1 pregunta para terminar de afinarlo
+¿Vas a permitir también el selector “Todas las tiendas”?
+Si sí, te recomiendo agregar paginación (limit/offset o cursor) para que nunca se vuelva pesado.
+
+
+Completed
+
+
+
+si
+Perfecto — entonces sí: soporta “Todas las tiendas”, pero hazlo “a prueba de bomba” con paginación + caché + límites de granularidad.
+
+✅ Contrato recomendado (1 endpoint, long format)
+GET /metrics
+
+Query params
+
+storeIds=all o storeIds=95866cfc-eeb8-4af9-9586-f78931e1ea04,8685e942-3f07-403a-afb6-faec697cd2cb,...
+startDate=YYYY-MM-DD
+endDate=YYYY-MM-DD
+groupBy=day|week|month|year
+cursor= (opcional, para paginar)
+limit= (ej. 500)
+Respuesta (normalizada)
+
+rows[] con: storeId, storeName, periodStart, periodEnd, netSales, orders, guests, laborPercent, splh
+nextCursor si hay más
+Esto te deja:
+
+misma estructura para 1 tienda o 15
+fácil de cachear y de “pivotear” cuando quieras
+⚙️ Reglas de performance (muy recomendadas)
+1) Límite de filas por request
+Define un tope (ej. limit=500 o 1000), y paginación con cursor.
+
+2) “Granularity guard”
+Aunque permitas groupBy=day, define reglas para evitar consultas gigantes:
+
+si (días en rango) x (# tiendas) > cierto umbral →
+devuelves error amigable o aplicas effectiveGroupBy=week|month.
+3) Caché
+Rangos que incluyen hoy: cache 60–120s
+Rangos históricos: cache 5–15 min
+🔐 Seguridad (rápido)
+Toast credentials solo en backend
+tu dashboard llama solo a tu backend
+aunque seas tú: mínimo un auth token / session
+1 detalle para decidir (y con eso ya queda diseño final)
+¿Quieres que el selector “Todas las tiendas” incluya las 15 por default (South Gate… Bell), o quieres permitir grupos predefinidos (ej. “LA”, “Inland Empire”, etc.) para consultas más rápidas?
+
+
+Completed
+
+
+
+todas
+Listo — entonces “Todas” = tus 15 tiendas siempre incluidas.
+
+✅ Implementación recomendada (simple y sólida)
+Endpoint único (long format)
+GET /metrics?storeIds=all&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&groupBy=day|week|month|year&limit=500&cursor=...
+
+Qué regresa
+
+rows[]: una fila por tienda + periodo
+nextCursor: para paginación (si aplica)
+effectiveGroupBy: por si ajustas la granularidad automáticamente cuando el rango es muy grande
+Reglas prácticas (para que no truene con “día + año + 15 tiendas”)
+Paginación obligatoria (cursor + limit) cuando storeIds=all
+Granularity guard:
+rangos grandes → fuerza week o month (y lo informas en effectiveGroupBy)
+Caché
+incluye hoy → 60–120s
+histórico → 5–15 min
+Tus “Todas las tiendas” (las 15)
+South Gate, LA Central, Huntington Park, Hollywood, Downey, Norwalk, Rialto, Lynwood, LA Broadway, West Covina, Slauson, Santa Ana, La Puente, Azusa, Bell.
+
+1 pregunta final (para cerrar el contrato del endpoint)
+¿Cuando el usuario seleccione groupBy=week, quieres que la semana empiece en lunes (como tus reportes) o en domingo?
+
+
+Completed
+
+
+
+si que empiece por lunes......todo esto tiene costo extra?
+Sí, pero depende de qué API termines usando:
+
+1) Standard API (read-only) — incluida con Restaurant Management Essentials
+Toast Central indica que Standard API access está disponible como parte de Restaurant Management Essentials (RMS) (en EE.UU.). O sea: normalmente no es “pago extra por usar el API”, sino que viene con esa suite (que sí es una suscripción).
+
+2) Toast Analytics API — requiere Restaurant Management Pro
+Si lo que necesitas es la Analytics API (datos agregados/históricos para dashboards: ventas, labor, items, etc.), Toast Central indica que requiere RMS Pro. Eso sí puede implicar subir de plan.
+
+3) Partner Integrations / Marketplace
+Las integraciones (Partner Integrations) también requieren una Restaurant Management suite (Essentials o Pro). Y ojo: si conectas un partner de terceros, el partner puede cobrarte aparte (eso ya depende del proveedor).
+
+En resumen (práctico)
+Si ya tienes RMS Essentials: puedes tener Standard API sin “add-on” separado.
+Si necesitas Analytics API: necesitas RMS Pro (upgrade).
+Si usas un partner externo: puede haber costo del partner además.
+Si quieres, lo revisamos “con precisión” según tu cuenta: ¿sabes si hoy estás en Restaurant Management Essentials o Restaurant Management Pro?
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Create and Manage Toast Analytics API Access Credentials: https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+Set Up Toast Partner Integrations: https://central.toasttab.com/s/article/Toast-Partner-Connect-Setting-Up-Integrations-with-Toast
+Toast Suites Overview (incluye Standard API y Analytics API dentro de Restaurant Management Suite): https://central.toasttab.com/s/article/Toast-Suites-Overview
+
+Completed
+
+
+
+read-only
+“Read-only” (Standard API) no cobra por consulta como tal; el punto es si ya tienes la suite que lo incluye.
+
+Toast Central dice que Standard API access (read-only) está incluida con Restaurant Management Essentials (RMS) (EE.UU.).
+Y que la Analytics API (para data agregada/histórica tipo dashboards) requiere Restaurant Management Pro.
+Entonces, ¿tiene costo extra?
+Si ya tienes RMS Essentials (o superior): normalmente no es un “add-on” extra para tener credenciales read-only; viene con la suite.
+Si no tienes RMS: entonces sí, tendrías que contratar Restaurant Management Suite para habilitar APIs/integraciones.
+Si usas un partner externo, el partner puede cobrar aparte (independiente de Toast).
+Para confirmarlo en tu caso
+¿Quieres que asumamos que vas a usar Standard API access (read-only) y no Analytics API? (Sí/no)
+
+Si me dices “sí”, lo siguiente sería crear las credenciales de API en Toast Web (yo te digo dónde, pero necesito buscar la doc exacta antes de darte los pasos).
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Create and Manage Toast Analytics API Access Credentials: https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+Set Up Toast Partner Integrations: https://central.toasttab.com/s/article/Toast-Partner-Connect-Setting-Up-Integrations-with-Toast
+Toast Suites Overview: https://central.toasttab.com/s/article/Toast-Suites-Overview
+
+Completed
+
+
+
+revisa mi cuenta y dime que incluye? y que me recomiendas?
+No puedo “ver” tu paquete exacto contratado desde aquí (tipo: si tienes Restaurant Management Essentials vs Pro) porque no tengo acceso directo a tu página de Subscriptions. Lo que sí puedo hacer es decirte cómo confirmarlo en 30 segundos en Toast Web y, con base en lo que quieres construir, qué te conviene.
+
+🔎 Cómo ver exactamente qué incluye tu cuenta (oficial en Toast Web)
+Toast Central indica que puedes ver tus productos en Toast account → My Products → Subscriptions (nota: para entrar ahí necesitas permiso 8.1 Financial Accounts).
+
+Si tú (o alguien de tu equipo) tiene ese permiso, ahí vas a ver:
+
+Nombre del/los paquetes
+costo mensual
+periodo de facturación
+Qué incluye cada opción (lo relevante para tu proyecto)
+Según Toast Central:
+
+Standard API (read-only)
+Standard API access está disponible como parte de Restaurant Management Essentials (RMS) (EE.UU.).
+Esto es lo que tú llamas “read-only”.
+Analytics API (agregados/históricos para dashboards)
+La Toast Analytics API requiere Restaurant Management Suite Pro.
+Y para crear credenciales de Analytics API necesitas permisos: 4.1 Sales Reports, 4.2 Menu Reports, 4.3 Labor Reports, 8.4 Manage Integrations a nivel management set.
+Mi recomendación para tu caso (tu dashboard privado)
+Como tú quieres:
+
+filtros por tienda + rango + day-week-month-year
+ventas + labor agregado
+sin exponer credenciales
+(y no estás buscando integrarte como partner comercial)
+Recomendación: empieza con Standard API (read-only) si ya lo tienes incluido (RMS Essentials).
+Si te quedas corto por endpoints/datos agregados/históricos, ahí sí vale la pena considerar RMS Pro para Analytics API.
+
+Si quieres que “lo revise” contigo ahora mismo
+Dime una de estas dos cosas (solo una):
+
+¿Tú puedes entrar a Toast account → My Products → Subscriptions? (sí/no)
+o
+Pégame el nombre exacto del paquete que te aparece ahí (ej. “Restaurant Management Essentials” o “Restaurant Management Pro”) y te digo exactamente qué ruta conviene.
+Sources
+Review and Manage Your Toast Subscriptions: https://central.toasttab.com/s/article/Review-and-Manage-Your-Toast-Subscriptions
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Create and Manage Toast Analytics API Access Credentials: https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+Toast Suites Overview: https://central.toasttab.com/s/article/Toast-Suites-Overview
+
+Completed
+
+
+
+Basado en la imagen de tu cuenta de Toast, actualmente tienes activas varias suscripciones que se dividen en paquetes de software y productos individuales. Aquí tienes el detalle de lo que estás pagando mensualmente: Software Suites (Paquetes) Third Party Delivery Integrations Package: $90.00 al mes (incluye 3 productos para integraciones con plataformas de entrega). Individual Software (Software Individual) Gift Card: $45.00 al mes. Enterprise Data Management Subscription: $82.50 al mes. Online Ordering: $50.00 al mes. Loyalty Program: $22.50 al mes. API Subscription: $25.00 al mes. Resumen de Cuenta Subtotal de este periodo: $684.00 (esto sugiere que hay otros cargos o ubicaciones, ya que la suma de lo visible arriba es menor). Descuentos incluidos: Te están aplicando un ahorro de $166.00. Próxima renovación de contrato: 15 de noviembre de 2026.
+Gracias — con ese “snapshot” ya se puede orientar bastante, pero necesito ser bien transparente: desde este chat no puedo validar que esa lista sea 100% exacta porque no tengo acceso directo a tu página de Subscriptions (ni a un tool que lea tus productos). Aun así, te explico cómo interpretarlo y qué te recomiendo para tu dashboard.
+
+Qué significa “API Subscription: $25/mes” en tu contexto
+En Toast Central, lo que está documentado con claridad es:
+
+Standard API access (read-only): credenciales para leer datos, y está “available as part of Restaurant Management Essentials (RMS)” (EE.UU.).
+Analytics API: para datos agregados/históricos (ventas, labor, items) y requiere Restaurant Management Suite Pro.
+Tu línea “API Subscription $25/mes” sugiere que sí tienes algún tipo de acceso a API habilitado/pagado en tu cuenta (probablemente el equivalente a read-only), pero Toast Central no mapea esa línea de factura 1:1 con “Standard API vs Analytics API” como para que yo pueda afirmarlo sin verlo en la pantalla de credenciales.
+
+Lo que te recomiendo (por tu objetivo)
+Tú quieres:
+
+Dashboard privado
+Multi‑tienda (15)
+Filtros: rango fechas + day-week-month-year
+Ventas + labor agregado
+Recomendación práctica
+Empieza con Standard API (read-only) si ya lo tienes (por costo/tiempo).
+Si ves que te faltan endpoints para “agregados” o se vuelve complicado, entonces considera Analytics API (RMS Pro), porque está pensada justo para dashboards de performance.
+Cómo confirmarlo sin dudas (lo más confiable)
+En Toast Web, crea/consulta credenciales:
+
+Si te deja crear credenciales de tipo read-only APIs → tienes Standard API.
+Si además te deja crear Analytics API Credentials → tienes acceso a Analytics API (y típicamente RMS Pro).
+Toast Central indica que esto se hace en:
+
+Integrations → Manage credentials y ahí puedes Create Analytics API Credentials cuando aplica.
+1 pregunta para afinar la recomendación
+En tu Toast Web, ¿ves la opción Integrations → Manage credentials?
+
+Sí → te digo exactamente qué buscar ahí para confirmar si tienes read-only y/o Analytics API (y con eso cerramos qué incluye tu cuenta para tu caso).
+No → probablemente te falte permiso (comúnmente 8.4 Manage Integrations) o no está habilitado en la suite.
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Create and Manage Toast Analytics API Access Credentials: https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+
+Completed
+
+
+
+si lo veo y solo puedo crear Standard API, Analytics API esta deshabilitado (gris)
+Perfecto — eso ya lo deja clarísimo:
+
+Lo que incluye tu cuenta (según lo que ves en Toast Web)
+✅ Tienes Standard API (read‑only) habilitado (puedes crear credenciales).
+🚫 No tienes Analytics API (está deshabilitado/gris), lo cual normalmente significa que no tienes RMS Pro o no está habilitado en tu paquete/permiso.
+Esto cuadra con lo que documenta Toast:
+
+Standard API = acceso read‑only a APIs (incluido en ciertos paquetes).
+Analytics API = requiere Restaurant Management Suite Pro.
+Qué te recomiendo para tu dashboard (tu caso)
+Recomendación #1 (la tuya hoy): seguir con Standard API
+Para lo que quieres (ventas + labor agregado, filtros por tienda y rango, week empieza lunes):
+
+Arranca con Standard API.
+Haz tu backend con:
+cache (60–120s para rangos que incluyan “hoy”, 5–15 min para histórico)
+paginación
+granularity guard (si el rango es grande, cambiar day→week/month)
+Esto te va a funcionar muy bien para un dashboard interno.
+
+Recomendación #2 (solo si te quedas corto): evaluar upgrade a Analytics API
+Te conviene considerar Analytics API si:
+
+necesitas consultas agregadas “listas” (ventas/labor/items) sin armar tú tanta lógica
+quieres performance más consistente para rangos grandes y multi‑tienda
+planeas crecer el dashboard (más métricas, más profundidad)
+Siguiente paso concreto (para no adivinar)
+En Standard API, las credenciales se pueden configurar por ubicación. Para tu dashboard con 15 tiendas, lo ideal es:
+
+1 set de credenciales que incluya todas tus ubicaciones (South Gate → Bell)
+tu backend expone /metrics con storeIds=all|..., startDate/endDate, groupBy
+1 pregunta (para asegurar compatibilidad con tu diseño “ventas + labor”)
+¿En tu dashboard quieres Labor Cost y Total Hours (valores absolutos), o te basta con labor % y SPLH?
+
+Si quieres cost/hours, a veces requiere endpoints/datos específicos (y conviene validar que tu Standard API los expone).
+Si con labor % y SPLH estás bien, normalmente es más directo (y ya vimos que esos agregados existen en tus reportes).
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Create and Manage Toast Analytics API Access Credentials: https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+
+Completed
+
+
+
+quisiera las 4
+Perfecto — las 4: Labor Cost, Total Hours, Labor % y SPLH. Con tu setup actual (✅ Standard API, 🚫 Analytics API), mi recomendación es:
+
+✅ Plan A (recomendado): traer Hours y Cost + calcular % y SPLH en tu backend
+Así no dependes de que Standard API te devuelva ya calculado “labor % / SPLH” (que a veces cambia por endpoint), y te queda consistente.
+
+Tu backend haría para el mismo filtro (tiendas + rango + groupBy):
+
+Ventas agregadas: Net Sales
+Labor agregada: Total Hours y Total Cost
+Calcula:
+Labor % = Total Cost / Net Sales
+SPLH = Net Sales / Total Hours
+Importante: para evitar divisiones raras, tu backend debe manejar Net Sales = 0 o Total Hours = 0.
+
+✅ Cómo se ve el contrato del endpoint (lo que tu frontend consume)
+GET /metrics?storeIds=all&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&groupBy=day|week|month|year
+
+Cada fila (store + periodo):
+
+Net Sales
+Labor Cost
+Total Hours
+Labor %
+SPLH
+⚙️ Reglas que te conviene imponer (porque “todas las tiendas”)
+Week empieza lunes (como ya acordamos)
+Granularity guard: si piden “día” en un rango muy grande, fuerzas week/month
+Cache:
+rango incluye hoy: 60–120s
+histórico: 5–15 min
+Paginación si el rango puede generar muchas filas
+1 cosa que necesito confirmar para no construirlo mal
+¿Tu “Labor Cost” lo quieres como:
+
+A) solo regular + overtime (costo por horas del reloj checador), o
+B) todo lo que Toast considera labor cost en reportes (puede incluir configuraciones adicionales según cómo estén set los jobs)?
+Con esa respuesta te digo el enfoque más fiel a lo que ves en Toast Web, y qué validar en tus Jobs/Reports para que el número cuadre.
+
+
+Completed
+
+
+
+A
+Sí — A (regular + overtime) es totalmente viable, y ya confirmé con tus datos que puedes sacar horas y costo por fecha + tienda y combinarlo con net sales para calcular labor % y SPLH con el mismo filtro.
+
+✅ Lo que ya validé con datos reales (misma fecha-rango y mismas tiendas)
+Para Mon 2026-01-12 → Fri 2026-01-16 (esta semana so far), pude traer:
+
+De LABOR (por date + store):
+Total Hours, Regular Hours, Overtime Hours
+Total Cost, Regular Cost, Overtime Cost
+De SALES (por date + store):
+Net Sales
+Eso es exactamente lo que necesitas para tu dashboard con los 4 KPIs.
+
+Cómo calculas tus 4 métricas en el backend (mismo filtro)
+Para cada fila (tienda + periodo):
+
+Labor Cost (A) = regularCost + overtimeCost (o simplemente totalCost si coincide)
+Total Hours = totalHours (o regularHours + overtimeHours)
+Labor % = laborCost / netSales
+SPLH = netSales / totalHours
+Tu backend debe manejar casos donde netSales = 0 o totalHours = 0 para evitar división entre cero.
+
+✅ Diseño del endpoint (unificado)
+GET /metrics?storeIds=all|...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&groupBy=day|week|month|year
+
+Respuesta en “long format” (recomendado):
+
+Store
+PeriodStart / PeriodEnd
+Net Sales
+Total Hours
+Labor Cost (regular + OT)
+Labor %
+SPLH
+Nota importante (para que cuadre con tus reportes)
+Como pediste A, vas por “costo/hora del reloj checador” (regular + overtime). Eso normalmente cuadra con lo que sale de labor por time entries. Si un día notas diferencias vs algún reporte de Toast Web, suele ser por:
+
+jobs salariales (si existen) no incluidos en ciertos cálculos
+configuración de jobs/reporting (qué jobs cuentan como labor)
+1 pregunta para dejarlo listo para producción
+¿Tu “groupBy=week” lo quieres como semana ISO (lunes-domingo) y que el “periodStart” sea el lunes, aunque el rango empiece a mitad de semana?
+(Ej: startDate=miércoles → ¿quieres que esa semana “semana parcial” salga con periodStart=lunes igual, o que periodStart sea el mismo miércoles?)
+
+Si me dices cuál, te doy la regla exacta para agrupar y que sea consistente con tus reportes internos.
+
+
+Completed
+
+
+
+semana ISO
+Perfecto — Semana ISO (lunes→domingo) es la mejor opción para que sea consistente y fácil de comparar.
+
+✅ Regla de agrupación (ISO week)
+Para groupBy=week:
+
+Cada fila representa una semana ISO (lunes a domingo).
+periodStart = lunes de esa semana
+periodEnd = domingo de esa semana
+Si tu rango cae a mitad de semana, esa “semana parcial” igual se etiqueta con el lunes/domingo ISO, pero los valores (ventas/labor) solo suman lo que caiga dentro de startDate..endDate.
+Ejemplo:
+
+startDate=2026-01-14 (miércoles) y endDate=2026-01-16 (viernes)
+periodStart=2026-01-12 (lunes ISO)
+periodEnd=2026-01-18 (domingo ISO)
+Métricas sumadas solo de mié-vie.
+✅ Cómo lo implementas en tu backend (recomendación)
+Siempre filtra por startDate/endDate en la consulta (no por “semana completa”).
+Luego bucketizas cada fila por isoWeek (año ISO + semana ISO).
+Agregas por:
+storeId
+isoWeek
+Y calculas tus 4 KPIs:
+
+Labor Cost = regularCost + overtimeCost (o totalCost)
+Total Hours = totalHours
+Labor % = laborCost / netSales
+SPLH = netSales / totalHours
+✅ Lo que ya está confirmado con tus datos
+Ya pude traer (por fecha + tienda) tanto:
+
+Net Sales (SALES)
+Labor hours/cost (LABOR)
+Así que tu backend puede construir semanas ISO sin problema.
+
+1 decisión final (para evitar confusión en “year”)
+Cuando uses groupBy=year, ¿quieres:
+
+A) año calendario (Jan 1–Dec 31), o
+B) año ISO (el año de la semana ISO, que a veces arranca/termina en días de diciembre/enero)?
+Para dashboards financieros casi siempre recomiendo año calendario; para consistencia con “week ISO”, a veces eligen año ISO.
+
+
+Completed
+
+
+
+calendario
+Perfecto — entonces quedamos así:
+
+✅ Reglas finales de tu dashboard
+groupBy=week
+Semana ISO (lunes → domingo)
+periodStart = lunes ISO
+periodEnd = domingo ISO
+Si el rango empieza/termina a mitad de semana, la semana sale “parcial”, pero etiquetada por su lunes/domingo ISO.
+groupBy=year
+Año calendario (Jan 1 → Dec 31)
+✅ Qué te recomiendo implementar (para que cuadre ventas + labor con el mismo filtro)
+Tu backend hace 2 pulls con el mismo filtro (storeIds, startDate, endDate) y después agrega por el bucket que corresponda:
+
+Ventas (SALES): netSales (y si quieres luego orderCount, guestCount)
+Labor (LABOR): regularHours, overtimeHours, regularCost, overtimeCost (o totalHours/totalCost)
+Luego calcula:
+
+Labor Cost (A) = regularCost + overtimeCost
+Total Hours = regularHours + overtimeHours
+Labor % = laborCost / netSales
+SPLH = netSales / totalHours
+✅ Tip para que el resultado sea consistente siempre
+Incluye en la respuesta:
+
+requestedGroupBy (lo que pidió el usuario)
+effectiveGroupBy (por si aplicas “granularity guard”)
+periodStart/periodEnd (según ISO week o calendario)
+1 pregunta (última para cerrar el diseño de fechas)
+Cuando alguien seleccione “este año”, ¿lo quieres como:
+
+Año calendario hasta hoy (Jan 1 → hoy), o
+Año calendario completo (Jan 1 → Dec 31, aunque sea futuro)?
+Para dashboards operativos normalmente es Jan 1 → hoy.
+
+
+Completed
+
+
+
+hasta hoy (dia actual)
+Perfecto — entonces tu preset “Este año” = Año calendario hasta hoy queda así:
+
+✅ Definición final de “Este año”
+startDate = Jan 1 del año actual
+endDate = hoy (día actual)
+groupBy:
+si el usuario lo elige: day/week/month/year
+recomendado por performance: para “este año” normalmente month o week
+✅ Reglas completas (ya cerradas)
+Week: ISO week (lunes→domingo)
+Year: año calendario (Jan 1→Dec 31)
+This year: Jan 1 → hoy
+Todas las tiendas: incluye tus 15 ubicaciones
+Labor (A): regular + overtime (horas y costo) + calculas labor% y SPLH en backend
+🧩 Output recomendado (para que tu backend lo interprete fácil)
+Siempre regresa “long format”:
+
+Store
+PeriodStart / PeriodEnd
+Net Sales
+Labor Cost
+Total Hours
+Labor %
+SPLH
+requestedGroupBy y effectiveGroupBy (si ajustas granularidad)
+Si quieres, en el siguiente paso te armo un ejemplo de payload de request/response exactamente como lo usarías en tu web (con storeIds=all, startDate/endDate, groupBy) para que lo copies tal cual.
+
+
+Completed
+
+
+
+ok, ahora que sigue? como hago la conexion entre mi dashboard y toast?
+Para conectar tu dashboard con Toast (con Standard API – read‑only), el flujo es:
+
+1) Crear credenciales en Toast Web (ya estás ahí)
+Toast Central confirma que el acceso se maneja por credenciales y que puedes generar sets para leer datos de ubicaciones específicas (ideal: uno para tus 15 tiendas). En Analytics API hay un botón aparte (que en tu caso está gris/deshabilitado).
+Fuente: Standard API Access.
+
+2) Backend “en medio” (obligatorio)
+Tu dashboard (frontend) NO debe hablar directo con Toast. Hazlo así:
+
+Dashboard (web privada) → llama a → Tu backend → llama a → Toast Standard API → regresa JSON agregado
+
+Esto evita exponer credenciales y te permite:
+
+cache
+paginación
+reglas ISO week / año calendario
+limitar rangos
+3) Tu backend implementa 2 consultas y calcula KPIs
+Con el mismo filtro (storeIds, startDate, endDate, groupBy):
+
+Query A: Sales (Net Sales, y si quieres Orders/Guests)
+Query B: Labor (Regular/OT hours + Regular/OT cost)
+Luego calculas:
+
+Labor Cost (A) = Regular Cost + Overtime Cost
+Total Hours = Regular Hours + Overtime Hours
+Labor % = Labor Cost / Net Sales
+SPLH = Net Sales / Total Hours
+4) “Real‑time” vs “near real-time”
+Con Standard API, lo típico es polling (cada 60–120s para rangos que incluyan hoy).
+Si más adelante quieres un modelo “push”, Toast también tiene Webhook Subscriptions (requiere configuración y depende del caso de uso).
+
+Lo que necesito de ti para decirte “qué sigue” sin adivinar endpoints
+Como Toast Central no publica en esos artículos los endpoints exactos (eso está en el developer guide), dime esto:
+
+¿Tu backend será Node.js, Python, o algo más?
+
+Con eso te doy el “starter kit” (estructura de proyecto, endpoints internos /metrics, cache, y cómo guardar/rotar credenciales), y el checklist de seguridad para que no expongas el Client ID/Secret.
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Toast Webhook Subscriptions: https://central.toasttab.com/s/article/Toast-Webhook-Subscriptions
+Create and Manage Toast Analytics API Access Credentials (para ubicar Manage credentials y diferenciar Analytics vs read-only): https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+
+Completed
+
+
+
+es next.js, supabase, etc
+Perfecto — Next.js + Supabase es un stack ideal para esto. Te dejo el “camino” en orden para que lo conectes sin exponer credenciales.
+
+1) En Toast: crea tus credenciales Standard API (read-only)
+Ya confirmaste que puedes crear Standard API en Integrations → Manage credentials.
+Recomendación:
+
+Crea un set para tu dashboard.
+Incluye todas tus ubicaciones (las 15) para que storeIds=all funcione.
+(Guarda Client ID/Secret donde solo tu backend los pueda usar.)
+
+2) En Supabase: guarda secretos y controla acceso
+Guarda TOAST_CLIENT_ID y TOAST_CLIENT_SECRET (y cualquier token/refresh si aplica) en Supabase Secrets o variables de entorno de tu backend.
+Crea una tabla tipo toast_locations para mapear:
+storeId (ej. 5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02)
+storeName (West Covina)
+active=true/false
+3) En Next.js: crea un endpoint backend (Route Handler)
+Crea un endpoint interno, por ejemplo:
+
+GET /api/metrics
+Params: storeIds=all|..., startDate, endDate, groupBy=day|week|month|year
+Este endpoint:
+
+Valida input (fechas, groupBy, etc.)
+Llama a Toast desde el servidor (nunca desde el browser)
+Trae:
+SALES: netSales (y opcional: orders/guests)
+LABOR: regular/overtime hours + cost
+Agrega por:
+store
+bucket (day/week ISO/month/year calendario)
+Calcula:
+Labor Cost (A) = regularCost + overtimeCost
+Total Hours = regularHours + overtimeHours
+Labor % = laborCost / netSales
+SPLH = netSales / totalHours
+Devuelve JSON “long format”
+4) Cache (clave para “todas las tiendas”)
+Con Supabase puedes cachear resultados por “query hash”, por ejemplo:
+
+tabla metrics_cache:
+key (hash de storeIds+startDate+endDate+groupBy)
+data (jsonb)
+expires_at
+Regla:
+
+si rango incluye “hoy” → TTL 60–120s
+histórico → TTL 5–15 min
+5) Frontend: tu dashboard solo consume tu API
+Tu UI (React) llama:
+
+/api/metrics?... y renderiza la tabla/gráficas.
+1 cosa que necesito para darte el siguiente paso “código-ready”
+Cuando dices “Standard API”, ¿tu pantalla de credenciales te muestra algo como Client ID/Secret (OAuth) (y te habla de tokens), o solo te da una llave simple?
+
+Con esa respuesta te doy un ejemplo exacto de:
+
+cómo autenticar desde Next.js (server-side)
+cómo estructurar el fetch y el refresh token si aplica
+y cómo guardar tokens en Supabase sin exponerlos
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Toast Webhook Subscriptions: https://central.toasttab.com/s/article/Toast-Webhook-Subscriptions
+
+Completed
+
+
+
+guiame paso a paso, no se nada para crear credenciales y conectar con mi dashboard
+Aquí va una guía paso a paso, bien “para cero”, para conectar tu dashboard (Next.js + Supabase) con Toast usando Standard API (read‑only). Voy a evitar inventar endpoints de Toast (eso viene en el developer guide), pero sí te dejo todo lo que sí es seguro y el orden correcto.
+
+Paso 0 — Qué vas a construir (para ubicarnos)
+Tu web no va a hablar directo con Toast. Vas a hacer esto:
+
+Tu Dashboard (frontend) → Tu API en Next.js (server) → Toast Standard API → regresa datos agregados
+
+Esto es por seguridad: así nunca expones credenciales en el navegador.
+
+Paso 1 — Crear credenciales en Toast Web (Standard API)
+En Toast Web, ve a: Integrations → Manage credentials.
+Crea un set de credenciales para tu dashboard (ponle un nombre claro, tipo:
+Dashboard Personal - Read Only).
+En el mismo flujo, elige las ubicaciones que ese set puede leer.
+Recomendación: selecciona todas tus 15 tiendas para que tu filtro storeIds=all funcione.
+Toast Central confirma que el acceso API se maneja por credenciales y que puedes generar sets con lectura por ubicaciones.
+(Tu botón de Analytics API está gris, así que aquí solo usas read‑only.)
+
+Cuando termines este paso, normalmente vas a ver valores tipo Client ID / Secret (u otro tipo de credencial).
+No los pegues en el frontend.
+
+Fuente: Standard API Access (explica que son credenciales read‑only) y el artículo de Analytics API (confirma que Manage credentials existe).
+
+Paso 2 — Guardar esos secretos en Supabase (sin exponerlos)
+En tu proyecto, guarda lo siguiente como variables de entorno (ya sea en Supabase o en tu hosting de Next.js):
+
+TOAST_CLIENT_ID
+TOAST_CLIENT_SECRET
+(y si aplica, tokens que tu backend vaya guardando/renovando)
+Regla de oro: nunca metas estas variables en código del cliente (React components). Solo en server routes.
+
+Paso 3 — Crear tu endpoint backend en Next.js (tu “puente”)
+Crea un endpoint tipo:
+
+GET /api/metrics
+
+Que reciba:
+
+storeIds=all o lista de tiendas
+startDate=YYYY-MM-DD
+endDate=YYYY-MM-DD
+groupBy=day|week|month|year
+Ese endpoint hace:
+
+Autenticarse contra Toast usando tus credenciales (esto depende del developer guide)
+Pedir datos agregados de:
+Ventas (Net Sales)
+Labor (Regular/OT hours + Regular/OT cost)
+Agrupar según:
+week: ISO week (lunes-domingo)
+year: calendario
+Calcular tus KPIs:
+Labor Cost (A) = regularCost + overtimeCost
+Total Hours = regularHours + overtimeHours
+Labor % = laborCost / netSales
+SPLH = netSales / totalHours
+Paso 4 — Cache para que “todas las tiendas” sea rápido
+En Supabase crea una tabla simple, por ejemplo metrics_cache con:
+
+key (texto) — hash de storeIds+startDate+endDate+groupBy
+data (jsonb)
+expires_at (timestamp)
+Reglas:
+
+si el rango incluye hoy → cache 60–120s
+si es histórico → 5–15 min
+Paso 5 — Conectar tu frontend
+Tu dashboard (React) solo hace fetch a: /api/metrics?...
+
+y renderiza.
+
+Lo único que necesito para darte el siguiente paso “con pasos exactos”
+En tu pantalla de Integrations → Manage credentials, cuando creas Standard API:
+
+¿Qué campos te entrega exactamente?
+Opciones típicas (respóndeme cuál ves):
+
+“Client ID” y “Client Secret”
+Un “API Key”
+Algo diferente (dime el texto tal cual)
+Con eso ya te puedo guiar paso a paso en la parte de autenticación desde Next.js (server-side) sin adivinar.
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+Create and Manage Toast Analytics API Access Credentials (confirma dónde se manejan credenciales): https://central.toasttab.com/s/article/Create-and-Manage-Toast-API-Access-Credentials
+
+Completed
+
+
+
+en el paso 1 me aparecen estos: Standard API Access gives you read-only access to the following APIs: Cash Management API Data about cash operations Configuration API Data about your restaurant setup and configurations Labor API Data about employees, timesheets, and break hours Menus API Data about available menus Orders API Data about orders taken and fulfilled Restaurants API Data about a restaurant or restaurant management group Stock API Data about menu item inventory
+Perfecto — esa pantalla ya significa que sí estás en el lugar correcto: estás creando Standard API (read‑only) y te está diciendo qué APIs podrás leer (Labor, Orders, Restaurants, etc.). Eso es lo que necesitas para tu dashboard.
+
+Ahora te guío paso a paso en lo siguiente, sin asumir que sabes programar.
+
+Paso 1 — Termina de crear las credenciales (Toast Web)
+En Integrations → Manage credentials:
+
+Elige Create Standard API credentials (o equivalente a “read‑only APIs”).
+Ponle un nombre (ej. Dashboard Personal - Read Only).
+Cuando te pida ubicaciones, selecciona todas tus 15 tiendas (para que “Todas” funcione).
+Confirma/crea.
+Cuando termines, Toast te va a mostrar un “paquete” de credenciales (normalmente cosas como Client ID/Secret o algo similar).
+No las pegues en tu dashboard, guárdalas en un lugar seguro por ahora.
+
+Toast Central confirma que Standard API es read‑only y que funciona con credenciales.
+Fuente: Standard API Access.
+
+Confirmación rápida (1 pregunta)
+Cuando le das “Create”, ¿te muestra algo como Client ID y Client Secret, o te muestra otro formato? (pégame los labels exactos, sin los valores).
+
+Paso 2 — Crea tu “puente” en Next.js (sin tocar Toast desde el navegador)
+Tu dashboard (la página) NO se conecta directo a Toast. Se conecta a una ruta de tu servidor.
+
+En Next.js, vas a crear un endpoint como:
+
+/api/metrics
+Ese endpoint recibe tus filtros:
+
+tiendas (all o lista)
+rango de fechas (start/end)
+groupBy (day/week/month/year)
+y luego desde el servidor consulta Toast.
+
+Paso 3 — Guarda las credenciales en variables de entorno (Supabase + Next)
+Tú vas a guardar esos secretos como ENV vars (esto es esencial):
+
+TOAST_CLIENT_ID
+TOAST_CLIENT_SECRET
+(o el equivalente según lo que te dé Toast)
+Si usas Vercel/hosting, esas variables se guardan en el panel del hosting.
+Si usas Supabase para funciones/DB, las guardas como secretos ahí.
+
+Regla: cero credenciales en el frontend.
+
+Paso 4 — Construye el endpoint /api/metrics por partes (lo más fácil)
+Como quieres: Net Sales + Labor (regular/OT hours y cost) + labor% + SPLH, tu endpoint hará 2 consultas:
+
+Ventas agregadas (Net Sales)
+Labor agregada (Regular/OT hours + cost)
+Luego calculas:
+
+Labor Cost (A) = regularCost + overtimeCost
+Total Hours = regularHours + overtimeHours
+Labor % = laborCost / netSales
+SPLH = netSales / totalHours
+Paso 5 — Cache (para que “todas las tiendas” sea rápido)
+Después de que funcione, agregas cache en Supabase:
+
+guardas el resultado por combinación de filtros
+TTL 60–120s si incluye hoy
+TTL 5–15 min histórico
+Lo que sigue ahora mismo (para avanzar ya)
+Respóndeme solo esto:
+
+1) ¿Ya pudiste crear las credenciales?
+Sí / No
+2) ¿Qué “labels” te muestra Toast al final?
+Ejemplos: “Client ID”, “Client Secret”, “Audience”, “Token URL”, “API Key”, etc.
+(Solo los nombres de los campos; no pegues los secretos aquí.)
+
+Con eso te doy el siguiente paso exacto para conectar desde Next.js (server-side) a Toast, sin adivinar el método de autenticación.
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+
+Completed
+
+
+
+API hostname https://ws-api.toasttab.com Copy User access type TOAST_MACHINE_CLIENT Copy Client ID MX3ppl7KA8U5xcpQBvx2IbkPJg5q9sIm Copy Client secret (created on 1/17/2026, 3:00 PM) You saved this somewhere safe Rotate
+Listo — ya tienes lo necesario para conectar backend ↔ Toast:
+
+API hostname: https://ws-api.toasttab.com
+User access type: TOAST_MACHINE_CLIENT
+Client ID / Client secret: (estos van solo en tu backend)
+A partir de aquí, el flujo correcto es:
+
+1) Guarda tus credenciales como variables de entorno (Next.js)
+En tu proyecto (local y luego en producción):
+
+TOAST_API_HOST=https://ws-api.toasttab.com
+TOAST_CLIENT_ID=...
+TOAST_CLIENT_SECRET=...
+Regla: nunca las expongas en el navegador (no las uses en componentes React).
+
+2) Crea tu endpoint backend en Next.js (tu “puente”)
+Crea una ruta tipo:
+
+GET /api/metrics
+Esta ruta:
+
+Recibe storeIds, startDate, endDate, groupBy
+Se autentica contra Toast usando machine client (Client ID/Secret)
+Consulta Toast (Sales + Labor)
+Devuelve tu JSON agregado (y tú calculas labor% y SPLH)
+3) “Auth” contra Toast (sin inventar endpoints)
+Aquí necesito un dato más para darte el paso a paso exacto de autenticación (URL de token, headers y body), porque Toast Central no lista el endpoint exacto; eso viene en el developer guide para Standard API.
+
+1 pregunta (clave)
+En la pantalla donde te dio el hostname y el client ID, ¿ves también algo como:
+
+Token URL / OAuth URL / Auth URL / Audience / Scopes?
+Si sí, dime los labels y el valor (puedes pegar URLs; no pegues tu secret).
+Si no aparecen, entonces el siguiente paso es abrir el developer guide desde el link que aparece en “Standard API Access” y ahí viene el flujo exacto de token.
+
+4) Mientras tanto: arma la base del endpoint (ya puedes hacerlo)
+Tu endpoint /api/metrics puede quedar listo con:
+
+validación de fechas
+regla de groupBy (week ISO lunes-domingo; year calendario)
+cache en Supabase (después)
+5) Frontend
+Tu dashboard solo hará fetch('/api/metrics?...').
+
+Siguiente paso que te propongo (en el chat)
+Si me confirmas si ves Token URL/Audience/Scopes (sí/no), te escribo el paso a paso completo para:
+
+obtener token con machine client
+hacer una llamada de prueba “ping” (Restaurants API suele ser la más fácil)
+y después ya enchufamos Sales/Labor.
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+
+Completed
+
+
+
+Client Secret Q-efMSxqR2bLWtXcFRapuTITuqfW2H13ycIDiICRRO7PQqmT_T3YDyH7o9ZYvydz API hostname https://ws-api.toasttab.com Copy User access type TOAST_MACHINE_CLIENT Copy Client ID MX3ppl7KA8U5xcpQBvx2IbkPJg5q9sIm Copy
+No pegues tu Client Secret aquí — ya quedó expuesto en el chat. Rótalo ahora mismo en Toast Web (botón Rotate) y guarda el nuevo en un password manager/Secrets. Luego seguimos con el nuevo.
+
+1) Rotar el secret (hazlo ya)
+En Integrations → Manage credentials, abre esas credenciales y usa Rotate para generar un nuevo Client Secret.
+Después:
+
+actualiza tus variables de entorno (Next.js/Vercel/Supabase) con el nuevo secret
+considera borrar/invalidar cualquier copia vieja donde lo hayas pegado
+2) Configura tus ENV vars (con el nuevo secret)
+En tu proyecto Next.js:
+
+TOAST_API_HOST=https://ws-api.toasttab.com
+TOAST_CLIENT_ID=MX3ppl7KA8U5xcpQBvx2IbkPJg5q9sIm
+TOAST_CLIENT_SECRET=<NUEVO_SECRET>
+3) Autenticación: necesito 1 dato para darte el paso exacto
+Tu “User access type” es TOAST_MACHINE_CLIENT, que normalmente implica un flujo de token (machine-to-machine). Pero en Toast Central no viene el endpoint exacto del token; eso viene en el developer guide.
+
+1 pregunta
+En la pantalla/portal donde creaste la credencial, ¿ves algún campo adicional como:
+
+Token URL, Auth URL, Audience, o Scopes?
+Sí o no.
+
+Si sí, pégame esos labels y URLs (sin secretos).
+Si no, entonces el siguiente paso es abrir el developer guide desde el enlace que aparece en Toast (o el que referencia Toast Central en “Standard API Access”), y me dices qué sección te aparece para “Machine Client / OAuth”.
+4) Mientras tanto: crea tu endpoint base en Next.js (sin hacer llamadas aún)
+Crea GET /api/metrics que solo valide query params:
+
+storeIds
+startDate, endDate
+groupBy
+y regrese 200 con “ok”. Eso ya lo puedes probar hoy.
+
+Si quieres, también puedo ayudarte a redactar un checklist de seguridad (qué rotar, dónde guardar secrets, qué nunca subir a Git), pero primero: rota el secret y dime si ves Token URL/Audience/Scopes.
+
+
+Completed
+
+
+
+ESTO ES LO QUE SE VE: Credential name DashboardTEG Locations 15 locations API scopes 13 scopes Edit Location IDs View credentials as JSON API hostname https://ws-api.toasttab.com Copy User access type TOAST_MACHINE_CLIENT Copy Client ID MX3ppl7KA8U5xcpQBvx2IbkPJg5q9sIm Copy Client secret (created on 1/17/2026, 3:03 PM) You saved this somewhere safe Rotate
+Bien — ya con eso estamos en el punto correcto. Tienes:
+
+Credencial machine-to-machine (TOAST_MACHINE_CLIENT)
+Host https://ws-api.toasttab.com
+15 locations incluidas
+Scopes (permisos) incluidos
+Opción “View credentials as JSON” (esto es clave)
+Y como no te muestra “Token URL” a simple vista, el siguiente paso práctico es:
+
+Paso 1) No compartas el secret (y si ya lo compartiste, róta­lo)
+Si en algún momento pegaste el Client secret aquí o en un lugar público, usa Rotate y actualiza el nuevo en tus secretos.
+
+Paso 2) Abre “View credentials as JSON” y copia SOLO los campos no sensibles
+En esa misma pantalla, haz clic en View credentials as JSON.
+Copia y pégame aquí solo:
+apiHost o apiHostname
+clientId
+cualquier campo que diga tokenUrl, authUrl, oauth, issuer, audience
+scopes (lista)
+No pegues clientSecret en el chat.
+Con ese JSON puedo decirte exactamente cómo hacer la autenticación desde tu Next.js backend (qué URL llamar para token y qué payload mandar), sin adivinar.
+
+Paso 3) Prepara tu proyecto Next.js (esto sí lo puedes hacer ya)
+A) Variables de entorno (local)
+En tu .env.local:
+
+TOAST_API_HOST=https://ws-api.toasttab.com
+TOAST_CLIENT_ID=...
+TOAST_CLIENT_SECRET=... ← solo aquí (local), nunca en el frontend
+B) Endpoint interno en Next.js
+Crea un endpoint server-side:
+
+GET /api/metrics
+Por ahora que solo valide parámetros:
+
+storeIds
+startDate, endDate
+groupBy
+y regrese { ok: true }. Esto te deja listo para “enchufar” Toast en el siguiente paso.
+
+Paso 4) Cuando tengamos el token endpoint, conectamos “ventas + labor”
+Ahí hacemos:
+
+1 llamada para Sales (Net Sales)
+1 llamada para Labor (Regular/OT hours + cost)
+Calculas en tu backend: Labor Cost, Total Hours, Labor %, SPLH
+Devuelves al frontend “long format” (store+period)
+1 sola cosa que necesito de ti ahora
+Pégame el contenido de View credentials as JSON pero sin el clientSecret.
+
+Si quieres, pégalo tal cual y yo te digo qué líneas borrar antes de enviarlo.
+
+
+Completed
+
+
+
+{ "userAccessType": "TOAST_MACHINE_CLIENT", "clientId": "MX3ppl7KA8U5xcpQBvx2IbkPJg5q9sIm", "clientSecret": "your_client_secret" }
+Perfecto — gracias por pegar el JSON sin el secret.
+
+Lo que falta para poder decirte “haz esta llamada para sacar el token y luego pega estos endpoints” es que ese JSON no trae la parte más importante: el OAuth/token endpoint (tokenUrl/authUrl/issuer/audience). Sin eso, no debo inventar el flujo.
+
+Qué sigue (paso a paso)
+1) En Toast Web: abre el JSON completo y busca estos campos
+En Integrations → Manage credentials → DashboardTEG → View credentials as JSON, busca si aparece cualquiera de estos (pueden venir con otro nombre):
+
+tokenUrl
+authUrl
+oauth
+issuer
+audience
+wellKnown o /.well-known/...
+scopes (ya dijiste que tienes 13 scopes; si viene la lista, también ayuda)
+Pégame aquí el JSON de nuevo pero:
+
+✅ sí incluye esas claves si aparecen
+❌ NO incluyas clientSecret
+Si el JSON no trae nada de eso (solo userAccessType/clientId/secret), entonces vamos por el Plan B.
+
+Plan B (si el JSON no trae tokenUrl): usar el Developer Guide (oficial)
+Toast Central indica que Standard API access se usa con un developer guide. Ahí sí viene el detalle técnico (auth + endpoints).
+
+Lo que necesito que hagas
+En Toast Web, en esa misma área de credenciales/Standard API, abre el link a Developer guide.
+Busca la sección Authentication o Machine Client o TOAST_MACHINE_CLIENT.
+Pégame aquí:
+el nombre de la sección
+y la(s) URL(s) que muestre para autenticación (solo URLs públicas, sin secretos)
+Con eso ya te escribo el paso a paso exacto para Next.js.
+
+Mientras tanto: deja listo tu Next.js backend (esto ya lo puedes avanzar)
+Crea .env.local:
+
+TOAST_API_HOST=https://ws-api.toasttab.com
+TOAST_CLIENT_ID=...
+TOAST_CLIENT_SECRET=... (solo local/servidor)
+Crea endpoint GET /api/metrics que por ahora solo valide params y responda { ok: true }.
+
+1 pregunta (para no hacerte brincar entre pantallas)
+¿En “View credentials as JSON” te aparece alguna clave adicional aparte de esas 3 (aunque sea scopes o algo de OAuth)? Sí / No.
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+
+Completed
+
+
+
+no aparece developer guide
+No pasa nada — esto le pasa a mucha gente: Toast Central sí dice que existe un developer guide, pero en tu pantalla no te lo muestra y el JSON de credenciales no trae tokenUrl. Sin ese dato no debo inventar cómo pedir el token.
+
+Entonces, el siguiente paso correcto es: pedir el “endpoint de autenticación / developer docs” a Toast Support/Integrations, o acceder al Toast Integrations Community (que también menciona Toast Central). Yo te dejo el plan exacto y qué pedir para que te lo den rápido.
+
+✅ Qué ya tienes listo (y está bien)
+Credenciales Standard API (read‑only) con:
+Host: https://ws-api.toasttab.com
+TOAST_MACHINE_CLIENT
+Client ID / Secret
+15 locations
+Scopes para Labor, Orders, Restaurants, etc.
+Esto significa que sí puedes hacer el dashboard. Solo falta el “cómo autenticar”.
+
+Paso 1 — Rota el secret si alguna vez lo pegaste fuera (incluye este chat)
+Si en algún momento lo compartiste o lo guardaste en un lugar inseguro, usa Rotate y actualiza el nuevo en tus env vars.
+
+Paso 2 — Lo que vas a construir en Next.js (puedes avanzar ya)
+Crea tu endpoint en Next.js:
+
+GET /api/metrics
+Que reciba:
+
+storeIds=all|...
+startDate, endDate
+groupBy=day|week|month|year
+y por ahora solo devuelva { ok: true }.
+
+Esto te deja el “esqueleto” listo.
+
+Paso 3 — Abre chat con soporte y pide “solo lo necesario”
+Pídeles esto (cópialo tal cual):
+
+“Tengo Standard API credentials (TOAST_MACHINE_CLIENT) con host https://ws-api.toasttab.com. Necesito la documentación oficial (o el token URL / auth URL) para obtener el access token con client credentials y poder llamar a Orders/Labor/Restaurants API. En mi Toast Web no aparece el developer guide ni el token URL en el JSON.”
+
+Incluye también:
+
+nombre de la credencial: DashboardTEG
+que tiene 15 locations y 13 scopes
+Toast Central confirma que, si no basta con el artículo, puedes ir por soporte de integraciones y/o comunidad (Zendesk) para dudas técnicas.
+Fuente: Standard API Access.
+
+Paso 4 — En cuanto tengas el token URL (o doc), lo conectamos
+Cuando soporte te diga el token endpoint y el formato (normalmente “client credentials”), hacemos:
+
+En tu /api/metrics, primero pedir token (server-side)
+Llamar 2 recursos:
+ventas (net sales)
+labor (regular+OT hours/cost)
+Calcular:
+labor cost, total hours, labor %, SPLH
+Devolver JSON “long format” para tu frontend
+✅ Opción para que yo te ayude más rápido (sin esperar tanto)
+En tu pantalla de credenciales, ¿hay algún botón/enlace que diga algo como:
+
+“Toast Integrations”
+“Zendesk”
+“Community forum”
+“Request support”
+“API documentation site”
+Si me dices cuál ves, te digo exactamente cuál usar y qué seleccionar.
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+
+Completed
+
+
+
+donde puedo ver token_url??
+No hay un lugar único “garantizado” dentro de Toast Web donde siempre se vea el token_url para Standard API — en tu caso, como ya revisamos, no aparece en la pantalla de credenciales ni en el JSON que te muestra Toast Web.
+
+Lo que sí puedes hacer (en orden, de más rápido a más probable):
+
+1) Revisar si aparece en el JSON “real” de credenciales (a veces viene incompleto en la vista)
+En Integrations → Manage credentials → DashboardTEG → View credentials as JSON:
+
+Busca cualquier campo parecido a:
+tokenUrl
+authUrl
+issuer
+audience
+oauth
+wellKnown o algo con /.well-known/ Si no aparece nada de eso (como te salió a ti), entonces Toast Web no te lo está exponiendo ahí.
+2) Usar el canal oficial para obtenerlo (Integrations Support / Community)
+Toast Central indica que para Standard API:
+
+si tienes preguntas de diseño/endpoint/auth, puedes usar el Toast Integrations Zendesk Community Forum
+si tienes un problema específico (por ejemplo “¿cuál es mi token URL para TOAST_MACHINE_CLIENT?”), puedes levantar un caso con Integrations Support usando su formulario (sin compartir secretos)
+En tu caso, eso es exactamente lo que falta: el token endpoint / auth docs.
+
+Qué pedir exactamente (cópialo)
+“Tengo Standard API credentials con userAccessType=TOAST_MACHINE_CLIENT y host https://ws-api.toasttab.com. En Toast Web no me aparece developer guide ni token URL. ¿Me pueden confirmar el token_url/auth endpoint y el flujo de autenticación (client credentials) para usar Orders/Labor/Restaurants API?”
+
+3) Alternativa: verificar si tienes acceso a “Toast Integrations” portal
+En algunas cuentas aparece un enlace/portal separado (no siempre).
+Busca dentro de Toast Web algo como:
+
+“Toast Integrations”
+“Integrations Support”
+“Community forum”
+“Request support”
+1 pregunta para darte la ruta exacta dentro de tu pantalla
+En Toast Web, cuando estás en Integrations → Manage credentials, ¿ves algún botón o link que diga “Toast Integrations Zendesk”, “Community forum” o “Request support”? (sí/no)
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+
+Completed
+
+
+
+no
+Entendido — si no te aparece ningún link a developer guide/community/support dentro de esa pantalla, entonces desde Toast Web no vas a poder “ver” el token_url ahí mismo.
+
+En tu caso, el camino correcto para obtenerlo (sin adivinar) es a través de Toast Integrations Support (porque te falta el dato técnico de autenticación para TOAST_MACHINE_CLIENT).
+
+✅ Qué hacer ahora (paso a paso)
+1) Abre chat con soporte desde Toast Web (tú ya estás en web)
+En desktop/web, abre el widget de soporte (esquina inferior derecha).
+Pide “Integrations Support / Standard API authentication”.
+Chat es 24/7.
+
+2) Copia y pega este mensaje (tal cual)
+“Necesito el token URL / OAuth endpoint para autenticarme con Standard API usando userAccessType=TOAST_MACHINE_CLIENT.
+Mi API hostname es https://ws-api.toasttab.com.
+En Toast Web no aparece developer guide ni token URL en ‘View credentials as JSON’.
+¿Me pueden confirmar el endpoint de token y el flujo (client credentials) para poder llamar Labor/Orders/Restaurants API?”
+
+3) Cuando te lo den, me lo pegas aquí
+Con solo:
+
+token URL
+si requiere audience o scope
+si requiere algún header especial
+y yo te armo el código exacto en Next.js para:
+
+obtener el token server-side
+hacer una llamada de prueba a Restaurants API
+luego conectar tu /api/metrics (ventas + labor) con tus filtros.
+Opción: te conecto con un agente desde aquí
+Si quieres, puedo abrirte el chat directamente. Solo dime: ¿estás en Web (computadora) ahora mismo?
+
+
+Completed
+
+
+
+conectame tu, en español
+Para conectarte con un agente de Soporte (en español) voy a abrir un chat desde tu sesión en Toast Web. El agente recibirá un resumen con tu caso: que ya creaste credenciales Standard API (TOAST_MACHINE_CLIENT) y necesitas el token URL/OAuth endpoint y el flujo de autenticación porque no aparece en Toast Web.
+
+¿Confirmas que lo abra ahora?
+
+Completed Agent Action Results The following changes have been confirmed and saved. Action: We'll start a support chat for you in a new window and give the agent a summary of our discussion so far. Summary of changes: We'll start a support chat for you in a new window and give the agent a summary of our discussion so far.
+
+
+Completed
+
+
+
+ya estoy en developer guide
+En tu cuenta, Toast Web no te está mostrando el token_url en la pantalla de credenciales (ni en el JSON básico), y Toast Central tampoco publica ese endpoint directamente (solo dice “revisa el developer guide”). Por eso, el token_url solo lo vas a ver dentro del Developer Guide (donde ya estás) o te lo confirma Integrations Support.
+
+Qué hacer ahora mismo (paso a paso, sin adivinar)
+1) En el Developer Guide, busca la sección exacta
+Busca en el menú (o con Ctrl/Cmd + F) estas palabras:
+
+Authentication
+OAuth
+Machine client
+Client credentials
+TOAST_MACHINE_CLIENT
+Get access token
+Token endpoint
+2) Cuando la encuentres, copia y pégame (solo esto)
+La línea que diga algo como Token URL / Token Endpoint (la URL completa)
+Si menciona audience y su valor
+Si menciona scope(s) y el formato esperado
+El ejemplo de curl o request (sin secrets)
+No pegues tu client secret.
+
+3) Con eso, yo te regreso el paso a paso en Next.js
+Te escribo exactamente:
+
+cómo pedir el token server-side (Next.js route handler)
+cómo guardar el token en cache (Supabase)
+cómo hacer la primera llamada de prueba (Restaurants API)
+y luego cómo armar tu /api/metrics (Sales + Labor) con tus filtros
+1 pregunta para ubicarte rápido
+En el Developer Guide, ¿qué título ves en la sección de autenticación? (por ejemplo: “OAuth 2.0”, “Client Credentials”, etc.). Pégame el título y la URL del navegador (solo la URL, sin secretos).
+
+Sources
+Standard API Access: https://central.toasttab.com/s/article/Standard-API-Access
+API Documentation Site: https://central.toasttab.com/s/article/API-Documentation-Site-Internal
+
+Completed
+
+
+
+EN LA GUIA SALE ESTO: Authentication and restaurant access Toast APIs use the OAuth 2 client-credentials grant type to authenticate access to secure resources. When you send requests to secure API resources, you include an OAuth 2 bearer authentication token in the Authorization HTTP header field of your request. Note The authentication endpoint and procedure described here replaced an earlier Toast API authentication service. If your integration uses the legacy authentication endpoint, you must implement support for the authentication process described here. For information about the legacy authentication endpoint and process, see Legacy API authentication (deprecated). About authentication tokens An authentication token is an encoded text string that you can get from the authentication API (/authentication). To request an authentication token, you send the client identifier and client secret in the message body of a POST request to the /authentication/login endpoint of the authentication API (/authentication/v1/authentication/login). Authentication tokens are valid for a limited period of time. The length of time is determined by the Toast API environment that you use. When it returns the token, the authentication API response specifies how long an authentication token is valid. After an authentication token expires, you must get a new token from the authentication API. Getting API credentials Before you can authenticate, you need API credentials. The way you get credentials depends on your integration access type. Credentials include a clientId and clientSecret. The table below shows how credentials are issued for each integration type. For more information, see Integration types. Integration Type Credentials Partner integrations Credentials are created by the Toast integrations team after your application has been reviewed and approved. For more information see, Integration partnership process. Custom integrations Credentials are created by the Toast integrations team after you have been approved for custom integration access. For more information see, Custom integration overview. Standard API access You create your own credentials through Toast Web. For more information, see Creating standard API access credentials. Analytics API access You create your own credentials through Toast Web. For more information, see Creating analytics API access credentials. Credential storage guidelines API credentials provide access to valuable and sensitive information and must be saved in a secure way. If your API credentials are exposed, the Toast integrations team deactivates the compromised credentials and generates new ones. To decrease the likelihood of exposing your API credentials, follow these guidelines for your production and sandbox API credentials. Do this It is best to do the following things: Save your API credentials as environment variables. If your team needs local access to credential strings, share them using a secret management service and store them in local environment variables. Programmatically retrieve your API credentials at runtime from a secret management service. This allows you to rotate credentials without the need to update environment variables. When possible, visually mask your client secret to decrease the likelihood of displaying the secret when you use a screen-sharing service or when other people can see your computer display. Don't do this It is best not to do the following things: Do not store API credentials in your Toast integration code. Do not store API credentials in any repositories saved to the cloud, whether public or private. Do not display your client secret while using a screen-sharing service. Do not send an unencrypted client secret via email or in a messenger application. Indicators of credential compromise If any of the following things occurs, your API credentials are considered compromised. Contact Toast support immediately so that you can receive a new client secret. Your client secret is committed to a repository that is not a purpose-built secret management service. Your client secret is deployed in your code. Somebody sends your client secret in plain text via email or on a messenger application. Your client secret is displayed on a screen-share recording that is saved to the cloud. You have any other known or suspected security breach. Getting an authentication token Making the request To get an authentication token, you send a POST request to the /authentication/login endpoint of the Toast authentication API. The following example shows the URL of the endpoint. https://[toast-api-hostname]/authentication/v1/authentication/login You must include your client identifier and client secret string in the message body of a POST request for an authentication token. You receive a client identifier string (clientId) and client secret string (clientSecret) from the Toast support team. Follow these guidelines when storing your API credentials. When the authentication API determines that the client identifier and client secret string are valid, it returns an authentication token along with a set of data describing the way you can use it. For more information, see Toast API accounts. You include the following JSON object in the message body parameter of an /authentication/login endpoint request. Message body parameter for an /authentication/login endpoint request { "clientId": "myToastApiClientIdentifier",1 "clientSecret": "myToastApiClientSecret",2 "userAccessType": "TOAST_MACHINE_CLIENT"3 } 1 The identifier string for your Toast API client. 2 The secret string that corresponds to your Toast API client. 3 Always include the userAccessType value and set it to TOAST_MACHINE_CLIENT. The following curl command requests an authentication token from the /authentication/login resource. For more information about the curl utility, see https://curl.haxx.se/. Authentication request using curl program command curl -X POST \1 -H "Content-Type: application/json" \2 -d @file-containing-message-body-parameter.json \3 https://[toast-api-hostname]/authentication/v1/authentication/login4 1 Use the POST HTTP method to make an authentication request. 2 Include the HTTP Content-Type header field and set its value to application/json. 3 Include a JSON object including your client identifier and client secret in the message body parameter. See Message body parameter for an /authentication/login endpoint request. 4 Send the request to the /authentication/login endpoint of the authentication API. Authentication return data The return data that you receive depends on the type of Toast API client you are using. Toast APIs support partner clients and restaurant management group clients. For more information about the types of Toast API clients, see Toast API accounts. Authentication return data for a partner API client The authentication API returns the information shown in the following example for a successful authentication request using a partner API client. For more information about partner API accounts, see Toast API accounts. Authentication return data for a partner API client { "@class": ".SuccessfulResponse",1 "token": { "tokenType": "Bearer",2 "scope": null,3 "expiresIn": 19168,4 "accessToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJwYXJ0bmVyR35 V3JkZXJzOnYThkYWE5LWIyMDQtNDhhZi1iZDY2LWZiMzZkNzViYjU1NiIsIm5hbWl uZ0F1dGhvcml05NiIGlBFVEVSUEFSVE5FUiIsImF6cCI6InBldGVyLXBhcnRuZXIi LCJzY29wZSI6WyJjcm0iLCJsYWJvciIsImNvbmZpZ3VyYXRpb24iLCJjYXNobWdtd CIsInBhcnRuZXJzIiwiZ3Vlc3QucGk6cmVhZCIsImRlbGlcml05X2luZm8uYWRkcm VzczpyZWFkIiwib3JkZXJzO5NiIGQiLCJvcmRlcnMub3JkZXJzOndyaXRlIiwib3J kZXJzIiwiY3JlZGl0X2NhcmRzLmF1dGhvcml6YXRpb2463JkZXJzOnSwiZXhwIjox NTg4MTc2NDY2LCJqdGkiOiIyMTk4OWQwNS1jNzg4LTQzNWYtODQyMi0xYjRjZTM5O DdlODgiLCJjbGllbnRfaWQiOiJwZXRlci1wYXJ0bmVyIn0.BxROzc5ZyKVgkdsLTF LbyPR_dt5NiIG8vtJd3JkZXJzOnOQiJRtfx6sfse1i2ZG6VWIz_jVOvOiR2zaWra0 yCcml051AVNV3xxn7u4finETPzm43lhf5NiIGYKqUD_HM-Z1B-CCAj-7C6nOGQWI9 G_PYZRsb7lwmJG3tPW74bDKZhYJVnPO3HMNnd93A8AL4QVOVBO6L6BdqsK3lZ7nzY 0hALk-LzyD-w_maz-s2kFx7vbWrp0l2X_gSpEi3JkZXJzOn81T-2bBtz4vkObQm27 iI0Ww8K2ZeRwkSaR8zL2Qo-5NiIGRcml059S1_halz_GuWy4xOctS5WZOuIe5FaA", "idToken": null,6 "refreshToken": null7 }, "status": "SUCCESS"8 } 1 For internal use. 2 The OAuth 2 authentication scheme used for the authentication token. Toast API authentication uses the bearer authentication scheme. 3 The scope value in your authentication token request response will be null. Your JSON Web Token (JWT) contains your list of scopes. 4 The number of remaining seconds that the authentication token is valid. For more information, see Refreshing authentication tokens. 5 A JSON Web Token (JWT) string that contains an authentication token. You present this string when you make requests to other Toast API resources. The JWT includes information about your Toast API client. For more information, see JWT payload contents for partner API client access token. 6 For internal use. 7 For internal use. 8 Indicates that your authentication request was successful. The following example shows the JWT payload contents for a partner API client access token. JWT payload contents for partner API client access token { "https://toasttab.com/client_name": "MYNAMINGAUTHORITY",1 "https://toasttab.com/access_type": "TOAST_MACHINE_CLIENT",2 "https://toasttab.com/partner_guid": "23a8eca9-b403-45bf-cd66-fb36a85be556",3 "https://toasttab.com/type": "CUSTOMER",4 "iss": "[Toast-token-issuer]",5 "sub": "my-client-id@clients",6 "aud": "https://toast-services-api/",7 "iat": 1603107025,8 "exp": 1588176466,9 "azp": "my-client-id",10 "scope": "orders:read menus:read",11 "gty": "client-credentials"12 } 1 A human-readable name representing your API client. 2 The types of users that can authenticate through the system. For API clients, this is TOAST_MACHINE_CLIENT. TOAST_MACHINE_CLIENT represents the type of access credentials issued to services that use Toast APIs. 3 The unique Toast platform identifier for the integration partner organization. 4 The type of client requesting authentication. For partner API clients, this is PARTNER. 5 The issuer of the authentication token. 6 The subject of the token being issued. This value will be set to your client identifier and the string @clients. 7 The intended audience of your API usage. 8 A standard JWT claim indicating the time that the authentication token was issued. The time is presented in UNIX epoch format. 9 A standard JWT claim indicating the time that the authentication token expires. The time is presented in UNIX epoch format. 10 A standard JWT claim containing the identifier for the Toast API client. 11 The API functionality that your client ID is provisioned to use. For more information about API scopes, see API scopes page. 12 The grant type of this API client. This value will be client-credentials. Authentication return data for a restaurant management group API client The authentication API returns the information shown in the following example for a successful authentication request using a restaurant management group API client. For more information about restaurant management group API accounts, see Toast API accounts. Authentication return data for a restaurant management group client { "@class": ".SuccessfulResponse",1 "token": { "tokenType": "Bearer",2 "scope": null,3 "expiresIn": 19168,4 "accessToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJwYXJ0bmVyR35 V3JkZXJzOnYThkYWE5LWIyMDQtNDhhZi1iZDY2LWZiMzZkNzViYjU1NiIsIm5hbWl uZ0F1dGhvcml05NiIGlBFVEVSUEFSVE5FUiIsImF6cCI6InBldGVyLXBhcnRuZXIi LCJzY29wZSI6WyJjcm0iLCJsYWJvciIsImNvbmZpZ3VyYXRpb24iLCJjYXNobWdtd CIsInBhcnRuZXJzIiwiZ3Vlc3QucGk6cmVhZCIsImRlbGlcml05X2luZm8uYWRkcm VzczpyZWFkIiwib3JkZXJzO5NiIGQiLCJvcmRlcnMub3JkZXJzOndyaXRlIiwib3J kZXJzIiwiY3JlZGl0X2NhcmRzLmF1dGhvcml6YXRpb2463JkZXJzOnSwiZXhwIjox NTg4MTc2NDY2LCJqdGkiOiIyMTk4OWQwNS1jNzg4LTQzNWYtODQyMi0xYjRjZTM5O DdlODgiLCJjbGllbnRfaWQiOiJwZXRlci1wYXJ0bmVyIn0.BxROzc5ZyKVgkdsLTF LbyPR_dt5NiIG8vtJd3JkZXJzOnOQiJRtfx6sfse1i2ZG6VWIz_jVOvOiR2zaWra0 yCcml051AVNV3xxn7u4finETPzm43lhf5NiIGYKqUD_HM-Z1B-CCAj-7C6nOGQWI9 G_PYZRsb7lwmJG3tPW74bDKZhYJVnPO3HMNnd93A8AL4QVOVBO6L6BdqsK3lZ7nzY 0hALk-LzyD-w_maz-s2kFx7vbWrp0l2X_gSpEi3JkZXJzOn81T-2bBtz4vkObQm27 iI0Ww8K2ZeRwkSaR8zL2Qo-5NiIGRcml059S1_halz_GuWy4xOctS5WZOuIe5FaA", "idToken": null,6 "refreshToken": null7 }, "status": "SUCCESS"8 } 1 For internal use. 2 The OAuth 2 authentication scheme used for the authentication token. Toast API authentication uses the bearer authentication scheme. 3 The scope value in your authentication token request response will be null. Your JSON Web Token (JWT) contains your list of scopes. 4 The number of remaining seconds that the authentication token is valid. For more information, see Refreshing authentication tokens. 5 A JSON Web Token (JWT) string that contains an authentication token. You present this string when you make requests to other Toast API resources. The JWT includes information about your Toast API client. For more information, see JWT payload contents for restaurant management group API client access token. 6 For internal use. 7 For internal use. 8 Indicates that your authentication request was successful. The following example shows the JWT payload contents for a restaurant management group API client access token. JWT payload contents for restaurant management group API client access token { "https://toasttab.com/client_name": "MYNAMINGAUTHORITY",1 "https://toasttab.com/access_type": "TOAST_MACHINE_CLIENT",2 "https://toasttab.com/management_set_guid": "0423ad35-8ba2-45cf-9b6b-7da03f982c46",3 "https://toasttab.com/type": "CUSTOMER",4 "iss": "[Toast-token-issuer]",5 "sub": "my-client-id@clients",6 "aud": "https://toast-services-api/",7 "iat": 1603107025,8 "exp": 1588176466,9 "azp": "my-client-id",10 "scope": "orders:read menus:read",11 "gty": "client-credentials"12 } 1 A human-readable name representing your API client. 2 The types of users that can authenticate through the system. For API clients, this is TOAST_MACHINE_CLIENT. TOAST_MACHINE_CLIENT represents the type of access credentials issued to services that use Toast APIs. 3 The unique Toast platform identifier for the restaurant management group this client can access. 4 The type of client requesting authentication. For restaurant management group API clients, this is CUSTOMER. 5 The issuer of the authentication token. 6 The subject of the token being issued. This value will be set to your client identifier and the string @clients. 7 The intended audience of your API usage. 8 A standard JWT claim indicating the time that the authentication token was issued. The time is presented in UNIX epoch format. 9 A standard JWT claim indicating the time that the authentication token expires. The time is presented in UNIX epoch format. 10 A standard JWT claim containing the identifier for the Toast API client. 11 The API functionality that your client ID is provisioned to use. For more information about API scopes, see the API scopes page. 12 The grant type of this API client. This value will be client-credentials. Using an authentication token To use secured Toast API resources, when you make a request you: Present a valid authentication token in the Authorization HTTP header field when you make a request. An authentication token is a text string that you can get from the /authentication/login endpoint of the authentication API. See Getting an authentication token. The Toast API uses bearer authentication tokens. You must include the string Bearer in the value of the Authorization HTTP header field, before the token string, to indicate the type of the token. For example, Authorization: Bearer [my-authentication-token]. Specify the individual restaurant context for your request in the Toast-Restaurant-External-ID header field. To specify the restaurant that is the subject of a Toast API request, you include the Toast system GUID for that restaurant in the Toast-Restaurant-External-ID HTTP header field. For example, Toast-Restaurant-External-ID: 47286e0a4-4fef-9230-b3dae11e7a9. The following curl command presents an authentication token when it makes a Toast API request. curl -X GET \ -H "Authorization: Bearer eyJzI1NiJ9hbGciOiJSU.eyJhd9yaXR5Ij oiQ1JVTkNIVElNRSIsInJzR3VpZCI6IjE4YzQLCJqdLWFlODItNGFlYy04ND M1LLCJqdRjMjVlYTY2MiIsInNjb3BlIjpbImxWQiOlsidG9hc3QiXSwibmFt aW5nQXV0aGhYm9yIiwib3JkZXJzIiwidXNlcm1nbXQiXSwiZXhwIjoxNDg0M zg5ODUwLCJqdGkiOiJlMDYzZjJkMy1jNGYyLTRiZjItODJmNi01MTg1NWMzZ DAxM2YiLCJjbGllbnRfaWQiOiJjcnVuY2h0aW1lIn0.X1_0y9Hzj5F9gdOw2 o6VSYTyZwooAJiFMDmNakbZrtiUdYwLzuLwLpCMQzX5pKYtOqDUz_cetGJL3 txKL1L-K2j1Enoq8An8hEM6e8J0KdAiwrYFO3W3CmWedLCJqdK9ghNZVCs28 Td2Sp3IxLCJqdbrvanocx9_OT8S9uM8hdSXmBI_ykTWvOVgK4hO24V3DJy4b 9bz1FtgOvrClhELxCe8dJy7jiwAR60xczlCF5rna98RMLN6zY4ffjmljKFZ6 QV0KkVppWjEiJn7oFHiIylCX1sSg7sddrGatj0xJzts3GLCJqdlryUNHaEvJ dWq4Yzwo007AMgxjH9d241Y-g" \ -H "Toast-Restaurant-External-ID: 4721e7a9-b4ae-4fef-9230-b3dae186e0a4" \ https://[toast-api-hostname]/labor/v1/employees
+Perfecto — con eso ya tienes el token_url y todo el flujo. Te lo traduzco a pasos claros y “copy‑paste” para tu stack Next.js + Supabase.
+
+✅ 0) Lo que NO debes hacer
+No hagas llamadas a Toast desde el navegador.
+No subas tu clientSecret a GitHub.
+Si tu secret se filtró antes, Rotate en Toast Web.
+✅ 1) Tu token_url (ya confirmado)
+Tu token endpoint es:
+
+https://ws-api.toasttab.com/authentication/v1/authentication/login
+
+Y el body que exige es:
+
+{
+  "clientId": "TU_CLIENT_ID",
+  "clientSecret": "TU_CLIENT_SECRET",
+  "userAccessType": "TOAST_MACHINE_CLIENT"
+}
+✅ 2) Crea un “Toast client” en tu backend (Next.js)
+A) Variables de entorno (local)
+En .env.local:
+
+TOAST_API_HOST=https://ws-api.toasttab.com
+TOAST_CLIENT_ID=MX3ppl7KA8U5xcpQBvx2IbkPJg5q9sIm
+TOAST_CLIENT_SECRET=PEGA_AQUI_TU_SECRET
+B) Función para pedir el token (server-side)
+Crea lib/toastAuth.ts:
+
+export async function getToastAccessToken() {
+  const host = process.env.TOAST_API_HOST!;
+  const res = await fetch(`${host}/authentication/v1/authentication/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      clientId: process.env.TOAST_CLIENT_ID,
+      clientSecret: process.env.TOAST_CLIENT_SECRET,
+      userAccessType: "TOAST_MACHINE_CLIENT",
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Toast auth failed: ${res.status} ${text}`);
+  }
+
+  const json = await res.json();
+  // token.accessToken y token.expiresIn vienen en la respuesta
+  return {
+    accessToken: json?.token?.accessToken as string,
+    expiresIn: json?.token?.expiresIn as number,
+    tokenType: json?.token?.tokenType as string, // "Bearer"
+  };
+}
+✅ 3) Haz una llamada “de prueba” a Toast (para confirmar que conecta)
+La guía indica que debes mandar:
+
+Header Authorization: Bearer <token>
+Header Toast-Restaurant-External-ID: <restaurantId> (una tienda)
+Ejemplo: prueba con West Covina = 5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02.
+
+Crea una ruta Next.js: app/api/toast-test/route.ts
+
+import { getToastAccessToken } from "@/lib/toastAuth";
+
+export async function GET() {
+  const host = process.env.TOAST_API_HOST!;
+  const { accessToken } = await getToastAccessToken();
+
+  const restaurantId = "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02"; // West Covina (tu lista de 15)
+  const res = await fetch(`${host}/labor/v1/employees`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Toast-Restaurant-External-ID": restaurantId,
+    },
+  });
+
+  const text = await res.text();
+  return new Response(text, { status: res.status });
+}
+Luego en tu navegador:
+
+http://localhost:3000/api/toast-test
+Si responde 200 (o algo con data), ya conectaste.
+
+✅ 4) Ahora sí: tu endpoint real /api/metrics
+Ahí vas a hacer:
+
+pedir token
+por cada tienda seleccionada, llamar los recursos necesarios (ventas + labor) con el mismo Toast-Restaurant-External-ID
+agregar por groupBy (día/semana ISO/mes/año calendario)
+calcular tus 4 KPIs
+devolver JSON al frontend
+Tu guía confirma el header Toast-Restaurant-External-ID y el bearer token; con eso puedes hacer multi‑tienda con un loop.
+
+1 pregunta para seguir (y no equivocarnos con endpoints de ventas/labor)
+En tu Developer Guide, ¿qué sección estás usando para Sales/Net Sales y para Labor cost/hours?
+Pégame los paths exactos que ves (ej. /labor/v1/... y el equivalente para ventas). Con eso te armo el /api/metrics completo con tus filtros (rango fechas + week ISO + year calendario).
+
+Fuentes (de lo que citaste del Developer Guide)
+
+Token endpoint: /authentication/v1/authentication/login
+Uso de token: header Authorization: Bearer ...
+Contexto de restaurante: header Toast-Restaurant-External-ID: <restaurant GUID>
+
+Completed
+
+
+
+NO LO SE :( SOLO EN LA GUIA CONSULTE LA PALABRA TOKEN
+No pasa nada — ya tienes lo más importante (login y headers). Ahora solo te falta ubicar qué endpoints usar para ventas y labor dentro del Developer Guide (porque Toast Central no publica esos paths).
+
+✅ 1) Ya tienes la autenticación (confirmado)
+Token: POST https://ws-api.toasttab.com/authentication/v1/authentication/login
+Headers para cualquier llamada:
+Authorization: Bearer <accessToken>
+Toast-Restaurant-External-ID: 5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02 (o la tienda que toque)
+Eso ya lo puedes implementar en Next.js hoy.
+
+✅ 2) Cómo encontrar los endpoints de ventas y labor (en el Developer Guide)
+En el Developer Guide, usa Search (o Ctrl/Cmd+F) y busca estas frases exactas:
+
+Para ventas (Net Sales / orders / guest count)
+Busca:
+
+Orders API
+Checks
+Order totals
+Net sales
+Refund
+Discount
+Gross sales
+El “Net Sales” muchas veces no viene como campo directo; a veces lo calculas desde totales (dependiendo del endpoint).
+
+Para labor (hours y cost)
+Busca:
+
+Labor API
+Time entries
+Shifts
+Wage
+Labor cost
+Overtime
+En tu pantalla de scopes ya vimos que tienes Labor API y Orders API, así que el endpoint debería existir para ti.
+
+✅ 3) Qué me tienes que pegar para que yo te arme /api/metrics completo
+Cuando encuentres la página correcta del Developer Guide, pégame aquí solo:
+
+La URL del endpoint (ej: /labor/v1/... o /orders/v2/...)
+Qué parámetros acepta para filtrar por fechas (si dice startDate/endDate, from/to, etc.)
+Un ejemplo de request (sin secretos)
+Con eso yo te doy el código completo en Next.js:
+
+getToken()
+fetchSales(storeId, start, end)
+fetchLabor(storeId, start, end)
+groupBy day/week ISO/month/year
+cálculo de tus 4 KPIs
+cache en Supabase
+✅ 4) Mientras tanto: prueba que tu token funciona (paso simple)
+Como en tu guía viene el ejemplo GET .../labor/v1/employees, haz primero esa prueba en tu backend para confirmar que ya estás autenticando bien (si falla, sabemos que es auth/scopes y no “ventas”).
+
+1 pregunta para avanzar sin perderte
+En el Developer Guide, ¿ves un menú lateral con secciones llamadas exactamente “Orders API” y “Labor API”? (sí/no)
+
+Si sí: dime cuál ves primero y te digo qué página abrir y qué buscar dentro.
+Si no: dime cómo se llaman las secciones del menú (pega 5 títulos) y te guío con eso.
+Sources
+Standard API Access (confirma que Standard API cubre Orders/Labor/etc y que hay developer guide): https://central.toasttab.com/s/article/Standard-API-Access
+
+Completed
+
+
+
+QUE BUSCO EN LA GUIA?
+En la guía, lo que buscas son 3 cosas (en este orden) para poder armar tu dashboard:
+
+1) Los endpoints para “ventas agregadas” (Net Sales, Orders, Guests)
+Busca en el menú o con el buscador interno de la guía estos términos:
+
+Orders API
+Orders
+Checks
+Order totals
+Sales
+Net sales
+Discount
+Refund
+Lo que necesitas encontrar (y copiar) es:
+
+el path del endpoint (ej. algo como /orders/... o /orders/v.../...)
+cómo se filtra por fechas (ej. startDate/endDate o from/to)
+si regresa totales (gross/discount/refund) para poder obtener net sales
+Nota: muchas veces “Net Sales” no viene como campo directo; se calcula desde los totales del order/check (ventas – descuentos – refunds). Eso lo defines cuando veas qué campos regresa el endpoint.
+
+2) Los endpoints para “labor” (hours y cost)
+Busca:
+
+Labor API
+Time entries
+Shifts
+Timesheets
+Wage
+Overtime
+Labor cost
+Lo que necesitas copiar de esa sección:
+
+endpoint(s) para horas por rango de fechas
+si incluye regular/overtime y si incluye cost (regular/overtime cost)
+3) Cómo seleccionar la tienda (restaurant context)
+Tú ya lo encontraste en la guía, pero recuérdalo porque es obligatorio:
+
+Header: Toast-Restaurant-External-ID: 5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02 (cambias IQID según tienda)
+Authorization: Bearer <token>
+La forma más rápida (te ahorro tiempo)
+En la guía, usa el buscador y escribe: “net sales”
+Si no sale, prueba: “order totals” o “check”
+Cuando encuentres una página que tenga un endpoint con filtros por fecha, pégame aquí:
+el URL completo o path
+el ejemplo de request
+y 3–5 campos de la respuesta (los que parezcan ventas/discount/refund/orders/guests)
+Con eso yo te digo “ese endpoint sirve” o “no, ese solo es para detalle”, y te armo el /api/metrics.
+
+1 pregunta para orientarte mejor
+En tu dashboard, ¿quieres ventas como:
+
+A) Net Sales por día/semana/mes (resumen)
+B) lista de órdenes (muchas filas) y tú agregas
+Si me dices A o B, te digo exactamente qué tipo de endpoint buscar (resumen vs listado).
+
+
+Completed
+
+
+
+fKuukR6VYyTBhMSNIGkSRynmsm-K5BiPL_n9BoL9YZf_bV4uDU5o0x3F2nGQ8_n_
+Ese texto parece un token/secret (algo sensible). No lo pegues aquí.
+
+Haz esto ahora (rápido)
+Si eso es tu Client Secret o Access Token, trátalo como comprometido:
+
+Si es Client Secret → ve a Toast Web y dale Rotate (genera uno nuevo).
+Si es Access Token → no pasa nada grave (expira), pero evita compartirlo.
+Bórralo de donde lo hayas guardado en texto plano y guárdalo en un secret manager (Vercel env vars / Supabase secrets / 1Password).

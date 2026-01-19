@@ -1,0 +1,780 @@
+import { getSupabaseClient } from '@/lib/supabase'
+import fs from 'fs'
+import path from 'path'
+
+// DEBUG LOGGING HELPER
+const logDebug = (msg: string, data?: any) => {
+    try {
+        const timestamp = new Date().toISOString()
+        const logLine = `[${timestamp}] ${msg} ${data ? JSON.stringify(data) : ''}\n`
+        const logPath = path.join(process.cwd(), 'server-debug.log')
+        fs.appendFileSync(logPath, logLine)
+    } catch (e) {
+        // Limit console noise
+    }
+}
+
+// --- CONFIGURATION ---
+const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
+const TOAST_CLIENT_ID = process.env.TOAST_CLIENT_ID || ''
+const TOAST_CLIENT_SECRET = process.env.TOAST_CLIENT_SECRET || ''
+
+export interface ToastMetricsOptions {
+    storeIds: string | 'all'
+    startDate: string
+    endDate: string
+    groupBy: 'day' | 'week' | 'month' | 'year'
+}
+
+export interface MetricRow {
+    storeId: string
+    storeName: string
+    periodStart: string
+    periodEnd: string
+    netSales: number
+    grossSales: number
+    discounts: number
+    tips: number
+    taxes: number
+    serviceCharges: number
+    orderCount: number
+    guestCount: number
+    totalHours: number
+    laborCost: number // Regular + Overtime
+    laborPercentage: number
+    splh: number // Sales Per Labor Hour
+}
+
+// Map store generic ID to Toast restaurantGuid
+const STORE_NAME_OVERRIDES: Record<string, string> = {
+    'acf15327-54c8-4da4-8d0d-3ac0544dc422': 'Rialto',
+    'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8': 'Azusa',
+    '42ed15a6-106b-466a-9076-1e8f72451f6b': 'Norwalk',
+    'b7f63b01-f089-4ad7-a346-afdb1803dc1a': 'Downey',
+    '475bc112-187d-4b9c-884d-1f6a041698ce': 'LA Broadway',
+    'a83901db-2431-4283-834e-9502a2ba4b3b': 'Bell',
+    '5fbb58f5-283c-4ea4-9415-04100ee6978b': 'Hollywood',
+    '47256ade-2cd4-4073-9632-84567ad9e2c8': 'Huntington Park',
+    '8685e942-3f07-403a-afb6-faec697cd2cb': 'LA Central',
+    '3a803939-eb13-4def-a1a4-462df8e90623': 'La Puente',
+    '80a1ec95-bc73-402e-8884-e5abbe9343e6': 'Lynwood',
+    '3c2d8251-c43c-43b8-8306-387e0a4ed7c2': 'Santa Ana',
+    '9625621e-1b5e-48d7-87ae-7094fab5a4fd': 'Slauson',
+    '95866cfc-eeb8-4af9-9586-f78931e1ea04': 'South Gate',
+    '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02': 'West Covina'
+}
+
+// Token Cache
+let cachedToken: string | null = null
+let tokenExpiry: number = 0
+
+// --- AUTHENTICATION ---
+async function getAuthToken() {
+    // Return cached token if valid (buffer 5 min)
+    if (cachedToken && Date.now() < tokenExpiry - 300000) {
+        return cachedToken
+    }
+
+    try {
+        const res = await fetch(`${TOAST_API_HOST}/authentication/v1/authentication/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                clientId: TOAST_CLIENT_ID,
+                clientSecret: TOAST_CLIENT_SECRET,
+                userAccessType: 'TOAST_MACHINE_CLIENT'
+            })
+        })
+
+        if (!res.ok) {
+            const err = await res.text()
+            throw new Error(`Auth Failed: ${res.status} ${err}`)
+        }
+
+        const data = await res.json()
+        cachedToken = data.token.accessToken
+        // Assuming typical 1h expiry, set local expiry
+        tokenExpiry = Date.now() + (3600 * 1000)
+        return cachedToken
+    } catch (error) {
+        throw error
+    }
+}
+
+
+// --- HELPER: GET RESTAURANTS ---
+async function getRestaurants(token: string) {
+    const res = await fetch(`${TOAST_API_HOST}/partners/v1/restaurants`, {
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    })
+
+    if (!res.ok) {
+        return []
+    }
+
+    const data = await res.json()
+    let list = []
+    if (Array.isArray(data)) list = data
+    else if (data && Array.isArray(data.restaurants)) list = data.restaurants
+    else return []
+
+    return list.map((r: any) => {
+        const id = r.restaurantGuid || r.guid || r.id
+        const originalName = r.restaurantName || r.name
+        return {
+            id,
+            name: STORE_NAME_OVERRIDES[id] || originalName
+        }
+    })
+}
+
+// --- HELPER: GET SALES (ATTEMPT) ---
+// Since we might not have Reporting API, we'll try to get Orders Summary or Fallback
+async function getSalesForStore(token: string, storeId: string, startDate: string, endDate: string) {
+    try {
+        let net = 0
+        let gross = 0
+        let totalDiscounts = 0
+        let totalTips = 0
+        let totalTaxes = 0
+        let totalSvcCharges = 0
+        let count = 0
+        let guests = 0
+        let page = 1
+        const pageSize = 100
+        let hasMore = true
+        // Robust date formatting: YYYY-MM-DD -> YYYYMMDD
+        const formattedDate = startDate.split('-').join('')
+
+        const hourlySales: Record<number, number> = {}
+        for (let i = 0; i < 24; i++) hourlySales[i] = 0
+
+        while (hasMore) {
+            const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
+            url.searchParams.append('businessDate', formattedDate)
+            url.searchParams.append('pageSize', String(pageSize))
+            url.searchParams.append('page', String(page))
+
+            const fields = [
+                'voided',
+                'openedDate',
+                'numberOfGuests',
+                'checks.voided',
+                'checks.amount',
+                'checks.taxAmount',
+                'checks.appliedDiscounts',
+                'checks.appliedServiceCharges',
+                'checks.payments.tipAmount',
+                'checks.payments.refundStatus',
+                'checks.payments.refund',
+                'checks.selections.price',
+                'checks.selections.preDiscountPrice',
+                'checks.selections.quantity',
+                'checks.selections.tax',
+                'checks.selections.taxInclusion',
+                'checks.selections.displayName',
+                'checks.selections.voided',
+                'checks.selections.deferred',
+                'checks.selections.refundDetails',
+                'checks.selections.toastGiftCard'
+            ].join(',')
+            url.searchParams.append('fields', fields)
+
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 15000) // 15s timeout
+
+            const res = await fetch(url.toString(), {
+                signal: controller.signal,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Toast-Restaurant-External-ID': storeId
+                }
+            })
+            clearTimeout(timeoutId)
+
+            if (!res.ok) break
+
+            const data = await res.json()
+            const orders = Array.isArray(data) ? data : []
+
+            orders.forEach((order: any) => {
+                if (order.voided) return
+                count++
+                guests += (order.numberOfGuests || 1)
+
+                let hour = -1
+                if (order.openedDate) {
+                    try {
+                        const d = new Date(order.openedDate)
+                        hour = d.getHours()
+                    } catch (e) { }
+                }
+
+                if (order.checks && Array.isArray(order.checks)) {
+                    order.checks.forEach((check: any) => {
+                        if (check.voided) return
+
+                        // Skip fully refunded checks
+                        if (check.payments?.some((p: any) => p.refundStatus === 'FULL')) return
+
+                        // 1. Calculate from selections (excluding gift cards)
+                        let checkItemNetSum = 0     // Sum of price (after item discounts)
+                        let checkItemGrossSum = 0   // Sum of preDiscountPrice (before any discounts)
+                        let checkItemRefunds = 0    // Sum of refunds on items
+                        let giftCardTotal = 0
+
+                        const sumSelection = (sel: any, isGiftCard: boolean) => {
+                            // SKIP VOIDED ITEMS
+                            if (sel.voided) return
+                            // SKIP DEFERRED ITEMS unless it is a Gift Card Load (Add Value)
+                            if (sel.deferred && !isGiftCard) return
+
+                            let itemPrice = Number(sel.price || 0)
+                            const itemPreDiscount = Number(sel.preDiscountPrice || sel.price || 0)
+
+                            // HANDLE TAX INCLUDED ITEMS
+                            if (sel.taxInclusion === 'INCLUDED') {
+                                const taxAmount = Number(sel.tax || 0)
+                                itemPrice -= taxAmount
+                            }
+
+                            // Item Refunds
+                            if (sel.refundDetails?.refundAmount) {
+                                checkItemRefunds += Number(sel.refundDetails.refundAmount)
+                            }
+
+                            if (isGiftCard) {
+                                giftCardTotal += itemPrice
+                            } else {
+                                checkItemNetSum += itemPrice
+                                checkItemGrossSum += itemPreDiscount
+                            }
+                        }
+
+                        check.selections?.forEach((sel: any) => {
+                            const isGiftCard = sel.toastGiftCard || sel.displayName?.toLowerCase().includes('gift card')
+                            sumSelection(sel, isGiftCard)
+                        })
+
+                        // 3. Final Net and Gross
+                        // Gross = Sum of pre-discount prices (before ANY discounts)
+                        const checkGross = checkItemGrossSum
+                        let checkNet = checkItemNetSum // Initial - refunds logic applies below
+                        let checkDiscounts = 0
+
+
+                        // Deduct Check-level discounts
+                        if (check.appliedDiscounts) {
+                            const checkLevelDiscountAmount = check.appliedDiscounts.reduce((sum: number, d: any) => sum + (d.amount || 0), 0)
+                            checkNet -= checkLevelDiscountAmount
+                            checkDiscounts += checkLevelDiscountAmount
+                        }
+
+                        // Apply item refunds
+                        checkNet -= checkItemRefunds
+                        checkDiscounts += (checkGross - checkNet - checkDiscounts) // Adjust totalDiscounts based on final net/gross
+
+                        // 4. Other metrics
+                        const checkTax = Number(check.taxAmount || 0)
+
+                        let checkTips = 0
+                        check.payments?.forEach((p: any) => {
+                            checkTips += Number(p.tipAmount || 0)
+                        })
+
+                        let checkSvc = 0
+                        check.appliedServiceCharges?.forEach((svc: any) => {
+                            checkSvc += Number(svc.chargeAmount || 0)
+                        })
+
+                        // 5. Aggregate totals
+                        net += checkNet
+                        gross += checkGross
+                        totalDiscounts += checkDiscounts
+                        totalTips += checkTips
+                        totalTaxes += checkTax
+                        totalSvcCharges += checkSvc
+
+                        if (hour >= 0 && hour < 24) {
+                            hourlySales[hour] = (hourlySales[hour] || 0) + checkNet
+                        }
+                    })
+                }
+            })
+
+            if (orders.length < pageSize) hasMore = false
+            else page++
+        }
+
+        return {
+            netSales: net,
+            grossSales: gross,
+            discounts: totalDiscounts,
+            tips: totalTips,
+            taxes: totalTaxes,
+            serviceCharges: totalSvcCharges,
+            orders: count,
+            guests: guests,
+            hours: count * 0.4,
+            hourlySales
+        }
+    } catch (e: any) {
+        logDebug(`Detailed Sales Error [${storeId}]:`, e.message)
+        return {
+            netSales: 0, grossSales: 0, discounts: 0, tips: 0, taxes: 0, serviceCharges: 0,
+            orders: 0, guests: 0, hours: 0, hourlySales: {}
+        }
+    }
+}
+
+// --- HELPER: GET LABOR ---
+async function getLaborForRange(token: string, storeId: string, startDate: string, endDate: string) {
+    try {
+        let allEntries: any[] = []
+        let page = 1
+        const pageSize = 100
+        let hasMore = true
+
+        const startPath = new Date(startDate)
+        startPath.setDate(startPath.getDate() - 1)
+        const endPath = new Date(endDate)
+        endPath.setDate(endPath.getDate() + 1)
+
+        const startIso = `${startPath.toISOString().split('T')[0]}T00:00:00.000+0000`
+        const endIso = `${endPath.toISOString().split('T')[0]}T23:59:59.999+0000`
+
+        while (hasMore) {
+            const url = new URL(`${TOAST_API_HOST}/labor/v1/timeEntries`)
+            url.searchParams.append('startDate', startIso)
+            url.searchParams.append('endDate', endIso)
+            url.searchParams.append('page', page.toString())
+            url.searchParams.append('pageSize', pageSize.toString())
+
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 15000) // 15s timeout
+
+            const res = await fetch(url.toString(), {
+                signal: controller.signal,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Toast-Restaurant-External-ID': storeId,
+                    'Content-Type': 'application/json'
+                }
+            })
+            clearTimeout(timeoutId)
+
+            if (!res.ok) break
+
+            const data = await res.json()
+            const entries = Array.isArray(data) ? data : (data.timeEntries || [])
+            allEntries = allEntries.concat(entries)
+            if (entries.length < pageSize) hasMore = false
+            else page++
+        }
+
+        const dailyLabor: Record<string, { hours: number, laborCost: number }> = {}
+        const now = new Date()
+
+        allEntries.forEach((entry: any) => {
+            const bDate = entry.businessDate // YYYYMMDD
+            if (!dailyLabor[bDate]) dailyLabor[bDate] = { hours: 0, laborCost: 0 }
+
+            let regHours = entry.regularHours || entry.paidHours || 0
+            let otHours = entry.overtimeHours || 0
+            let dtHours = 0
+
+            if (!entry.outDate && entry.inDate) {
+                const clockIn = new Date(entry.inDate)
+                const totalLive = Math.max(0, (now.getTime() - clockIn.getTime()) / (1000 * 60 * 60))
+                if (totalLive > 12) { regHours = 8; otHours = 4; dtHours = totalLive - 12; }
+                else if (totalLive > 8) { regHours = 8; otHours = totalLive - 8; dtHours = 0; }
+                else { regHours = totalLive; otHours = 0; dtHours = 0; }
+            } else {
+                if (regHours + otHours > 12) {
+                    const total = regHours + otHours
+                    regHours = 8; otHours = 4; dtHours = total - 12
+                }
+            }
+
+            const rate = entry.hourlyWage || 0
+            const pay = (regHours * rate) + (otHours * rate * 1.5) + (dtHours * rate * 2.0)
+
+            dailyLabor[bDate].laborCost += pay
+            dailyLabor[bDate].hours += (regHours + otHours + dtHours)
+        })
+
+        // Round final daily totals only once
+        Object.keys(dailyLabor).forEach(date => {
+            dailyLabor[date].laborCost = Number(dailyLabor[date].laborCost.toFixed(2))
+            dailyLabor[date].hours = Number(dailyLabor[date].hours.toFixed(2))
+        })
+
+        return dailyLabor
+    } catch (e: any) {
+        logDebug(`Labor Fetch Error for ${storeId}`, e.message)
+        return {}
+    }
+}
+
+
+
+// --- MAIN DATA FETCH ---
+export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ rows: MetricRow[], connectionError?: string }> => {
+
+    let realStores: any[] = []
+    let token = ''
+    let connectionError = ''
+
+    try {
+        console.log("Attempting Toast Auth...")
+        token = await getAuthToken()
+        if (token) {
+            realStores = await getRestaurants(token)
+            console.log(`Found ${realStores.length} real stores via API`)
+        }
+    } catch (e: any) {
+        logDebug("CRITICAL AUTH ERROR:", e.message + (e.stack ? e.stack : ''))
+        console.warn("Failed to connect to Toast API, falling back to Mock List", e)
+        connectionError = e.message || String(e)
+    }
+
+    // USE REAL STORES IF AVAILABLE, ELSE MOCK
+    const storesToUse = realStores.length > 0 ? realStores : TOAST_STORES_MOCK
+    const storeList = options.storeIds === 'all'
+        ? storesToUse
+        : storesToUse.filter(s => options.storeIds.includes(s.id))
+
+    const isHourly = options.startDate === options.endDate
+    const rows: MetricRow[] = []
+
+    // 1. CHECK SUPABASE CACHE (Only for past dates)
+    // Force Timezone to Los Angeles (Business Day)
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    let cachedData: any[] = []
+
+    // CHECK SUPABASE CACHE (Only for past dates)
+    // We now allow cache even for single days (isHourly) to speed up "Yesterday" or specific past dates.
+    // The trade-off is we lose real hourly granularity for that specific day from cache, but gain massive speed.
+    if (true) {
+        try {
+            const supabase = await getSupabaseClient()
+            const { data } = await supabase
+                .from('sales_daily_cache')
+                .select('*')
+                .in('store_id', storeList.map(s => s.id))
+                .gte('business_date', options.startDate)
+                .lte('business_date', options.endDate)
+
+            if (data) cachedData = data
+        } catch (e) {
+            // silent fail
+        }
+    }
+
+    try {
+        // Prepare range dates
+        const neededDates: string[] = []
+        const cur = new Date(options.startDate)
+        const end = new Date(options.endDate)
+        while (cur <= end) {
+            neededDates.push(cur.toISOString().split('T')[0])
+            cur.setDate(cur.getDate() + 1)
+        }
+
+        // 2. FETCH LABOR IN BULK PER STORE
+        // 2. LABOR FETCH OPTIMIZATION:
+        // We removed the bulk fetch here because it was blocking the cache check.
+        // Now we fetch labor ONLY if we don't have the data in cache (inside processStoreDate).
+
+        // 3. FETCH SALES (DAILY BASIS) WITH CONCURRENCY LIMIT
+        const batchResults: any[] = []
+        const CONCURRENCY_LIMIT = 10
+        let storeIndex = 0
+
+        async function processStoreDate(store: any, dateStr: string) {
+            const cached = cachedData.find(c => c.store_id === store.id && c.business_date === dateStr)
+            const isToday = dateStr === todayStr
+
+            // Use cache ONLY for past dates (not Today)
+            if (cached && !isToday) {
+                return {
+                    store,
+                    date: dateStr,
+                    salesMetrics: {
+                        netSales: Number(cached.net_sales),
+                        grossSales: Number(cached.gross_sales || 0),
+                        discounts: Number(cached.discounts || 0),
+                        tips: Number(cached.tips || 0),
+                        taxes: Number(cached.taxes || 0),
+                        serviceCharges: Number(cached.service_charges || 0),
+                        orders: cached.order_count,
+                        guests: cached.guest_count,
+                        // Fix for cached single days: Use real hourly data if available (new column),
+                        // otherwise fallback to average distribution.
+                        hourlySales: cached.hourly_data || (() => {
+                            if (!isHourly) return {}
+                            const total = Number(cached.net_sales)
+                            const dist: Record<number, number> = {}
+                            const startH = 9; const endH = 23; // 14 hours
+                            const perH = total / (endH - startH)
+                            for (let h = startH; h < endH; h++) dist[h] = perH
+                            return dist
+                        })()
+                    },
+                    laborMetrics: {
+                        hours: Number(cached.labor_hours),
+                        laborCost: Number(cached.labor_cost)
+                    },
+                    fromCache: true
+                }
+            }
+
+            // Real Fetch
+            if (realStores.length > 0 && token) {
+                try {
+                    const sales = await getSalesForStore(token, store.id, dateStr, dateStr)
+
+                    // Fetch Labor specifically for this day (Lazy Load)
+                    const bKey = dateStr.split('-').join('')
+                    let labor = { hours: 0, laborCost: 0 }
+                    try {
+                        const laborMap = await getLaborForRange(token, store.id, dateStr, dateStr)
+                        if (laborMap[bKey]) labor = laborMap[bKey]
+                    } catch (e) { /* ignore labor error */ }
+
+                    return { store, date: dateStr, salesMetrics: sales, laborMetrics: labor, fromCache: false }
+                } catch (err) {
+                    // FALLBACK: Try cache if API fails, even for hourly (better than error)
+                    if (cached && !isToday) {
+                        return {
+                            store, date: dateStr,
+                            salesMetrics: {
+                                netSales: Number(cached.net_sales),
+                                grossSales: Number(cached.gross_sales || 0),
+                                discounts: Number(cached.discounts || 0),
+                                tips: Number(cached.tips || 0),
+                                taxes: Number(cached.taxes || 0),
+                                serviceCharges: Number(cached.service_charges || 0),
+                                orders: cached.order_count,
+                                guests: cached.guest_count,
+                                hourlySales: {} // No hourly data in daily cache
+                            },
+                            laborMetrics: { hours: Number(cached.labor_hours), laborCost: Number(cached.labor_cost) },
+                            fromCache: true
+                        }
+                    }
+                    throw err // Rethrow if no cache available
+                }
+            } else {
+                // Mock
+                const salesVal = 2000 + Math.random() * 4000
+                return {
+                    store,
+                    date: dateStr,
+                    salesMetrics: {
+                        netSales: salesVal,
+                        grossSales: salesVal * 1.1,
+                        discounts: salesVal * 0.1,
+                        tips: salesVal * 0.18,
+                        taxes: salesVal * 0.08,
+                        serviceCharges: 0,
+                        orders: Math.floor(salesVal / 25),
+                        guests: Math.floor(salesVal / 20)
+                    },
+                    laborMetrics: { hours: (salesVal / 25) * 0.4, laborCost: ((salesVal / 25) * 0.4) * 18.50 },
+                    fromCache: false
+                }
+            }
+        }
+
+        // Run in batches
+        const allTasks: { store: any, date: string }[] = []
+        neededDates.forEach(d => storeList.forEach(s => allTasks.push({ store: s, date: d })))
+
+        const results: any[] = []
+        for (let i = 0; i < allTasks.length; i += CONCURRENCY_LIMIT) {
+            const batch = allTasks.slice(i, i + CONCURRENCY_LIMIT)
+            const resolved = await Promise.all(batch.map(t => processStoreDate(t.store, t.date)))
+            results.push(...resolved)
+        }
+
+        // 4. BATCH UPDATE CACHE (Only Past Dates, NEVER Today)
+        const toCache = results.filter(r => !r.fromCache && r.date !== todayStr)
+        if (toCache.length > 0) {
+            const supabase = await getSupabaseClient()
+            const rowsForCache = toCache.map(r => ({
+                store_id: r.store.id,
+                store_name: r.store.name,
+                business_date: r.date,
+                net_sales: r.salesMetrics.netSales,
+                gross_sales: r.salesMetrics.grossSales,
+                discounts: r.salesMetrics.discounts,
+                tips: r.salesMetrics.tips,
+                taxes: r.salesMetrics.taxes,
+                service_charges: r.salesMetrics.serviceCharges,
+                order_count: r.salesMetrics.orders,
+                guest_count: r.salesMetrics.guests,
+                labor_hours: r.laborMetrics.hours,
+                labor_cost: r.laborMetrics.laborCost,
+                hourly_data: r.salesMetrics.hourlySales // Save the curve!
+            }))
+            // Upsert in chunks of 50 to avoid URL length issues
+            for (let i = 0; i < rowsForCache.length; i += 50) {
+                await supabase.from('sales_daily_cache').upsert(rowsForCache.slice(i, i + 50))
+            }
+        }
+
+        // 5. AGGREGATE RESULTS
+        for (const res of results) {
+            const { store, date, salesMetrics, laborMetrics } = res
+            if (isHourly) {
+                // Ensure full 24h cycle coverage
+                for (let i = 0; i < 24; i++) {
+                    const h = (7 + i) % 24
+                    const isNextDay = (7 + i) >= 24
+                    let displayDate = date
+                    if (isNextDay) {
+                        const d2 = new Date(date)
+                        d2.setUTCDate(d2.getUTCDate() + 1)
+                        displayDate = d2.toISOString().split('T')[0]
+                    }
+                    const pStart = `${displayDate} ${String(h).padStart(2, '0')}:00`
+                    const hourlySales = (salesMetrics as any).hourlySales?.[h] || 0
+                    rows.push({
+                        storeId: store.id,
+                        storeName: store.name,
+                        periodStart: pStart,
+                        periodEnd: pStart,
+                        netSales: hourlySales,
+                        grossSales: i === 0 ? (salesMetrics.grossSales || 0) : 0,
+                        discounts: i === 0 ? (salesMetrics.discounts || 0) : 0,
+                        tips: i === 0 ? (salesMetrics.tips || 0) : 0,
+                        taxes: i === 0 ? (salesMetrics.taxes || 0) : 0,
+                        serviceCharges: i === 0 ? (salesMetrics.serviceCharges || 0) : 0,
+                        orderCount: i === 0 ? salesMetrics.orders : 0,
+                        guestCount: i === 0 ? salesMetrics.guests : 0,
+                        totalHours: i === 0 ? (laborMetrics.hours || 0) : 0,
+                        laborCost: i === 0 ? (laborMetrics.laborCost || 0) : 0,
+                        laborPercentage: 0,
+                        splh: 0
+                    })
+                }
+            } else {
+                const dayDate = new Date(date)
+                let pStart = date
+                let pEnd = date
+                if (options.groupBy === 'week') {
+                    const wi = getISOWeekInfo(dayDate); pStart = wi.monday; pEnd = wi.sunday;
+                } else if (options.groupBy === 'month') {
+                    const ms = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}`
+                    pStart = `${ms}-01`; pEnd = `${ms}-30`;
+                }
+
+                let existing = rows.find(r => r.storeId === store.id && r.periodStart === pStart)
+                if (!existing) {
+                    existing = {
+                        storeId: store.id,
+                        storeName: store.name,
+                        periodStart: pStart,
+                        periodEnd: pEnd,
+                        netSales: 0,
+                        grossSales: 0,
+                        discounts: 0,
+                        tips: 0,
+                        taxes: 0,
+                        serviceCharges: 0,
+                        orderCount: 0,
+                        guestCount: 0,
+                        totalHours: 0,
+                        laborCost: 0,
+                        laborPercentage: 0,
+                        splh: 0
+                    }
+                    rows.push(existing)
+                }
+
+                existing.netSales += salesMetrics.netSales
+                existing.grossSales += (salesMetrics.grossSales || 0)
+                existing.discounts += (salesMetrics.discounts || 0)
+                existing.tips += (salesMetrics.tips || 0)
+                existing.taxes += (salesMetrics.taxes || 0)
+                existing.serviceCharges += (salesMetrics.serviceCharges || 0)
+                existing.orderCount += salesMetrics.orders
+                existing.guestCount += salesMetrics.guests
+                existing.totalHours += (laborMetrics.hours || 0)
+                existing.laborCost += (laborMetrics.laborCost || 0)
+
+            }
+        }
+
+        // Final Calculations
+        rows.forEach(r => {
+            r.laborPercentage = r.netSales > 0 ? (r.laborCost / r.netSales) * 100 : 0
+            r.splh = r.totalHours > 0 ? r.netSales / r.totalHours : 0
+
+            // Format to 2 decimal places for financial accuracy
+            r.netSales = Number(r.netSales.toFixed(2))
+            r.grossSales = Number((r.grossSales || 0).toFixed(2))
+            r.discounts = Number((r.discounts || 0).toFixed(2))
+            r.tips = Number((r.tips || 0).toFixed(2))
+            r.taxes = Number((r.taxes || 0).toFixed(2))
+            r.serviceCharges = Number((r.serviceCharges || 0).toFixed(2))
+
+            r.laborCost = Number(r.laborCost.toFixed(2))
+            r.totalHours = Number(r.totalHours.toFixed(2))
+            r.laborPercentage = Number(r.laborPercentage.toFixed(1))
+            r.splh = Number(r.splh.toFixed(2))
+        })
+        return { rows, connectionError: connectionError || undefined }
+    } catch (err: any) {
+        logDebug("CRASH PROCESSING DATA:", err.message + (err.stack ? err.stack : ''))
+        throw err
+    }
+}
+// End try-catch
+
+// --- HELPERS ---
+export const getISOWeekInfo = (date: Date) => {
+    const d = new Date(date)
+    d.setHours(0, 0, 0, 0)
+    d.setDate(d.getDate() + 4 - (d.getDay() || 7))
+    const yearStart = new Date(d.getFullYear(), 0, 1)
+    const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+
+    const day = date.getDay()
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1)
+    const monday = new Date(date)
+    monday.setDate(diff)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+
+    return {
+        year: d.getFullYear(),
+        week: weekNo,
+        monday: monday.toISOString().split('T')[0],
+        sunday: sunday.toISOString().split('T')[0]
+    }
+}
+
+// MOCK STORE LIST (Fallback)
+export const TOAST_STORES_MOCK = [
+    { id: '1', name: "Lynwood (Mock)" },
+    { id: '2', name: "South Gate (Mock)" },
+    { id: '3', name: "LA Central (Mock)" },
+    { id: '4', name: "Huntington Park (Mock)" },
+    { id: '5', name: "Hollywood (Mock)" },
+    { id: '6', name: "Downey (Mock)" },
+    { id: '7', name: "Norwalk (Mock)" },
+    { id: '8', name: "Rialto (Mock)" },
+    { id: '9', name: "LA Broadway (Mock)" },
+    { id: '10', name: "West Covina (Mock)" },
+    { id: '11', name: "Slauson (Mock)" },
+    { id: '12', name: "Santa Ana (Mock)" },
+    { id: '13', name: "La Puente (Mock)" },
+    { id: '14', name: "Azusa (Mock)" },
+    { id: '15', name: "Bell (Mock)" },
+]
