@@ -253,24 +253,42 @@ function InspeccionesContent() {
 
           {/* FILTERS */}
           <div className="flex flex-col md:flex-row gap-4 justify-between">
-            {/* Supervisor Filter for Admins */}
+            {/* Supervisor & Store Filters (Admin/Auditor only) */}
             {(user?.role === 'admin' || user?.role === 'auditor') && (
-              <div className="relative group">
-                <select
-                  value={supervisorFilter}
-                  onChange={(e) => setSupervisorFilter(e.target.value)}
-                  className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
-                >
-                  <option value="all">🧑‍🏫 Todos los Supervisores</option>
-                  {users
-                    .filter(u => ['supervisor', 'admin', 'auditor'].includes(u.role))
-                    .map(u => (
-                      <option key={u.id} value={u.id}>{u.full_name}</option>
-                    ))
-                  }
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                  <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="relative group">
+                  <select
+                    value={storeFilter}
+                    onChange={(e) => setStoreFilter(e.target.value)}
+                    className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
+                  >
+                    <option value="all">🏪 Todas las Tiendas</option>
+                    {stores.map(s => (
+                      <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                  </div>
+                </div>
+
+                <div className="relative group">
+                  <select
+                    value={supervisorFilter}
+                    onChange={(e) => setSupervisorFilter(e.target.value)}
+                    className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
+                  >
+                    <option value="all">🧑‍🏫 Todos los Supervisores</option>
+                    {users
+                      .filter(u => ['supervisor', 'admin', 'auditor'].includes(u.role))
+                      .map(u => (
+                        <option key={u.id} value={u.id}>{u.full_name}</option>
+                      ))
+                    }
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                  </div>
                 </div>
               </div>
             )}
