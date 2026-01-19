@@ -2,9 +2,21 @@
 import { getSupabaseClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
+import { verifyAuthToken } from '@/lib/auth-server'
+
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
+    // 🛡️ SECURITY CHECK 🛡️
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+    if (!token) return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
+
+    const user = verifyAuthToken(token)
+    if (!user) return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
+
+    if (user.user_role !== 'admin') return NextResponse.json({ error: 'Forbidden: Admins Only' }, { status: 403 })
+
+    // ✅ AUTH SUCCESS
     const { searchParams } = new URL(request.url)
     const mode = searchParams.get('mode')
 

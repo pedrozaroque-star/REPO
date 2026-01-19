@@ -1,8 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchToastData, ToastMetricsOptions } from '@/lib/toast-api'
+import { verifyAuthToken } from '@/lib/auth-server'
 
 export async function GET(request: NextRequest) {
     try {
+        // 🛡️ SECURITY CHECK 🛡️
+        const authHeader = request.headers.get('Authorization')
+        if (!authHeader) {
+            return NextResponse.json({ error: 'Missing Authorization Header' }, { status: 401 })
+        }
+
+        const token = authHeader.replace('Bearer ', '')
+
+        // 1. Validate Token (Manual JWT Verify)
+        const user = verifyAuthToken(token)
+
+        if (!user) {
+            return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
+        }
+
+        // 2. Validate Role (Admin Only)
+        // Check the 'user_role' claim inside the token directly! 
+        // Logic: Our /api/login embeds 'user_role' in the JWT.
+        if (user.user_role !== 'admin') {
+            return NextResponse.json({ error: 'Forbidden: Admins Only' }, { status: 403 })
+        }
+
+        // ✅ AUTH SUCCESS - PROCEED
+
+
         const searchParams = request.nextUrl.searchParams
 
         const storeIds = searchParams.get('storeIds') || 'all'

@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Calendar, Download, TrendingUp, TrendingDown, Award, AlertCircle } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { formatStoreName } from '@/lib/supabase'
+import ProtectedRoute from '@/components/ProtectedRoute' // 🔒 SECURITY IMPORT
 
-export default function HistoryPage() {
+function HistoryPageContent() {
     const router = useRouter()
     const currentYear = new Date().getFullYear()
-    const [year, setYear] = useState(2022) // Default to requested year or logical default
+    const [year, setYear] = useState(currentYear)
     const [loading, setLoading] = useState(false)
     const [data, setData] = useState<any[]>([])
     // Totales verticales (por mes)
@@ -24,7 +25,12 @@ export default function HistoryPage() {
         // Cargar años disponibles primero
         const fetchYears = async () => {
             try {
-                const res = await fetch('/api/ventas/yearly?mode=years')
+                // 🔒 SECURITY INJECTION
+                const token = localStorage.getItem('teg_token')
+                const res = await fetch('/api/ventas/yearly?mode=years', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+
                 const list = await res.json()
                 if (Array.isArray(list) && list.length > 0) {
                     setYears(list)
@@ -47,7 +53,11 @@ export default function HistoryPage() {
     const fetchData = async () => {
         setLoading(true)
         try {
-            const res = await fetch(`/api/ventas/yearly?year=${year}&t=${Date.now()}`)
+            // 🔒 SECURITY INJECTION
+            const token = localStorage.getItem('teg_token')
+            const res = await fetch(`/api/ventas/yearly?year=${year}&t=${Date.now()}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
             const json = await res.json()
             const rows = json.data || (Array.isArray(json) ? json : [])
 
@@ -105,7 +115,6 @@ export default function HistoryPage() {
         <div className="min-h-screen bg-slate-50/50 dark:bg-[#0a0a0a] p-4 md:p-8">
             <div className="max-w-[1600px] mx-auto space-y-6">
 
-                {/* Header */}
                 {/* Header */}
                 <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
                     <div className="flex items-center gap-4">
@@ -225,8 +234,6 @@ export default function HistoryPage() {
                     </>
                 )}
 
-                {/* Eliminado de aquí */}
-
             </div>
 
             {/* SECCIÓN DE ANÁLISIS PROFUNDO (BUSINESS INTELLIGENCE) */}
@@ -258,20 +265,23 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
         const fetchPrev = async () => {
             setLoadingPrev(true)
             try {
-                // Determinar si necesitamos limitar la fecha (YTD exacto)
+                // Determine logic
                 const now = new Date()
                 const isCurrentYear = year === now.getFullYear()
                 let url = `/api/ventas/yearly?year=${year - 1}`
 
                 if (isCurrentYear) {
-                    // Construir fecha límite: Año Pasado, Mes Actual, AYER
-                    // Date maneja automáticamente si ayer fue mes pasado (día 0)
                     const limitDate = new Date(year - 1, now.getMonth(), now.getDate() - 1)
                     const limitStr = limitDate.toISOString().split('T')[0]
                     url += `&limit_date=${limitStr}`
                 }
 
-                const res = await fetch(url)
+                // 🔒 SECURITY INJECTION HERE TOO
+                const token = localStorage.getItem('teg_token')
+                const res = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+
                 const json = await res.json()
                 const rows = json.data || (Array.isArray(json) ? json : [])
                 setPrevData(rows)
@@ -286,13 +296,12 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
 
     if (loadingPrev) return <div className="text-slate-400 animate-pulse py-10">Calculando variaciones anuales...</div>
 
-    // LÓGICA DE COMPARACIÓN SIMPLIFICADA (YTD Exacto Backend)
+    // LÓGICA DE COMPARACIÓN (Restored)
     const now = new Date()
     const isCurrentYear = year === now.getFullYear()
 
     let comparisonLabel = `Vs. Total ${year - 1}`
     if (isCurrentYear) {
-        // Fecha para el label visual (Ayer)
         const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
         const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         comparisonLabel = `Vs. ${year - 1} (YTD exacto al ${yesterday.getDate()} de ${monthNames[yesterday.getMonth()]})`
@@ -300,8 +309,6 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
 
     const comparison = currentData.map(curr => {
         const prev = prevData.find(p => p.name === curr.name)
-        // Como el backend ya filtró por fecha si era necesario, tomamos el total directo
-        // Este total ya excluye los días futuros del año pasado
         const prevTotal = prev ? prev.total : 0
 
         const diff = curr.total - prevTotal
@@ -419,5 +426,14 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                 </div>
             </div>
         </div>
+    )
+}
+
+// 🔒 SECURITY WRAPPER 
+export default function HistoryPage() {
+    return (
+        <ProtectedRoute role="admin">
+            <HistoryPageContent />
+        </ProtectedRoute>
     )
 }

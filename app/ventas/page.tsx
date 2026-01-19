@@ -6,8 +6,9 @@ import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
 import { formatStoreName } from '@/lib/supabase'
+import ProtectedRoute from '@/components/ProtectedRoute'
 
-export default function SalesPage() {
+function SalesPageContent() {
     const [loading, setLoading] = useState(false)
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom'>('today')
     const [startDate, setStartDate] = useState(() => {
@@ -78,6 +79,10 @@ export default function SalesPage() {
                 return `${year}-${month}-${day}`
             }
 
+            // Adjust for ISO string part
+            setStartDate(formatDate(start))
+            setEndDate(formatDate(end))
+
             const query = new URLSearchParams({
                 storeIds: 'all',
                 startDate: formatDate(start),
@@ -86,8 +91,21 @@ export default function SalesPage() {
             })
 
             setLoadingMessage('Obteniendo datos de 15 tiendas...')
-            const res = await fetch(`/api/ventas?${query}`)
-            setLoadingMessage('Procesando información...')
+            // Get Token
+            const token = localStorage.getItem('teg_token')
+
+            const res = await fetch(`/api/ventas?${query}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+
+            if (res.status === 401 || res.status === 403) {
+                setLoadingMessage('Acceso Denegado: Sesión expirada o permisos insuficientes.')
+                setLoading(false)
+                return
+            }
+
             setLoadingMessage('Procesando información...')
             const json = await res.json()
 
@@ -102,15 +120,15 @@ export default function SalesPage() {
 
                 // Calculate Summary Totals
                 const summary = rows.reduce((acc: any, row: any) => ({
-                    netSales: acc.netSales + row.netSales,
+                    netSales: acc.netSales + (row.netSales || 0),
                     grossSales: acc.grossSales + (row.grossSales || 0),
                     discounts: acc.discounts + (row.discounts || 0),
                     tips: acc.tips + (row.tips || 0),
                     taxes: acc.taxes + (row.taxes || 0),
-                    orderCount: acc.orderCount + row.orderCount,
-                    guestCount: acc.guestCount + row.guestCount,
-                    totalHours: acc.totalHours + row.totalHours,
-                    laborCost: acc.laborCost + row.laborCost
+                    orderCount: acc.orderCount + (row.orderCount || 0),
+                    guestCount: acc.guestCount + (row.guestCount || 0),
+                    totalHours: acc.totalHours + (row.totalHours || 0),
+                    laborCost: acc.laborCost + (row.laborCost || 0)
                 }), { netSales: 0, grossSales: 0, discounts: 0, tips: 0, taxes: 0, orderCount: 0, guestCount: 0, totalHours: 0, laborCost: 0 })
 
                 summary.laborPercentage = summary.netSales > 0 ? (summary.laborCost / summary.netSales) * 100 : 0
@@ -118,10 +136,11 @@ export default function SalesPage() {
                 // Store Data
                 const storeMap = new Map()
                 rows.forEach((row: any) => {
-                    if (!storeMap.has(row.storeName)) {
-                        storeMap.set(row.storeName, {
-                            name: row.storeName,
-                            storeName: row.storeName,
+                    const storeName = row.storeName || 'Tienda Desconocida'
+                    if (!storeMap.has(storeName)) {
+                        storeMap.set(storeName, {
+                            name: storeName,
+                            storeName: storeName,
                             amount: 0,
                             netSales: 0,
                             orderCount: 0,
@@ -131,13 +150,13 @@ export default function SalesPage() {
                             totalHours: 0
                         })
                     }
-                    const s = storeMap.get(row.storeName)
-                    s.amount += row.netSales
-                    s.netSales += row.netSales
-                    s.orderCount += row.orderCount
-                    s.guestCount += row.guestCount
-                    s.laborCost += row.laborCost
-                    s.totalHours += row.totalHours
+                    const s = storeMap.get(storeName)
+                    s.amount += (row.netSales || 0)
+                    s.netSales += (row.netSales || 0)
+                    s.orderCount += (row.orderCount || 0)
+                    s.guestCount += (row.guestCount || 0)
+                    s.laborCost += (row.laborCost || 0)
+                    s.totalHours += (row.totalHours || 0)
                 })
 
                 const storeData = Array.from(storeMap.values())
@@ -150,15 +169,17 @@ export default function SalesPage() {
                 // Trend Data
                 const trendMap = new Map()
                 rows.forEach((row: any) => {
-                    const key = row.periodStart
+                    const key = row.periodStart // API returns periodStart
                     if (!trendMap.has(key)) trendMap.set(key, 0)
-                    trendMap.set(key, trendMap.get(key) + row.netSales)
+                    trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
                 })
                 const trendData = Array.from(trendMap.entries())
                     .map(([time, amount]) => ({ time, amount }))
                     .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
 
                 setData({ summary, trendData, storeData, rows })
+            } else {
+                setData(null)
             }
 
         } catch (e) {
@@ -174,7 +195,7 @@ export default function SalesPage() {
         if (period !== 'custom') {
             refreshData()
         }
-    }, [period])
+    }, [period]) // Removed startDate/endDate from dep array to avoid double fetch on custom change
 
     if (!data) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -186,6 +207,33 @@ export default function SalesPage() {
             )}
         </div>
     )
+
+    // EXTRACT METRICS FROM DATA OBJECT
+    const defaultSummary = {
+        netSales: 0,
+        grossSales: 0,
+        discounts: 0,
+        tips: 0,
+        taxes: 0,
+        orderCount: 0,
+        guestCount: 0,
+        totalHours: 0,
+        laborCost: 0,
+        laborPercentage: 0
+    }
+    const summary = data?.summary || defaultSummary
+
+    // We don't really use these consts anymore in the JSX since we pass 'summary' object directly
+    // but leaving them for clarity if logic needs them later
+    const totalSales = summary.netSales || 0
+    const totalGuests = summary.guestCount || 0
+    const totalLabor = summary.laborCost || 0
+    const laborPercent = summary.laborPercentage || 0
+
+    // Chart Data already prepared
+    const timelineData = data?.trendData || []
+    const storeRanking = data?.storeData || []
+
 
     return (
         <div className="min-h-screen bg-transparent text-slate-900 dark:text-white font-sans pb-24">
@@ -357,5 +405,13 @@ export default function SalesPage() {
 
             </div>
         </div>
+    )
+}
+
+export default function SalesPage() {
+    return (
+        <ProtectedRoute role="admin">
+            <SalesPageContent />
+        </ProtectedRoute>
     )
 }
