@@ -16,11 +16,11 @@ const TASKS = [
     // 2023
     { start: '2023-01-01', end: '2023-06-30' },
     { start: '2023-07-01', end: '2023-12-31' },
-    // 2024 (Ya casi lleno, pero por si acaso repasamos)
+    // 2024
     { start: '2024-01-01', end: '2024-06-30' },
     { start: '2024-07-01', end: '2024-12-31' },
     // 2025
-    { start: '2025-01-01', end: '2025-12-31' } // Año en curso (menos datos)
+    { start: '2025-01-01', end: '2025-12-31' }
 ]
 
 async function runTask(start: string, end: string, index: number, total: number) {

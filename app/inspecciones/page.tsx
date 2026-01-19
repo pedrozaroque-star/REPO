@@ -541,7 +541,7 @@ function InspeccionesContent() {
 
 export default function InspeccionesPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowedRoles={['supervisor', 'admin', 'manager', 'auditor']}>
       <InspeccionesContent />
     </ProtectedRoute>
   )

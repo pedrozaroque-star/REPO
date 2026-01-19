@@ -4,27 +4,15 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA } from '@/lib/checklistPermissions'
+import ProtectedRoute from '@/components/ProtectedRoute'
 import {
-    LayoutDashboard,
-    Plus,
-    BarChart3,
-    Store,
-    Users,
-    ClipboardList,
-    MessageSquare,
-    AlertTriangle,
-    CheckCircle,
-    TrendingUp,
-    Activity,
-    Target,
-    Timer,
-    Award,
-    Info,
-    ShieldAlert
+    LayoutDashboard, Plus, BarChart3, Store, Users, ClipboardList,
+    MessageSquare, AlertTriangle, CheckCircle, TrendingUp, Activity,
+    Target, Timer, Award, Info, ShieldAlert
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
-export default function DashboardPage() {
+function DashboardContent() {
     const router = useRouter()
     const [stats, setStats] = useState({
         totalInspections: 0,
@@ -41,39 +29,28 @@ export default function DashboardPage() {
     const [timeFilter, setTimeFilter] = useState('month')
 
     useEffect(() => {
-        const user = localStorage.getItem('teg_user')
-        if (!user) {
-            router.push('/')
-            return
-        }
-
         // Ejecutar carga inicial
         fetchStats()
 
         // Auto-refresh cada 30 segundos
         const interval = setInterval(fetchStats, 30000)
         return () => clearInterval(interval)
-    }, [router, timeFilter]) // Re-ejecutar cuando cambia el filtro
+    }, [router, timeFilter])
 
     const getDateFilter = (filter: string) => {
         const now = new Date()
-        now.setHours(0, 0, 0, 0) // Reset time to start of day needed for some calcs
+        now.setHours(0, 0, 0, 0)
 
         switch (filter) {
-            case 'today':
-                return now.toISOString()
+            case 'today': return now.toISOString()
             case 'week':
-                // Retroceder al último lunes
                 const day = now.getDay()
-                const diff = now.getDate() - day + (day === 0 ? -6 : 1) // adjust when day is sunday
+                const diff = now.getDate() - day + (day === 0 ? -6 : 1)
                 const monday = new Date(now.setDate(diff))
                 return monday.toISOString()
-            case 'month':
-                return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-            case 'year':
-                return new Date(now.getFullYear(), 0, 1).toISOString()
-            default:
-                return null // 'all'
+            case 'month': return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+            case 'year': return new Date(now.getFullYear(), 0, 1).toISOString()
+            default: return null
         }
     }
 
@@ -92,29 +69,23 @@ export default function DashboardPage() {
             let queryInspections = supabase
                 .from('supervisor_inspections')
                 .select(`
-          id, overall_score, inspection_date, start_time, end_time, duration, shift,
-          service_score, meat_score, food_score, tortilla_score, cleaning_score, log_score, grooming_score,
-          store_id, inspector_id,
-          stores(name, code),
-          users!inspector_id(full_name),
-          created_at
-        `)
+                  id, overall_score, inspection_date, start_time, end_time, duration, shift,
+                  service_score, meat_score, food_score, tortilla_score, cleaning_score, log_score, grooming_score,
+                  store_id, inspector_id,
+                  stores(name, code),
+                  users!inspector_id(full_name),
+                  created_at
+                `)
                 .order('created_at', { ascending: false })
-                .limit(500) // Limit increased for analytics
+                .limit(500)
 
             if (startDate) {
-                // Usar inspection_date (fecha real de operación) en lugar de created_at
-                // Cortar a YYYY-MM-DD para comparar correctamente con columna tipo Date
                 const dateOnly = startDate.split('T')[0]
                 queryInspections = queryInspections.gte('inspection_date', dateOnly)
             }
 
             const { data: inspections } = await queryInspections
-
-
             const validInspections = inspections || []
-
-            // ... (Rest of logic remains similar but uses filtered validInspections)
 
             const categories = [
                 { key: 'service_score', label: 'Servicio' },
@@ -178,7 +149,6 @@ export default function DashboardPage() {
                 avg: Math.round(s.total / s.count)
             })).sort((a, b) => b.avg - a.avg).slice(0, 50)
 
-
             // 2. Feedback Query
             let queryFeedback = supabase
                 .from('customer_feedback')
@@ -191,10 +161,8 @@ export default function DashboardPage() {
             }
 
             const { data: feedbacksRaw } = await queryFeedback
-
             const feedbacks = feedbacksRaw || []
 
-            // Calculate NPS Logic
             let promoters = 0, detractors = 0, validResponses = 0
             feedbacks.forEach((f: any) => {
                 if (f.nps_score !== null && f.nps_score !== undefined) {
@@ -208,25 +176,18 @@ export default function DashboardPage() {
             })
             const avgNPS = validResponses > 0 ? Math.round(((promoters - detractors) / validResponses) * 100) : 0
 
-            // Map safely to avoid render crashes
             const safeRecentFeedback = feedbacks.map((f: any) => {
                 try {
                     const storeData = f.stores
-                    // Handle if Supabase returns store as array or object
-                    const storeName = Array.isArray(storeData)
-                        ? storeData[0]?.name
-                        : storeData?.name
-
+                    const storeName = Array.isArray(storeData) ? storeData[0]?.name : storeData?.name
                     return {
                         score: f.nps_score || 0,
                         comment: f.comments || '',
                         store: formatStoreName(storeName || 'Tienda'),
                         date: formatDateLA(f.submission_date)
                     }
-                } catch (e) {
-                    return null
-                }
-            }).filter(Boolean) // Remove failed items
+                } catch (e) { return null }
+            }).filter(Boolean)
 
             setStats({
                 totalInspections: validInspections.length,
@@ -259,7 +220,6 @@ export default function DashboardPage() {
 
     return (
         <div className="bg-transparent min-h-screen font-sans w-full pb-10">
-
             <header className="bg-white/70 dark:bg-slate-900/40 backdrop-blur-md sticky top-0 z-30 px-4 md:px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.05)] border-b border-gray-100 dark:border-slate-800">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -280,30 +240,14 @@ export default function DashboardPage() {
                             <p className="hidden md:block text-sm font-bold text-slate-400 dark:text-slate-300 uppercase tracking-widest mt-1.5">Análisis Operativo en Tiempo Real</p>
                         </div>
                     </div>
-
-                    {/* FILTROS DE TIEMPO - Desktop (derecha del header) */}
                     <div className="hidden lg:flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                         {[
-                            { id: 'all', label: 'Todo' },
-                            { id: 'today', label: 'Hoy' },
-                            { id: 'week', label: 'Semana' },
-                            { id: 'month', label: 'Mes' },
-                            { id: 'year', label: 'Año' },
+                            { id: 'all', label: 'Todo' }, { id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' },
+                            { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' },
                         ].map((filter) => (
-                            <button
-                                key={filter.id}
-                                onClick={() => setTimeFilter(filter.id)}
-                                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id
-                                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400'
-                                    }`}
-                            >
-                                {filter.label}
-                            </button>
+                            <button key={filter.id} onClick={() => setTimeFilter(filter.id)} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400'}`}>{filter.label}</button>
                         ))}
                     </div>
-
-                    {/* Eficiencia Promedio - Hidden on mobile */}
                     <div className="hidden md:flex flex-col items-end">
                         <span className="text-[11px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-wider">Eficiencia Promedio</span>
                         <span className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -311,45 +255,23 @@ export default function DashboardPage() {
                         </span>
                     </div>
                 </div>
-
-                {/* FILTROS DE TIEMPO - Mobile (debajo del título) */}
                 <div className="lg:hidden mt-3 flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl overflow-x-auto">
-                    {[
-                        { id: 'all', label: 'Todo' },
-                        { id: 'today', label: 'Hoy' },
-                        { id: 'week', label: 'Semana' },
-                        { id: 'month', label: 'Mes' },
-                        { id: 'year', label: 'Año' },
-                    ].map((filter) => (
-                        <button
-                            key={filter.id}
-                            onClick={() => setTimeFilter(filter.id)}
-                            className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id
-                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                                : 'text-slate-400 dark:text-slate-500 active:text-slate-600'
-                                }`}
-                        >
-                            {filter.label}
-                        </button>
+                    {[{ id: 'all', label: 'Todo' }, { id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' }, { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }].map((filter) => (
+                        <button key={filter.id} onClick={() => setTimeFilter(filter.id)} className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 dark:text-slate-500 active:text-slate-600'}`}>{filter.label}</button>
                     ))}
                 </div>
             </header>
 
             <main className="w-full mx-auto px-4 md:px-6 py-8 space-y-6">
-
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col justify-between relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                            <Activity size={80} />
-                        </div>
+                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Activity size={80} /></div>
                         <div className="flex justify-between items-start">
                             <div>
                                 <p className="text-slate-400 dark:text-slate-300 text-xs font-black uppercase tracking-widest">Score Global</p>
                                 <h2 className="text-7xl font-black tracking-tighter mt-1">{stats.avgInspectionScore}<span className="text-3xl text-slate-500">%</span></h2>
                             </div>
-                            <div className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide shadow-lg ${stats.avgInspectionScore >= 85 ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>
-                                {stats.avgInspectionScore >= 85 ? 'Buen Desempeño' : 'Alerta Roja'}
-                            </div>
+                            <div className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide shadow-lg ${stats.avgInspectionScore >= 85 ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>{stats.avgInspectionScore >= 85 ? 'Buen Desempeño' : 'Alerta Roja'}</div>
                         </div>
                         <div className="mt-6 pt-6 border-t border-slate-800 flex justify-between items-end">
                             <div>
@@ -358,10 +280,7 @@ export default function DashboardPage() {
                             </div>
                             <div className="text-right">
                                 <p className="text-slate-400 dark:text-slate-300 text-xs font-bold uppercase tracking-wide">
-                                    {timeFilter === 'today' ? 'Auditorías Hoy' :
-                                        timeFilter === 'week' ? 'Auditorías Semana' :
-                                            timeFilter === 'month' ? 'Auditorías Mes' :
-                                                timeFilter === 'year' ? 'Auditorías Año' : 'Total Auditorías'}
+                                    {timeFilter === 'today' ? 'Auditorías Hoy' : timeFilter === 'week' ? 'Auditorías Semana' : timeFilter === 'month' ? 'Auditorías Mes' : timeFilter === 'year' ? 'Auditorías Año' : 'Total Auditorías'}
                                 </p>
                                 <p className="text-3xl font-black text-indigo-400">{stats.totalInspections}</p>
                             </div>
@@ -370,10 +289,7 @@ export default function DashboardPage() {
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm md:col-span-2 flex flex-col">
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-black text-slate-900 dark:text-white text-lg flex items-center gap-3">
-                                <BarChart3 size={24} className="text-indigo-500" />
-                                Desempeño por Categoría
-                            </h3>
+                            <h3 className="font-black text-slate-900 dark:text-white text-lg flex items-center gap-3"><BarChart3 size={24} className="text-indigo-500" /> Desempeño por Categoría</h3>
                             <span className="text-xs font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest">Áreas de Enfoque</span>
                         </div>
                         <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -381,9 +297,7 @@ export default function DashboardPage() {
                                 <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700 relative overflow-hidden flex flex-col justify-center">
                                     <div className="flex justify-between items-center relative z-10 mb-2">
                                         <span className="text-xs font-black text-slate-500 dark:text-slate-300 uppercase tracking-wide">{cat.label}</span>
-                                        <span className={`text-xl font-black ${cat.score >= 85 ? 'text-green-600 dark:text-green-400' : cat.score >= 75 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-500 dark:text-red-400'}`}>
-                                            {cat.score}%
-                                        </span>
+                                        <span className={`text-xl font-black ${cat.score >= 85 ? 'text-green-600 dark:text-green-400' : cat.score >= 75 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-500 dark:text-red-400'}`}>{cat.score}%</span>
                                     </div>
                                     <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden relative z-10">
                                         <div className={`h-full rounded-full transition-all duration-1000 ${cat.score >= 85 ? 'bg-green-500' : cat.score >= 75 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${cat.score}%` }}></div>
@@ -395,17 +309,12 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col">
-                        <h3 className="font-black text-slate-900 dark:text-white text-lg mb-6 flex items-center gap-3">
-                            <Award size={24} className="text-orange-500" />
-                            Top Supervisores
-                        </h3>
+                        <h3 className="font-black text-slate-900 dark:text-white text-lg mb-6 flex items-center gap-3"><Award size={24} className="text-orange-500" /> Top Supervisores</h3>
                         <div className="space-y-4 flex-1 overflow-y-auto pr-1 custom-scrollbar">
                             {stats.supervisorStats.map((sup, i) => (
                                 <div key={i} className="flex items-center justify-between text-sm group">
                                     <div className="flex items-center gap-3">
-                                        <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-black flex items-center justify-center text-[11px] group-hover:bg-indigo-600 group-hover:text-white transition-all transform group-hover:scale-110 shadow-sm">
-                                            {i + 1}
-                                        </span>
+                                        <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-black flex items-center justify-center text-[11px] group-hover:bg-indigo-600 group-hover:text-white transition-all transform group-hover:scale-110 shadow-sm">{i + 1}</span>
                                         <span className="font-bold text-slate-700 dark:text-slate-200 text-base">{sup.name}</span>
                                     </div>
                                     <div className="flex items-center gap-4">
@@ -419,70 +328,46 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-                    {/* Alerts with Hover Tooltips */}
-                    {/* CUSTOMER FEEDBACK WIDGET */}
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col h-[400px] relative">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-indigo-50/40 dark:bg-indigo-900/10 flex justify-between items-center">
-                            <h3 className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3">
-                                <MessageSquare size={20} className="text-indigo-600 dark:text-indigo-400" />
-                                Feedback de Clientes
-                            </h3>
+                            <h3 className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3"><MessageSquare size={20} className="text-indigo-600 dark:text-indigo-400" /> Feedback de Clientes</h3>
                             <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-md shadow-indigo-100">Últimos {stats.recentFeedback?.length || 0}</span>
                         </div>
                         <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3 custom-scrollbar">
                             {stats.recentFeedback && stats.recentFeedback.length > 0 ? stats.recentFeedback.map((item: any, i: number) => (
                                 <div key={i} className="group relative">
                                     <div className="bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl p-4 shadow-sm flex gap-4 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                                        <div className={`shrink-0 w-12 h-12 rounded-2xl shadow-inner flex items-center justify-center font-black text-lg ${item.score >= 9 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : item.score >= 7 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>
-                                            {item.score}
-                                        </div>
+                                        <div className={`shrink-0 w-12 h-12 rounded-2xl shadow-inner flex items-center justify-center font-black text-lg ${item.score >= 9 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : item.score >= 7 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>{item.score}</div>
                                         <div className="flex-1">
                                             <div className="flex justify-between items-start mb-1">
                                                 <h4 className="font-black text-indigo-900 dark:text-indigo-100 text-sm tracking-tight">{item.store}</h4>
                                                 <span className="text-[11px] text-slate-400 dark:text-slate-300 font-black uppercase tracking-widest">{item.date}</span>
                                             </div>
-                                            <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
-                                                "{item.comment || 'Sin comentario'}"
-                                            </p>
+                                            <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed group-hover:text-slate-900 dark:group-hover:text-white transition-colors">"{item.comment || 'Sin comentario'}"</p>
                                         </div>
                                     </div>
                                 </div>
                             )) : (
-                                <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                                    <MessageSquare size={40} className="mb-2 text-indigo-100" />
-                                    <p className="text-xs font-bold">Sin comentarios recientes</p>
-                                </div>
+                                <div className="h-full flex flex-col items-center justify-center text-slate-300"><MessageSquare size={40} className="mb-2 text-indigo-100" /><p className="text-xs font-bold">Sin comentarios recientes</p></div>
                             )}
                         </div>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col h-[400px]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900">
-                            <h3 className="font-black text-slate-900 dark:text-white text-base flex items-center gap-3">
-                                <Store size={22} className="text-blue-600 dark:text-blue-400" />
-                                Ranking de Sucursales
-                            </h3>
+                            <h3 className="font-black text-slate-900 dark:text-white text-base flex items-center gap-3"><Store size={22} className="text-blue-600 dark:text-blue-400" /> Ranking de Sucursales</h3>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-black text-[11px] uppercase tracking-widest sticky top-0 z-10">
-                                    <tr>
-                                        <th className="pl-6 py-4">#</th>
-                                        <th className="py-4">Tienda</th>
-                                        <th className="pr-6 py-4 text-right">Score</th>
-                                    </tr>
+                                    <tr><th className="pl-6 py-4">#</th><th className="py-4">Tienda</th><th className="pr-6 py-4 text-right">Score</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {stats.topStores.map((store, i) => (
                                         <tr key={i} className="hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors group">
                                             <td className="pl-6 py-4 text-slate-400 dark:text-slate-500 font-black text-sm w-12">{i + 1}</td>
                                             <td className="py-4 font-bold text-slate-800 dark:text-slate-200 text-base group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">{store.name}</td>
-                                            <td className="pr-6 py-4 text-right">
-                                                <span className={`font-black px-3 py-1 rounded-lg text-sm shadow-sm ${store.avg >= 85 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : store.avg >= 75 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>
-                                                    {store.avg}%
-                                                </span>
-                                            </td>
+                                            <td className="pr-6 py-4 text-right"><span className={`font-black px-3 py-1 rounded-lg text-sm shadow-sm ${store.avg >= 85 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : store.avg >= 75 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>{store.avg}%</span></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -492,47 +377,38 @@ export default function DashboardPage() {
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col h-[400px]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-indigo-50/40 dark:bg-indigo-900/10">
-                            <h3 className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3">
-                                <Activity size={22} className="text-indigo-600 dark:text-indigo-400" />
-                                Historial de Actividad
-                            </h3>
+                            <h3 className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3"><Activity size={22} className="text-indigo-600 dark:text-indigo-400" /> Historial de Actividad</h3>
                         </div>
                         <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
                             {stats.recentActivity.map((act, i) => (
-                                <div
-                                    key={i}
-                                    onClick={() => router.push(`/inspecciones?openId=${act.id}`)}
-                                    // Modified classes: added px-2 pt-2 -mx-2 for hover effect, kept pb-6
-                                    className="flex gap-4 items-start relative px-2 pt-2 pb-6 last:pb-0 group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 -mx-2 rounded-xl transition-all"
-                                >
-                                    {/* Adjusted line position: left-[22px] (was 13) to center on icon which moved due to px-2. top-10 (was 8) due to pt-2. */}
+                                <div key={i} onClick={() => router.push(`/inspecciones?openId=${act.id}`)} className="flex gap-4 items-start relative px-2 pt-2 pb-6 last:pb-0 group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 -mx-2 rounded-xl transition-all">
                                     {i !== stats.recentActivity.length - 1 && <div className="absolute left-[22px] top-10 bottom-[-24px] w-[3px] bg-slate-100 dark:bg-slate-800 rounded-full"></div>}
-
                                     <div className={`shrink-0 w-7 h-7 rounded-full border-4 flex items-center justify-center bg-white dark:bg-slate-900 z-10 shadow-sm transition-transform group-hover:scale-125 ${act.score >= 80 ? 'border-green-500 text-green-500' : 'border-red-500 text-red-500'}`}>
                                         <div className={`w-2.5 h-2.5 rounded-full ${act.score >= 80 ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
                                     </div>
                                     <div className="flex-1">
                                         <p className="text-sm font-black text-slate-900 dark:text-white leading-none group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors uppercase tracking-tight">{act.store}</p>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">
-                                            Auditoría de <span className="font-black text-slate-700 dark:text-slate-300">{act.user}</span>
-                                        </p>
-                                        <span className={`text-xs font-black mt-2 inline-flex items-center px-2 py-0.5 rounded-md shadow-inner ${act.score >= 80 ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}`}>
-                                            Score: {act.score}%
-                                        </span>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">Auditoría de <span className="font-black text-slate-700 dark:text-slate-300">{act.user}</span></p>
+                                        <span className={`text-xs font-black mt-2 inline-flex items-center px-2 py-0.5 rounded-md shadow-inner ${act.score >= 80 ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}`}>Score: {act.score}%</span>
                                     </div>
                                     <div className="flex flex-col items-end gap-1">
-                                        <span className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-lg self-start">
-                                            {formatDateLA(act.date)}
-                                        </span>
+                                        <span className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-lg self-start">{formatDateLA(act.date)}</span>
                                         <span className="text-[10px] font-bold text-indigo-400 dark:text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity">Ver detalle →</span>
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </div>
-
                 </div>
             </main>
         </div>
+    )
+}
+
+export default function DashboardPage() {
+    return (
+        <ProtectedRoute allowedRoles={['manager', 'supervisor', 'admin', 'auditor']}>
+            <DashboardContent />
+        </ProtectedRoute>
     )
 }

@@ -64,7 +64,7 @@ async function populateRange() {
 
         try {
             const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("TIMEOUT EXTREMO (60s)")), 60000)
+                setTimeout(() => reject(new Error("TIMEOUT EXTENDIDO (180s)")), 180000)
             )
             // @ts-ignore
             await Promise.race([processDay(), timeoutPromise])

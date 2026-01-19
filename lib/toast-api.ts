@@ -209,8 +209,16 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                 let hour = -1
                 if (order.openedDate) {
                     try {
-                        const d = new Date(order.openedDate)
-                        hour = d.getHours()
+                        // Force conversion to LA Time (PST/PDT)
+                        // This handles UTC -> Local conversion strictly
+                        const laTime = new Date(order.openedDate).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            hour12: false,
+                            timeZone: 'America/Los_Angeles'
+                        })
+                        hour = parseInt(laTime)
+                        // Handle "24" edge case if any, though hour12:false usually gives 0-23
+                        if (hour === 24) hour = 0
                     } catch (e) { }
                 }
 

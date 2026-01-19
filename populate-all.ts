@@ -11,7 +11,7 @@ import { createClient } from '@supabase/supabase-js'
 // Cliente directo para chequeo rápido
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-const YEARS_TO_PROCESS = [2020, 2021, 2022, 2023]
+const YEARS_TO_PROCESS = [2020, 2021, 2022, 2023, 2024, 2025]
 
 async function populateAllHistory() {
     console.log('🚀 Iniciando Carga Histórica Masiva (2020-2023)')
