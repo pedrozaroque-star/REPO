@@ -61,7 +61,10 @@ export default function SalesPage() {
                 end = new Date()
                 groupBy = 'day'
             } else if (period === 'month') {
-                start = new Date(today.getFullYear(), today.getMonth(), 1)
+                // Últimos 2 meses (60 días atrás) hasta hoy, agrupado por SEMANA
+                const twoMonthsAgo = new Date(today)
+                twoMonthsAgo.setDate(twoMonthsAgo.getDate() - 60)
+                start = twoMonthsAgo
                 groupBy = 'week'
             }
 

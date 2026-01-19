@@ -186,6 +186,21 @@ export default function TopNav() {
                             </div>
                         ))}
                     </div>
+
+                    {/* Botón Especial VENTAS (Solo Admin/Supervisor) */}
+                    {['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '') && (
+                        <Link
+                            href="/ventas"
+                            className="hidden md:flex relative items-center gap-2 px-5 py-2 ml-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-full shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 transition-all hover:-translate-y-0.5 active:translate-y-0 duration-200"
+                        >
+                            <span className="text-lg">💰</span>
+                            <span className="font-bold tracking-wide text-sm">VENTAS</span>
+                            <span className="absolute -top-1.5 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full animate-bounce shadow-sm border border-white dark:border-slate-900">
+                                NEW!!
+                            </span>
+                        </Link>
+                    )}
+
                 </div>
 
                 {/* Right Section: Notifications & Profile */}
