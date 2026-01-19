@@ -448,6 +448,10 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
         ? storesToUse
         : storesToUse.filter(s => options.storeIds.includes(s.id))
 
+    console.log(`🔍 [DEBUG] Auth Token: ${!!token}`)
+    console.log(`🔍 [DEBUG] Usando Tiendas: ${realStores.length > 0 ? 'REALES (API)' : 'MOCK (Locales)'}`)
+    if (storeList.length > 0) console.log(`🔍 [DEBUG] ID Buscado[0]: ${storeList[0].id} (${storeList[0].name})`)
+
     const isHourly = options.startDate === options.endDate
     const rows: MetricRow[] = []
 
@@ -459,283 +463,311 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
     // CHECK SUPABASE CACHE (Only for past dates)
     // We now allow cache even for single days (isHourly) to speed up "Yesterday" or specific past dates.
     // The trade-off is we lose real hourly granularity for that specific day from cache, but gain massive speed.
-    if (true) {
-        try {
-            const supabase = await getSupabaseClient()
-            const { data } = await supabase
-                .from('sales_daily_cache')
-                .select('*')
-                .in('store_id', storeList.map(s => s.id))
-                .gte('business_date', options.startDate)
-                .lte('business_date', options.endDate)
-
-            if (data) cachedData = data
-        } catch (e) {
-            // silent fail
-        }
-    }
-
     try {
-        // Prepare range dates
-        const neededDates: string[] = []
-        const cur = new Date(options.startDate)
-        const end = new Date(options.endDate)
-        while (cur <= end) {
-            neededDates.push(cur.toISOString().split('T')[0])
-            cur.setDate(cur.getDate() + 1)
-        }
+        if (true) {
+            try {
+                const supabase = await getSupabaseClient()
 
-        // 2. FETCH LABOR IN BULK PER STORE
-        // 2. LABOR FETCH OPTIMIZATION:
-        // We removed the bulk fetch here because it was blocking the cache check.
-        // Now we fetch labor ONLY if we don't have the data in cache (inside processStoreDate).
+                // PAGINATION FIX: PostgREST limit is 1000. We fetch all in batches.
+                let allRows: any[] = []
+                let page = 0
+                const pageSize = 1000
+                let hasMore = true
 
-        // 3. FETCH SALES (DAILY BASIS) WITH CONCURRENCY LIMIT
-        const batchResults: any[] = []
-        const CONCURRENCY_LIMIT = 10
-        let storeIndex = 0
+                while (hasMore) {
+                    const { data, error } = await supabase
+                        .from('sales_daily_cache')
+                        .select('*')
+                        .in('store_id', storeList.map(s => s.id))
+                        .gte('business_date', options.startDate)
+                        .lte('business_date', options.endDate)
+                        .range(page * pageSize, (page + 1) * pageSize - 1)
 
-        async function processStoreDate(store: any, dateStr: string) {
-            const cached = cachedData.find(c => c.store_id === store.id && c.business_date === dateStr)
-            const isToday = dateStr === todayStr
-
-            // Use cache ONLY for past dates (not Today)
-            if (cached && !isToday) {
-                return {
-                    store,
-                    date: dateStr,
-                    salesMetrics: {
-                        netSales: Number(cached.net_sales),
-                        grossSales: Number(cached.gross_sales || 0),
-                        discounts: Number(cached.discounts || 0),
-                        tips: Number(cached.tips || 0),
-                        taxes: Number(cached.taxes || 0),
-                        serviceCharges: Number(cached.service_charges || 0),
-                        orders: cached.order_count,
-                        guests: cached.guest_count,
-                        // Fix for cached single days: Use real hourly data if available (new column),
-                        // otherwise fallback to average distribution.
-                        hourlySales: cached.hourly_data || (() => {
-                            if (!isHourly) return {}
-                            const total = Number(cached.net_sales)
-                            const dist: Record<number, number> = {}
-                            const startH = 9; const endH = 23; // 14 hours
-                            const perH = total / (endH - startH)
-                            for (let h = startH; h < endH; h++) dist[h] = perH
-                            return dist
-                        })()
-                    },
-                    laborMetrics: {
-                        hours: Number(cached.labor_hours),
-                        laborCost: Number(cached.labor_cost)
-                    },
-                    fromCache: true
-                }
-            }
-
-            // Real Fetch
-            if (realStores.length > 0 && token) {
-                try {
-                    const sales = await getSalesForStore(token, store.id, dateStr, dateStr)
-
-                    // Fetch Labor specifically for this day (Lazy Load)
-                    const bKey = dateStr.split('-').join('')
-                    let labor = { hours: 0, laborCost: 0 }
-                    try {
-                        const laborMap = await getLaborForRange(token, store.id, dateStr, dateStr)
-                        if (laborMap[bKey]) labor = laborMap[bKey]
-                    } catch (e) { /* ignore labor error */ }
-
-                    return { store, date: dateStr, salesMetrics: sales, laborMetrics: labor, fromCache: false }
-                } catch (err) {
-                    // FALLBACK: Try cache if API fails, even for hourly (better than error)
-                    if (cached && !isToday) {
-                        return {
-                            store, date: dateStr,
-                            salesMetrics: {
-                                netSales: Number(cached.net_sales),
-                                grossSales: Number(cached.gross_sales || 0),
-                                discounts: Number(cached.discounts || 0),
-                                tips: Number(cached.tips || 0),
-                                taxes: Number(cached.taxes || 0),
-                                serviceCharges: Number(cached.service_charges || 0),
-                                orders: cached.order_count,
-                                guests: cached.guest_count,
-                                hourlySales: {} // No hourly data in daily cache
-                            },
-                            laborMetrics: { hours: Number(cached.labor_hours), laborCost: Number(cached.labor_cost) },
-                            fromCache: true
-                        }
+                    if (error) throw error
+                    if (data) {
+                        allRows = allRows.concat(data)
+                        if (data.length < pageSize) hasMore = false
+                        else page++
+                    } else {
+                        hasMore = false
                     }
-                    throw err // Rethrow if no cache available
                 }
-            } else {
-                // Mock
-                const salesVal = 2000 + Math.random() * 4000
-                return {
-                    store,
-                    date: dateStr,
-                    salesMetrics: {
-                        netSales: salesVal,
-                        grossSales: salesVal * 1.1,
-                        discounts: salesVal * 0.1,
-                        tips: salesVal * 0.18,
-                        taxes: salesVal * 0.08,
-                        serviceCharges: 0,
-                        orders: Math.floor(salesVal / 25),
-                        guests: Math.floor(salesVal / 20)
-                    },
-                    laborMetrics: { hours: (salesVal / 25) * 0.4, laborCost: ((salesVal / 25) * 0.4) * 18.50 },
-                    fromCache: false
-                }
+                cachedData = allRows
+            } catch (e) {
+                // silent fail
             }
         }
 
-        // Run in batches
-        const allTasks: { store: any, date: string }[] = []
-        neededDates.forEach(d => storeList.forEach(s => allTasks.push({ store: s, date: d })))
 
-        const results: any[] = []
-        for (let i = 0; i < allTasks.length; i += CONCURRENCY_LIMIT) {
-            const batch = allTasks.slice(i, i + CONCURRENCY_LIMIT)
-            const resolved = await Promise.all(batch.map(t => processStoreDate(t.store, t.date)))
-            results.push(...resolved)
-        }
-
-        // 4. BATCH UPDATE CACHE (Only Past Dates, NEVER Today)
-        const toCache = results.filter(r => !r.fromCache && r.date !== todayStr)
-        if (toCache.length > 0) {
-            const supabase = await getSupabaseClient()
-            const rowsForCache = toCache.map(r => ({
-                store_id: r.store.id,
-                store_name: r.store.name,
-                business_date: r.date,
-                net_sales: r.salesMetrics.netSales,
-                gross_sales: r.salesMetrics.grossSales,
-                discounts: r.salesMetrics.discounts,
-                tips: r.salesMetrics.tips,
-                taxes: r.salesMetrics.taxes,
-                service_charges: r.salesMetrics.serviceCharges,
-                order_count: r.salesMetrics.orders,
-                guest_count: r.salesMetrics.guests,
-                labor_hours: r.laborMetrics.hours,
-                labor_cost: r.laborMetrics.laborCost,
-                hourly_data: r.salesMetrics.hourlySales // Save the curve!
-            }))
-            // Upsert in chunks of 50 to avoid URL length issues
-            for (let i = 0; i < rowsForCache.length; i += 50) {
-                await supabase.from('sales_daily_cache').upsert(rowsForCache.slice(i, i + 50))
-            }
-        }
-
-        // 5. AGGREGATE RESULTS
-        for (const res of results) {
-            const { store, date, salesMetrics, laborMetrics } = res
-            if (isHourly) {
-                // Ensure full 24h cycle coverage
-                for (let i = 0; i < 24; i++) {
-                    const h = (7 + i) % 24
-                    const isNextDay = (7 + i) >= 24
-                    let displayDate = date
-                    if (isNextDay) {
-                        const d2 = new Date(date)
-                        d2.setUTCDate(d2.getUTCDate() + 1)
-                        displayDate = d2.toISOString().split('T')[0]
-                    }
-                    const pStart = `${displayDate} ${String(h).padStart(2, '0')}:00`
-                    const hourlySales = (salesMetrics as any).hourlySales?.[h] || 0
-                    rows.push({
-                        storeId: store.id,
-                        storeName: store.name,
-                        periodStart: pStart,
-                        periodEnd: pStart,
-                        netSales: hourlySales,
-                        grossSales: i === 0 ? (salesMetrics.grossSales || 0) : 0,
-                        discounts: i === 0 ? (salesMetrics.discounts || 0) : 0,
-                        tips: i === 0 ? (salesMetrics.tips || 0) : 0,
-                        taxes: i === 0 ? (salesMetrics.taxes || 0) : 0,
-                        serviceCharges: i === 0 ? (salesMetrics.serviceCharges || 0) : 0,
-                        orderCount: i === 0 ? salesMetrics.orders : 0,
-                        guestCount: i === 0 ? salesMetrics.guests : 0,
-                        totalHours: i === 0 ? (laborMetrics.hours || 0) : 0,
-                        laborCost: i === 0 ? (laborMetrics.laborCost || 0) : 0,
-                        laborPercentage: 0,
-                        splh: 0
-                    })
-                }
-            } else {
-                const dayDate = new Date(date)
-                let pStart = date
-                let pEnd = date
-                if (options.groupBy === 'week') {
-                    const wi = getISOWeekInfo(dayDate); pStart = wi.monday; pEnd = wi.sunday;
-                } else if (options.groupBy === 'month') {
-                    const ms = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}`
-                    pStart = `${ms}-01`; pEnd = `${ms}-30`;
-                }
-
-                let existing = rows.find(r => r.storeId === store.id && r.periodStart === pStart)
-                if (!existing) {
-                    existing = {
-                        storeId: store.id,
-                        storeName: store.name,
-                        periodStart: pStart,
-                        periodEnd: pEnd,
-                        netSales: 0,
-                        grossSales: 0,
-                        discounts: 0,
-                        tips: 0,
-                        taxes: 0,
-                        serviceCharges: 0,
-                        orderCount: 0,
-                        guestCount: 0,
-                        totalHours: 0,
-                        laborCost: 0,
-                        laborPercentage: 0,
-                        splh: 0
-                    }
-                    rows.push(existing)
-                }
-
-                existing.netSales += salesMetrics.netSales
-                existing.grossSales += (salesMetrics.grossSales || 0)
-                existing.discounts += (salesMetrics.discounts || 0)
-                existing.tips += (salesMetrics.tips || 0)
-                existing.taxes += (salesMetrics.taxes || 0)
-                existing.serviceCharges += (salesMetrics.serviceCharges || 0)
-                existing.orderCount += salesMetrics.orders
-                existing.guestCount += salesMetrics.guests
-                existing.totalHours += (laborMetrics.hours || 0)
-                existing.laborCost += (laborMetrics.laborCost || 0)
-
-            }
-        }
-
-        // Final Calculations
-        rows.forEach(r => {
-            r.laborPercentage = r.netSales > 0 ? (r.laborCost / r.netSales) * 100 : 0
-            r.splh = r.totalHours > 0 ? r.netSales / r.totalHours : 0
-
-            // Format to 2 decimal places for financial accuracy
-            r.netSales = Number(r.netSales.toFixed(2))
-            r.grossSales = Number((r.grossSales || 0).toFixed(2))
-            r.discounts = Number((r.discounts || 0).toFixed(2))
-            r.tips = Number((r.tips || 0).toFixed(2))
-            r.taxes = Number((r.taxes || 0).toFixed(2))
-            r.serviceCharges = Number((r.serviceCharges || 0).toFixed(2))
-
-            r.laborCost = Number(r.laborCost.toFixed(2))
-            r.totalHours = Number(r.totalHours.toFixed(2))
-            r.laborPercentage = Number(r.laborPercentage.toFixed(1))
-            r.splh = Number(r.splh.toFixed(2))
+        // Optimize: Create a Map for O(1) lookup
+        const cacheMap = new Map<string, any>()
+        cachedData.forEach(c => {
+            // Ensure date is YYYY-MM-DD
+            const dateKey = String(c.business_date).split('T')[0]
+            // Normalize ID
+            const storeKey = String(c.store_id).trim().toLowerCase()
+            cacheMap.set(`${storeKey}_${dateKey}`, c)
         })
-        return { rows, connectionError: connectionError || undefined }
-    } catch (err: any) {
-        logDebug("CRASH PROCESSING DATA:", err.message + (err.stack ? err.stack : ''))
-        throw err
+
+        try {
+            // Prepare range dates
+            const neededDates: string[] = []
+            const cur = new Date(options.startDate)
+            const end = new Date(options.endDate)
+            while (cur <= end) {
+                neededDates.push(cur.toISOString().split('T')[0])
+                cur.setDate(cur.getDate() + 1)
+            }
+
+            const batchResults: any[] = []
+            const CONCURRENCY_LIMIT = 10
+            let storeIndex = 0
+
+            async function processStoreDate(store: any, dateStr: string) {
+                const storeKey = String(store.id).trim().toLowerCase()
+                const cached = cacheMap.get(`${storeKey}_${dateStr}`)
+                const isToday = dateStr === todayStr
+
+                // Use cache ONLY for past dates (not Today)
+                if (cached && !isToday) {
+                    return {
+                        store,
+                        date: dateStr,
+                        salesMetrics: {
+                            netSales: Number(cached.net_sales),
+                            grossSales: Number(cached.gross_sales || 0),
+                            discounts: Number(cached.discounts || 0),
+                            tips: Number(cached.tips || 0),
+                            taxes: Number(cached.taxes || 0),
+                            serviceCharges: Number(cached.service_charges || 0),
+                            orders: cached.order_count,
+                            guests: cached.guest_count,
+                            // Fix for cached single days: Use real hourly data if available (new column),
+                            // otherwise fallback to average distribution.
+                            hourlySales: cached.hourly_data || (() => {
+                                if (!isHourly) return {}
+                                const total = Number(cached.net_sales)
+                                const dist: Record<number, number> = {}
+                                const startH = 9; const endH = 23; // 14 hours
+                                const perH = total / (endH - startH)
+                                for (let h = startH; h < endH; h++) dist[h] = perH
+                                return dist
+                            })()
+                        },
+                        laborMetrics: {
+                            hours: Number(cached.labor_hours),
+                            laborCost: Number(cached.labor_cost)
+                        },
+                        fromCache: true
+                    }
+                }
+
+                // Real Fetch
+                if (realStores.length > 0 && token) {
+                    try {
+                        const sales = await getSalesForStore(token, store.id, dateStr, dateStr)
+
+                        // Fetch Labor specifically for this day (Lazy Load)
+                        const bKey = dateStr.split('-').join('')
+                        let labor = { hours: 0, laborCost: 0 }
+                        try {
+                            const laborMap = await getLaborForRange(token, store.id, dateStr, dateStr)
+                            if (laborMap[bKey]) labor = laborMap[bKey]
+                        } catch (e) { /* ignore labor error */ }
+
+                        return { store, date: dateStr, salesMetrics: sales, laborMetrics: labor, fromCache: false }
+                    } catch (err) {
+                        // FALLBACK: Try cache if API fails, even for hourly (better than error)
+                        if (cached && !isToday) {
+                            return {
+                                store, date: dateStr,
+                                salesMetrics: {
+                                    netSales: Number(cached.net_sales),
+                                    grossSales: Number(cached.gross_sales || 0),
+                                    discounts: Number(cached.discounts || 0),
+                                    tips: Number(cached.tips || 0),
+                                    taxes: Number(cached.taxes || 0),
+                                    serviceCharges: Number(cached.service_charges || 0),
+                                    orders: cached.order_count,
+                                    guests: cached.guest_count,
+                                    hourlySales: {} // No hourly data in daily cache
+                                },
+                                laborMetrics: { hours: Number(cached.labor_hours), laborCost: Number(cached.labor_cost) },
+                                fromCache: true
+                            }
+                        }
+                        throw err // Rethrow if no cache available
+                    }
+                } else {
+                    // Mock
+                    const salesVal = 2000 + Math.random() * 4000
+                    return {
+                        store,
+                        date: dateStr,
+                        salesMetrics: {
+                            netSales: salesVal,
+                            grossSales: salesVal * 1.1,
+                            discounts: salesVal * 0.1,
+                            tips: salesVal * 0.18,
+                            taxes: salesVal * 0.08,
+                            serviceCharges: 0,
+                            orders: Math.floor(salesVal / 25),
+                            guests: Math.floor(salesVal / 20)
+                        },
+                        laborMetrics: { hours: (salesVal / 25) * 0.4, laborCost: ((salesVal / 25) * 0.4) * 18.50 },
+                        fromCache: false
+                    }
+                }
+            }
+
+            // Run in batches
+            const allTasks: { store: any, date: string }[] = []
+            neededDates.forEach(d => storeList.forEach(s => allTasks.push({ store: s, date: d })))
+
+            const results: any[] = []
+            for (let i = 0; i < allTasks.length; i += CONCURRENCY_LIMIT) {
+                const batch = allTasks.slice(i, i + CONCURRENCY_LIMIT)
+                const resolved = await Promise.all(batch.map(t => processStoreDate(t.store, t.date)))
+                results.push(...resolved)
+            }
+
+            // 4. BATCH UPDATE CACHE (Only Past Dates, NEVER Today)
+            const toCache = results.filter(r => !r.fromCache && r.date !== todayStr)
+            if (toCache.length > 0) {
+                const supabase = await getSupabaseClient()
+                const rowsForCache = toCache.map(r => ({
+                    store_id: r.store.id,
+                    store_name: r.store.name,
+                    business_date: r.date,
+                    net_sales: r.salesMetrics.netSales,
+                    gross_sales: r.salesMetrics.grossSales,
+                    discounts: r.salesMetrics.discounts,
+                    tips: r.salesMetrics.tips,
+                    taxes: r.salesMetrics.taxes,
+                    service_charges: r.salesMetrics.serviceCharges,
+                    order_count: r.salesMetrics.orders,
+                    guest_count: r.salesMetrics.guests,
+                    labor_hours: r.laborMetrics.hours,
+                    labor_cost: r.laborMetrics.laborCost,
+                    hourly_data: r.salesMetrics.hourlySales // Save the curve!
+                }))
+                // Upsert in chunks of 50 to avoid URL length issues
+                for (let i = 0; i < rowsForCache.length; i += 50) {
+                    await supabase.from('sales_daily_cache').upsert(rowsForCache.slice(i, i + 50))
+                }
+            }
+
+            // 5. AGGREGATE RESULTS
+            for (const res of results) {
+                const { store, date, salesMetrics, laborMetrics } = res
+                if (isHourly) {
+                    // Ensure full 24h cycle coverage
+                    for (let i = 0; i < 24; i++) {
+                        const h = (7 + i) % 24
+                        const isNextDay = (7 + i) >= 24
+                        let displayDate = date
+                        if (isNextDay) {
+                            const d2 = new Date(date)
+                            d2.setUTCDate(d2.getUTCDate() + 1)
+                            displayDate = d2.toISOString().split('T')[0]
+                        }
+                        const pStart = `${displayDate} ${String(h).padStart(2, '0')}:00`
+                        const hourlySales = (salesMetrics as any).hourlySales?.[h] || 0
+                        rows.push({
+                            storeId: store.id,
+                            storeName: store.name,
+                            periodStart: pStart,
+                            periodEnd: pStart,
+                            netSales: hourlySales,
+                            grossSales: i === 0 ? (salesMetrics.grossSales || 0) : 0,
+                            discounts: i === 0 ? (salesMetrics.discounts || 0) : 0,
+                            tips: i === 0 ? (salesMetrics.tips || 0) : 0,
+                            taxes: i === 0 ? (salesMetrics.taxes || 0) : 0,
+                            serviceCharges: i === 0 ? (salesMetrics.serviceCharges || 0) : 0,
+                            orderCount: i === 0 ? salesMetrics.orders : 0,
+                            guestCount: i === 0 ? salesMetrics.guests : 0,
+                            totalHours: i === 0 ? (laborMetrics.hours || 0) : 0,
+                            laborCost: i === 0 ? (laborMetrics.laborCost || 0) : 0,
+                            laborPercentage: 0,
+                            splh: 0
+                        })
+                    }
+                } else {
+                    const dayDate = new Date(date)
+                    let pStart = date
+                    let pEnd = date
+                    if (options.groupBy === 'week') {
+                        const wi = getISOWeekInfo(dayDate); pStart = wi.monday; pEnd = wi.sunday;
+                    } else if (options.groupBy === 'month') {
+                        const ms = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}`
+                        pStart = `${ms}-01`; pEnd = `${ms}-30`;
+                    }
+
+                    let existing = rows.find(r => r.storeId === store.id && r.periodStart === pStart)
+                    if (!existing) {
+                        existing = {
+                            storeId: store.id,
+                            storeName: store.name,
+                            periodStart: pStart,
+                            periodEnd: pEnd,
+                            netSales: 0,
+                            grossSales: 0,
+                            discounts: 0,
+                            tips: 0,
+                            taxes: 0,
+                            serviceCharges: 0,
+                            orderCount: 0,
+                            guestCount: 0,
+                            totalHours: 0,
+                            laborCost: 0,
+                            laborPercentage: 0,
+                            splh: 0
+                        }
+                        rows.push(existing)
+                    }
+
+                    existing.netSales += salesMetrics.netSales
+                    existing.grossSales += (salesMetrics.grossSales || 0)
+                    existing.discounts += (salesMetrics.discounts || 0)
+                    existing.tips += (salesMetrics.tips || 0)
+                    existing.taxes += (salesMetrics.taxes || 0)
+                    existing.serviceCharges += (salesMetrics.serviceCharges || 0)
+                    existing.orderCount += salesMetrics.orders
+                    existing.guestCount += salesMetrics.guests
+                    existing.totalHours += (laborMetrics.hours || 0)
+                    existing.laborCost += (laborMetrics.laborCost || 0)
+
+                }
+            }
+
+            // Final Calculations
+            rows.forEach(r => {
+                r.laborPercentage = r.netSales > 0 ? (r.laborCost / r.netSales) * 100 : 0
+                r.splh = r.totalHours > 0 ? r.netSales / r.totalHours : 0
+
+                // Format to 2 decimal places for financial accuracy
+                r.netSales = Number(r.netSales.toFixed(2))
+                r.grossSales = Number((r.grossSales || 0).toFixed(2))
+                r.discounts = Number((r.discounts || 0).toFixed(2))
+                r.tips = Number((r.tips || 0).toFixed(2))
+                r.taxes = Number((r.taxes || 0).toFixed(2))
+                r.serviceCharges = Number((r.serviceCharges || 0).toFixed(2))
+
+                r.laborCost = Number(r.laborCost.toFixed(2))
+                r.totalHours = Number(r.totalHours.toFixed(2))
+                r.laborPercentage = Number(r.laborPercentage.toFixed(1))
+                r.splh = Number(r.splh.toFixed(2))
+            })
+            return { rows, connectionError: connectionError || undefined }
+        } catch (err: any) {
+            logDebug("CRASH PROCESSING DATA:", err.message + (err.stack ? err.stack : ''))
+            throw err
+        }
+    } catch (outerErr: any) {
+        logDebug("OUTER CATCH ERROR:", outerErr.message)
+        return { rows: [], connectionError: outerErr.message || 'Unknown error' }
     }
 }
-// End try-catch
 
 // --- HELPERS ---
 export const getISOWeekInfo = (date: Date) => {
