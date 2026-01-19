@@ -432,7 +432,7 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
 // 🔒 SECURITY WRAPPER 
 export default function HistoryPage() {
     return (
-        <ProtectedRoute role="admin">
+        <ProtectedRoute allowedRoles={['admin']}>
             <HistoryPageContent />
         </ProtectedRoute>
     )
