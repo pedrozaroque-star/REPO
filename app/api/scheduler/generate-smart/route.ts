@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 
         // 2.4 Iterate by employee first (To handle rest days rule)
         const targetStart = new Date(startDate + 'T00:00:00')
-        const newShifts = []
+        const newShifts: any[] = []
 
         for (const guid in employeeHistory) {
             const history = employeeHistory[guid]
