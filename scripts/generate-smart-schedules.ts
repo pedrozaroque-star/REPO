@@ -111,7 +111,7 @@ async function generateSchedules() {
     // 1.5 Obtener Perfil Actual de Empleados (Fuente de Verdad para Puestos y Tiendas)
     const { data: employeesProfile, error: profileErr } = await supabase
         .from('toast_employees')
-        .select('toast_guid, job_references, store_ids')
+        .select('toast_guid, v2_toast_guid, job_references, store_ids')
         .eq('deleted', false)
 
     if (profileErr) {
