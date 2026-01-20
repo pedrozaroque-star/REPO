@@ -234,6 +234,30 @@ function SalesPageContent() {
     const timelineData = data?.trendData || []
     const storeRanking = data?.storeData || []
 
+    const getDateLabel = () => {
+        if (!startDate || !endDate) return ''
+
+        const parseDate = (str: string) => {
+            const [y, m, d] = str.split('-').map(Number)
+            return new Date(y, m - 1, d)
+        }
+
+        const start = parseDate(startDate)
+        const end = parseDate(endDate)
+
+        const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' } // e.g. 19 Ene
+        const startStr = start.toLocaleDateString('es-ES', options)
+        const endStr = end.toLocaleDateString('es-ES', options)
+
+        if (period === 'today') return `Hoy, ${startStr}`
+        if (period === 'yesterday') return `Ayer, ${startStr}`
+        if (period === 'week') return `Esta Semana (${startStr} - ${endStr})`
+        if (period === 'month') return `Mes Actual (${startStr} - ${endStr})`
+        if (period === 'quarter') return `Trimestre (${startStr} - ${endStr})`
+        if (startDate === endDate) return startStr
+
+        return `${startStr} - ${endStr}`
+    }
 
     return (
         <div className="min-h-screen bg-transparent text-slate-900 dark:text-white font-sans pb-24">
@@ -272,53 +296,60 @@ function SalesPageContent() {
                             </p>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row items-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto overflow-hidden">
-                            <div className="flex bg-slate-100 dark:bg-slate-800/50 rounded-xl p-1 overflow-x-auto no-scrollbar max-w-full">
-                                {(['today', 'yesterday', 'week', 'month', 'quarter', 'custom'] as const).map((p) => (
-                                    <button
-                                        key={p}
-                                        onClick={() => setPeriod(p)}
-                                        className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${period === p
-                                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-md'
-                                            : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'
-                                            }`}
-                                    >
-                                        {p === 'today' ? 'Hoy' : p === 'yesterday' ? 'Ayer' : p === 'week' ? 'Semana' : p === 'month' ? 'Mes' : p === 'quarter' ? 'Trimestre' : 'Rango'}
-                                    </button>
-                                ))}
-                            </div>
+                        <div className="flex flex-col items-end gap-2 w-full md:w-auto">
+                            {/* Dynamic Date Label */}
+                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-white/50 dark:bg-slate-800/50 px-3 py-1 rounded-full border border-black/5 dark:border-white/5 shadow-sm backdrop-blur-sm self-end animate-in fade-in slide-in-from-right-4 duration-500">
+                                {getDateLabel()}
+                            </span>
 
-                            {period === 'custom' && (
-                                <div className="flex items-center gap-2 px-2 animate-in fade-in slide-in-from-right-2 duration-300 overflow-x-auto max-w-full">
-                                    <input
-                                        type="date"
-                                        value={startDate}
-                                        onChange={(e) => setStartDate(e.target.value)}
-                                        className="bg-slate-100 dark:bg-slate-800/50 border border-black/5 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all w-28"
-                                    />
-                                    <span className="text-slate-400 text-xs">al</span>
-                                    <input
-                                        type="date"
-                                        value={endDate}
-                                        onChange={(e) => setEndDate(e.target.value)}
-                                        className="bg-slate-100 dark:bg-slate-800/50 border border-black/5 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all w-28"
-                                    />
+                            <div className="flex flex-col sm:flex-row items-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto overflow-hidden">
+                                <div className="flex bg-slate-100 dark:bg-slate-800/50 rounded-xl p-1 overflow-x-auto no-scrollbar max-w-full">
+                                    {(['today', 'yesterday', 'week', 'month', 'quarter', 'custom'] as const).map((p) => (
+                                        <button
+                                            key={p}
+                                            onClick={() => setPeriod(p)}
+                                            className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all whitespace-nowrap ${period === p
+                                                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-md'
+                                                : 'text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'
+                                                }`}
+                                        >
+                                            {p === 'today' ? 'Hoy' : p === 'yesterday' ? 'Ayer' : p === 'week' ? 'Semana' : p === 'month' ? 'Mes' : p === 'quarter' ? 'Trimestre' : 'Rango'}
+                                        </button>
+                                    ))}
                                 </div>
-                            )}
 
-                            <div className="hidden sm:block w-[1px] h-6 bg-slate-700 mx-1"></div>
+                                {period === 'custom' && (
+                                    <div className="flex items-center gap-2 px-2 animate-in fade-in slide-in-from-right-2 duration-300 overflow-x-auto max-w-full">
+                                        <input
+                                            type="date"
+                                            value={startDate}
+                                            onChange={(e) => setStartDate(e.target.value)}
+                                            className="bg-slate-100 dark:bg-slate-800/50 border border-black/5 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all w-28"
+                                        />
+                                        <span className="text-slate-400 text-xs">al</span>
+                                        <input
+                                            type="date"
+                                            value={endDate}
+                                            onChange={(e) => setEndDate(e.target.value)}
+                                            className="bg-slate-100 dark:bg-slate-800/50 border border-black/5 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all w-28"
+                                        />
+                                    </div>
+                                )}
 
-                            <button
-                                onClick={() => window.location.href = '/ventas/historial'}
-                                className="hidden lg:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium transition-colors mr-2 border border-black/5 dark:border-slate-700 whitespace-nowrap"
-                            >
-                                <Clock size={16} />
-                                <span className="text-xs">Historial</span>
-                            </button>
+                                <div className="hidden sm:block w-[1px] h-6 bg-slate-700 mx-1"></div>
 
-                            <button onClick={refreshData} disabled={loading} className="hidden sm:block p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
-                                <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-                            </button>
+                                <button
+                                    onClick={() => window.location.href = '/ventas/historial'}
+                                    className="hidden lg:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium transition-colors mr-2 border border-black/5 dark:border-slate-700 whitespace-nowrap"
+                                >
+                                    <Clock size={16} />
+                                    <span className="text-xs">Historial</span>
+                                </button>
+
+                                <button onClick={refreshData} disabled={loading} className="hidden sm:block p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
+                                    <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -4,7 +4,6 @@ import React, { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Video, Upload, MessageSquare } from 'lucide-react'
 import { uploadPhotos } from '@/lib/uploadPhotos'
-import { compressImage } from '@/lib/image-compression'
 
 interface QuestionProps {
     question: {
@@ -49,16 +48,9 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
         if (!e.target.files?.length) return
         setUploading(true)
         try {
-            // Compress all images in parallel
-            const originalFiles = Array.from(e.target.files)
-            const compressedFiles = await Promise.all(
-                originalFiles.map(file => compressImage(file))
-            )
-
-            const urls = await uploadPhotos(compressedFiles, 'checklist-photos', `question-${question.id}`)
+            const urls = await uploadPhotos(Array.from(e.target.files), 'checklist-photos', `question-${question.id}`)
             onPhotosChange([...photos, ...urls])
         } catch (err) {
-            console.error('Upload failed:', err)
             alert('Error al subir archivo')
         } finally {
             setUploading(false)
