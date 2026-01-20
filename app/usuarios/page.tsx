@@ -495,7 +495,7 @@ function UsuariosPage() {
 
 export default function ProtectedUsuariosPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
       <UsuariosPage />
     </ProtectedRoute>
   )

@@ -137,16 +137,18 @@ function DashboardContent() {
             const avgDurationVal = durationCount > 0 ? Math.round(totalMinutes / durationCount) : 0
             const avgDurationStr = avgDurationVal > 60 ? `${Math.floor(avgDurationVal / 60)}h ${avgDurationVal % 60}m` : `${avgDurationVal} min`
 
-            const storeScores: Record<string, { total: number, count: number, name: string }> = {}
+            const storeScores: Record<string, { total: number, count: number, name: string, storeId: string }> = {}
             validInspections.forEach((i: any) => {
                 const sName = i.stores?.name || 'Unknown'
-                if (!storeScores[sName]) storeScores[sName] = { total: 0, count: 0, name: sName }
+                const sId = i.store_id || ''
+                if (!storeScores[sName]) storeScores[sName] = { total: 0, count: 0, name: sName, storeId: sId }
                 storeScores[sName].total += (i.overall_score || 0)
                 storeScores[sName].count += 1
             })
             const topStores = Object.values(storeScores).map(s => ({
                 name: formatStoreName(s.name),
-                avg: Math.round(s.total / s.count)
+                avg: Math.round(s.total / s.count),
+                storeId: s.storeId
             })).sort((a, b) => b.avg - a.avg).slice(0, 50)
 
             // 2. Feedback Query
@@ -364,7 +366,11 @@ function DashboardContent() {
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {stats.topStores.map((store, i) => (
-                                        <tr key={i} className="hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors group">
+                                        <tr
+                                            key={i}
+                                            onClick={() => router.push(`/inspecciones?store=${store.storeId}`)}
+                                            className="hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors group cursor-pointer"
+                                        >
                                             <td className="pl-6 py-4 text-slate-400 dark:text-slate-500 font-black text-sm w-12">{i + 1}</td>
                                             <td className="py-4 font-bold text-slate-800 dark:text-slate-200 text-base group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">{store.name}</td>
                                             <td className="pr-6 py-4 text-right"><span className={`font-black px-3 py-1 rounded-lg text-sm shadow-sm ${store.avg >= 85 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : store.avg >= 75 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>{store.avg}%</span></td>

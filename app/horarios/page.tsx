@@ -1834,7 +1834,7 @@ function ScheduleManager() {
     )
 }
 
-export default function HorariosPage() {
+const HorariosPage = () => {
     return (
         <ProtectedRoute>
             <Suspense fallback={<SurpriseLoader />}>
@@ -1843,3 +1843,5 @@ export default function HorariosPage() {
         </ProtectedRoute>
     )
 }
+
+export default HorariosPage

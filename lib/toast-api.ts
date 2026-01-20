@@ -534,10 +534,23 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
             async function processStoreDate(store: any, dateStr: string) {
                 const storeKey = String(store.id).trim().toLowerCase()
                 const cached = cacheMap.get(`${storeKey}_${dateStr}`)
-                const isToday = dateStr === todayStr
+                // --- DIRTY WINDOW LOGIC ---
+                // In restaurants, "Yesterday" is not final until the shift ends (often 2-4 AM Today).
+                // If it is before 6 AM in LA, we treat Yesterday as "Today" (Dirty/Dynamic).
+                const nowLA = new Date()
+                const laHour = parseInt(nowLA.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
 
-                // Use cache ONLY for past dates (not Today)
-                if (cached && !isToday) {
+                const yesterday = new Date(nowLA)
+                yesterday.setDate(nowLA.getDate() - 1)
+                const yesterdayStr = yesterday.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+
+                const isToday = dateStr === todayStr
+                const isYesterdayEarlyHours = dateStr === yesterdayStr && laHour < 6
+
+                const isDirty = isToday || isYesterdayEarlyHours
+
+                // Use cache ONLY for past dates that are outside the dirty window
+                if (cached && !isDirty) {
                     return {
                         store,
                         date: dateStr,

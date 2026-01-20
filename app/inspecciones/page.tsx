@@ -15,6 +15,7 @@ function InspeccionesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const openId = searchParams.get('openId') || searchParams.get('id')
+  const storeParam = searchParams.get('store') // New: URL param for store filter
   const { user } = useAuth()
   const [inspections, setInspections] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -29,6 +30,15 @@ function InspeccionesContent() {
   const [isModalOpen, setIsModalOpen] = useState(false)
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Auto-set store filter from URL param
+  useEffect(() => {
+    if (storeParam && storeParam !== 'all') {
+      setStoreFilter(storeParam)
+      // Clean URL after setting filter
+      window.history.replaceState(null, '', '/inspecciones')
+    }
+  }, [storeParam])
 
   // Auto-open modal if query param exists
   useEffect(() => {

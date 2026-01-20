@@ -48,7 +48,7 @@ export default function TopNav() {
             id: 'gestion',
             items: [
                 { name: 'Tiendas', path: '/tiendas', icon: '🏪', roles: ['admin'] },
-                { name: 'Usuarios', path: '/usuarios', icon: '👥', roles: ['admin'] },
+                { name: 'Usuarios', path: '/usuarios', icon: '👥', roles: ['admin', 'supervisor'] },
                 { name: 'Plantillas', path: '/admin/plantillas', icon: '📝', roles: ['admin'] },
             ]
         },
@@ -92,7 +92,7 @@ export default function TopNav() {
             })
             return { ...group, items: validItems }
         }).filter(group => group.items.length > 0)
-    }, [user, menuGroups])
+    }, [user])
 
     // Aplanamos la lista para el menú móvil
     const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
