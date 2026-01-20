@@ -6,7 +6,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
 import UserModal from '@/components/UserModal'
-import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
+import { getSupabaseClient, getSupabaseAdminClient, formatStoreName } from '@/lib/supabase'
 
 function UsuariosPage() {
   const [users, setUsers] = useState<any[]>([])
@@ -57,7 +57,8 @@ function UsuariosPage() {
   // --- LÓGICA MAESTRA DE GUARDADO ---
   const handleSaveUser = async (formData: any, isEdit: boolean) => {
     try {
-      const supabase = await getSupabaseClient()
+      // ⚠️ USAR CLIENTE ADMIN para bypasear RLS en operaciones de gestión de usuarios
+      const supabase = await getSupabaseAdminClient()
 
       // 1. Preparar datos limpios según el rol
       const role = formData.role
@@ -86,13 +87,35 @@ function UsuariosPage() {
       if (isEdit) {
         // A. ACTUALIZAR USUARIO EXISTENTE
 
-        // 1. Actualizar tabla visual (public.users)
-        const { error } = await supabase
-          .from('users')
-          .update(cleanData)
-          .eq('id', formData.id)
+        console.log('📝 Datos completos a actualizar:', cleanData)
+        console.log('🔑 ID del usuario a actualizar:', formData.id, 'Tipo:', typeof formData.id)
 
-        if (error) throw error
+        // Usar API route del servidor (tiene acceso al service_role key)
+        const response = await fetch('/api/admin/update-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: formData.id,
+            userData: cleanData
+          })
+        })
+
+        const result = await response.json()
+
+        console.log('✅ Resultado del API:', result)
+
+        if (!result.success) {
+          console.error('❌ Error en actualización:', result.error)
+          throw new Error(result.error || 'Error actualizando usuario')
+        }
+
+        if (!result.data || result.data.length === 0) {
+          console.error('⚠️ El update no afectó ninguna fila.')
+          alert('⚠️ Advertencia: No se pudo actualizar el usuario.')
+          return
+        }
+
+        console.log('✅ Usuario actualizado exitosamente')
 
         if (formData.password && formData.password.trim() !== '') {
           // 1. Actualizar contraseña TEXTO PLANO via RPC (Bypassea problemas de RLS/Mayúsculas)
@@ -132,6 +155,8 @@ function UsuariosPage() {
       } else {
         // B. CREAR NUEVO USUARIO
 
+        console.log('➕ Creando nuevo usuario con datos:', formData)
+
         // Usamos la RPC maestra que crea en auth.users y public.users al mismo tiempo
         const { data, error } = await supabase.rpc('create_new_user', {
           email: formData.email,
@@ -143,17 +168,37 @@ function UsuariosPage() {
           // el update posterior se encargará de guardarlo.
         })
 
-        if (error) throw error
+        if (error) {
+          console.error('❌ Error creando usuario:', error)
+          throw error
+        }
 
-        // Hack de Seguridad: Si la RPC no guardó el store_scope (porque es un campo nuevo),
-        // hacemos un update inmediato para asegurarnos que el supervisor tenga sus tiendas.
+        console.log('✅ Usuario creado, aplicando configuración adicional...')
+
+        // Update para agregar campos que la RPC no soporta
+        const additionalFields: any = {}
+
         if (role === 'supervisor' && cleanData.store_scope) {
-          const { error: scopeError } = await supabase
+          additionalFields.store_scope = cleanData.store_scope
+        }
+
+        // IMPORTANTE: Agregar is_active si no es true por defecto
+        if (cleanData.is_active !== undefined) {
+          additionalFields.is_active = cleanData.is_active
+        }
+
+        // Solo hacer update si hay campos adicionales
+        if (Object.keys(additionalFields).length > 0) {
+          const { error: updateError } = await supabase
             .from('users')
-            .update({ store_scope: cleanData.store_scope })
+            .update(additionalFields)
             .eq('email', formData.email)
 
-          if (scopeError) console.error('Error guardando scope:', scopeError)
+          if (updateError) {
+            console.error('⚠️ Error actualizando campos adicionales:', updateError)
+          } else {
+            console.log('✅ Campos adicionales aplicados:', additionalFields)
+          }
         }
 
         alert('✅ Usuario creado exitosamente')

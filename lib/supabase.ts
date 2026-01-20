@@ -33,6 +33,28 @@ export async function getSupabaseClient() {
 }
 
 // ============================================================================
+// ADMIN CLIENT - Para operaciones que requieren bypasear RLS
+// ============================================================================
+// Este cliente usa el service_role key que ignora las políticas RLS.
+// ⚠️ SOLO usar en operaciones administrativas del lado del servidor o
+// en componentes client-side que requieran permisos elevados (como gestión de usuarios).
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+
+export const supabaseAdmin = supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  })
+  : supabase // Fallback al cliente normal si no hay service key
+
+export async function getSupabaseAdminClient() {
+  return supabaseAdmin
+}
+
+// ============================================================================
 // HELPER PARA REQUESTS CON AUTENTICACIÓN (token custom)
 // ============================================================================
 // Este helper se mantiene para compatibilidad con el sistema de JWT custom.

@@ -124,6 +124,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
     // Limpiar campos auxiliares antes de enviar
     const { confirmPassword, ...dataToSend } = formData
+    console.log('🔄 Modal enviando is_active:', dataToSend.is_active, 'Tipo:', typeof dataToSend.is_active)
     onSave({ ...dataToSend, id: initialData?.id }, !!initialData)
   }
 
@@ -137,8 +138,8 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
   const strengthColors = ['bg-gray-200', 'bg-red-400', 'bg-yellow-400', 'bg-green-500']
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden transform transition-all scale-100 flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[800px] border border-gray-100 dark:border-slate-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden transform transition-all scale-100 flex flex-col md:flex-row max-h-[98vh] md:max-h-[90vh] border border-gray-100 dark:border-slate-800">
 
         {/* SIDEBAR VISUAL (Desktop only) */}
         <div className="hidden md:flex w-1/3 bg-slate-900 dark:bg-black p-8 flex-col justify-between relative overflow-hidden">
@@ -182,34 +183,34 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
         <div className="flex-1 flex flex-col md:h-auto overflow-hidden">
 
           {/* Mobile Header */}
-          <div className="md:hidden p-4 bg-slate-900 dark:bg-black text-white flex justify-between items-center transition-colors">
-            <h2 className="font-bold text-lg">{initialData ? 'Editar Usuario' : 'Nuevo Usuario'}</h2>
-            <button onClick={onClose}><X size={24} /></button>
+          <div className="md:hidden p-3 bg-slate-900 dark:bg-black text-white flex justify-between items-center transition-colors shrink-0">
+            <h2 className="font-bold text-base">{initialData ? 'Editar Usuario' : 'Nuevo Usuario'}</h2>
+            <button onClick={onClose}><X size={20} /></button>
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8">
+          <div className="flex-1 overflow-y-auto p-3 md:p-8 space-y-4 md:space-y-8">
 
-            <form id="userForm" onSubmit={handleSubmit} className="space-y-8">
+            <form id="userForm" onSubmit={handleSubmit} className="space-y-4 md:space-y-8">
 
               {/* SECCIÓN 1: DATOS PERSONALES */}
-              <section className="space-y-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">1</span>
-                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">Información Personal</h3>
+              <section className="space-y-3 md:space-y-4">
+                <div className="flex items-center gap-2 mb-3 md:mb-4">
+                  <span className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">1</span>
+                  <h3 className="font-black text-gray-900 dark:text-white text-base md:text-lg tracking-tight">Información Personal</h3>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-5">
                   <div className="group">
-                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Nombre Completo</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 md:mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Nombre Completo</label>
                     <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={18} />
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={16} />
                       <input
                         name="full_name"
                         value={formData.full_name}
                         onChange={handleChange}
                         required
-                        className="w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-indigo-950/40 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-600"
+                        className="w-full pl-9 md:pl-10 pr-3 md:pr-4 py-2.5 md:py-3.5 text-sm md:text-base bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-indigo-950/40 rounded-xl md:rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-600"
                         placeholder="Ej. Juan Pérez"
                       />
                     </div>

@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense, useRef, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
-import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
 import {
     X, Clock, Coffee, Sun, Sunrise, Moon, MoonStar,
@@ -386,9 +386,6 @@ function ScheduleManager() {
     const [editingShift, setEditingShift] = useState<any>(null);
     const [selectedDayIndex, setSelectedDayIndex] = useState(0); // For Mobile View switching
 
-    // Estado para mantener el orden de los empleados por tienda
-    const [employeeOrderMap, setEmployeeOrderMap] = useState<Record<string, string[]>>({})
-
     // --- ESTADOS PARA DRAG & DROP (COPIAR) ---
     const [isDragging, setIsDragging] = useState(false);
     const [dragSource, setDragSource] = useState<any>(null);
@@ -451,34 +448,6 @@ function ScheduleManager() {
         const filteredSchedules = allSchedules.filter(s => targetStoreIds.includes(String(s.store_id)));
         setLocalSchedules(filteredSchedules);
     }
-
-    // Inicializar el orden de empleados cuando cambian los usuarios
-    useEffect(() => {
-        if (localUsers.length > 0) {
-            // Agrupar usuarios por tienda
-            const orderByStore: Record<string, string[]> = {};
-            localUsers.forEach(user => {
-                const storeId = String(user.store_id);
-                if (!orderByStore[storeId]) {
-                    orderByStore[storeId] = [];
-                }
-                if (!orderByStore[storeId].includes(String(user.id))) {
-                    orderByStore[storeId].push(String(user.id));
-                }
-            });
-
-            // Solo actualizar si no existe el orden previo para estas tiendas
-            setEmployeeOrderMap(prev => {
-                const newMap = { ...prev };
-                Object.keys(orderByStore).forEach(storeId => {
-                    if (!newMap[storeId]) {
-                        newMap[storeId] = orderByStore[storeId];
-                    }
-                });
-                return newMap;
-            });
-        }
-    }, [localUsers])
 
     // --- ESTADO PARA CONTROLAR REPETICIÓN DEL MODAL ---
     const dismissedReplicationsRef = useRef<Set<string>>(new Set());
@@ -1559,112 +1528,76 @@ function ScheduleManager() {
                                                 </tr>
 
                                                 {/* FILAS DE USUARIOS */}
-                                                {(() => {
-                                                    const storeId = String(currentStore.id);
-                                                    const currentOrder = employeeOrderMap[storeId] || [];
+                                                {storeUsers.map(user => (
+                                                    <tr key={`${currentStore.id}-${user.id}`} className="group hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                                                        <td className="p-2 sticky left-0 z-[10] bg-white dark:bg-slate-900 group-hover:bg-gray-50 dark:group-hover:bg-slate-800/50 border-r border-gray-200 dark:border-slate-800 transition-colors shadow-[4px_0_4px_-2px_rgba(0,0,0,0.05)]">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-lg font-black text-white shadow-md
+                                                                ${['manager'].some(r => user.role.toLowerCase().includes(r))
+                                                                        ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
+                                                                    {user.full_name.substring(0, 1).toUpperCase()}
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="font-medium text-gray-900 dark:text-white text-lg flex items-center gap-1">
+                                                                        {user.full_name}
+                                                                        {['manager'].some(r => user.role.toLowerCase().includes(r)) && <span className="text-amber-500">👑</span>}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-medium text-gray-400 dark:text-slate-500 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded w-fit mt-1">{user.role}</span>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        {
+                                                            weekDays.map((day, idx) => {
+                                                                const dateStr = formatDateISO(day);
+                                                                const currentShift = storeSchedules.find(s =>
+                                                                    String(s.user_id) === String(user.id) &&
+                                                                    s.date === dateStr &&
+                                                                    String(s.store_id) === String(currentStore.id)
+                                                                );
+                                                                const dayStatus = dailyStatuses[idx];
 
-                                                    // Ordenar usuarios según el orden guardado
-                                                    const orderedUsers = [...storeUsers].sort((a, b) => {
-                                                        const indexA = currentOrder.indexOf(String(a.id));
-                                                        const indexB = currentOrder.indexOf(String(b.id));
-                                                        if (indexA === -1 && indexB === -1) return 0;
-                                                        if (indexA === -1) return 1;
-                                                        if (indexB === -1) return -1;
-                                                        return indexA - indexB;
-                                                    });
+                                                                let cardContent = <div className="w-1.5 h-1.5 rounded-full bg-gray-100 group-hover:bg-gray-200"></div>;
+                                                                let cardClass = "bg-transparent hover:bg-gray-100 border border-transparent";
 
-                                                    return (
-                                                        <Reorder.Group
-                                                            as="tbody"
-                                                            axis="y"
-                                                            values={orderedUsers}
-                                                            onReorder={(newOrder) => {
-                                                                setEmployeeOrderMap(prev => ({
-                                                                    ...prev,
-                                                                    [storeId]: newOrder.map(u => String(u.id))
-                                                                }));
-                                                            }}
-                                                            className="divide-y divide-gray-100 dark:divide-slate-800"
-                                                        >
-                                                            {orderedUsers.map(user => (
-                                                                <Reorder.Item
-                                                                    key={`${currentStore.id}-${user.id}`}
-                                                                    value={user}
-                                                                    as="tr"
-                                                                    className="group hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors cursor-move"
-                                                                    dragListener={canEdit}
-                                                                    dragControls={undefined}
-                                                                >
-                                                                    <td className="p-2 sticky left-0 z-[10] bg-white dark:bg-slate-900 group-hover:bg-gray-50 dark:group-hover:bg-slate-800/50 border-r border-gray-200 dark:border-slate-800 transition-colors shadow-[4px_0_4px_-2px_rgba(0,0,0,0.05)]">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-lg font-black text-white shadow-md
-                                                                            ${['manager'].some(r => user.role.toLowerCase().includes(r))
-                                                                                    ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'}`}>
-                                                                                {user.full_name.substring(0, 1).toUpperCase()}
-                                                                            </div>
-                                                                            <div className="flex flex-col">
-                                                                                <span className="font-medium text-gray-900 dark:text-white text-lg flex items-center gap-1">
-                                                                                    {user.full_name}
-                                                                                    {['manager'].some(r => user.role.toLowerCase().includes(r)) && <span className="text-amber-500">👑</span>}
-                                                                                </span>
-                                                                                <span className="text-[11px] font-medium text-gray-400 dark:text-slate-500 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded w-fit mt-1">{user.role}</span>
-                                                                            </div>
+                                                                if (currentShift) {
+                                                                    const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
+                                                                    const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
+                                                                    cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
+                                                                    cardContent = (
+                                                                        <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
+                                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                                {formatTime12h(currentShift.start_time?.slice(0, 5))}
+                                                                            </span>
+                                                                            <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
+                                                                                {formatTime12h(currentShift.end_time?.slice(0, 5))}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                } else if (dayStatus.status === 'bad') {
+                                                                    // SOLO Marcar espacios vacíos si hay un ERROR de cobertura (Falta AM o PM)
+                                                                    // No marcar si está simplemente vacío (sin iniciar)
+                                                                    cardClass = "bg-red-50/50 border-2 border-dashed border-red-200 hover:bg-red-100 hover:border-red-300 animate-pulse";
+                                                                    cardContent = <div className="w-1.5 h-1.5 rounded-full bg-red-200 group-hover:bg-red-300"></div>;
+                                                                }
+
+                                                                return (
+                                                                    <td
+                                                                        key={day.toISOString()}
+                                                                        className={`p-1 h-[65px] last:border-0 align-middle ${idx === 6 ? 'border-r-4 border-slate-300 dark:border-slate-600' : 'border-r border-gray-200 dark:border-slate-800'}`}
+                                                                        // PASAR EL ID DE LA TIENDA ACTUAL AL ABRIR EL MODAL
+                                                                        onMouseDown={(e) => handleCellMouseDown(e, user, day, currentShift, String(currentStore.id))}
+                                                                        onMouseEnter={() => handleCellMouseEnter(user, day)}
+                                                                    >
+                                                                        <div className={`w-full h-full rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer p-0.5 ${cardClass} ${!canEdit && 'cursor-default hover:translate-y-0 hover:shadow-none'}`}>
+                                                                            {cardContent}
                                                                         </div>
                                                                     </td>
-                                                                    {
-                                                                        weekDays.map((day, idx) => {
-                                                                            const dateStr = formatDateISO(day);
-                                                                            const currentShift = storeSchedules.find(s =>
-                                                                                String(s.user_id) === String(user.id) &&
-                                                                                s.date === dateStr &&
-                                                                                String(s.store_id) === String(currentStore.id)
-                                                                            );
-                                                                            const dayStatus = dailyStatuses[idx];
-
-                                                                            let cardContent = <div className="w-1.5 h-1.5 rounded-full bg-gray-100 group-hover:bg-gray-200"></div>;
-                                                                            let cardClass = "bg-transparent hover:bg-gray-100 border border-transparent";
-
-                                                                            if (currentShift) {
-                                                                                const preset = PRESETS.find(p => p.start === currentShift.start_time && p.end === currentShift.end_time);
-                                                                                const color = preset ? preset.color : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200';
-                                                                                cardClass = `${color} shadow-sm group-hover:shadow-md transform transition-all duration-200 ${canEdit ? 'hover:-translate-y-1' : ''}`;
-                                                                                cardContent = (
-                                                                                    <div className="flex flex-col items-center justify-center w-full h-full p-1 gap-0">
-                                                                                        <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
-                                                                                            {formatTime12h(currentShift.start_time?.slice(0, 5))}
-                                                                                        </span>
-                                                                                        <span className="text-[18px] font-medium tracking-tight opacity-95 leading-none">
-                                                                                            {formatTime12h(currentShift.end_time?.slice(0, 5))}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                );
-                                                                            } else if (dayStatus.status === 'bad') {
-                                                                                // SOLO Marcar espacios vacíos si hay un ERROR de cobertura (Falta AM o PM)
-                                                                                // No marcar si está simplemente vacío (sin iniciar)
-                                                                                cardClass = "bg-red-50/50 border-2 border-dashed border-red-200 hover:bg-red-100 hover:border-red-300 animate-pulse";
-                                                                                cardContent = <div className="w-1.5 h-1.5 rounded-full bg-red-200 group-hover:bg-red-300"></div>;
-                                                                            }
-
-                                                                            return (
-                                                                                <td
-                                                                                    key={day.toISOString()}
-                                                                                    className={`p-1 h-[65px] last:border-0 align-middle ${idx === 6 ? 'border-r-4 border-slate-300 dark:border-slate-600' : 'border-r border-gray-200 dark:border-slate-800'}`}
-                                                                                    // PASAR EL ID DE LA TIENDA ACTUAL AL ABRIR EL MODAL
-                                                                                    onMouseDown={(e) => handleCellMouseDown(e, user, day, currentShift, String(currentStore.id))}
-                                                                                    onMouseEnter={() => handleCellMouseEnter(user, day)}
-                                                                                >
-                                                                                    <div className={`w-full h-full rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer p-0.5 ${cardClass} ${!canEdit && 'cursor-default hover:translate-y-0 hover:shadow-none'}`}>
-                                                                                        {cardContent}
-                                                                                    </div>
-                                                                                </td>
-                                                                            );
-                                                                        })
-                                                                    }
-                                                                </Reorder.Item>
-                                                            ))}
-                                                        </Reorder.Group>
-                                                    );
-                                                })()}
+                                                                );
+                                                            })
+                                                        }
+                                                    </tr>
+                                                ))
+                                                }
                                             </React.Fragment>
                                         );
                                     })
@@ -1901,7 +1834,7 @@ function ScheduleManager() {
     )
 }
 
-const HorariosPage = () => {
+export default function HorariosPage() {
     return (
         <ProtectedRoute>
             <Suspense fallback={<SurpriseLoader />}>
@@ -1910,5 +1843,3 @@ const HorariosPage = () => {
         </ProtectedRoute>
     )
 }
-
-export default HorariosPage

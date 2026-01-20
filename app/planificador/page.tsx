@@ -640,8 +640,7 @@ function EmployeeRow({
                         <td
                             key={`${emp.id}-${day.toISOString()}`}
                             className="border-r border-b border-gray-200 dark:border-slate-800 h-24 p-1 relative group-hover:bg-gray-100 dark:group-hover:bg-slate-800/80 transition-colors"
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => handleDrop(e, emp.id, day)}
+                            onMouseEnter={() => handleCellMouseEnter(emp, day)}
                         >
                             <div className="w-full h-full flex flex-col gap-1">
                                 {cellShifts.map((shift: any) => {
@@ -932,13 +931,13 @@ function SchedulePlanner() {
         })
     }
 
-    const [draggedShift, setDraggedShift] = useState<any>(null)
-    const [isCtrlPressed, setIsCtrlPressed] = useState(false)
+    const [isDragging, setIsDragging] = useState(false)
+    const [dragSource, setDragSource] = useState<any>(null)
     const [modalConfig, setModalConfig] = useState<any>({ isOpen: false, data: null, targetDate: null, targetEmpId: null })
 
     // Derived
     const weekStart = useMemo(() => getMonday(currentDate), [currentDate])
-    const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart])
+    const weekDays = useMemo(() => Array.from({ length: 14 }).map((_, i) => addDays(weekStart, i)), [weekStart])
 
     // Derived: Current Store Object and GUID
     const currentStore = useMemo(() => stores.find(s => String(s.id) === String(selectedStoreId)), [stores, selectedStoreId])
@@ -1264,52 +1263,61 @@ function SchedulePlanner() {
     }
 
     // --- DRAG & DROP ---
-    const handleDragStart = (e: React.DragEvent, shift: any) => {
-        setDraggedShift(shift)
-        e.dataTransfer.effectAllowed = isCtrlPressed ? "copy" : "move"
+    const handleCellMouseDown = (e: React.MouseEvent, emp: any, date: Date, shift: any) => {
+        if (e.shiftKey) {
+            e.preventDefault()
+            setIsDragging(true)
+            setDragSource(shift)
+        } else {
+            // Abrir modal de edición
+            setModalConfig({ isOpen: true, data: shift, targetDate: date, targetEmpId: emp?.id || null })
+        }
     }
 
-    const handleDrop = async (e: React.DragEvent, targetEmpId: string | null, targetDate: Date) => {
-        e.preventDefault()
-        if (!draggedShift || !storeGuid) return
+    const handleCellMouseEnter = async (emp: any, date: Date) => {
+        if (isDragging && dragSource) {
+            await duplicateShift(emp, date, dragSource)
+        }
+    }
 
-        const isCopy = isCtrlPressed;
+    const duplicateShift = async (targetEmp: any, targetDate: Date, sourceShift: any) => {
+        if (!storeGuid) return
         const supabase = await getSupabaseClient()
-        const durationMs = new Date(draggedShift.end_time).getTime() - new Date(draggedShift.start_time).getTime()
-        const targetDateStr = formatDateISO(targetDate)
+        const dateStr = formatDateISO(targetDate)
+        const isDelete = !sourceShift
 
-        // Preserve time, change date
-        const origStart = new Date(draggedShift.start_time)
-        const newStart = new Date(`${targetDateStr}T${origStart.toISOString().split('T')[1]}`)
-        const newEnd = new Date(newStart.getTime() + durationMs)
+        // Optimistic update
+        const tempShifts = shifts.filter(s => !(s.employee_id === targetEmp?.id && s.shift_date === dateStr))
 
-        const newShiftPayload = {
-            employee_id: targetEmpId, // null if dropped on open shift
-            job_id: draggedShift.job_id,
-            store_id: storeGuid,
-            start_time: newStart.toISOString(),
-            end_time: newEnd.toISOString(),
-            shift_date: targetDateStr,
-            status: 'draft', // Always draft when moving/copying
-            is_open: !targetEmpId,
-            notes: draggedShift.notes
+        if (!isDelete) {
+            tempShifts.push({
+                employee_id: targetEmp?.id || null,
+                store_id: storeGuid,
+                shift_date: dateStr,
+                start_time: sourceShift.start_time,
+                end_time: sourceShift.end_time,
+                job_id: sourceShift.job_id,
+                status: 'draft',
+                is_open: !targetEmp?.id
+            })
         }
+        setShifts([...tempShifts])
 
-        if (isCopy) {
-            // INSERT
-            const { data } = await supabase.from('shifts').insert(newShiftPayload).select().single()
-            if (data) setShifts([...shifts, data])
+        // DB update
+        if (isDelete) {
+            await supabase.from('shifts').delete().match({ employee_id: targetEmp?.id, shift_date: dateStr, store_id: storeGuid })
         } else {
-            // MOVE (Update)
-            // Optimistic update
-            setShifts(prev => prev.map(s => s.id === draggedShift.id ? { ...s, ...newShiftPayload, id: s.id } : s))
-
-            const { data } = await supabase.from('shifts').update(newShiftPayload).eq('id', draggedShift.id).select().single()
-            if (data) {
-                setShifts(prev => prev.map(s => s.id === data.id ? data : s))
-            }
+            await supabase.from('shifts').upsert({
+                employee_id: targetEmp?.id || null,
+                store_id: storeGuid,
+                shift_date: dateStr,
+                start_time: sourceShift.start_time,
+                end_time: sourceShift.end_time,
+                job_id: sourceShift.job_id,
+                status: 'draft',
+                is_open: !targetEmp?.id
+            }, { onConflict: 'employee_id, shift_date, store_id' })
         }
-        setDraggedShift(null)
     }
 
     // --- CALCULATIONS & MEMOIZATION ---
@@ -1811,14 +1819,21 @@ function SchedulePlanner() {
                 <div className="w-[99%] mx-auto h-full border-x border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                     <table className="w-full border-separate border-spacing-0 table-fixed">
                         <colgroup>
-                            <col className="w-[25%] min-w-[300px]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
+                            <col className="w-[200px] min-w-[200px]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
+                            <col className="w-[7.14%]" />
                         </colgroup>
                         <thead className="sticky top-0 z-20 bg-white dark:bg-slate-900 shadow-sm ring-1 ring-black/5">
                             <tr>
@@ -1853,8 +1868,7 @@ function SchedulePlanner() {
                                     <td
                                         key={`open-${day.toISOString()}`}
                                         className="border-r border-b border-gray-200 dark:border-slate-800 h-20 p-1 relative hover:bg-gray-50/50 transition-colors"
-                                        onDragOver={(e) => e.preventDefault()}
-                                        onDrop={(e) => handleDrop(e, null, day)}
+                                        onMouseEnter={() => handleCellMouseEnter(null, day)}
                                     >
                                         <div className="w-full h-full flex flex-col gap-1">
                                             {getShiftsForCell(null, day).map(shift => {
