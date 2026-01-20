@@ -95,6 +95,7 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
 
   const [answers, setAnswers] = useState<{ [key: string]: any }>({})
   const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
+  const [restoredMessage, setRestoredMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (initialData?.answers && allQuestions.length > 0) {
@@ -134,8 +135,65 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         }
       })
       setAnswers(initialAnswers)
+
+      // Restore Photos Mapping if available
+      if (initialData.answers['__question_photos']) {
+        setQuestionPhotos(initialData.answers['__question_photos'])
+      }
+
+      // [AUTO-SAVE EDIT Restoration]
+      if (initialData.id) {
+        const draftKey = `checklist_draft_edit_${initialData.id}`
+        const savedDraft = localStorage.getItem(draftKey)
+        if (savedDraft) {
+          try {
+            const parsed = JSON.parse(savedDraft)
+            // Only restore if draft timestamp is newer (optional check, for now just restore)
+            console.log('🔄 Restaurando edición...')
+            if (parsed.answers) setAnswers(prev => ({ ...prev, ...parsed.answers }))
+            if (parsed.questionPhotos) setQuestionPhotos(prev => ({ ...prev, ...parsed.questionPhotos }))
+            if (parsed.formData) setFormData(prev => ({ ...prev, ...parsed.formData }))
+            setRestoredMessage('Se han restaurado cambios no guardados en esta edición.')
+          } catch (e) {
+            console.error('Error restaurando edición', e)
+          }
+        }
+      }
+
+    } else if (!initialData?.id) {
+      // [AUTO-SAVE] Only restore draft for NEW inspections (not edits)
+      const draftKey = `checklist_draft_${templateCode}`
+      const savedDraft = localStorage.getItem(draftKey)
+      if (savedDraft) {
+        try {
+          const parsed = JSON.parse(savedDraft)
+          // Ask user or auto-restore? Let's auto-restore with a toast/log
+          console.log('🔄 Restaurando borrador...')
+          if (parsed.answers) setAnswers(parsed.answers)
+          if (parsed.questionPhotos) setQuestionPhotos(parsed.questionPhotos)
+          if (parsed.formData) setFormData(prev => ({ ...prev, ...parsed.formData }))
+          setRestoredMessage('Hemos recuperado tu trabajo pendiente.')
+        } catch (e) {
+          console.error('Error restaurando borrador', e)
+        }
+      }
     }
-  }, [initialData, allQuestions])
+  }, [initialData, allQuestions, templateCode])
+
+  // [AUTO-SAVE] Save Logic
+  useEffect(() => {
+    const draftKey = initialData?.id
+      ? `checklist_draft_edit_${initialData.id}`
+      : `checklist_draft_${templateCode}`
+
+    const payload = {
+      answers,
+      questionPhotos,
+      formData,
+      timestamp: Date.now()
+    }
+    localStorage.setItem(draftKey, JSON.stringify(payload))
+  }, [answers, questionPhotos, formData, templateCode, initialData?.id])
 
   const handleAnswer = (questionId: string, val: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: val }))
@@ -230,6 +288,13 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
 
       if (error) throw error
 
+      // [AUTO-SAVE] Clear draft on successful submit
+      if (initialData?.id) {
+        localStorage.removeItem(`checklist_draft_edit_${initialData.id}`)
+      } else {
+        localStorage.removeItem(`checklist_draft_${templateCode}`)
+      }
+
       alert('✅ Guardado con éxito')
       router.push('/checklists')
     } catch (err: any) {
@@ -264,6 +329,18 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
             </div>
           </div>
         </div>
+        {/* RESTORED MESSAGE BANNER */}
+        {restoredMessage && (
+          <div className="bg-indigo-50 dark:bg-indigo-900/30 border-t border-indigo-100 dark:border-indigo-800 px-6 py-3 flex items-center justify-between animate-in slide-in-from-top-2 transition-all">
+            <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-300 flex items-center gap-2 tracking-wide">
+              <Sparkles size={14} className="animate-pulse" />
+              {restoredMessage}
+            </span>
+            <button onClick={() => setRestoredMessage(null)} className="text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-200 p-1 hover:bg-indigo-100 rounded-full transition-colors">
+              <ChevronLeft size={16} className="rotate-270" />
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="bg-white dark:bg-slate-900 border-x border-b border-gray-200 dark:border-slate-800 rounded-b-3xl p-6 shadow-sm space-y-8 transition-colors">
@@ -338,7 +415,7 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         </div>
 
         <div className="pt-4 flex gap-4">
-          <button type="button" onClick={() => router.back()} className="flex-1 py-4 bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 font-bold rounded-2xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-all">Cancelar</button>
+          <button type="button" onClick={() => { if (confirm('¿Salir? Tu progreso se guardará como borrador y podrás continuarlo después.')) router.back() }} className="flex-1 py-4 bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 font-bold rounded-2xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-all">Cancelar</button>
           <button onClick={handleSubmit} disabled={loading}
             className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 ${styles.bg}`}>
             {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Save size={20} /><span>{initialData?.id ? 'Guardar Cambios' : 'Finalizar'}</span></>}

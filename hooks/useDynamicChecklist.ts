@@ -28,7 +28,7 @@ export interface Template {
     sections: Section[]
 }
 
-const CACHE_PREFIX = 'checklist_template_'
+const CACHE_PREFIX = 'checklist_template_v2_'
 
 export function useDynamicChecklist(templateCode: string) {
     const [data, setData] = useState<Template | null>(null)
