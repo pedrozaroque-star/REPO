@@ -146,7 +146,7 @@ async function generateSchedules() {
     const employeeIds = Object.keys(employeeHistory)
     console.log(`👥 Encontrados ${employeeIds.length} empleados activos en historial.`)
 
-    const newShifts = []
+    const newShifts: any[] = []
 
     // 2. Iterar por empleado primero (Para manejar regla de descansos)
     for (const eid of employeeIds) {
@@ -161,7 +161,7 @@ async function generateSchedules() {
         const daysSinceLastWork = (new Date().getTime() - new Date(lastPunch.business_date).getTime()) / (1000 * 3600 * 24)
         if (daysSinceLastWork > 20) continue
 
-        const empWeeklyShifts = []
+        const empWeeklyShifts: any[] = []
 
         // Calcular frecuencias por día de la semana (0-6)
         const counts = [0, 0, 0, 0, 0, 0, 0]
@@ -264,7 +264,7 @@ async function generateSchedules() {
         if (j.guid) jobMap[j.guid] = j.id
     })
 
-    const finalInserts = []
+    const finalInserts: any[] = []
 
 
     for (const s of newShifts) {

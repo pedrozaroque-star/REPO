@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
             if (diffDays > 20) continue
 
             // Potential shifts for the week
-            const empWeeklyShifts = []
+            const empWeeklyShifts: any[] = []
             const dayFrequencies: Record<number, number> = {}
 
             // Calculate frequencies for all 7 days
