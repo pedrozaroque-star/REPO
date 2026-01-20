@@ -1147,8 +1147,9 @@ function SchedulePlanner() {
         delete payload.id // let DB gen ID for insert, but using upsert below needs ID if edit
 
         // Ensure dates are ISO strings
-        if (payload.start_time instanceof Date) payload.start_time = payload.start_time.toISOString()
-        if (payload.end_time instanceof Date) payload.end_time = payload.end_time.toISOString()
+        if (typeof payload.start_time === 'object' && payload.start_time !== null && 'toISOString' in payload.start_time) payload.start_time = (payload.start_time as Date).toISOString()
+        if (typeof payload.end_time === 'object' && payload.end_time !== null && 'toISOString' in payload.end_time) payload.end_time = (payload.end_time as Date).toISOString()
+
 
         // Sync shift_date with start_time (local date part)
         if (payload.start_time) {
