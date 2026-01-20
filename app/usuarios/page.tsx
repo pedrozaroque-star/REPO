@@ -69,7 +69,7 @@ function UsuariosPage() {
         full_name: formData.full_name,
         role: role,
         email: formData.email, // Importante para updates visuales
-        is_active: formData.is_active,
+        is_active: Boolean(formData.is_active), // Convertir explícitamente a boolean
         // Lógica condicional de tiendas:
         store_id: ['manager', 'asistente'].includes(role) && formData.store_id
           ? parseInt(formData.store_id)
@@ -80,6 +80,8 @@ function UsuariosPage() {
         // IMPORTANTE: Actualizar también password en public.users porque el Login custom lo usa
         ...(formData.password && formData.password.trim() !== '' ? { password: formData.password } : {})
       }
+
+      console.log('💾 Guardando usuario con is_active:', cleanData.is_active)
 
       if (isEdit) {
         // A. ACTUALIZAR USUARIO EXISTENTE
