@@ -728,7 +728,7 @@ function SchedulePlanner() {
         setIsSyncingEmployees(true)
         const res = await syncEmployeesAction(storeGuid)
         setIsSyncingEmployees(false)
-        if (res.success) {
+        if (res.success && 'count' in res) {
             toast.success(`Sincronizados ${res.count} empleados`)
             loadStoreData()
         } else {
