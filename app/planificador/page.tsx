@@ -1470,6 +1470,7 @@ function SchedulePlanner() {
 
     // Legacy functions replaced by stats logic above
     const calculateShiftHours = (s: Shift) => {
+        if (!s.id) return 0;
         const d = weeklyStats.shiftStats[s.id];
         return d ? d.duration : 0;
     }
