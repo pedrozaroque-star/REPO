@@ -345,6 +345,7 @@ function InspeccionesContent() {
                     <th className="p-4 text-center">Duración</th>
                     <th className="p-4 text-center">Score</th>
                     <th className="p-4 text-left">Estado</th>
+                    <th className="p-4 text-left">Revisó</th>
                     <th className="p-4 text-center">Evidencia</th>
                     <th className="p-4 text-center">Acciones</th>
                   </tr>
@@ -352,13 +353,13 @@ function InspeccionesContent() {
                 <tbody className="text-base divide-y divide-gray-100 dark:divide-slate-800">
                   {errorMsg ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-red-500 font-bold">
+                      <td colSpan={9} className="p-8 text-center text-red-500 font-bold">
                         {errorMsg}
                       </td>
                     </tr>
                   ) : inspections.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-gray-400 italic">No se encontraron inspecciones.</td>
+                      <td colSpan={9} className="p-8 text-center text-gray-400 italic">No se encontraron inspecciones.</td>
                     </tr>
                   ) : (
                     inspections.map((item) => {
@@ -432,24 +433,15 @@ function InspeccionesContent() {
                               )}
                             </div>
                           </td>
+                          <td className="p-4 text-left text-sm text-gray-600 dark:text-slate-400">
+                            {item.reviso_admin || '-'}
+                          </td>
                           <td className="p-4 text-center">
                             {(item.photos && item.photos.length > 0) ? (
-                              <div className="flex items-center justify-center gap-1">
-                                {item.photos.slice(0, 3).map((url: string, idx: number) => (
-                                  <img
-                                    key={idx}
-                                    src={getEmbeddableImageUrl(url)}
-                                    alt={`Evidence ${idx + 1}`}
-                                    className="w-10 h-10 object-cover rounded-lg border border-gray-200 hover:scale-110 transition-transform shadow-sm"
-                                    referrerPolicy="no-referrer"
-                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                                  />
-                                ))}
-                                {item.photos.length > 3 && (
-                                  <span className="w-10 h-10 rounded-lg bg-gray-100 text-gray-500 text-xs font-bold flex items-center justify-center border border-gray-200">
-                                    +{item.photos.length - 3}
-                                  </span>
-                                )}
+                              <div className="flex items-center justify-center">
+                                <span className="text-sm font-bold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 px-3 py-1 rounded-full border border-gray-200 dark:border-slate-700">
+                                  {item.photos.length} Fotos
+                                </span>
                               </div>
                             ) : (
                               <span className="text-gray-300 text-xs font-medium">-</span>

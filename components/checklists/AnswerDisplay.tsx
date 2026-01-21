@@ -94,13 +94,16 @@ export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }:
         )
     }
 
-    // SCORE 100 (Cumple/Parcial/No) - used in Supervisor
-    if (type === 'supervisor' && (numValue === 100 || numValue === 60 || numValue === 0)) {
+    // SCORE 100 (SI/REGULAR/NO) - used in Supervisor, Manager, Assistant
+    if (
+        (type === 'supervisor' || type === 'manager' || type === 'assistant' || type === 'asistente' || question.type === 'score_100' || question.type === 'compliance') &&
+        (numValue === 100 || numValue === 60 || numValue === 0)
+    ) {
         return (
             <div className="flex gap-1 min-w-[150px]">
                 {[
-                    { label: 'CUMPLE', val: 100, color: 'bg-green-500', bgOff: 'bg-green-50' },
-                    { label: 'PARCIAL', val: 60, color: 'bg-orange-500', bgOff: 'bg-orange-50' },
+                    { label: 'SÍ', val: 100, color: 'bg-green-500', bgOff: 'bg-green-50' },
+                    { label: 'REGULAR', val: 60, color: 'bg-orange-500', bgOff: 'bg-orange-50' },
                     { label: 'NO', val: 0, color: 'bg-red-500', bgOff: 'bg-red-50' }
                 ].map(opt => {
                     const isSelected = numValue === opt.val

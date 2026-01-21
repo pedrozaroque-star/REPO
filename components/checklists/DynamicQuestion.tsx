@@ -180,8 +180,8 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                 return (
                     <div className="flex gap-2 w-full">
                         {[
-                            { label: 'CUMPLE', val: 100, color: 'bg-green-500', text: 'text-green-600 dark:text-green-400', border: 'border-green-200 dark:border-green-900/40', bg: 'bg-green-50 dark:bg-green-900/20' },
-                            { label: 'PARCIAL', val: 60, color: 'bg-orange-500', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-900/40', bg: 'bg-orange-50 dark:bg-orange-900/20' },
+                            { label: 'SÍ', val: 100, color: 'bg-green-500', text: 'text-green-600 dark:text-green-400', border: 'border-green-200 dark:border-green-900/40', bg: 'bg-green-50 dark:bg-green-900/20' },
+                            { label: 'REGULAR', val: 60, color: 'bg-orange-500', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-900/40', bg: 'bg-orange-50 dark:bg-orange-900/20' },
                             { label: 'NO', val: 0, color: 'bg-red-500', text: 'text-red-600 dark:text-red-400', border: 'border-red-200 dark:border-red-900/40', bg: 'bg-red-50 dark:bg-red-900/20' }
                         ].map(opt => {
                             const isSelected = value === opt.val
