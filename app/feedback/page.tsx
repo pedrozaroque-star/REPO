@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Star, MessageSquare, ThumbsUp, ThumbsDown, Filter, Calendar, Search, MapPin, TrendingUp, TrendingDown, Minus, Plus } from 'lucide-react'
+import { Star, MessageSquare, MessageCircleMore, ThumbsUp, ThumbsDown, Filter, Calendar, Search, MapPin, TrendingUp, TrendingDown, Minus, Plus } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
-import { formatDateLA, formatTimeLA } from '@/lib/checklistPermissions'
+import { formatDateLA, formatTimeLA, getStatusColor, getStatusLabel } from '@/lib/checklistPermissions'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
+import FeedbackLeaderboardModal from '@/components/FeedbackLeaderboardModal'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
 function FeedbackContent() {
@@ -29,11 +30,16 @@ function FeedbackContent() {
   const [feedbacks, setFeedbacks] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [storeFilter, setStoreFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all') // New Status Filter
   const [stores, setStores] = useState<any[]>([])
+  const [users, setUsers] = useState<any[]>([])
 
   // Modal State
   const [selectedFeedback, setSelectedFeedback] = useState<any>(null)
+
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
+  const hasAutoOpened = useRef(false)
 
   // 🚨 DETECTOR DE CONFLICTO DE IDENTIDAD (Moved up to avoid Hook Error)
   const [tokenIdentity, setTokenIdentity] = useState<any>(null)
@@ -42,7 +48,7 @@ function FeedbackContent() {
 
   useEffect(() => {
     if (user) fetchData()
-  }, [storeFilter, user])
+  }, [storeFilter, statusFilter, user])
 
   // Identity Check Effect
   useEffect(() => {
@@ -108,6 +114,10 @@ function FeedbackContent() {
       const { data: storesData } = await supabase.from('stores').select('*')
       setStores(storesData || [])
 
+      // Obtener usuarios para mapeo de nombres
+      const { data: usersData } = await supabase.from('users').select('id, full_name')
+      setUsers(usersData || [])
+
       // Obtener feedbacks
       let query = supabase
         .from('customer_feedback')
@@ -118,13 +128,54 @@ function FeedbackContent() {
         query = query.eq('store_id', storeFilter)
       }
 
-      const { data: feedbackData, error } = await query
-
-
+      const { data: rawFeedback, error } = await query
 
       if (error) throw error
 
-      setFeedbacks(feedbackData || [])
+      const feedbacksList = rawFeedback || []
+      const feedbackIds = feedbacksList.map((f: any) => f.id)
+
+      // Fetch Comment Counts
+      let commentCounts: Record<string, number> = {}
+      if (feedbackIds.length > 0) {
+        const { data: commentsData } = await supabase
+          .from('feedback_comments')
+          .select('feedback_id')
+          .in('feedback_id', feedbackIds)
+
+        if (commentsData) {
+          commentsData.forEach((c: any) => {
+            commentCounts[c.feedback_id] = (commentCounts[c.feedback_id] || 0) + 1
+          })
+        }
+      }
+
+      // Merge Data
+      const feedbackData = feedbacksList.map((f: any) => ({
+        ...f,
+        has_chat: (commentCounts[f.id] || 0) > 0
+      }))
+
+      // Filter by Status
+      const finalData = statusFilter !== 'all'
+        ? (feedbackData || []).filter((item: any) => {
+          const s = (item.admin_review_status || 'pendiente').toLowerCase().trim()
+          if (statusFilter === 'cerrado') {
+            return s === 'aprobado' || s === 'cerrado' || s === 'closed'
+          }
+          return s === statusFilter
+        })
+        : (feedbackData || [])
+
+      setFeedbacks(finalData)
+
+      // Auto-open Leaderboard on first load if logic dictates
+      // (User request: "al abrir la pagina FEEDBACK abrir un modal LEaderBoard")
+      if (!isLeaderboardOpen && finalData.length > 0) {
+        // Logic to open only once per session or navigation could be added here
+        // For now, just opening it when data is ready effectively.
+        // But careful about re-renders.
+      }
 
       // Calcular estadísticas
       if (feedbackData && feedbackData.length > 0) {
@@ -150,6 +201,13 @@ function FeedbackContent() {
           avgSpeed: Math.round(avgSpeed * 10) / 10
         })
       }
+
+      // Open Leaderboard once data is loaded (Only for the first time)
+      if (!isLeaderboardOpen && !hasAutoOpened.current) {
+        setIsLeaderboardOpen(true)
+        hasAutoOpened.current = true
+      }
+
     } catch (err) {
       console.error('Error fetching data:', err)
     } finally {
@@ -208,42 +266,74 @@ function FeedbackContent() {
         )}
 
         {/* STICKY HEADER - Mobile & Desktop */}
-        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 shadow-sm sticky top-14 lg:top-0 z-20 shrink-0 transition-all">
-          <div className="w-full mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
+        {/* HEADER - Gradient Design matching Leaderboard */}
+        <div className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 shadow-xl sticky top-14 lg:top-0 z-20 shrink-0 transition-all border-b border-white/10">
+          <div className="w-full mx-auto px-4 md:px-8 h-20 flex items-center justify-between gap-4">
+
             {/* Title Area */}
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                <MessageSquare size={18} />
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md shadow-inner ring-1 ring-white/20">
+                <MessageSquare className="text-white w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Feedback</h1>
-                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest mt-1">Encuestas de satisfacción y NPS</p>
+                <h1 className="text-xl md:text-2xl font-black text-white tracking-tight leading-none bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                  Feedback
+                </h1>
+                <p className="hidden md:block text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
+                  Satisfacción del Cliente & NPS
+                </p>
               </div>
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-3">
+              {/* Status Filters (Web) */}
+              <div className="hidden md:flex items-center bg-black/20 p-1 rounded-xl backdrop-blur-sm border border-white/5">
+                <button
+                  onClick={() => setStatusFilter('all')}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-white text-slate-900 shadow-lg scale-105' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+                >
+                  Todos
+                </button>
+                <button
+                  onClick={() => setStatusFilter('pendiente')}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-lg scale-105' : 'text-gray-400 hover:text-yellow-400 hover:bg-white/10'}`}
+                >
+                  Pendientes
+                </button>
+                <button
+                  onClick={() => setStatusFilter('cerrado')}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'cerrado' ? 'bg-green-500 text-white shadow-lg scale-105' : 'text-gray-400 hover:text-green-400 hover:bg-white/10'}`}
+                >
+                  Cerrados
+                </button>
+              </div>
+
+              {/* Leaderboard Toggle Button */}
+              <button
+                onClick={() => setIsLeaderboardOpen(true)}
+                className="w-10 h-10 md:w-auto md:h-auto md:px-4 md:py-2 rounded-xl bg-gradient-to-r from-yellow-400 to-orange-500 text-white flex items-center justify-center gap-2 hover:brightness-110 transition-transform active:scale-95 shadow-lg shadow-orange-500/20"
+                title="Ver Ranking"
+              >
+                <TrendingUp size={18} strokeWidth={2.5} />
+                <span className="hidden md:inline font-bold text-xs tracking-wide uppercase">Ranking</span>
+              </button>
+
               {/* Desktop Filter */}
               <div className="hidden md:block">
                 <select
                   value={storeFilter}
                   onChange={(e) => setStoreFilter(e.target.value)}
-                  className="px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border-none outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-bold text-gray-600 dark:text-slate-300 cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-white/20 text-sm font-bold cursor-pointer hover:bg-white/20 transition-colors"
                 >
-                  <option value="all">Todas las tiendas</option>
+                  <option value="all" className="bg-slate-900 text-gray-300">Todas las tiendas</option>
                   {stores.map(s => (
-                    <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
+                    <option key={s.id} value={s.id} className="bg-slate-900 text-white">{formatStoreName(s.name)}</option>
                   ))}
                 </select>
               </div>
 
-              <button
-                onClick={() => router.push('/feedback/nuevo')}
-                className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-gray-200 dark:shadow-none"
-              >
-                <Plus size={16} strokeWidth={3} />
-                <span className="hidden md:inline font-bold text-xs tracking-wide">NUEVO FEEDBACK</span>
-              </button>
+
             </div>
           </div>
         </div>
@@ -271,41 +361,80 @@ function FeedbackContent() {
           </div>
 
           {/* Stats Cards - Adaptive Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4 mb-6 lg:mb-8">
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-gray-800 dark:border-slate-100 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Total</p>
-              <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.total}</p>
-            </div>
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-indigo-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">NPS Score</p>
-              <p className={`text-xl md:text-2xl font-black md:mt-1 ${getNPSColor(stats.nps)}`}>{stats.nps}</p>
-            </div>
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-green-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Servicio</p>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgService}</span>
-                <span className="text-yellow-500 text-xs">⭐</span>
+          {/* Stats Cards - Modern Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+              <div className="p-2 bg-gray-100 dark:bg-slate-800 w-fit rounded-lg mb-2">
+                <MessageSquare className="text-gray-500 w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-3xl font-black text-gray-900 dark:text-white">{stats.total}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Feedbacks</p>
               </div>
             </div>
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-red-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Calidad</p>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgQuality}</span>
-                <span className="text-yellow-500 text-xs">⭐</span>
+
+            <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-lg shadow-indigo-500/20 p-4 text-white flex flex-col justify-between transform hover:-translate-y-1 transition-transform">
+              <div className="flex justify-between items-start">
+                <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                  <TrendingUp className="text-white w-5 h-5" />
+                </div>
+                <span className={`text-xs font-black px-2 py-0.5 rounded bg-white/20`}>{stats.nps}</span>
+              </div>
+              <div>
+                <p className="text-3xl font-black">{stats.nps}</p>
+                <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest">NPS Score</p>
               </div>
             </div>
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-purple-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Limpieza</p>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgCleanliness}</span>
-                <span className="text-yellow-500 text-xs">⭐</span>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow group">
+              <div className="flex justify-between items-start">
+                <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg group-hover:bg-green-100 transition-colors">
+                  <ThumbsUp className="text-green-500 w-5 h-5" />
+                </div>
+                <div className="flex text-yellow-500 text-[10px]">⭐⭐⭐⭐⭐</div>
+              </div>
+              <div>
+                <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgService}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Servicio</p>
               </div>
             </div>
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-yellow-500 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Rapidez</p>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{stats.avgSpeed}</span>
-                <span className="text-yellow-500 text-xs">⭐</span>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow group">
+              <div className="flex justify-between items-start">
+                <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg group-hover:bg-orange-100 transition-colors">
+                  <Star className="text-orange-500 w-5 h-5" />
+                </div>
+                <div className="flex text-yellow-500 text-[10px]">⭐⭐⭐⭐⭐</div>
+              </div>
+              <div>
+                <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgQuality}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Calidad</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow group">
+              <div className="flex justify-between items-start">
+                <div className="p-2 bg-sky-50 dark:bg-sky-900/20 rounded-lg group-hover:bg-sky-100 transition-colors">
+                  <Star className="text-sky-500 w-5 h-5" />
+                </div>
+                <div className="flex text-yellow-500 text-[10px]">⭐⭐⭐⭐⭐</div>
+              </div>
+              <div>
+                <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgCleanliness}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Limpieza</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow group">
+              <div className="flex justify-between items-start">
+                <div className="p-2 bg-rose-50 dark:bg-rose-900/20 rounded-lg group-hover:bg-rose-100 transition-colors">
+                  <TrendingUp className="text-rose-500 w-5 h-5" />
+                </div>
+                <div className="flex text-yellow-500 text-[10px]">⭐⭐⭐⭐⭐</div>
+              </div>
+              <div>
+                <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgSpeed}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Rapidez</p>
               </div>
             </div>
           </div>
@@ -373,76 +502,109 @@ function FeedbackContent() {
                 ))}
               </div>
 
-              {/* DESKTOP TABLE (Hidden on Mobile) */}
-              <div className="hidden md:block bg-white dark:bg-slate-900 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-slate-800">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse relative">
-                    <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800">
-                      <tr className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-                        <th className="px-6 py-4">Fecha</th>
-                        <th className="px-6 py-4">Sucursal</th>
-                        <th className="px-6 py-4">Cliente</th>
-                        <th className="px-6 py-4 text-center">NPS</th>
-                        <th className="px-6 py-4 text-left">CALIFICACIÓN</th>
-                        <th className="px-6 py-4 text-center">Evidencia</th>
-                        <th className="px-6 py-4 text-center">Comentario</th>
-                        <th className="px-6 py-4 text-center">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
-                      {feedbacks.map((item) => (
-                        <tr
-                          key={item.id}
-                          onClick={() => handleRowClick(item)}
-                          className="hover:bg-gray-50/80 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group"
-                        >
-                          <td className="px-6 py-4 text-sm text-gray-500 dark:text-slate-400 whitespace-nowrap">
-                            <div className="font-bold text-gray-900 dark:text-white">{formatDateLA(item.submission_date)}</div>
-                            <div className="text-xs text-gray-400 dark:text-slate-500">{formatTimeLA(item.submission_date)}</div>
-                          </td>
-                          <td className="px-6 py-4 font-medium text-gray-700 dark:text-slate-300">{formatStoreName(item.stores?.name)}</td>
-                          <td className="px-6 py-4">
-                            <div className={`text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 dark:text-slate-600 italic' : 'text-gray-900 dark:text-slate-200'}`}>{item.customer_name || 'Anónimo'}</div>
-                            {item.customer_email && <div className="text-xs text-gray-400 dark:text-slate-500 truncate max-w-[150px]">{item.customer_email}</div>}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className={`px-2 py-1 rounded-lg text-xs font-black border ${getCategoryBadge(item.nps_category)}`}>
-                              {item.nps_score}
+              {/* DESKTOP TABLE - Modern Floating Rows */}
+              <div className="hidden md:block">
+                <table className="w-full text-left border-separate border-spacing-y-2">
+                  <thead>
+                    <tr className="text-xs font-black text-black dark:text-white uppercase tracking-wider">
+                      <th className="px-4 py-3 whitespace-nowrap">Fecha</th>
+                      <th className="px-4 py-3 whitespace-nowrap">Sucursal</th>
+                      <th className="px-4 py-3 whitespace-nowrap">Cliente</th>
+                      <th className="px-4 py-3 text-center whitespace-nowrap">NPS</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">CALIFICACIÓN</th>
+                      <th className="px-4 py-3 text-center whitespace-nowrap">Evidencia</th>
+                      <th className="px-4 py-3 text-center whitespace-nowrap">Comentario</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">ESTATUS</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">REVISÓ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feedbacks.map((item) => (
+                      <tr
+                        key={item.id}
+                        onClick={() => handleRowClick(item)}
+                        className="bg-white dark:bg-slate-900 hover:shadow-lg hover:scale-[1.005] hover:bg-white dark:hover:bg-slate-800 cursor-pointer transition-all duration-200 group rounded-2xl"
+                      >
+                        <td className="px-4 py-3 rounded-l-2xl border-y border-l border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 whitespace-nowrap">
+                          <div className="font-bold text-gray-900 dark:text-white">{formatDateLA(item.submission_date)}</div>
+                          <div className="text-[10px] text-gray-400 dark:text-slate-500 font-medium">{formatTimeLA(item.submission_date)}</div>
+                        </td>
+                        <td className="px-4 py-3 border-y border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 font-bold text-gray-700 dark:text-slate-300 whitespace-nowrap">
+                          {formatStoreName(item.stores?.name)}
+                        </td>
+                        <td className="px-4 py-3 border-y border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 max-w-[200px] truncate">
+                          <div className={`text-sm font-bold ${(!item.customer_name || item.customer_name === 'Anónimo' || item.customer_name === 'Anonimo') ? 'text-gray-400 dark:text-slate-600 italic' : 'text-gray-900 dark:text-slate-200'} truncate`}>{item.customer_name || 'Anónimo'}</div>
+                          {item.customer_email && <div className="text-xs text-gray-400 dark:text-slate-500 truncate">{item.customer_email}</div>}
+                        </td>
+                        <td className="px-4 py-3 text-center border-y border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 whitespace-nowrap">
+                          <span className={`px-2 py-1 rounded-lg text-xs font-black border ${getCategoryBadge(item.nps_category)} shadow-sm`}>
+                            {item.nps_score}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-left border-y border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 whitespace-nowrap">
+                          <div className="flex justify-start text-yellow-400 text-sm drop-shadow-sm">
+                            {'⭐'.repeat(Math.round((item.service_rating + item.food_quality_rating + item.cleanliness_rating + item.speed_rating) / 4))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-center border-y border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 whitespace-nowrap">
+                          {(item.photo_urls && item.photo_urls.length > 0) ? (
+                            <span className="inline-flex items-center justify-center w-7 h-7 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full">
+                              📷
                             </span>
-                          </td>
-                          <td className="px-6 py-4 text-left">
-                            <div className="flex justify-start text-yellow-400 text-lg">
-                              {'⭐'.repeat(Math.round((item.service_rating + item.food_quality_rating + item.cleanliness_rating + item.speed_rating) / 4))}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            {(item.photo_urls && item.photo_urls.length > 0) ? (
-                              <span className="inline-flex items-center justify-center p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg">
-                                📷
-                              </span>
-                            ) : (
-                              <span className="text-gray-300 dark:text-slate-700">-</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            {item.comments ? (
-                              <div className="text-xs text-gray-500 dark:text-slate-400 italic truncate max-w-[200px]" title={item.comments}>
+                          ) : (
+                            <span className="text-gray-200 dark:text-slate-700">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center border-y border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 max-w-[150px]">
+                          {item.comments ? (
+                            <div className="relative group/comment flex justify-center">
+                              {/* Truncated Text */}
+                              <div className="text-xs text-gray-500 dark:text-slate-400 italic truncate max-w-[140px] bg-gray-50 dark:bg-slate-800 px-2 py-1 rounded-lg cursor-help">
                                 "{item.comments}"
                               </div>
-                            ) : (
-                              <span className="text-gray-200 dark:text-slate-800 text-xs">-</span>
+
+                              {/* FUN TOOLTIP */}
+                              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 hidden group-hover/comment:block w-64 z-[100] pointer-events-none">
+                                <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-4 rounded-2xl shadow-xl text-left relative animate-in zoom-in-50 duration-200 border-2 border-white/20">
+                                  {/* Arrow */}
+                                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-purple-600 rotate-45 border-b-2 border-r-2 border-indigo-900/10"></div>
+
+                                  <div className="flex items-center gap-2 mb-2 border-b border-white/20 pb-2">
+                                    <span className="text-xl animate-bounce">💬</span>
+                                    <span className="font-black text-white text-xs uppercase tracking-wider">El cliente dice:</span>
+                                  </div>
+                                  <p className="text-white font-bold text-sm leading-snug drop-shadow-md">
+                                    "{item.comments}"
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-200 dark:text-slate-700 text-xs">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-left border-y border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            {/* STATUS BADGE - Compact */}
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border tracking-wide shadow-sm ${getStatusColor(item.admin_review_status || 'pendiente')}`}>
+                              {['aprobado', 'closed', 'cerrado'].includes((item.admin_review_status || '').toLowerCase())
+                                ? 'CERRADO'
+                                : getStatusLabel(item.admin_review_status || 'pendiente')}
+                            </span>
+                            {(item.has_chat || item.admin_review_comments || item.follow_up_notes) && (
+                              <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-100 dark:border-blue-900/30 shadow-sm" title="Hay notas de revisión o chat">
+                                <MessageCircleMore size={12} strokeWidth={2.5} />
+                              </div>
                             )}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <button className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold text-xs bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors">
-                              REVISAR
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-left border-y border-r rounded-r-2xl border-gray-100 dark:border-slate-800 group-hover:border-indigo-100 dark:group-hover:border-slate-700 text-xs font-bold text-gray-500 dark:text-slate-400 whitespace-nowrap">
+                          {users.find(u => u.id === item.reviewed_by)?.full_name?.split(' ')[0] || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </>
           )}
@@ -461,6 +623,15 @@ function FeedbackContent() {
           />
         )
       }
+
+
+      {/* Leaderboard Modal */}
+      <FeedbackLeaderboardModal
+        isOpen={isLeaderboardOpen}
+        onClose={() => setIsLeaderboardOpen(false)}
+        data={feedbacks}
+      />
+
     </div >
   )
 }

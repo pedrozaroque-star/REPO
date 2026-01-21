@@ -62,16 +62,17 @@ export const formatDateLA = (dateString: any) => {
       // Creamos fecha local a mediodía para evitar cualquier borde de mes/día
       const localDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d), 12, 0, 0);
       const mName = new Intl.DateTimeFormat('es-MX', { month: 'short' }).format(localDate).replace('.', '').toLowerCase();
-      return `${d}-${mName}-${y.slice(2)}`;
+      // Format: mes-dd-aaaa (e.g., ene-19-2026)
+      return `${mName}-${d}-${y}`;
     }
 
     const fmt = (opts: any) => new Intl.DateTimeFormat('es-MX', { timeZone: TIMEZONE, ...opts }).format(date);
 
     const m = fmt({ month: 'short' }).replace('.', '').toLowerCase();
     const d = fmt({ day: '2-digit' });
-    const y = fmt({ year: '2-digit' });
+    const y = fmt({ year: 'numeric' });
 
-    return `${d}-${m}-${y}`;
+    return `${m}-${d}-${y}`;
   } catch (e) {
     return 'Error Fecha';
   }
@@ -92,7 +93,7 @@ export const formatTimeLA = (dateString: any) => {
 
 export const getStatusColor = (status: string) => {
   switch (status?.toLowerCase()) {
-    case 'completado': case 'aprobado': return 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
+    case 'completado': case 'aprobado': case 'closed': return 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
     case 'revisado': return 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
     case 'pendiente': return 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
     case 'rechazado': case 'corregir': return 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800';

@@ -8,9 +8,10 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import {
     LayoutDashboard, Plus, BarChart3, Store, Users, ClipboardList,
     MessageSquare, AlertTriangle, CheckCircle, TrendingUp, Activity,
-    Target, Timer, Award, Info, ShieldAlert
+    Target, Timer, Award, Info, ShieldAlert, Camera, ExternalLink
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import FeedbackReviewModal from '@/components/FeedbackReviewModal'
 
 function DashboardContent() {
     const router = useRouter()
@@ -27,6 +28,34 @@ function DashboardContent() {
     })
     const [loading, setLoading] = useState(true)
     const [timeFilter, setTimeFilter] = useState('month')
+    const [selectedFeedback, setSelectedFeedback] = useState<any>(null)
+    const [isModalOpen, setIsModalOpen] = useState(false)
+    const [user, setUser] = useState<any>(null)
+
+    useEffect(() => {
+        const fetchUser = async () => {
+            const token = localStorage.getItem('teg_token')
+            const supabase = await getSupabaseClient()
+
+            if (token) {
+                await supabase.auth.setSession({ access_token: token, refresh_token: '' })
+            }
+
+            const { data: { user: authUser } } = await supabase.auth.getUser()
+
+            if (authUser) {
+                const { data: dbUser } = await supabase.from('users').select('*').eq('id', authUser.id).single()
+                if (dbUser) {
+                    setUser({
+                        ...dbUser,
+                        name: dbUser.full_name,
+                        email: authUser.email
+                    })
+                }
+            }
+        }
+        fetchUser()
+    }, [])
 
     useEffect(() => {
         // Ejecutar carga inicial
@@ -62,6 +91,8 @@ function DashboardContent() {
             if (token) {
                 await supabase.auth.setSession({ access_token: token, refresh_token: '' })
             }
+
+
 
             const startDate = getDateFilter(timeFilter)
 
@@ -154,7 +185,7 @@ function DashboardContent() {
             // 2. Feedback Query
             let queryFeedback = supabase
                 .from('customer_feedback')
-                .select('nps_score, comments, submission_date, stores(name)')
+                .select('*, stores(name,code,city,state)')
                 .order('submission_date', { ascending: false })
                 .limit(500)
 
@@ -183,6 +214,7 @@ function DashboardContent() {
                     const storeData = f.stores
                     const storeName = Array.isArray(storeData) ? storeData[0]?.name : storeData?.name
                     return {
+                        ...f, // Keep all original data for the modal
                         score: f.nps_score || 0,
                         comment: f.comments || '',
                         store: formatStoreName(storeName || 'Tienda'),
@@ -332,18 +364,30 @@ function DashboardContent() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col h-[400px] relative">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-indigo-50/40 dark:bg-indigo-900/10 flex justify-between items-center">
-                            <h3 className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3"><MessageSquare size={20} className="text-indigo-600 dark:text-indigo-400" /> Feedback de Clientes</h3>
+                            <h3 onClick={() => router.push('/feedback')} className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3 cursor-pointer hover:text-indigo-600 transition-colors">
+                                <MessageSquare size={20} className="text-indigo-600 dark:text-indigo-400" />
+                                Feedback de Clientes
+                                <ExternalLink size={14} className="text-indigo-400 opacity-50" />
+                            </h3>
                             <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-md shadow-indigo-100">Últimos {stats.recentFeedback?.length || 0}</span>
                         </div>
                         <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3 custom-scrollbar">
                             {stats.recentFeedback && stats.recentFeedback.length > 0 ? stats.recentFeedback.map((item: any, i: number) => (
                                 <div key={i} className="group relative">
-                                    <div className="bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl p-4 shadow-sm flex gap-4 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                    <div
+                                        onClick={() => { setSelectedFeedback(item); setIsModalOpen(true); }}
+                                        className="bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl p-4 shadow-sm flex gap-4 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer"
+                                    >
                                         <div className={`shrink-0 w-12 h-12 rounded-2xl shadow-inner flex items-center justify-center font-black text-lg ${item.score >= 9 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : item.score >= 7 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`}>{item.score}</div>
                                         <div className="flex-1">
                                             <div className="flex justify-between items-start mb-1">
                                                 <h4 className="font-black text-indigo-900 dark:text-indigo-100 text-sm tracking-tight">{item.store}</h4>
-                                                <span className="text-[11px] text-slate-400 dark:text-slate-300 font-black uppercase tracking-widest">{item.date}</span>
+                                                <div className="flex items-center gap-1.5">
+                                                    {item.photo_urls && item.photo_urls.length > 0 && (
+                                                        <Camera size={16} className="text-indigo-500" strokeWidth={2.5} />
+                                                    )}
+                                                    <span className="text-[11px] text-slate-400 dark:text-slate-300 font-black uppercase tracking-widest">{item.date}</span>
+                                                </div>
                                             </div>
                                             <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed group-hover:text-slate-900 dark:group-hover:text-white transition-colors">"{item.comment || 'Sin comentario'}"</p>
                                         </div>
@@ -407,6 +451,16 @@ function DashboardContent() {
                     </div>
                 </div>
             </main>
+
+            {selectedFeedback && (
+                <FeedbackReviewModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    feedback={selectedFeedback}
+                    currentUser={user || { id: '', full_name: 'Cargando...', role: '' }}
+                    onUpdate={fetchStats}
+                />
+            )}
         </div>
     )
 }
