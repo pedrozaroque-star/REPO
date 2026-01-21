@@ -652,8 +652,22 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 results.push(...resolved)
             }
 
-            // 4. BATCH UPDATE CACHE (Only Past Dates, NEVER Today)
-            const toCache = results.filter(r => !r.fromCache && r.date !== todayStr)
+            // 4. BATCH UPDATE CACHE (Only Past Dates, NEVER Today, and Only if Shift is Closed)
+            // Re-calculate logic to be safe
+            const nowForCache = new Date()
+            const laHourForCache = parseInt(nowForCache.toLocaleTimeString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Los_Angeles' }))
+            const yesterdayForCache = new Date(nowForCache)
+            yesterdayForCache.setDate(nowForCache.getDate() - 1)
+            const yesterdayStrCache = yesterdayForCache.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+
+            const toCache = results.filter(r => {
+                const isToday = r.date === todayStr
+                // If it's yesterday, only cache if it's 6 AM or later
+                const isYesterdayEarly = r.date === yesterdayStrCache && laHourForCache < 6
+
+                return !r.fromCache && !isToday && !isYesterdayEarly
+            })
+
             if (toCache.length > 0) {
                 const supabase = await getSupabaseClient()
                 const rowsForCache = toCache.map(r => ({
