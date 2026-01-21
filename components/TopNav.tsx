@@ -118,13 +118,23 @@ export default function TopNav() {
 
                 {/* Logo Section */}
                 <div className="flex items-center gap-8">
-                    <Link href="/dashboard" className="flex items-center gap-2">
-                        <div className="h-8 w-8 overflow-hidden rounded-lg bg-red-600 shadow-sm flex items-center justify-center">
-                            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
+                    <Link href="/dashboard" className="flex items-center gap-4 group relative">
+                        {/* Placeholder para mantener espacio en el flujo, pero el logo real flota y es gigante */}
+                        <div className="h-10 w-10 md:h-12 md:w-12 relative flex-shrink-0">
+                            <img
+                                src="/logo.png"
+                                alt="TEG Logo"
+                                className="absolute -top-1 -left-1 w-14 h-14 md:w-24 md:h-24 max-w-none object-contain drop-shadow-xl z-50 transform transition-transform group-hover:scale-110"
+                            />
                         </div>
-                        <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
-                            TEG<span className="text-red-600">Admin</span>
-                        </span>
+                        <div className="flex flex-col leading-tight ml-4 md:ml-12">
+                            <span className="text-xl md:text-2xl font-black tracking-tighter text-slate-900 dark:text-white group-hover:text-red-600 transition-colors">
+                                SM<span className="text-base md:text-lg text-red-600 font-medium ml-0.5">TEG</span>
+                            </span>
+                            <span className="hidden md:block text-base font-medium text-red-600 dark:text-red-500 tracking-wide -mt-0.5 animate-pulse">
+                                Sistema de Monitoreo
+                            </span>
+                        </div>
                     </Link>
 
                     {/* Desktop Navigation */}

@@ -234,7 +234,7 @@ export default function LoginPage() {
         {/* Footer de la tarjeta */}
         <div className="bg-gray-100 p-4 text-center border-t border-gray-200">
           <p className="text-xs text-gray-500">
-            © 2025 Tacos Gavilan. Uso exclusivo autorizado.
+            © {new Date().getFullYear()} Tacos Gavilan. Uso exclusivo autorizado.
           </p>
         </div>
       </div>
