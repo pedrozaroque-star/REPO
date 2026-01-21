@@ -69,6 +69,7 @@ function UsuariosPage() {
       const cleanData = {
         full_name: formData.full_name,
         role: role,
+        phone: formData.phone, // Include phone in update payload
         email: formData.email, // Importante para updates visuales
         is_active: Boolean(formData.is_active), // Convertir explícitamente a boolean
         // Lógica condicional de tiendas:
@@ -154,54 +155,32 @@ function UsuariosPage() {
 
       } else {
         // B. CREAR NUEVO USUARIO
-
-        console.log('➕ Creando nuevo usuario con datos:', formData)
-
-        // Usamos la RPC maestra que crea en auth.users y public.users al mismo tiempo
-        const { data, error } = await supabase.rpc('create_new_user', {
-          email: formData.email,
-          password: formData.password,
-          full_name: formData.full_name,
-          role: formData.role,
-          store_id: cleanData.store_id
-          // Nota: Si tu RPC 'create_new_user' no acepta store_scope, 
-          // el update posterior se encargará de guardarlo.
+        const response = await fetch('/api/admin/create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password,
+            fullName: formData.full_name,
+            role: formData.role,
+            storeId: cleanData.store_id,
+            otherData: {
+              phone: formData.phone,
+              is_active: true,
+              store_scope: (formData.role === 'supervisor' && cleanData.store_scope) ? cleanData.store_scope : null
+            }
+          })
         })
 
-        if (error) {
-          console.error('❌ Error creando usuario:', error)
-          throw error
+        const result = await response.json()
+
+        if (!result.success) {
+          console.error('❌ Error API crear usuario:', result.error)
+          throw new Error(result.error || 'Error al crear usuario')
         }
 
-        console.log('✅ Usuario creado, aplicando configuración adicional...')
-
-        // Update para agregar campos que la RPC no soporta
-        const additionalFields: any = {}
-
-        if (role === 'supervisor' && cleanData.store_scope) {
-          additionalFields.store_scope = cleanData.store_scope
-        }
-
-        // IMPORTANTE: Agregar is_active si no es true por defecto
-        if (cleanData.is_active !== undefined) {
-          additionalFields.is_active = cleanData.is_active
-        }
-
-        // Solo hacer update si hay campos adicionales
-        if (Object.keys(additionalFields).length > 0) {
-          const { error: updateError } = await supabase
-            .from('users')
-            .update(additionalFields)
-            .eq('email', formData.email)
-
-          if (updateError) {
-            console.error('⚠️ Error actualizando campos adicionales:', updateError)
-          } else {
-            console.log('✅ Campos adicionales aplicados:', additionalFields)
-          }
-        }
-
-        alert('✅ Usuario creado exitosamente')
+        console.log('✅ Usuario creado exitosamente:', result.data)
+        alert('✅ Usuario creado correctamente')
       }
 
       // Recargar tabla y cerrar modal
