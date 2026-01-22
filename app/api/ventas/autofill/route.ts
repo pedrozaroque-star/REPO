@@ -49,10 +49,32 @@ export async function GET(request: Request) {
                 actual_hours: row.totalHours.toFixed(2),
                 actual_labor: row.laborPercentage.toFixed(2),
                 actual_avg_order: avgOrder,
-                // We can also infer 'daily_cars' using guestCount or orderCount if that's the proxy
-                // The user excel says "DAILY CARS", usually derived from drive-thru sensors or guest counts.
-                // We'll map 'daily_cars' to 'orderCount' for now as a proxy, user can edit.
-                daily_cars: row.orderCount.toString()
+                daily_cars: row.orderCount.toString(),
+
+                // New Fields for Monthly Report
+                uber_post: (row.uberSales || 0).toFixed(2),
+                doordash: (row.doordashSales || 0).toFixed(2),
+                grubhub: (row.grubhubSales || 0).toFixed(2),
+                ebt: (row.ebtCount || 0).toString(), // Using Count per image analysis (no decimal)
+                // ebt_amount: (row.ebtAmount || 0).toFixed(2), // Available if needed
+
+                open_sales: (() => {
+                    // Find first non-zero hour
+                    const hours = row.hourlySales || {}
+                    for (let h = 0; h < 24; h++) {
+                        if (hours[h] > 0) return hours[h].toFixed(2)
+                    }
+                    return '0.00'
+                })(),
+
+                close_sales: (() => {
+                    // Find last non-zero hour (search backwards)
+                    const hours = row.hourlySales || {}
+                    for (let h = 23; h >= 0; h--) {
+                        if (hours[h] > 0) return hours[h].toFixed(2)
+                    }
+                    return '0.00'
+                })()
             }
         })
 

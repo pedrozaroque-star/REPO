@@ -118,7 +118,7 @@ async function syncHistory() {
     // Calcular rangos de fechas (Chunks cortos para evitar timeouts/limites y mostrar progreso)
     const end = new Date()
     const start = new Date()
-    start.setDate(end.getDate() - 180) // 6 meses para mejor detección de descansos
+    start.setDate(end.getDate() - 30) // Solo 30 dias para rapida actualizacion
 
     const chunks = []
     let current = new Date(start)

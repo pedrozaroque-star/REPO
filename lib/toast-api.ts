@@ -43,6 +43,12 @@ export interface MetricRow {
     laborCost: number // Regular + Overtime
     laborPercentage: number
     splh: number // Sales Per Labor Hour
+    uberSales?: number
+    doordashSales?: number
+    grubhubSales?: number
+    ebtCount?: number
+    ebtAmount?: number
+    hourlySales?: Record<number, number>
 }
 
 // Map store generic ID to Toast restaurantGuid
@@ -132,10 +138,39 @@ async function getRestaurants(token: string) {
     })
 }
 
+// --- HELPER: GET DINING OPTIONS MAP ---
+async function getDiningOptionsMap(token: string, storeId: string): Promise<Record<string, string>> {
+    try {
+        const url = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
+        const res = await fetch(url.toString(), {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeId
+            }
+        })
+        if (!res.ok) return {}
+        const data = await res.json()
+        const map: Record<string, string> = {}
+        if (Array.isArray(data)) {
+            data.forEach((opt: any) => {
+                if (opt.guid && opt.name) map[opt.guid] = opt.name
+            })
+        }
+        return map
+    } catch (e) {
+        return {}
+    }
+}
+
+
 // --- HELPER: GET SALES (ATTEMPT) ---
 // Since we might not have Reporting API, we'll try to get Orders Summary or Fallback
 async function getSalesForStore(token: string, storeId: string, startDate: string, endDate: string) {
     try {
+        // Fetch Metadata Map first
+        const diningOptionMap = await getDiningOptionsMap(token, storeId)
+
+
         let net = 0
         let gross = 0
         let totalDiscounts = 0
@@ -144,6 +179,14 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
         let totalSvcCharges = 0
         let count = 0
         let guests = 0
+
+        // Channel Breakdowns
+        let uber = 0
+        let doordash = 0
+        let grubhub = 0
+        let ebtC = 0
+        let ebtA = 0
+
         let page = 1
         const pageSize = 100
         let hasMore = true
@@ -160,6 +203,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             url.searchParams.append('page', String(page))
 
             const fields = [
+                'diningOption',
                 'voided',
                 'openedDate',
                 'numberOfGuests',
@@ -169,8 +213,11 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                 'checks.appliedDiscounts',
                 'checks.appliedServiceCharges',
                 'checks.payments.tipAmount',
+                'checks.payments.amount',
+                'checks.payments.displayName',
+                'checks.payments.paymentInstrument',
                 'checks.payments.refundStatus',
-                'checks.payments.refund',
+                'checks.payments.refundAmount',
                 'checks.selections.price',
                 'checks.selections.preDiscountPrice',
                 'checks.selections.quantity',
@@ -180,7 +227,9 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                 'checks.selections.voided',
                 'checks.selections.deferred',
                 'checks.selections.refundDetails',
-                'checks.selections.toastGiftCard'
+                'checks.selections.toastGiftCard',
+                'source',
+                'deliveryService'
             ].join(',')
             url.searchParams.append('fields', fields)
 
@@ -205,6 +254,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                 if (order.voided) return
                 count++
                 guests += (order.numberOfGuests || 1)
+                let orderNetCalc = 0
 
                 let hour = -1
                 if (order.openedDate) {
@@ -228,6 +278,16 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
 
                         // Skip fully refunded checks
                         if (check.payments?.some((p: any) => p.refundStatus === 'FULL')) return
+
+                        // --- EBT DETECTION (Check Level) ---
+                        // iterate payments to find EBT
+                        check.payments?.forEach((p: any) => {
+                            const pName = (p.displayName || p.paymentInstrument?.displayName || '').toLowerCase()
+                            if (pName.includes('ebt')) {
+                                ebtC++
+                                ebtA += Number(p.amount || 0)
+                            }
+                        })
 
                         // 1. Calculate from selections (excluding gift cards)
                         let checkItemNetSum = 0     // Sum of price (after item discounts)
@@ -300,7 +360,23 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                         })
 
                         // 5. Aggregate totals
+
+                        // ADJUST FOR UNLINKED REFUNDS (Payment refunds not attached to items)
+                        let paymentRefunds = 0
+                        check.payments?.forEach((p: any) => paymentRefunds += Number(p.refundAmount || 0))
+
+                        // If payment refunds exceed item refunds, substract the difference from Net
+                        if (paymentRefunds > (checkItemRefunds + 0.01)) {
+                            const unlinked = paymentRefunds - checkItemRefunds
+                            checkNet -= unlinked
+                            // Also reduce Gross? Usually refunds reduce Net. Gross is "Sales". 
+                            // Net = Gross - Disc - Refunds. 
+                            // Our checkNet was (checkItemNetSum - checkItemRefunds).
+                            // So reducing it further is correct.
+                        }
+
                         net += checkNet
+                        orderNetCalc += checkNet
                         gross += checkGross
                         totalDiscounts += checkDiscounts
                         totalTips += checkTips
@@ -312,7 +388,32 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                         }
                     })
                 }
+
+                // --- DETECTION & ATTRIBUTION ---
+                const dName = order.diningOption?.name || diningOptionMap[order.diningOption?.guid] || ''
+                const dService = (order.deliveryService?.name || '').toLowerCase()
+                const dOptionRaw = dName.toLowerCase()
+                const sourceRaw = (typeof order.source === 'string' ? order.source : (order.source?.name || '')).toLowerCase()
+
+                const fullString = `${dService} ${dOptionRaw} ${sourceRaw}`.trim()
+
+                const isUber = fullString.includes('uber') || fullString.includes('eats') || fullString.includes('postmates')
+                const isDoorDash = fullString.includes('doordash') || fullString.includes('dash')
+                const isGrubHub = fullString.includes('grubhub') || fullString.includes('grub')
+
+                if (isUber) uber += orderNetCalc
+                else if (isDoorDash) doordash += orderNetCalc
+                else if (isGrubHub) grubhub += orderNetCalc
             })
+
+
+
+            // Log Summary ONCE guaranteed
+            if ((global as any).sourceSummary && !(global as any).SUMMARY_LOGGED) {
+                console.log('[FINAL SOURCES SUMMARY]', JSON.stringify((global as any).sourceSummary, null, 2))
+                    ; (global as any).SUMMARY_LOGGED = true
+            }
+
 
             if (orders.length < pageSize) hasMore = false
             else page++
@@ -328,7 +429,12 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             orders: count,
             guests: guests,
             hours: count * 0.4,
-            hourlySales
+            hourlySales,
+            uberSales: uber,
+            doordashSales: doordash,
+            grubhubSales: grubhub,
+            ebtCount: ebtC,
+            ebtAmount: ebtA
         }
     } catch (e: any) {
         logDebug(`Detailed Sales Error [${storeId}]:`, e.message)
@@ -460,7 +566,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
     console.log(`🔍 [DEBUG] Usando Tiendas: ${realStores.length > 0 ? 'REALES (API)' : 'MOCK (Locales)'}`)
     if (storeList.length > 0) console.log(`🔍 [DEBUG] ID Buscado[0]: ${storeList[0].id} (${storeList[0].name})`)
 
-    const isHourly = options.startDate === options.endDate
+    // Only force hourly breakdown if specifically requested or if implied by logic, BUT respect groupBy='day'
+    const isHourly = (options.startDate === options.endDate) && (options.groupBy !== 'day')
     const rows: MetricRow[] = []
 
     // 1. CHECK SUPABASE CACHE (Only for past dates)
@@ -468,7 +575,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
     let cachedData: any[] = []
 
-    // CHECK SUPABASE CACHE (Only for past dates)
+    // CHECK SUPABASE CACHE
     // We now allow cache even for single days (isHourly) to speed up "Yesterday" or specific past dates.
     // The trade-off is we lose real hourly granularity for that specific day from cache, but gain massive speed.
     try {
@@ -573,7 +680,12 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                                 const perH = total / (endH - startH)
                                 for (let h = startH; h < endH; h++) dist[h] = perH
                                 return dist
-                            })()
+                            })(),
+                            uberSales: Number(cached.uber_sales || 0),
+                            doordashSales: Number(cached.doordash_sales || 0),
+                            grubhubSales: Number(cached.grubhub_sales || 0),
+                            ebtCount: Number(cached.ebt_count || 0),
+                            ebtAmount: Number(cached.ebt_amount || 0)
                         },
                         laborMetrics: {
                             hours: Number(cached.labor_hours),
@@ -596,7 +708,22 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             if (laborMap[bKey]) labor = laborMap[bKey]
                         } catch (e) { /* ignore labor error */ }
 
-                        return { store, date: dateStr, salesMetrics: sales, laborMetrics: labor, fromCache: false }
+                        return {
+                            store,
+                            date: dateStr,
+                            salesMetrics: {
+                                ...sales,
+                                // Enforce these exist just in case
+                                uberSales: sales.uberSales || 0,
+                                doordashSales: sales.doordashSales || 0,
+                                grubhubSales: sales.grubhubSales || 0,
+                                ebtCount: sales.ebtCount || 0,
+                                ebtAmount: sales.ebtAmount || 0,
+                                hourlySales: sales.hourlySales || {}
+                            },
+                            laborMetrics: labor,
+                            fromCache: false
+                        }
                     } catch (err) {
                         // FALLBACK: Try cache if API fails, even for hourly (better than error)
                         if (cached && !isToday) {
@@ -611,7 +738,12 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                                     serviceCharges: Number(cached.service_charges || 0),
                                     orders: cached.order_count,
                                     guests: cached.guest_count,
-                                    hourlySales: {} // No hourly data in daily cache
+                                    hourlySales: {}, // No hourly data in daily cache
+                                    uberSales: Number(cached.uber_sales || 0),
+                                    doordashSales: Number(cached.doordash_sales || 0),
+                                    grubhubSales: Number(cached.grubhub_sales || 0),
+                                    ebtCount: Number(cached.ebt_count || 0),
+                                    ebtAmount: Number(cached.ebt_amount || 0)
                                 },
                                 laborMetrics: { hours: Number(cached.labor_hours), laborCost: Number(cached.labor_cost) },
                                 fromCache: true
@@ -633,7 +765,13 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             taxes: salesVal * 0.08,
                             serviceCharges: 0,
                             orders: Math.floor(salesVal / 25),
-                            guests: Math.floor(salesVal / 20)
+                            guests: Math.floor(salesVal / 20),
+                            hourlySales: {},
+                            uberSales: 0,
+                            doordashSales: 0,
+                            grubhubSales: 0,
+                            ebtCount: 0,
+                            ebtAmount: 0
                         },
                         laborMetrics: { hours: (salesVal / 25) * 0.4, laborCost: ((salesVal / 25) * 0.4) * 18.50 },
                         fromCache: false
@@ -684,7 +822,12 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                     guest_count: r.salesMetrics.guests,
                     labor_hours: r.laborMetrics.hours,
                     labor_cost: r.laborMetrics.laborCost,
-                    hourly_data: r.salesMetrics.hourlySales // Save the curve!
+                    hourly_data: r.salesMetrics.hourlySales,
+                    uber_sales: r.salesMetrics.uberSales || 0,
+                    doordash_sales: r.salesMetrics.doordashSales || 0,
+                    grubhub_sales: r.salesMetrics.grubhubSales || 0,
+                    ebt_count: r.salesMetrics.ebtCount || 0,
+                    ebt_amount: r.salesMetrics.ebtAmount || 0
                 }))
                 // Upsert in chunks of 50 to avoid URL length issues
                 for (let i = 0; i < rowsForCache.length; i += 50) {
@@ -724,7 +867,13 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             totalHours: i === 0 ? (laborMetrics.hours || 0) : 0,
                             laborCost: i === 0 ? (laborMetrics.laborCost || 0) : 0,
                             laborPercentage: 0,
-                            splh: 0
+                            splh: 0,
+                            uberSales: i === 0 ? (salesMetrics.uberSales || 0) : 0,
+                            doordashSales: i === 0 ? (salesMetrics.doordashSales || 0) : 0,
+                            grubhubSales: i === 0 ? (salesMetrics.grubhubSales || 0) : 0,
+                            ebtCount: i === 0 ? (salesMetrics.ebtCount || 0) : 0,
+                            ebtAmount: i === 0 ? (salesMetrics.ebtAmount || 0) : 0,
+                            hourlySales: i === 0 ? (salesMetrics.hourlySales || {}) : {}
                         })
                     }
                 } else {
@@ -756,7 +905,13 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             totalHours: 0,
                             laborCost: 0,
                             laborPercentage: 0,
-                            splh: 0
+                            splh: 0,
+                            uberSales: 0,
+                            doordashSales: 0,
+                            grubhubSales: 0,
+                            ebtCount: 0,
+                            ebtAmount: 0,
+                            hourlySales: {}
                         }
                         rows.push(existing)
                     }
@@ -771,6 +926,17 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                     existing.guestCount += salesMetrics.guests
                     existing.totalHours += (laborMetrics.hours || 0)
                     existing.laborCost += (laborMetrics.laborCost || 0)
+                    existing.uberSales = (existing.uberSales || 0) + (salesMetrics.uberSales || 0)
+                    existing.doordashSales = (existing.doordashSales || 0) + (salesMetrics.doordashSales || 0)
+                    existing.grubhubSales = (existing.grubhubSales || 0) + (salesMetrics.grubhubSales || 0)
+                    existing.ebtCount = (existing.ebtCount || 0) + (salesMetrics.ebtCount || 0)
+                    existing.ebtAmount = (existing.ebtAmount || 0) + (salesMetrics.ebtAmount || 0)
+                    // Merge Hourly Sales
+                    const hSales = salesMetrics.hourlySales || {}
+                    existing.hourlySales = existing.hourlySales || {}
+                    for (let h = 0; h < 24; h++) {
+                        existing.hourlySales[h] = (existing.hourlySales[h] || 0) + (hSales[h] || 0)
+                    }
 
                 }
             }
