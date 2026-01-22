@@ -67,9 +67,15 @@ El Dashboard y la página de Feedback se actualizarán para distinguir las fuent
 
 ## 5. Próximos Pasos (Roadmap de Implementación)
 
-1.  **Backup:** Confirmar respaldo de la base de datos actual.
-2.  **Modificación DB:** Ejecutar script SQL de migración (te lo proporcionaré).
-3.  **Credenciales:** Necesitaré que el dueño de la cuenta de Google Business Profile autorice la aplicación (te guiaré en esto).
-4.  **Codificación:** Crear la Edge Function y actualizar el Frontend.
+### ✅ Fase 1: Preparación (COMPLETADO)
+- [x] **UI Dashboard:** Iconos de Google y lógica de visualización implementada (`app/dashboard/page.tsx`).
+- [x] **UI Modal:** Adaptación del modal para mostrar "Google Rating" y estrellas (`components/FeedbackReviewModal.tsx`).
+- [x] **Base de Datos:** Script de migración creado (`db/migrations/05_add_google_reviews_support.sql`).
+- [x] **Lógica Backend:** Estructura base creada (`lib/google-business-api.ts`).
 
-¿Te parece bien comenzar con **el script de base de datos** para preparar el terreno?
+### 🔜 Fase 2: Conexión (PENDIENTE DE ACCESO)
+1.  **Ejecutar SQL:** Correr el script en Supabase cuando se autorice.
+2.  **Credenciales:** Obtener acceso a la cuenta administradora de Google Business Profile.
+3.  **Deploy Edge Function:** Implementar la sincronización real.
+
+**NOTA:** El terreno está preparado. El código ya sabe manejar las reseñas de Google en cuanto entren a la base de datos.

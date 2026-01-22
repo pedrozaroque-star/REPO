@@ -17,7 +17,8 @@ import {
     ChevronRight,
     ZoomIn,
     Quote,
-    CheckCircle
+    CheckCircle,
+    ExternalLink
 } from 'lucide-react'
 import { useDynamicChecklist, Question } from '@/hooks/useDynamicChecklist'
 
@@ -407,9 +408,18 @@ export default function FeedbackReviewModal({
                                     </h3>
 
                                     <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 font-bold text-lg">
-                                            {feedback.customer_name ? feedback.customer_name.charAt(0).toUpperCase() : '?'}
-                                        </div>
+                                        {feedback.author_url ? (
+                                            <img
+                                                src={feedback.author_url}
+                                                alt={feedback.customer_name}
+                                                className="w-10 h-10 rounded-full object-cover border border-slate-100 dark:border-slate-800 shadow-sm"
+                                                referrerPolicy="no-referrer"
+                                            />
+                                        ) : (
+                                            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 font-bold text-lg">
+                                                {feedback.customer_name ? feedback.customer_name.charAt(0).toUpperCase() : '?'}
+                                            </div>
+                                        )}
                                         <div className="overflow-hidden">
                                             <p className="font-bold text-slate-800 dark:text-slate-200 text-sm truncate">{feedback.customer_name || 'Anónimo'}</p>
                                             {feedback.customer_email && (
@@ -530,72 +540,111 @@ export default function FeedbackReviewModal({
                         </div>
 
                         {/* 2. NPS Question Block - Compacted */}
+                        {/* 2. NPS Question Block OR Google Rating */}
                         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shrink-0">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Pregunta NPS</h3>
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${getScoreBadgeColor(feedback.nps_category)}`}>
-                                    {feedback.nps_category}
-                                </span>
-                            </div>
+                            {feedback.source === 'google' ? (
+                                <div className="flex flex-col items-center py-6">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <svg viewBox="0 0 24 24" className="w-6 h-6" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+                                        </svg>
+                                        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest">Google Rating</h3>
+                                    </div>
 
-                            <p className="text-lg font-bold text-slate-800 dark:text-white mb-4 text-center max-w-2xl mx-auto">
-                                "{template?.sections?.[0]?.questions?.find((q: any) => q.type === 'nps')?.text || '¿Qué tan probable es que recomiendes Tacos El Gavilán a un amigo o familiar?'}"
-                            </p>
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <span className="text-4xl font-black text-slate-800 dark:text-white">{feedback.rating || (feedback.nps_score ? feedback.nps_score / 2 : 0)}</span>
+                                        <div className="flex gap-1">
+                                            {[1, 2, 3, 4, 5].map((star) => (
+                                                <Star
+                                                    key={star}
+                                                    size={24}
+                                                    fill={(feedback.rating || (feedback.nps_score ? feedback.nps_score / 2 : 0)) >= star ? "#fbbf24" : "none"}
+                                                    className={(feedback.rating || (feedback.nps_score ? feedback.nps_score / 2 : 0)) >= star ? "text-yellow-400" : "text-slate-300 dark:text-slate-600"}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
 
-                            <div className="flex flex-col items-center">
-                                <div className="flex w-full max-w-2xl gap-1 mb-2 h-10">
-                                    {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => {
-                                        const isSelected = feedback.nps_score === num
-                                        let bgClass = 'bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600'
-                                        let textClass = 'text-slate-400 dark:text-slate-500'
-
-                                        if (isSelected) {
-                                            textClass = 'text-white'
-                                            if (num <= 6) bgClass = 'bg-red-500 border-red-500 shadow-md scale-110 z-10'
-                                            else if (num <= 8) bgClass = 'bg-yellow-500 border-yellow-500 shadow-md scale-110 z-10'
-                                            else bgClass = 'bg-green-500 border-green-500 shadow-md scale-110 z-10'
-                                        }
-
-                                        return (
-                                            <div key={num} className={`flex-1 flex flex-col items-center justify-center rounded-lg transition-all duration-300 font-black ${bgClass} ${textClass}`}>
-                                                <span className="text-base">{num}</span>
-                                            </div>
-                                        )
-                                    })}
+                                    {feedback.original_url && (
+                                        <a href={feedback.original_url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 text-xs font-bold flex items-center gap-1 hover:underline">
+                                            Ver en Google Maps <ExternalLink size={12} />
+                                        </a>
+                                    )}
                                 </div>
-                                <div className="flex justify-between w-full max-w-2xl text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">
-                                    <span>Nada Probable</span>
-                                    <span>Muy Probable</span>
-                                </div>
-                            </div>
+                            ) : (
+                                <>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Pregunta NPS</h3>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${getScoreBadgeColor(feedback.nps_category)}`}>
+                                            {feedback.nps_category}
+                                        </span>
+                                    </div>
+
+                                    <p className="text-lg font-bold text-slate-800 dark:text-white mb-4 text-center max-w-2xl mx-auto">
+                                        "{template?.sections?.[0]?.questions?.find((q: any) => q.type === 'nps')?.text || '¿Qué tan probable es que recomiendes Tacos El Gavilán a un amigo o familiar?'}"
+                                    </p>
+
+                                    <div className="flex flex-col items-center">
+                                        <div className="flex w-full max-w-2xl gap-1 mb-2 h-10">
+                                            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => {
+                                                const isSelected = feedback.nps_score === num
+                                                let bgClass = 'bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600'
+                                                let textClass = 'text-slate-400 dark:text-slate-500'
+
+                                                if (isSelected) {
+                                                    textClass = 'text-white'
+                                                    if (num <= 6) bgClass = 'bg-red-500 border-red-500 shadow-md scale-110 z-10'
+                                                    else if (num <= 8) bgClass = 'bg-yellow-500 border-yellow-500 shadow-md scale-110 z-10'
+                                                    else bgClass = 'bg-green-500 border-green-500 shadow-md scale-110 z-10'
+                                                }
+
+                                                return (
+                                                    <div key={num} className={`flex-1 flex flex-col items-center justify-center rounded-lg transition-all duration-300 font-black ${bgClass} ${textClass}`}>
+                                                        <span className="text-base">{num}</span>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                        <div className="flex justify-between w-full max-w-2xl text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">
+                                            <span>Nada Probable</span>
+                                            <span>Muy Probable</span>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
-                        {/* 3. Ratings Grid - Minimal Cards (Compact Grid) */}
-                        <div className="shrink-0">
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <Star size={12} /> Evaluación Detallada
-                            </h3>
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                                {(template && feedback.answers && Object.keys(feedback.answers).length > 0) ? (
-                                    questions.filter((q: Question) => q.type === 'rating_5').map((q: Question) => (
-                                        <RatingItem
-                                            key={q.id}
-                                            label={q.text}
-                                            score={feedback.answers?.[q.text] || 0}
-                                            photoUrls={questionPhotosMap[q.id] || []}
-                                            onOpenViewer={openViewer}
-                                        />
-                                    ))
-                                ) : (
-                                    <>
-                                        <RatingItem label="Servicio" score={feedback.service_rating} photoUrls={[]} onOpenViewer={openViewer} />
-                                        <RatingItem label="Calidad" score={feedback.food_quality_rating} photoUrls={[]} onOpenViewer={openViewer} />
-                                        <RatingItem label="Limpieza" score={feedback.cleanliness_rating} photoUrls={[]} onOpenViewer={openViewer} />
-                                        <RatingItem label="Rapidez" score={feedback.speed_rating} photoUrls={[]} onOpenViewer={openViewer} />
-                                    </>
-                                )}
+                        {/* 3. Ratings Grid - Minimal Cards (Compact Grid) -- Hide for Google */}
+                        {feedback.source !== 'google' && (
+                            <div className="shrink-0">
+                                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                    <Star size={12} /> Evaluación Detallada
+                                </h3>
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                    {(template && feedback.answers && Object.keys(feedback.answers).length > 0) ? (
+                                        questions.filter((q: Question) => q.type === 'rating_5').map((q: Question) => (
+                                            <RatingItem
+                                                key={q.id}
+                                                label={q.text}
+                                                score={feedback.answers?.[q.text] || 0}
+                                                photoUrls={questionPhotosMap[q.id] || []}
+                                                onOpenViewer={openViewer}
+                                            />
+                                        ))
+                                    ) : (
+                                        <>
+                                            <RatingItem label="Servicio" score={feedback.service_rating} photoUrls={[]} onOpenViewer={openViewer} />
+                                            <RatingItem label="Calidad" score={feedback.food_quality_rating} photoUrls={[]} onOpenViewer={openViewer} />
+                                            <RatingItem label="Limpieza" score={feedback.cleanliness_rating} photoUrls={[]} onOpenViewer={openViewer} />
+                                            <RatingItem label="Rapidez" score={feedback.speed_rating} photoUrls={[]} onOpenViewer={openViewer} />
+                                        </>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {/* 4. Evidence (Compact) */}
                         {feedback.photo_urls && feedback.photo_urls.length > 0 && (

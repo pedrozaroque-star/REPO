@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Calendar, ChevronDown, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff } from 'lucide-react'
+import { Calendar, ChevronDown, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
@@ -344,6 +344,14 @@ function SalesPageContent() {
                                 >
                                     <Clock size={16} />
                                     <span className="text-xs">Historial</span>
+                                </button>
+
+                                <button
+                                    onClick={() => window.location.href = '/ventas/reportes'}
+                                    className="hidden lg:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium transition-colors mr-2 border border-black/5 dark:border-slate-700 whitespace-nowrap"
+                                >
+                                    <ClipboardList size={16} />
+                                    <span className="text-xs">Reportes</span>
                                 </button>
 
                                 <button onClick={refreshData} disabled={loading} className="hidden sm:block p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
