@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // 5 minutes max
@@ -9,19 +9,21 @@ export const maxDuration = 300 // 5 minutes max
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
 const REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY! // Must match .env.local
 
 // --- HELPERS ---
 
 async function getAccessToken() {
+    if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
+        throw new Error('Missing Google Credentials')
+    }
+
     const res = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-            client_id: CLIENT_ID!,
-            client_secret: CLIENT_SECRET!,
-            refresh_token: REFRESH_TOKEN!,
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            refresh_token: REFRESH_TOKEN,
             grant_type: 'refresh_token',
         })
     })
@@ -104,16 +106,26 @@ async function listReviews(token: string, locationName: string, accountName: str
 
 // --- MAIN ROUTE ---
 
+interface Store {
+    id: string
+    name: string
+    address: string
+    city: string
+    external_id?: string
+    google_place_id?: string
+}
+
 export async function GET(request: Request) {
     console.log('[CRON] Starting Strict Google Reviews Sync...')
 
     if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
+        // If creds are missing, we don't crash, just skip.
+        console.error('[CRON] Missing Google Params')
         return NextResponse.json({ error: 'Missing Credentials' }, { status: 500 })
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
-
     try {
+        const supabase = await getSupabaseClient()
         const token = await getAccessToken()
         const accounts = await listAccounts(token)
         if (!accounts || accounts.length === 0) return NextResponse.json({ message: 'No accounts' })
@@ -122,8 +134,11 @@ export async function GET(request: Request) {
         const locations = await listLocations(token, account.name)
 
         // Get DB Stores with City info
-        const { data: stores } = await supabase.from('stores').select('*')
-        if (!stores) return NextResponse.json({ error: 'No DB Stores' })
+        const { data: storesRaw } = await supabase.from('stores').select('*')
+        if (!storesRaw) return NextResponse.json({ error: 'No DB Stores' })
+
+        // Cast to typed array to avoid TS errors
+        const stores = storesRaw as unknown as Store[]
 
         let totalSynced = 0
         const logs: string[] = []
@@ -137,7 +152,7 @@ export async function GET(request: Request) {
 
             // 1. Try Match by Google Place ID (Most Reliable if already linked)
             const placeId = loc.metadata?.placeId
-            let store = stores.find(s => s.google_place_id === placeId)
+            let store = stores.find((s: Store) => s.google_place_id === placeId)
 
             // 2. Try Match by City Name (Strict)
             if (!store) {
@@ -145,7 +160,7 @@ export async function GET(request: Request) {
                 const cityClean = city.toUpperCase().trim()
 
                 // Find stores in that city
-                const candidates = stores.filter(s => s.city && s.city.toUpperCase().trim() === cityClean)
+                const candidates = stores.filter((s: Store) => s.city && s.city.toUpperCase().trim() === cityClean)
 
                 if (candidates.length === 1) {
                     store = candidates[0]
@@ -156,7 +171,7 @@ export async function GET(request: Request) {
                 } else if (candidates.length > 1) {
                     // Multiple stores in same city (e.g. Los Angeles)
                     // Fallback to Address matching
-                    store = candidates.find(s => fullAddress.includes(s.address.toUpperCase()))
+                    store = candidates.find((s: Store) => fullAddress.includes(s.address.toUpperCase()))
                 }
             }
 
