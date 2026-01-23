@@ -99,7 +99,7 @@ async function listReviews(token: string, locationName: string, accountName: str
     let pageCount = 0
 
     do {
-        const urlWithPage = `${workingBaseUrl}?pageSize=50${pageToken ? `&pageToken=${pageToken}` : ''}`
+        const urlWithPage: string = `${workingBaseUrl}?pageSize=50${pageToken ? `&pageToken=${pageToken}` : ''}`
 
         const res = await fetch(urlWithPage, { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) break
