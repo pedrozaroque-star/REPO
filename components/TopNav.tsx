@@ -56,8 +56,22 @@ export default function TopNav() {
             title: 'ANÁLISIS',
             id: 'analisis',
             items: [
-                { name: 'Reportes', path: '/reportes', icon: '📈', roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Estadísticas', path: '/estadisticas', icon: '📉', roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Ventas', path: '/ventas', icon: '💰', roles: ['admin', 'manager', 'supervisor'] },
+                {
+                    name: 'Reportes',
+                    path: '/ventas/reportes',
+                    icon: (
+                        <div className="relative inline-block">
+                            📈
+                            <span className="absolute -top-1 -right-2 flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                            </span>
+                        </div>
+                    ),
+                    roles: ['manager', 'supervisor', 'admin']
+                },
+                { name: 'Planificador', path: '/planificador', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
                 { name: 'Feedback Clientes', path: '/feedback', icon: '💬', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
             ]
         },
@@ -198,18 +212,7 @@ export default function TopNav() {
                     </div>
 
                     {/* Botón Especial VENTAS (Solo Admin/Supervisor) */}
-                    {['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '') && (
-                        <Link
-                            href="/ventas"
-                            className="hidden md:flex relative items-center gap-2 px-5 py-2 ml-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-full shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 transition-all hover:-translate-y-0.5 active:translate-y-0 duration-200"
-                        >
-                            <span className="text-lg">💰</span>
-                            <span className="font-bold tracking-wide text-sm">VENTAS</span>
-                            <span className="absolute -top-1.5 -right-1 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full animate-bounce shadow-sm border border-white dark:border-slate-900">
-                                NEW!!
-                            </span>
-                        </Link>
-                    )}
+
 
                 </div>
 

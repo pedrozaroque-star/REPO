@@ -68,8 +68,9 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
       title: 'ANÁLISIS',
       id: 'analisis',
       items: [
-        { name: 'Reportes', path: '/reportes', icon: '📈', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Estadísticas', path: '/estadisticas', icon: '📉', roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Ventas', path: '/ventas', icon: '💰', roles: ['admin', 'manager', 'supervisor'] },
+        { name: 'Reportes Ops', path: '/ventas/reportes', icon: '📈', roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Planificador', path: '/planificador', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
         { name: 'Feedback Clientes', path: '/feedback', icon: '💬', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
       ]
     },
