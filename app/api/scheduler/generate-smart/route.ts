@@ -125,8 +125,11 @@ export async function POST(req: NextRequest) {
             // Calculate frequencies for all 7 days
             const counts = [0, 0, 0, 0, 0, 0, 0]
             history.forEach(p => {
+                // Use Noon to avoid TZ boundary issues when parsing business_date string
+                // But specifically get the day of week in LA 
                 const d = new Date(p.business_date + 'T12:00:00')
-                counts[d.getUTCDay()]++
+                const laDay = getLADayOfWeek(d)
+                counts[laDay]++
             })
             const maxFreq = Math.max(...counts)
 
@@ -135,7 +138,9 @@ export async function POST(req: NextRequest) {
                 const currentDay = new Date(targetStart)
                 currentDay.setDate(targetStart.getDate() + d)
                 const dateStr = currentDay.toISOString().split('T')[0]
-                const dayOfWeek = currentDay.getUTCDay()
+
+                // CRITICAL FIX: Get actual day of week in LA
+                const dayOfWeek = getLADayOfWeek(currentDay)
 
                 const thisFreq = counts[dayOfWeek]
                 dayFrequencies[dayOfWeek] = thisFreq
@@ -144,7 +149,7 @@ export async function POST(req: NextRequest) {
                 if (thisFreq === 0 || (maxFreq > 4 && thisFreq / maxFreq < 0.2)) continue
 
                 // Find Moda (Time Patterns) - Recent 45 days priority
-                const historyToday = history.filter(p => new Date(p.business_date + 'T12:00:00').getUTCDay() === dayOfWeek)
+                const historyToday = history.filter(p => getLADayOfWeek(new Date(p.business_date + 'T12:00:00')) === dayOfWeek)
                 const analysisSet = historyToday.filter(p => {
                     const diff = (new Date().getTime() - new Date(p.business_date + 'T12:00:00').getTime()) / (1000 * 3600 * 24)
                     return diff <= 45
@@ -261,28 +266,63 @@ export async function POST(req: NextRequest) {
     }
 }
 
+const TIMEZONE = 'America/Los_Angeles';
+
 // HELPERS
+// Get day of week in LA (0=Sun, 6=Sat)
+function getLADayOfWeek(d: Date) {
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'narrow' });
+    const day = formatter.format(d);
+    // Map output to index. Note: 'narrow' might return 'S', 'M', 'T', 'W', 'T', 'F', 'S'. This is risky if strict.
+    // Better: use 'short' and map
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'short' }).formatToParts(d);
+    const weekday = parts.find(p => p.type === 'weekday')?.value;
+    const map: any = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
+    return map[weekday || 'Sun'];
+}
+
 function checkHoliday(d: Date) {
-    const m = d.getMonth()
-    const date = d.getDate()
-    const day = d.getDay()
-    const year = d.getFullYear()
+    // Extract parts in LA Timezone
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: TIMEZONE,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric'
+    }).formatToParts(d);
+
+    const part = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0');
+
+    const m = part('month') - 1; // 0-indexed
+    const date = part('day');
+    const year = part('year');
 
     // Helper: Get Nth Weekday of Month (e.g. 2nd Sunday)
     const getNthWeekday = (month: number, weekday: number, n: number) => {
-        const firstDay = new Date(year, month, 1).getDay()
-        const offset = (weekday - firstDay + 7) % 7
-        const firstDate = 1 + offset
-        return firstDate + (n - 1) * 7
+        // We construct dates using noon to avoid TZ boundary issues
+        // Javascript dates are browser-local or UTC. We need logical date.
+        // Let's iterate days of the target month in LA time.
+        let count = 0;
+        for (let i = 1; i <= 31; i++) {
+            const temp = new Date(year, month, i, 12, 0, 0);
+            if (temp.getMonth() !== month) break;
+
+            // Check day of week in LA for this operational logic
+            if (getLADayOfWeek(temp) === weekday) {
+                count++;
+                if (count === n) return i;
+            }
+        }
+        return 0;
     }
 
     // Helper: Get Last Weekday of Month (e.g. Last Monday)
     const getLastWeekday = (month: number, weekday: number) => {
-        const lastDay = new Date(year, month + 1, 0)
-        const lastDate = lastDay.getDate()
-        const lastDayOfWeek = lastDay.getDay()
-        const offset = (lastDayOfWeek - weekday + 7) % 7
-        return lastDate - offset
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        for (let i = lastDay; i >= 1; i--) {
+            const temp = new Date(year, month, i, 12, 0, 0);
+            if (getLADayOfWeek(temp) === weekday) return i;
+        }
+        return 0;
     }
 
     // --- 1. FIXED DATES ---
@@ -371,7 +411,8 @@ function checkHoliday(d: Date) {
 
 function formatTime(iso: string) {
     const d = new Date(iso)
-    const t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles', hour12: false })
+    // FORCE LA TIMEZONE
+    const t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: TIMEZONE, hour12: false })
     let [h, m] = t.split(':').map(Number)
     if (m < 15) m = 0
     else if (m < 45) m = 30
@@ -379,10 +420,73 @@ function formatTime(iso: string) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
-function combine(date: string, time: string) {
-    // Return ISO string in UTC but representing local time 
-    // This matches the DB structure where start_time is TIMESTAMPTZ
-    const [h, m] = time.split(':')
-    const d = new Date(`${date}T${h}:${m}:00`)
-    return d.toISOString()
+function combine(dateStr: string, timeStr: string) {
+    // We have a date '2025-01-23' (which is the date in LA)
+    // And a time '09:00' (which is the time in LA)
+    // We need to return an ISO string that corresponds to '2025-01-23 09:00:00 PST'
+
+    // Simplest robust way without 3rd party libs:
+    // Create a date in browser/server current timezone
+    // then adjust raw milliseconds to match the target offset.
+    // BUT since we are on Vercel (UTC) or Local (Other), relying on defaults is flaky.
+
+    // Better strategy for Vercel/Node:
+    // Use the fact that `new Date(dateStr + 'T' + timeStr)` creates a date in LOCAL time of the server.
+    // If the server is UTC, '2025-01-23T09:00:00' becomes 9am UTC.
+    // But we want 9am PST (which is 17:00 UTC).
+
+    // Let's format manually to an ISO string with offset, IF we knew the offset.
+    // Since offset changes (DST), we use Intl to find the offset? No too complex.
+
+    // "Fake UTC" approach for simple storage, but Shifts need real timestamptz.
+
+    // Let's use a trick: 
+    // 1. Assume the Input Date+Time is correct for LA.
+    // 2. Parse it as if it were UTC '2025-01-23T09:00:00Z'.
+    // 3. Add 8 hours (or 7) to shift it? No, that's reverse.
+
+    // Correct way:
+    // "I want 9am LA". 
+    // If I create '2025-01-23T09:00:00' in UTC, that is 1am LA (prev day) or similar.
+    // We need to find the UTC timestamp that *results* in 9am LA.
+
+    // We can iterate/guess but that's slow. 
+    // Let's rely on the fact that we can construct a string that explicit libraries parse?
+    // We don't have libraries.
+
+    // Hack consistent with `formatTime`:
+    // `formatTime` extracts "09:00" from a timestamp using LA timezone.
+    // So `combine` is the inverse.
+    // We know the date (YYYY-MM-DD) and time (HH:mm). 
+    // Let's construct a "provisional" UTC ISO string: 'YYYY-MM-DDTHH:mm:00Z'
+    // Then measure what time that is in LA using Intl.
+    // Then adjust the difference.
+
+    // Target: 9:00
+    // Try UTC: 9:00Z -> Is 1:00 LA (diff -8h)
+    // So we need to add 8h to the UTC timestamp -> 17:00Z.
+
+    const [h, m] = timeStr.split(':').map(Number);
+    let probe = new Date(`${dateStr}T${timeStr}:00Z`); // Treat input as UTC first
+
+    // Check what time this "UTC" instant is in LA
+    const laTimeStr = new Intl.DateTimeFormat('en-GB', {
+        timeZone: TIMEZONE,
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+    }).format(probe); // "01:00"
+
+    const [laH, laM] = laTimeStr.split(':').map(Number);
+
+    // Calculate difference in minutes
+    // (We treat input H as if it were on the same day, handling simple wrap around logic isn't strictly needed if we are close)
+    let diffMinutes = (h * 60 + m) - (laH * 60 + laM);
+    if (diffMinutes > 720) diffMinutes -= 1440; // Wrap around day
+    if (diffMinutes < -720) diffMinutes += 1440;
+
+    // Apply correction
+    probe.setMinutes(probe.getMinutes() + diffMinutes);
+
+    return probe.toISOString();
 }
