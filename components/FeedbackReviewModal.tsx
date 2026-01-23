@@ -568,10 +568,32 @@ export default function FeedbackReviewModal({
                                         </div>
                                     </div>
 
-                                    {feedback.original_url && (
-                                        <a href={feedback.original_url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 text-xs font-bold flex items-center gap-1 hover:underline">
-                                            Ver en Google Maps <ExternalLink size={12} />
-                                        </a>
+                                    {feedback.source === 'google' && (
+                                        <button
+                                            onClick={() => {
+                                                // STRATEGY C: Reliable Place ID Link
+                                                const placeId = feedback.stores?.google_place_id;
+                                                // Fallback to saved URL or generate new one
+                                                const targetUrl = placeId
+                                                    ? `https://search.google.com/local/reviews?placeid=${placeId}&sort=newest`
+                                                    : feedback.original_url;
+
+                                                if (!targetUrl) {
+                                                    alert('No hay Place ID vinculado para esta tienda.');
+                                                    return;
+                                                }
+
+                                                const w = 1000;
+                                                const h = 800;
+                                                const left = (window.screen.width / 2) - (w / 2);
+                                                const top = (window.screen.height / 2) - (h / 2);
+                                                window.open(targetUrl, 'GoogleReviewsList', `width=${w},height=${h},top=${top},left=${left},scrollbars=yes,resizable=yes`);
+                                            }}
+                                            className="mt-4 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors border border-indigo-100 dark:border-indigo-800 shadow-sm"
+                                        >
+                                            <ExternalLink size={14} />
+                                            Ver Reviews en Maps
+                                        </button>
                                     )}
                                 </div>
                             ) : (

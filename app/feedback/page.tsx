@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Star, MessageSquare, MessageCircleMore, ThumbsUp, ThumbsDown, Filter, Calendar, Search, MapPin, TrendingUp, TrendingDown, Minus, Plus } from 'lucide-react'
+import { Star, MessageSquare, MessageCircleMore, ThumbsUp, ThumbsDown, Filter, Calendar, Search, MapPin, TrendingUp, TrendingDown, Minus, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA, formatTimeLA, getStatusColor, getStatusLabel } from '@/lib/checklistPermissions'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
@@ -44,11 +44,21 @@ function FeedbackContent() {
   // 🚨 DETECTOR DE CONFLICTO DE IDENTIDAD (Moved up to avoid Hook Error)
   const [tokenIdentity, setTokenIdentity] = useState<any>(null)
 
+  // -- PAGINATION STATE --
+  const [page, setPage] = useState(1)
+  const [totalItems, setTotalItems] = useState(0)
+  const itemsPerPage = 100
+
   // -- EFFECTS --
 
   useEffect(() => {
+    // Reset page to 1 when filters change
+    setPage(1)
+  }, [storeFilter, statusFilter])
+
+  useEffect(() => {
     if (user) fetchData()
-  }, [storeFilter, statusFilter, user])
+  }, [page, storeFilter, statusFilter, user])
 
   // Identity Check Effect
   useEffect(() => {
@@ -121,21 +131,43 @@ function FeedbackContent() {
       // Obtener feedbacks
       let query = supabase
         .from('customer_feedback')
-        .select('*, stores(name,code,city,state)')
+        .select('*, stores(name,code,city,state,google_place_id)', { count: 'exact' }) // Request exact count
         .order('submission_date', { ascending: false })
 
+      // Apply Store Filter (DB Level)
       if (storeFilter !== 'all') {
         query = query.eq('store_id', storeFilter)
       }
 
-      const { data: rawFeedback, error } = await query
+      // Apply Status Filter (DB Level)
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'pendiente') {
+          // Handle 'pendiente' or NULL
+          query = query.or('admin_review_status.eq.pendiente,admin_review_status.is.null')
+        } else if (statusFilter === 'cerrado') {
+          // Handle various closed statuses
+          query = query.in('admin_review_status', ['aprobado', 'cerrado', 'closed'])
+        } else {
+          // Generic fallback
+          query = query.eq('admin_review_status', statusFilter)
+        }
+      }
+
+      // Apply Pagination
+      const from = (page - 1) * itemsPerPage
+      const to = from + itemsPerPage - 1
+      query = query.range(from, to)
+
+      const { data: rawFeedback, error, count } = await query
 
       if (error) throw error
+
+      setTotalItems(count || 0)
 
       const feedbacksList = rawFeedback || []
       const feedbackIds = feedbacksList.map((f: any) => f.id)
 
-      // Fetch Comment Counts
+      // Fetch Comment Counts for visible items
       let commentCounts: Record<string, number> = {}
       if (feedbackIds.length > 0) {
         const { data: commentsData } = await supabase
@@ -151,21 +183,13 @@ function FeedbackContent() {
       }
 
       // Merge Data
-      const feedbackData = feedbacksList.map((f: any) => ({
+      const finalData = feedbacksList.map((f: any) => ({
         ...f,
         has_chat: (commentCounts[f.id] || 0) > 0
       }))
 
-      // Filter by Status
-      const finalData = statusFilter !== 'all'
-        ? (feedbackData || []).filter((item: any) => {
-          const s = (item.admin_review_status || 'pendiente').toLowerCase().trim()
-          if (statusFilter === 'cerrado') {
-            return s === 'aprobado' || s === 'cerrado' || s === 'closed'
-          }
-          return s === statusFilter
-        })
-        : (feedbackData || [])
+      // NOTE: Status filtering is now done at DB level, no need to filter here again.
+      // But we keep the stats calculation based on the *fetched* page for now to avoid extra heavy queries.
 
       setFeedbacks(finalData)
 
@@ -177,28 +201,41 @@ function FeedbackContent() {
         // But careful about re-renders.
       }
 
-      // Calcular estadísticas
-      if (feedbackData && feedbackData.length > 0) {
-        const promoters = feedbackData.filter((f: any) => f.nps_category === 'promoter').length
-        const passives = feedbackData.filter((f: any) => f.nps_category === 'passive').length
-        const detractors = feedbackData.filter((f: any) => f.nps_category === 'detractor').length
-        const nps = Math.round(((promoters - detractors) / feedbackData.length) * 100)
+      // Calcular estadísticas GLOBALES (Server-Side RPC)
+      // This ensures "Real Data" across all history, not just the current page.
+      const rpcStoreId = storeFilter === 'all' ? null : parseInt(storeFilter)
 
-        const avgService = feedbackData.reduce((sum: number, f: any) => sum + (f.service_rating || 0), 0) / feedbackData.length
-        const avgQuality = feedbackData.reduce((sum: number, f: any) => sum + (f.food_quality_rating || 0), 0) / feedbackData.length
-        const avgCleanliness = feedbackData.reduce((sum: number, f: any) => sum + (f.cleanliness_rating || 0), 0) / feedbackData.length
-        const avgSpeed = feedbackData.reduce((sum: number, f: any) => sum + (f.speed_rating || 0), 0) / feedbackData.length
+      // Only fetch stats if we have a valid session, although filters are public-ish
+      const { data: globalStats } = await supabase
+        .rpc('get_feedback_overview', {
+          p_store_id: rpcStoreId,
+          p_status: statusFilter
+        })
 
+      if (globalStats) {
         setStats({
-          total: feedbackData.length,
-          promoters,
-          passives,
-          detractors,
-          nps,
-          avgService: Math.round(avgService * 10) / 10,
-          avgQuality: Math.round(avgQuality * 10) / 10,
-          avgCleanliness: Math.round(avgCleanliness * 10) / 10,
-          avgSpeed: Math.round(avgSpeed * 10) / 10
+          total: globalStats.total_count,
+          promoters: 0, // Detailed breakdown not used in current summary cards
+          passives: 0,
+          detractors: 0,
+          nps: globalStats.nps_score,
+          avgService: globalStats.avg_service,
+          avgQuality: globalStats.avg_quality,
+          avgCleanliness: globalStats.avg_cleanliness,
+          avgSpeed: globalStats.avg_speed
+        })
+      } else {
+        // Fallback
+        setStats({
+          total: count || 0,
+          promoters: 0,
+          passives: 0,
+          detractors: 0,
+          nps: 0,
+          avgService: 0,
+          avgQuality: 0,
+          avgCleanliness: 0,
+          avgSpeed: 0
         })
       }
 
@@ -649,6 +686,32 @@ function FeedbackContent() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* PAGINATION CONTROLS */}
+              <div className="hidden md:flex justify-between items-center mt-6 px-4 py-3 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm">
+                <div className="text-sm font-bold text-gray-500 dark:text-slate-400">
+                  Mostrando <span className="text-indigo-600 dark:text-indigo-400">{feedbacks.length}</span> de <span className="text-gray-900 dark:text-white">{totalItems}</span> resultados
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-gray-600 dark:text-slate-400"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <span className="px-4 py-1 bg-gray-100 dark:bg-slate-800 rounded-lg text-sm font-black text-gray-700 dark:text-slate-300">
+                    Página {page}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={page * itemsPerPage >= totalItems}
+                    className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-gray-600 dark:text-slate-400"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
               </div>
             </>
           )}
