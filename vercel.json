@@ -10,7 +10,7 @@
         },
         {
             "path": "/api/cron/sync-reviews",
-            "schedule": "0 16 * * *"
+            "schedule": "0 */4 * * *"
         }
     ]
 }
