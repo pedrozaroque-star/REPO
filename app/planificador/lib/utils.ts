@@ -2,11 +2,51 @@ import { Shift } from './types'
 
 export const toast = { success: (m: string) => window.alert(m), error: (m: string) => window.alert(m), info: (m: string) => window.alert(m) }
 
+const TIMEZONE = 'America/Los_Angeles';
+
+// Helper to get parts in LA time
+const getLAParts = (d: Date) => {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: TIMEZONE,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        weekday: 'short',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+    });
+    const parts = formatter.formatToParts(d);
+    const part = (type: string) => parts.find(p => p.type === type)?.value;
+    return {
+        year: parseInt(part('year') || '0'),
+        month: parseInt(part('month') || '0') - 1, // 0-indexed
+        day: parseInt(part('day') || '0'),
+        weekday: part('weekday'), // 'Mon', 'Tue'...
+        hour: parseInt(part('hour') || '0'),
+        minute: parseInt(part('minute') || '0')
+    };
+}
+
 export const getMonday = (d: Date) => {
-    const date = new Date(d);
-    const day = date.getDay();
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-    return new Date(date.setDate(diff));
+    // Create a date object that represents the same wall-clock time in UTC as LA time
+    // This is a common trick to do "local" math safely without complex library
+    // But here we just want to find Monday based on LA day of week.
+
+    // 1. Get current day of week in LA (0=Sun, 1=Mon...)
+    const laDateString = d.toLocaleString('en-US', { timeZone: TIMEZONE });
+    const laDate = new Date(laDateString);
+    const day = laDate.getDay();
+
+    // 2. Calculate diff to Monday
+    const diff = laDate.getDate() - day + (day === 0 ? -6 : 1);
+
+    // 3. Set date
+    laDate.setDate(diff);
+    // 4. Return as native Date (careful, this "laDate" object has browser's timezone offset but holds LA's wall clock numbers)
+    // The consumer likely expects a real Date object. 
+    // Best approach for Planner is usually treating Dates as "Noons" to avoid boundary jumps.
+    return laDate;
 }
 
 export const addDays = (d: Date, days: number) => {
@@ -16,42 +56,55 @@ export const addDays = (d: Date, days: number) => {
 }
 
 export const formatDateISO = (d: Date) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    // Returns YYYY-MM-DD in Los Angeles
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).format(d);
 };
 
 export const formatDateNice = (input: string | Date) => {
     if (!input) return '';
     let d: Date;
     if (typeof input === 'string') {
+        // Assume input string YYYY-MM-DD is already "Store Day"
+        // Force noon to avoid TZ shift
         d = new Date(input + 'T12:00:00');
     } else {
         d = input;
     }
-    const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    return `${d.getDate()} ${months[d.getMonth()]}`;
+
+    return new Intl.DateTimeFormat('es-US', { // Spanish for user preference
+        timeZone: TIMEZONE,
+        day: 'numeric',
+        month: 'short'
+    }).format(d);
 }
 
 export const formatStoreName = (name: string) => {
     return name?.replace?.(/toast/i, '')?.trim() || name;
 }
 
-export const getDayName = (d: Date) => ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][d.getDay()];
+export const getDayName = (d: Date) => {
+    const parts = new Intl.DateTimeFormat('es-US', {
+        timeZone: TIMEZONE,
+        weekday: 'short'
+    }).format(d);
+    return parts.toUpperCase().replace('.', '');
+}
 
 export const formatTime12h = (isoString: string) => {
     if (!isoString) return '';
     try {
-        const date = new Date(isoString);
-        let hours = date.getHours();
-        const minutes = date.getMinutes();
-        const ampm = hours >= 12 ? 'pm' : 'am';
-        hours = hours % 12;
-        hours = hours ? hours : 12;
-        if (minutes === 0) return `${hours}${ampm}`;
-        const mStr = minutes < 10 ? '0' + minutes : minutes;
-        return `${hours}:${mStr}${ampm}`;
+        const d = new Date(isoString);
+        return new Intl.DateTimeFormat('en-US', {
+            timeZone: TIMEZONE,
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        }).format(d).toLowerCase().replace(' ', '');
     } catch (e) { return ''; }
 }
 
