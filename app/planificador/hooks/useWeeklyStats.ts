@@ -98,14 +98,16 @@ export function useWeeklyStats(shifts: Shift[], employees: Employee[], jobs: Job
                 const cost = (regularPaid * rate) + (totalShiftOT * rate * 1.5);
                 const roundedCost = bankersRound(cost);
 
-                shiftStats[s.id] = {
-                    duration,
-                    dailyOT,
-                    weeklyOT,
-                    totalOT: totalShiftOT,
-                    cost: roundedCost,
-                    isOvertime: totalShiftOT > 0
-                };
+                if (s.id) {
+                    shiftStats[s.id] = {
+                        duration,
+                        dailyOT,
+                        weeklyOT,
+                        totalOT: totalShiftOT,
+                        cost: roundedCost,
+                        isOvertime: totalShiftOT > 0
+                    };
+                }
 
                 totalHours += duration;
                 totalWage += roundedCost;
