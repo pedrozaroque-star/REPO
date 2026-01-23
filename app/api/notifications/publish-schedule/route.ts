@@ -38,15 +38,25 @@ export async function POST(req: Request) {
             return NextResponse.json({ message: 'No published shifts found to notify' })
         }
 
-        // 2. Identify Employees
-        const employeeIds = [...new Set(shifts.map(s => s.employee_id).filter(Boolean))]
-        if (employeeIds.length === 0) return NextResponse.json({ message: 'No employees assigned' })
+        // 2. Identify Employees (Target explicit list or all in view)
+        // If employee_ids provided (Partial Update), use that. Else use all found (Full Publish).
+        let targetEmployeeIds: string[] = []
+        if (body.employee_ids && Array.isArray(body.employee_ids) && body.employee_ids.length > 0) {
+            targetEmployeeIds = body.employee_ids
+        } else {
+            targetEmployeeIds = [...new Set(shifts.map(s => s.employee_id).filter(Boolean))]
+        }
+
+        if (targetEmployeeIds.length === 0) return NextResponse.json({ message: 'No employees to notify' })
+
+        // Filter the shifts list might be needed later, but for now we fetch all shifts to show context, 
+        // but we only EMAIL the targetEmployeeIds.
 
         // 3. Fetch Employee Contact Info
         const { data: employees, error: empError } = await supabase
             .from('toast_employees')
             .select('id, first_name, last_name, email, phone')
-            .in('id', employeeIds)
+            .in('id', targetEmployeeIds)
 
         if (empError) throw empError
 

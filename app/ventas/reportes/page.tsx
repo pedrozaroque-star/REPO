@@ -786,7 +786,9 @@ export default function ReportesPage() {
             'Utilizaremos:\n' +
             '1. Promedio Ponderado (últimas 8 semanas)\n' +
             '2. Tendencia de Crecimiento reciente\n' +
-            '3. Estacionalidad (mismo periodo año anterior)\n\n' +
+            '3. Estacionalidad (mismo periodo año anterior)\n' +
+            '4. 🌦️ Pronóstico del Clima (OpenWeather)\n' +
+            '5. 📅 Eventos y Festivos Locales\n\n' +
             'Esto sobrescribirá los campos "Projected".'
         )
         if (!confirmProj) return
@@ -801,8 +803,12 @@ export default function ReportesPage() {
 
             console.log(`🔍 [PROJECTION] Using GUID: ${queryId}`)
 
-            // 2. Fetch Data (Recent 8 weeks + Last year same week)
+            // 2. Fetch Data (History + Weather + Events)
             const targetStart = new Date(weekDate + 'T00:00:00')
+            const targetEndDay = new Date(targetStart)
+            targetEndDay.setDate(targetStart.getDate() + 6)
+            const weekStartStr = targetStart.toISOString().split('T')[0]
+            const weekEndStr = targetEndDay.toISOString().split('T')[0]
 
             // Lookback: Last 56 days (8 weeks)
             const lookbackStart = new Date(targetStart)
@@ -816,19 +822,91 @@ export default function ReportesPage() {
             const seasonalEnd = new Date(seasonalStart)
             seasonalEnd.setDate(seasonalStart.getDate() + 7)
 
-            const { data: history, error } = await supabase
-                .from('sales_daily_cache')
-                .select('business_date, net_sales, order_count')
-                .eq('store_id', queryId)
-                .or(`and(business_date.gte.${lookbackStart.toISOString().split('T')[0]},business_date.lte.${lookbackEnd.toISOString().split('T')[0]}),and(business_date.gte.${seasonalStart.toISOString().split('T')[0]},business_date.lte.${seasonalEnd.toISOString().split('T')[0]})`)
+            // PARALLEL FETCH
+            const [historyRes, weatherRes, eventsRes] = await Promise.all([
+                supabase
+                    .from('sales_daily_cache')
+                    .select('business_date, net_sales, order_count')
+                    .eq('store_id', queryId)
+                    .or(`and(business_date.gte.${lookbackStart.toISOString().split('T')[0]},business_date.lte.${lookbackEnd.toISOString().split('T')[0]}),and(business_date.gte.${seasonalStart.toISOString().split('T')[0]},business_date.lte.${seasonalEnd.toISOString().split('T')[0]})`),
 
-            if (error) throw error
+                fetch(`/api/external/weather?storeId=${queryId}`),
+
+                supabase
+                    .from('calendar_events')
+                    .select('*')
+                    .or(`store_id.eq.${queryId},store_id.is.null`)
+                    .gte('date', weekStartStr)
+                    .lte('date', weekEndStr)
+            ])
+
+            if (historyRes.error) throw historyRes.error
+            const history = historyRes.data
+
+            // Process Weather
+            let weatherData: any[] = []
+            if (weatherRes.ok) {
+                const wJson = await weatherRes.json()
+                weatherData = wJson.data || []
+            } else {
+                console.warn('Weather fetch failed, proceeding without weather factors')
+            }
+
+            // Process Events
+            const events = eventsRes.data || []
 
             // 3. Compute Averages per Weekday
-            const projections: Record<string, { sales: number, avgOrder: number }> = {}
+            const projections: Record<string, { sales: number, avgOrder: number, info: string[] }> = {}
 
             DAYS.forEach((day, index) => {
                 const targetDayIndex = (index + 1) % 7 // 1=Mon, 2=Tue... 0=Sun
+                const d = new Date(weekDate + 'T00:00:00')
+                d.setDate(d.getDate() + index)
+                const dateStr = d.toISOString().split('T')[0]
+
+                // --- FACTORS --
+                const infoTags: string[] = []
+
+                // A. Weather Factor
+                let weatherFactor = 1.0
+                // Match weather by date (OpenWeather daily returns timestamps)
+                // We just match simple index 0-7 if forecast matches week, otherwise try date match
+                // OpenWeather 'daily' array usually starts from 'today'. We need to be careful with alignment.
+                // Simplified: Find closest date match
+                const wParams = weatherData.find((w: any) => {
+                    const wDate = new Date(w.dt * 1000).toISOString().split('T')[0]
+                    return wDate === dateStr
+                })
+
+                if (wParams) {
+                    const cond = wParams.weather?.[0]?.main?.toLowerCase() || ''
+                    const tempMax = wParams.temp?.max || 70
+
+                    if (cond.includes('rain')) {
+                        weatherFactor = 0.95 // -5%
+                        infoTags.push('🌧️ Lluvia (-5%)')
+                    } else if (cond.includes('snow')) {
+                        weatherFactor = 0.85 // -15%
+                        infoTags.push('❄️ Nieve (-15%)')
+                    } else if (tempMax > 95) {
+                        weatherFactor = 0.95 // Too hot (dip in lunch?) or +10% depending on region. details..
+                        infoTags.push('🔥 Calor (-5%)')
+                    }
+                }
+
+                // B. Event Factor
+                let eventFactor = 1.0
+                const dayEvents = events.filter((e: any) => e.date === dateStr)
+                dayEvents.forEach((e: any) => {
+                    const mult = Number(e.impact_multiplier) || 1.0
+                    eventFactor *= mult
+                    const pct = Math.round((mult - 1) * 100)
+                    const icon = mult > 1 ? '📈' : '📉'
+                    infoTags.push(`${icon} ${e.name} (${pct > 0 ? '+' : ''}${pct}%)`)
+                })
+
+
+                // --- BASE ALGORITHM ---
 
                 // Filter components
                 const recentRows = history
@@ -840,7 +918,7 @@ export default function ReportesPage() {
                     ?.filter((h: any) => new Date(h.business_date + 'T00:00:00').getDay() === targetDayIndex)
                     .find((h: any) => h.business_date >= seasonalStart.toISOString().split('T')[0] && h.business_date <= seasonalEnd.toISOString().split('T')[0])
 
-                // A. Component 1: Recent Weighted
+                // Component 1: Recent Weighted
                 const weights = [0.40, 0.20, 0.15, 0.10, 0.05, 0.05, 0.03, 0.02]
                 let wRecentSales = 0, wRecentAvg = 0, tWeight = 0
 
@@ -859,12 +937,12 @@ export default function ReportesPage() {
                 const finalRecentSales = tWeight > 0 ? wRecentSales / tWeight : 0
                 const finalRecentAvg = tWeight > 0 ? wRecentAvg / tWeight : 0
 
-                // B. Component 2: Seasonal
+                // Component 2: Seasonal
                 const sSales = Number(seasonalRow?.net_sales) || 0
                 const sOrders = Number(seasonalRow?.order_count) || 0
                 const sAvg = sOrders > 0 ? (sSales / sOrders) : 0
 
-                // C. Component 3: Trend (Sales only)
+                // Component 3: Trend (Sales only)
                 const firstPeriod = recentRows.slice(0, 2).reduce((a, b) => a + Number(b.net_sales), 0) / 2
                 const secondPeriod = recentRows.slice(2, 6).reduce((a, b) => a + Number(b.net_sales), 0) / 4
                 let trendFactor = 1.0
@@ -872,7 +950,7 @@ export default function ReportesPage() {
                     trendFactor = Math.max(0.9, Math.min(1.1, firstPeriod / secondPeriod))
                 }
 
-                // D. Ensemble
+                // Ensemble
                 let projSales = 0, projAvg = 0
                 if (sSales > 0) {
                     projSales = (finalRecentSales * 0.7 + sSales * 0.3) * (finalRecentSales > 0 ? trendFactor : 1)
@@ -882,7 +960,11 @@ export default function ReportesPage() {
                     projAvg = finalRecentAvg
                 }
 
-                projections[day.key] = { sales: projSales, avgOrder: projAvg }
+                // APPLY NEW FACTORS
+                projSales = projSales * weatherFactor * eventFactor
+                // Avg Order usually less impacted by multipliers unless specifically modeled, but let's leave it base.
+
+                projections[day.key] = { sales: projSales, avgOrder: projAvg, info: infoTags }
             })
 
             // 4. Update Grid
@@ -895,13 +977,29 @@ export default function ReportesPage() {
                         ...next[day.key],
                         projected_sales: data.sales > 0 ? '$' + data.sales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
                         projected_labor: data.sales > 0 ? targetLaborPct.toFixed(2) + '%' : '',
-                        target_avg_order: data.avgOrder > 0 ? '$' + data.avgOrder.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
+                        target_avg_order: data.avgOrder > 0 ? '$' + data.avgOrder.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
+                        // Store info tags in a custom field we can render (we'll assume 'notes' or create a new visual space)
+                        // Since we can't easily change the grid structure dynamically without breaking types, 
+                        // let's append it to the 'events' field if it exists, or just hack it into the state for rendering.
+                        // Actually, let's append it to the 'day_part_sales' or a new field 'smart_tags' if we can render it.
+                        // Simplest: Update the UI rendering part to look for this.
+                        // For now, let's just alert the user as requested, but if we want to show it, we need to modify the grid render.
+                        // Let's attach it to 'weather_notes' in the state.
+                        weather_notes: data.info // We will need to update the grid renderer to show this
                     }
                 })
                 return next
             })
 
-            alert(`✅ Proyecciones Inteligentes Generadas\n\n- Ventas y Avg Order proyectados.\n- Labor Target: ${targetLaborPct}%\n- SPLH Goal: $${targetSPLH}`)
+            // Report results
+            const totalEvents = Object.values(projections).reduce((acc, p) => acc + p.info.length, 0)
+            let msg = `✅ Proyecciones Inteligentes Generadas\n\n- Ventas y Avg Order ajustados.`
+            if (totalEvents > 0) {
+                msg += `\n- ${totalEvents} factores de Clima/Eventos aplicados.`
+            } else {
+                msg += `\n- No se encontraron factores externos significativos (Clima normal/Sin eventos).`
+            }
+            alert(msg)
 
         } catch (e: any) {
             console.error(e)
@@ -910,6 +1008,13 @@ export default function ReportesPage() {
             setLoading(false)
         }
     }
+
+    // ... (rest of the file)
+    // We need to find where the grid is rendered to add the visual.
+    // Looking at the file content provided previously, the render logic is likely below.
+    // I entered 'replace_file_content' but I can't see the render logic in lines 850-950.
+    // I will cancel this replace and view the render logic first.
+
 
     const calculateWeekTotal = (rowId: string, type: string) => {
         if (type === 'text' || type === 'time' || type === 'header') return ''
@@ -1140,6 +1245,13 @@ export default function ReportesPage() {
                                             {DAYS.map((day, i) => {
                                                 const d = new Date(weekDate + 'T12:00:00')
                                                 d.setDate(d.getDate() + i)
+
+                                                // Extract weather info from grid data if available
+                                                // We stored it in 'weather_notes' of the day object in 'gridData'
+                                                // Since we are iterating header, we can access current gridData state? No, 'gridData' is in scope.
+                                                const dayData = gridData[day.key]
+                                                const infoTags = dayData?.weather_notes || []
+
                                                 return (
                                                     <th key={day.key} className="px-4 py-4 text-center border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700 min-w-[120px]">
                                                         <span className="block text-[13px] font-bold text-slate-900 dark:text-white uppercase leading-tight font-sans">
@@ -1148,6 +1260,16 @@ export default function ReportesPage() {
                                                         <span className="text-[10px] text-slate-400 font-normal font-sans">
                                                             {(`${d.getMonth() + 1}`).padStart(2, '0')}/{(`${d.getDate()}`).padStart(2, '0')}/{d.getFullYear()}
                                                         </span>
+                                                        {infoTags.length > 0 && (
+                                                            <div className="flex flex-col gap-0.5 mt-1.5 align-middle items-center justify-center">
+                                                                {infoTags.map((tag: string, idx: number) => (
+                                                                    <span key={idx} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 whitespace-nowrap overflow-hidden text-ellipsis max-w-[100px] mx-auto block text-center">
+                                                                        {tag}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
                                                     </th>
                                                 )
                                             })}
