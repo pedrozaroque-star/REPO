@@ -33,8 +33,16 @@ export async function GET(request: Request) {
 
     const results = []
 
+    interface Store {
+        name: string
+        external_id: string
+    }
+
     // 3. Sync Each Store
-    for (const store of stores) {
+    // Explicit cast to avoid implicit any errors
+    const storesList = (stores || []) as Store[]
+
+    for (const store of storesList) {
         if (!store.external_id) continue
         console.log(`[CRON] Syncing Labor for ${store.name}...`)
 
