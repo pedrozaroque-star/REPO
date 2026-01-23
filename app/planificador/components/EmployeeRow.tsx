@@ -59,8 +59,9 @@ export function EmployeeRow({
                                 const job = jobs.find((j: any) => j.guid === jobGuid);
                                 if (!job) return null;
 
-                                const color = stringToColor(job.title);
-                                const titleLower = job.title.toLowerCase();
+                                const title = job.title || 'Rol'
+                                const color = stringToColor(title);
+                                const titleLower = title.toLowerCase();
                                 const isManager = titleLower.includes('manager') && !titleLower.includes('assist') && !titleLower.includes('asst') && !titleLower.includes('shift');
 
                                 return (
