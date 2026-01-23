@@ -251,7 +251,9 @@ export default function SchedulePlanner() {
             });
             const data = await res.json()
             if (data.success) {
-                toast.success(`Sincronizados ${data.count} empleados`)
+                // API returns { success: true, jobs: {...}, employees: { count: N, ... } }
+                const count = data.employees?.count ?? 0
+                toast.success(`Sincronizados ${count} empleados`)
                 loadStoreData()
             } else {
                 toast.error('Error sincronizando')
