@@ -2,7 +2,7 @@
     "crons": [
         {
             "path": "/api/cron/sync-sales",
-            "schedule": "0 14 * * *"
+            "schedule": "0 17 * * *"
         },
         {
             "path": "/api/cron/sync-labor",
