@@ -18,6 +18,7 @@ import { ShiftModal } from './components/ShiftModal'
 import { TemplateModal } from './components/TemplateModal'
 import { PremiumConfirmModal } from './components/PremiumConfirmModal'
 import { EmployeeRow } from './components/EmployeeRow'
+import { PrintModal } from './components/PrintModal'
 
 // Hooks
 import { useWeeklyStats } from './hooks/useWeeklyStats'
@@ -164,6 +165,8 @@ export default function SchedulePlanner() {
     const [showClearInfo, setShowClearInfo] = useState(false)
     const [showPublishInfo, setShowPublishInfo] = useState(false)
     const [showTemplateInfo, setShowTemplateInfo] = useState(false)
+    const [showPrintInfo, setShowPrintInfo] = useState(false)
+    const [isPrintModalOpen, setIsPrintModalOpen] = useState(false) // NEW State
     const [isSyncingEmployees, setIsSyncingEmployees] = useState(false)
 
     // Drag & Drop
@@ -666,6 +669,12 @@ export default function SchedulePlanner() {
                 setShowClearInfo={setShowClearInfo}
                 showTemplateInfo={showTemplateInfo}
                 setShowTemplateInfo={setShowTemplateInfo}
+                handlePrint={() => {
+                    if (!storeGuid) return
+                    setIsPrintModalOpen(true)
+                }}
+                showPrintInfo={showPrintInfo}
+                setShowPrintInfo={setShowPrintInfo}
             />
 
             {/* MAIN GRID */}
@@ -765,6 +774,12 @@ export default function SchedulePlanner() {
                 laborStats={dailyLaborStats}
                 projections={projections}
                 setProjections={setProjections}
+            />
+
+            <PrintModal
+                isOpen={isPrintModalOpen}
+                onClose={() => setIsPrintModalOpen(false)}
+                url={`/planificador/imprimir?storeId=${storeGuid}&startDate=${formatDateISO(weekStart)}`}
             />
         </div>
     )

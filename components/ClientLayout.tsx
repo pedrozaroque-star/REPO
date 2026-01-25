@@ -14,7 +14,7 @@ export default function ClientLayout({
 
 
     // Lista de rutas donde NO queremos mostrar el sidebar (paginas publicas / login)
-    const publicRoutes = ['/login', '/', '/auth/login', '/clientes', '/evaluacion', '/feedback-publico']
+    const publicRoutes = ['/login', '/', '/auth/login', '/clientes', '/evaluacion', '/feedback-publico', '/planificador/imprimir']
     const isPublicPage = publicRoutes.includes(pathname)
 
     // Si es página pública, renderizar solo el contenido

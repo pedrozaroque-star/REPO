@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bot, Loader2, LayoutTemplate, RefreshCcw, ArrowDownAZ, Trash2 } from 'lucide-react'
+import { Bot, Loader2, LayoutTemplate, RefreshCcw, ArrowDownAZ, Trash2, Printer } from 'lucide-react'
 
 export function FloatingToolbar({
     handleGenerateSmart,
@@ -18,7 +18,10 @@ export function FloatingToolbar({
     showClearInfo,
     setShowClearInfo,
     setShowTemplateInfo,
-    showTemplateInfo
+    showTemplateInfo,
+    handlePrint, // NEW
+    showPrintInfo, // NEW
+    setShowPrintInfo // NEW
 }: any) {
     return (
         <div className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3 p-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-white/20 dark:border-slate-800 animate-in slide-in-from-right duration-500">
@@ -155,6 +158,42 @@ export function FloatingToolbar({
                                 </div>
                                 <p className="text-[12px] text-slate-300 leading-snug font-medium">
                                     Actualiza la lista de empleados y puestos desde <span className="text-indigo-300 font-bold">Toast</span> en tiempo real.
+                                </p>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            {/* Print Button */}
+            <div className="relative group/tool">
+                <motion.button
+                    onClick={handlePrint}
+                    onMouseEnter={() => setShowPrintInfo(true)}
+                    onMouseLeave={() => setShowPrintInfo(false)}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-3 text-gray-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 rounded-2xl flex items-center justify-center transition-all bg-gray-50 dark:bg-slate-800/50"
+                >
+                    <Printer size={22} />
+                </motion.button>
+                <AnimatePresence>
+                    {showPrintInfo && (
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9, x: 20 }}
+                            animate={{ opacity: 1, scale: 1, x: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, x: 20 }}
+                            className="absolute right-full mr-5 top-0 w-64 p-5 bg-slate-900 text-white rounded-2xl shadow-2xl border border-indigo-500/30 z-[100] overflow-hidden"
+                        >
+                            <div className="relative z-10">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
+                                        <Printer size={18} className="text-indigo-400" />
+                                    </div>
+                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Imprimir Horario</h4>
+                                </div>
+                                <p className="text-[12px] text-slate-300 leading-snug font-medium">
+                                    Genera una vista <span className="text-indigo-300 font-bold">PDF Limpia</span> agrupada por puestos, ideal para imprimir.
                                 </p>
                             </div>
                         </motion.div>

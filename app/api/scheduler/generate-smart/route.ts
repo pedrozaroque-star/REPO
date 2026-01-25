@@ -124,13 +124,16 @@ export async function POST(req: NextRequest) {
 
             // Calculate frequencies for all 7 days
             const counts = [0, 0, 0, 0, 0, 0, 0]
-            history.forEach(p => {
-                // Use Noon to avoid TZ boundary issues when parsing business_date string
-                // But specifically get the day of week in LA 
-                const d = new Date(p.business_date + 'T12:00:00')
-                const laDay = getLADayOfWeek(d)
-                counts[laDay]++
-            })
+            try {
+                history.forEach(p => {
+                    // Use Noon to avoid TZ boundary issues when parsing business_date string
+                    // But specifically get the day of week in LA 
+                    const d = new Date(p.business_date + 'T12:00:00')
+                    const laDay = getLADayOfWeek(d)
+                    if (laDay !== undefined) counts[laDay]++
+                })
+            } catch (e) { console.error("Error frequency calc", e) }
+
             const maxFreq = Math.max(...counts)
 
             // Evaluate each of the 7 days
