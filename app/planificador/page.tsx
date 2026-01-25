@@ -542,7 +542,8 @@ export default function SchedulePlanner() {
                             store_id: storeGuid,
                             start_date: startStr,
                             end_date: endStr,
-                            employee_ids: impactedEmployeeIds // Filter notifications
+                            employee_ids: impactedEmployeeIds, // Filter notifications
+                            shift_ids: ids // NEW: Pass exact IDs to ensure we notify what we just updated
                         })
                     })
                     toast.success('Publicado y notificado')

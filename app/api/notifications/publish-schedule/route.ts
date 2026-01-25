@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import path from 'path'
 
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -21,18 +22,24 @@ export async function POST(req: Request) {
         const body = await req.json()
         const { store_id, start_date, end_date } = body
 
-        if (!store_id || !start_date || !end_date) {
+        if (!store_id || (!start_date && !body.shift_ids)) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
         // 1. Fetch Published Shifts
-        const { data: shifts, error: shiftError } = await supabase
+        let query = supabase
             .from('shifts')
             .select('*')
             .eq('store_id', store_id)
             .eq('status', 'published')
-            .gte('shift_date', start_date)
-            .lte('shift_date', end_date)
+
+        if (body.shift_ids && Array.isArray(body.shift_ids) && body.shift_ids.length > 0) {
+            query = query.in('id', body.shift_ids)
+        } else {
+            query = query.gte('shift_date', start_date).lte('shift_date', end_date)
+        }
+
+        const { data: shifts, error: shiftError } = await query
 
         if (shiftError || !shifts || shifts.length === 0) {
             return NextResponse.json({ message: 'No published shifts found to notify' })
@@ -193,7 +200,7 @@ export async function POST(req: Request) {
                         html: emailHtml,
                         attachments: [{
                             filename: 'logo.png',
-                            path: './public/logo.png',
+                            path: path.join(process.cwd(), 'public', 'logo.png'),
                             cid: 'logo'
                         }]
                     })
