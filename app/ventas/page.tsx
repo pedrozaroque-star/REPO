@@ -6,7 +6,7 @@ import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
 import { formatStoreName } from '@/lib/supabase'
-import ProtectedRoute from '@/components/ProtectedRoute'
+import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 
 function SalesPageContent() {
     const [loading, setLoading] = useState(false)
@@ -25,6 +25,8 @@ function SalesPageContent() {
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
     const [loadingMessage, setLoadingMessage] = useState('')
     const [connError, setConnError] = useState<string | null>(null)
+    const { user } = useAuth()
+    const isAdmin = user?.role === 'admin'
 
     const refreshData = async () => {
         setLoading(true)
@@ -304,7 +306,7 @@ function SalesPageContent() {
 
                             <div className="flex flex-col sm:flex-row items-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto overflow-hidden">
                                 <div className="flex bg-slate-100 dark:bg-slate-800/50 rounded-xl p-1 overflow-x-auto no-scrollbar max-w-full">
-                                    {(['today', 'yesterday', 'week', 'month', 'quarter', 'custom'] as const).map((p) => (
+                                    {(['today', 'yesterday', 'week', 'month', 'quarter', 'custom'] as const).filter(p => p !== 'custom' || isAdmin).map((p) => (
                                         <button
                                             key={p}
                                             onClick={() => setPeriod(p)}
@@ -338,13 +340,17 @@ function SalesPageContent() {
 
                                 <div className="hidden sm:block w-[1px] h-6 bg-slate-700 mx-1"></div>
 
-                                <button
-                                    onClick={() => window.location.href = '/ventas/historial'}
-                                    className="hidden lg:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium transition-colors mr-2 border border-black/5 dark:border-slate-700 whitespace-nowrap"
-                                >
-                                    <Clock size={16} />
-                                    <span className="text-xs">Historial</span>
-                                </button>
+                                <div className="hidden sm:block w-[1px] h-6 bg-slate-700 mx-1"></div>
+
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => window.location.href = '/ventas/historial'}
+                                        className="hidden lg:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium transition-colors mr-2 border border-black/5 dark:border-slate-700 whitespace-nowrap"
+                                    >
+                                        <Clock size={16} />
+                                        <span className="text-xs">Historial</span>
+                                    </button>
+                                )}
 
                                 <button
                                     onClick={() => window.location.href = '/ventas/reportes'}
@@ -449,7 +455,7 @@ function SalesPageContent() {
 
 export default function SalesPage() {
     return (
-        <ProtectedRoute allowedRoles={['admin']}>
+        <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
             <SalesPageContent />
         </ProtectedRoute>
     )

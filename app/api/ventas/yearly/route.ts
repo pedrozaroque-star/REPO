@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     const user = verifyAuthToken(token)
     if (!user) return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
 
-    if (user.user_role !== 'admin') return NextResponse.json({ error: 'Forbidden: Admins Only' }, { status: 403 })
+    if (user.user_role !== 'admin' && user.user_role !== 'supervisor') return NextResponse.json({ error: 'Forbidden: Admins & Supervisors Only' }, { status: 403 })
 
     // ✅ AUTH SUCCESS
     const { searchParams } = new URL(request.url)
