@@ -23,6 +23,9 @@ import { EmployeeRow } from './components/EmployeeRow'
 import { useWeeklyStats } from './hooks/useWeeklyStats'
 import { useSmartProjections } from './hooks/useSmartProjections'
 import { useVisibleEmployees } from './hooks/useVisibleEmployees'
+import { useWeather } from './hooks/useWeather'
+import { WeatherIcon } from './components/WeatherIcon'
+import { User as UserIcon } from 'lucide-react'
 
 // --- LOADER COMPONENT ---
 function SurpriseLoader() {
@@ -81,6 +84,7 @@ export default function SchedulePlanner() {
     const { stats: laborStats, shiftStats } = useWeeklyStats(shifts, employees, jobs)
     const { projections, setProjections, calculateProjections, isGenerating: isCalcProjections } = useSmartProjections(storeGuid, weekStart)
     const visibleEmployees: Employee[] = useVisibleEmployees(employees, shifts, jobs)
+    const { weather } = useWeather(storeGuid)
 
     // Aggregated Daily Stats for Budget Tool
     const dailyLaborStats = useMemo(() => {
@@ -679,18 +683,59 @@ export default function SchedulePlanner() {
                             <col className="w-[10.7%]" />
                         </colgroup>
                         <thead>
-                            <tr className="bg-gray-50 dark:bg-slate-900/50 sticky top-0 z-20 shadow-sm">
-                                <th className="p-4 text-left border-b border-gray-200 dark:border-slate-800 font-black text-xs uppercase tracking-widest text-gray-400">Equipo</th>
-                                {weekDays.map((date, i) => (
-                                    <th key={i} className={`p-3 text-center border-b border-gray-200 dark:border-slate-800 border-l border-gray-100 dark:border-slate-800/50 ${date.toDateString() === new Date().toDateString() ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}>
-                                        <div className="flex flex-col items-center">
-                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][date.getDay()]}</span>
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${date.toDateString() === new Date().toDateString() ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-gray-900 dark:text-white'}`}>
-                                                {date.getDate()}
+                            <tr className="bg-gray-50 dark:bg-slate-900/50 sticky top-0 z-20 shadow-sm border-b border-gray-200 dark:border-slate-800">
+                                <th className="p-4 text-left font-black text-lg uppercase tracking-widest text-gray-800 dark:text-gray-100">Equipo</th>
+                                {weekDays.map((date, i) => {
+                                    const dateStr = formatDateISO(date)
+                                    const w = weather[dateStr]
+
+                                    if (i === 0 && Object.keys(weather).length > 0) {
+                                        console.log("MATCH CHECK:", dateStr, weather[dateStr], Object.keys(weather))
+                                    }
+
+                                    // Staff Count logic
+                                    const staffCount = new Set(
+                                        shifts
+                                            .filter(s => s.shift_date === dateStr && s.employee_id)
+                                            .map(s => s.employee_id)
+                                    ).size
+
+                                    const isToday = [date.getDate(), date.getMonth()].join('-') === [new Date().getDate(), new Date().getMonth()].join('-')
+
+                                    return (
+                                        <th key={i} className={`p-3 border-l border-gray-200 dark:border-slate-800 align-top transition-colors ${isToday ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                                            <div className="flex flex-col h-full min-h-[60px]">
+                                                {/* Top Row: Day + Weather */}
+                                                <div className="flex justify-between items-start mb-2 gap-2">
+                                                    <div className="text-left">
+                                                        <div className={`text-base font-black leading-tight ${isToday ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
+                                                            {['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][date.getDay()]}
+                                                        </div>
+                                                        <div className={`text-sm font-semibold capitalize mt-0.5 ${isToday ? 'text-blue-600/80' : 'text-gray-500 dark:text-slate-400'}`}>
+                                                            {date.toLocaleString('es-US', { month: 'short' }).replace('.', '')} {date.getDate()}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Weather Widget */}
+                                                    {w && (
+                                                        <div className="flex flex-col items-end flex-shrink-0" title={w.weather?.[0]?.description}>
+                                                            <WeatherIcon condition={w.weather?.[0]?.main} className="w-6 h-6 mb-0.5 drop-shadow-sm" />
+                                                            <span className="text-xs font-black text-gray-800 dark:text-slate-200">
+                                                                {Math.round(w.temp?.max || 0)}°
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Bottom Row: Staff Count */}
+                                                <div className="flex justify-end items-center gap-1.5 mt-auto pt-2 opacity-80 hover:opacity-100 transition-opacity" title="Empleados Programados">
+                                                    <UserIcon className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{staffCount}</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </th>
-                                ))}
+                                        </th>
+                                    )
+                                })}
                             </tr>
                         </thead>
                         <Reorder.Group as="tbody" axis="y" values={employees} onReorder={handleReorder}>

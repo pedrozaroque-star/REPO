@@ -1,6 +1,6 @@
 import React from 'react'
 import { Reorder, useDragControls } from 'framer-motion'
-import { GripVertical, Plus } from 'lucide-react'
+import { GripVertical, Plus, Mail, Phone } from 'lucide-react'
 import { formatTime12h, stringToColor } from '../lib/utils'
 
 export function EmployeeRow({
@@ -33,8 +33,8 @@ export function EmployeeRow({
                 zIndex: 50
             }}
         >
-            <td className="sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-gray-100 dark:group-hover:bg-slate-800/80 border-r border-b border-gray-200 dark:border-slate-800 p-3 transition-colors shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] w-[25%] min-w-[300px]">
-                <div className="flex items-center gap-3">
+            <td className="sticky left-0 z-10 group-hover:z-[60] bg-white dark:bg-slate-900 group-hover:bg-gray-100 dark:group-hover:bg-slate-800/80 border-r border-b border-gray-200 dark:border-slate-800 p-3 transition-colors shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] w-[25%] min-w-[300px]">
+                <div className="flex items-center gap-3 relative group/profile">
                     {/* Grip Handle */}
                     <div
                         onPointerDown={(e) => controls.start(e)}
@@ -43,12 +43,45 @@ export function EmployeeRow({
                         <GripVertical size={16} />
                     </div>
 
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-medium text-sm shadow-sm relative shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-medium text-sm shadow-sm relative shrink-0 cursor-help">
                         {emp.first_name?.[0]}{emp.last_name?.[0]}
                         {totals.totalOT > 0 &&
                             <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px]">!</div>
                         }
                     </div>
+
+                    {/* CONTACT CARD HOVER */}
+                    <div className="absolute left-10 top-8 z-50 invisible group-hover/profile:visible opacity-0 group-hover/profile:opacity-100 transition-all duration-200 translate-y-2 group-hover/profile:translate-y-0 pointer-events-none group-hover/profile:pointer-events-auto">
+                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.2)] border border-gray-100 dark:border-slate-700 p-4 w-72 mt-2">
+                            <div className="flex items-start gap-3 mb-3 pb-3 border-b border-gray-100 dark:border-slate-700">
+                                <div className="w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-300 font-bold text-lg">
+                                    {emp.first_name?.[0]}{emp.last_name?.[0]}
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-gray-900 dark:text-gray-100 text-lg leading-tight">
+                                        {emp.first_name} {emp.last_name}
+                                    </h4>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">{emp.external_employee_id || 'No ID'}</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2.5">
+                                <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
+                                    <div className="w-8 h-8 rounded-lg bg-gray-50 dark:bg-slate-700/50 flex items-center justify-center shrink-0">
+                                        <Mail size={16} className="text-gray-400" />
+                                    </div>
+                                    <span className="truncate select-all">{emp.email || 'Sin Email'}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
+                                    <div className="w-8 h-8 rounded-lg bg-gray-50 dark:bg-slate-700/50 flex items-center justify-center shrink-0">
+                                        <Phone size={16} className="text-gray-400" />
+                                    </div>
+                                    <span className="select-all">{emp.phone || 'Sin Teléfono'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="flex flex-col min-w-0">
                         <p className="font-medium text-gray-900 dark:text-gray-100 text-lg leading-tight truncate">
                             {emp.chosen_name || emp.first_name} {emp.last_name}

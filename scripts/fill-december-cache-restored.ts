@@ -6,8 +6,8 @@ async function restoreCacheScript() {
 
     // Config: From Jan 1 2020 to Dec 31 2025
     const days: string[] = []
-    const start = new Date('2020-01-01')
-    const end = new Date('2025-12-31')
+    const start = new Date('2026-01-22')
+    const end = new Date('2025-12-22')
 
     // Generate all dates
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {

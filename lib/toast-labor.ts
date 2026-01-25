@@ -111,8 +111,8 @@ export async function syncToastEmployees(storeId: string) {
                 first_name: emp.firstName,
                 last_name: emp.lastName,
                 chosen_name: emp.chosenName,
-                email: emp.email,
-                phone: emp.phoneNumber,
+                email: emp.email, // Ensure this maps to the new column
+                phone: emp.phoneNumber, // Ensure this maps to the new column
                 phone_country_code: emp.phoneNumberCountryCode,
                 external_id: emp.externalId,
                 external_employee_id: emp.externalEmployeeId,

@@ -31,8 +31,8 @@ export async function POST(req: Request) {
             .select('*')
             .eq('store_id', store_id)
             .eq('status', 'published')
-            .gte('start_time', start_date)
-            .lte('start_time', end_date + 'T23:59:59')
+            .gte('shift_date', start_date)
+            .lte('shift_date', end_date)
 
         if (shiftError || !shifts || shifts.length === 0) {
             return NextResponse.json({ message: 'No published shifts found to notify' })

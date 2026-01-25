@@ -1,23 +1,35 @@
 
-import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
-import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
+import { createClient } from '@supabase/supabase-js'
 
-try { const envConfig = dotenv.parse(fs.readFileSync(path.resolve(process.cwd(), '.env.local'))); for (const k in envConfig) process.env[k] = envConfig[k] } catch (e) { }
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+// Using .env because .env.local might lack some vars in some setups, but usually local is best
+const envPath = path.resolve(__dirname, '../.env.local')
+dotenv.config({ path: envPath })
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY // Needs Service Role to see all
 
-async function check() {
-    console.log("Checking 'punches'...")
-    const r1 = await supabase.from('punches').select('*', { count: 'exact', head: true })
-    if (r1.error) console.log(`Error punches: ${r1.error.message}`)
-    else console.log(`'punches' exists. Count: ${r1.count}`)
+if (!supabaseUrl || !supabaseKey) process.exit(1)
 
-    console.log("Checking 'shifts'...")
-    const r2 = await supabase.from('shifts').select('*', { count: 'exact', head: true })
-    if (r2.error) console.log(`Error shifts: ${r2.error.message}`)
-    else console.log(`'shifts' exists. Count: ${r2.count}`)
+const supabase = createClient(supabaseUrl, supabaseKey)
+
+async function listTables() {
+    // This is a hacky way to list tables via PostgREST if we don't have SQL access
+    // We try to select from 'toast_employees'
+
+    console.log("🔍 Checking 'toast_employees'...")
+    const { data: tData, error: tError } = await supabase.from('toast_employees').select('count', { count: 'exact', head: true })
+    if (tError) console.log("   ❌ toast_employees error:", tError.message)
+    else console.log("   ✅ toast_employees exists! Count:", tData) // null data for head:true but no error means exists
+
+    console.log("🔍 Checking 'employees'...")
+    const { data: eData, error: eError } = await supabase.from('employees').select('count', { count: 'exact', head: true })
+    if (eError) console.log("   ❌ employees error:", eError.message)
+    else console.log("   ✅ employees exists! Count:", eData)
 }
 
-check()
+listTables()

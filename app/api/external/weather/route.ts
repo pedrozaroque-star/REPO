@@ -37,63 +37,57 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Coordinates missing for this store' }, { status: 400 })
         }
 
-        // OPENWEATHERMAP STRATEGY
-        const weatherKey = process.env.OPENWEATHER_API_KEY || process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY
+        // OPEN-METEO STRATEGY (No Key Required)
+        // https://open-meteo.com/en/docs
+        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,weathercode&temperature_unit=fahrenheit&timezone=auto`
 
-        // 1. If no key, return empty data gracefully (don't crash)
-        if (!weatherKey) {
-            console.warn('⚠️ OPENWEATHER_API_KEY is missing. Returning empty weather data.')
-            return NextResponse.json({ data: [] })
-        }
-
-        // 2. Fetch 5-Day Forecast (Standard Free API)
-        // https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={API key}
-        const weatherUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=imperial&appid=${weatherKey}`
-
-        console.log(`🌦️ Fetching OpenWeather: ${lat}, ${lon}`)
+        console.log(`🌦️ Fetching Open-Meteo: ${lat}, ${lon}`)
         const res = await fetch(weatherUrl)
 
         if (!res.ok) {
             const txt = await res.text()
-            console.error('OpenWeather API Error:', txt)
-            return NextResponse.json({ error: 'Weather Provider Error: ' + res.status }, { status: 502 }) // Still 502 if upstream fails provided we HAVE a key
+            console.error('Open-Meteo API Error:', txt)
+            return NextResponse.json({ error: 'Weather Provider Error: ' + res.status }, { status: 502 })
         }
 
         const json = await res.json()
 
-        // 3. Adapter: Collapse 3-hour segments into Daily Highs
-        // OpenWeather returns 3-hour steps. We need to find max temp per day.
-        const dailyMap: Record<string, any> = {}
+        // Helper to map WMO code to OpenWeather-style main/desc
+        // https://open-meteo.com/en/docs#weathervariables
+        const mapWmo = (code: number) => {
+            if (code === 0) return { main: 'Clear', description: 'clear sky' }
+            if (code === 1 || code === 2 || code === 3) return { main: 'Clouds', description: 'partly cloudy' }
+            if (code >= 45 && code <= 48) return { main: 'Mist', description: 'fog' }
+            if (code >= 51 && code <= 67) return { main: 'Rain', description: 'drizzle/rain' }
+            if (code >= 71 && code <= 77) return { main: 'Snow', description: 'snow' }
+            if (code >= 80 && code <= 82) return { main: 'Rain', description: 'showers' }
+            if (code >= 85 && code <= 86) return { main: 'Snow', description: 'snow showers' }
+            if (code >= 95 && code <= 99) return { main: 'Thunderstorm', description: 'thunderstorm' }
+            return { main: 'Clouds', description: 'unknown' }
+        }
 
-        json.list.forEach((item: any) => {
-            // item.dt_txt is "2024-01-23 09:00:00"
-            const dateStr = item.dt_txt.split(' ')[0]
+        const daily = json.daily || {}
+        if (!daily.time || !daily.temperature_2m_max) {
+            return NextResponse.json({ data: [] })
+        }
 
-            if (!dailyMap[dateStr]) {
-                dailyMap[dateStr] = {
-                    dt: item.dt,
-                    temp_max: -999,
-                    weather_main: item.weather[0]?.main,
-                    weather_desc: item.weather[0]?.description
-                }
-            }
+        const adaptedData = daily.time.map((dateStr: string, i: number) => {
+            // Open-Meteo returns YYYY-MM-DD strings directly.
+            // We need to return a structure compatible with our frontend hook.
+            // Hook expects: { dt: unix_seconds, temp: {max}, weather: [{main, description}] }
+            // To ensure hook's date logic works (dt * 1000), we should provide a noon-time unix timestamp for that date.
 
-            // Update Max Temp
-            if (item.main.temp_max > dailyMap[dateStr].temp_max) {
-                dailyMap[dateStr].temp_max = item.main.temp_max
-                // Take the weather condition around noon (or just keep updating, usually fine)
-                if (item.dt_txt.includes('12:00:00')) {
-                    dailyMap[dateStr].weather_main = item.weather[0]?.main
-                    dailyMap[dateStr].weather_desc = item.weather[0]?.description
-                }
+            const noonDate = new Date(`${dateStr}T12:00:00`)
+            const dt = Math.floor(noonDate.getTime() / 1000)
+            const code = daily.weathercode ? daily.weathercode[i] : 0
+            const cond = mapWmo(code)
+
+            return {
+                dt: dt,
+                temp: { max: daily.temperature_2m_max[i] },
+                weather: [{ main: cond.main, description: cond.description }]
             }
         })
-
-        const adaptedData = Object.values(dailyMap).map((d: any) => ({
-            dt: d.dt,
-            temp: { max: d.temp_max },
-            weather: [{ main: d.weather_main, description: d.weather_desc }]
-        }))
 
         return NextResponse.json({ data: adaptedData })
 

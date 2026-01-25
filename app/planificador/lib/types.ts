@@ -20,6 +20,8 @@ export type Employee = {
     deleted?: boolean
     job_references?: { guid: string, title?: string }[]
     wage_data?: { job_guid: string, wage: number }[]
+    email?: string
+    phone?: string
 }
 
 export type Job = {

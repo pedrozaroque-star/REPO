@@ -49,6 +49,7 @@ export interface MetricRow {
     ebtCount?: number
     ebtAmount?: number
     hourlySales?: Record<number, number>
+    hourlyTickets?: Record<number, number>
 }
 
 // Map store generic ID to Toast restaurantGuid
@@ -194,7 +195,11 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
         const formattedDate = startDate.split('-').join('')
 
         const hourlySales: Record<number, number> = {}
-        for (let i = 0; i < 24; i++) hourlySales[i] = 0
+        const hourlyTickets: Record<number, number> = {}
+        for (let i = 0; i < 24; i++) {
+            hourlySales[i] = 0
+            hourlyTickets[i] = 0
+        }
 
         while (hasMore) {
             const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
@@ -269,6 +274,11 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                         hour = parseInt(laTime)
                         // Handle "24" edge case if any, though hour12:false usually gives 0-23
                         if (hour === 24) hour = 0
+
+                        // Increment Ticket Count for this hour
+                        if (hour >= 0 && hour < 24) {
+                            hourlyTickets[hour] = (hourlyTickets[hour] || 0) + 1
+                        }
                     } catch (e) { }
                 }
 
@@ -430,6 +440,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             guests: guests,
             hours: count * 0.4,
             hourlySales,
+            hourlyTickets,
             uberSales: uber,
             doordashSales: doordash,
             grubhubSales: grubhub,
@@ -681,6 +692,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                                 for (let h = startH; h < endH; h++) dist[h] = perH
                                 return dist
                             })(),
+                            hourlyTickets: cached.hourly_tickets || {},
                             uberSales: Number(cached.uber_sales || 0),
                             doordashSales: Number(cached.doordash_sales || 0),
                             grubhubSales: Number(cached.grubhub_sales || 0),
@@ -739,6 +751,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                                     orders: cached.order_count,
                                     guests: cached.guest_count,
                                     hourlySales: {}, // No hourly data in daily cache
+                                    hourlyTickets: {},
                                     uberSales: Number(cached.uber_sales || 0),
                                     doordashSales: Number(cached.doordash_sales || 0),
                                     grubhubSales: Number(cached.grubhub_sales || 0),
@@ -767,6 +780,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             orders: Math.floor(salesVal / 25),
                             guests: Math.floor(salesVal / 20),
                             hourlySales: {},
+                            hourlyTickets: {},
                             uberSales: 0,
                             doordashSales: 0,
                             grubhubSales: 0,
@@ -823,6 +837,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                     labor_hours: r.laborMetrics.hours,
                     labor_cost: r.laborMetrics.laborCost,
                     hourly_data: r.salesMetrics.hourlySales,
+                    hourly_tickets: r.salesMetrics.hourlyTickets,
                     uber_sales: r.salesMetrics.uberSales || 0,
                     doordash_sales: r.salesMetrics.doordashSales || 0,
                     grubhub_sales: r.salesMetrics.grubhubSales || 0,
@@ -831,7 +846,13 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 }))
                 // Upsert in chunks of 50 to avoid URL length issues
                 for (let i = 0; i < rowsForCache.length; i += 50) {
-                    await supabase.from('sales_daily_cache').upsert(rowsForCache.slice(i, i + 50))
+                    const chunk = rowsForCache.slice(i, i + 50)
+                    const { error: upsertError } = await supabase.from('sales_daily_cache').upsert(chunk)
+                    if (upsertError) {
+                        console.error('CRITICAL CACHE UPSERT ERROR:', JSON.stringify(upsertError, null, 2))
+                    } else {
+                        console.log(`✅ Cached ${chunk.length} days.`)
+                    }
                 }
             }
 

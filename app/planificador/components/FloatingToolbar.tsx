@@ -148,13 +148,13 @@ export function FloatingToolbar({
                             <div className="absolute -top-5 -right-5 w-20 h-20 bg-amber-500/10 rounded-full blur-2xl"></div>
                             <div className="relative z-10">
                                 <div className="flex items-center gap-3 mb-2">
-                                    <div className="p-2 bg-amber-500/20 rounded-xl border border-amber-500/30">
-                                        <LayoutTemplate size={18} className="text-amber-400" />
+                                    <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
+                                        <RefreshCcw size={18} className="text-indigo-400" />
                                     </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">Plantilla Ideal</h4>
+                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Sincronizar Empleados</h4>
                                 </div>
                                 <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    Guarda este horario como <span className="text-amber-300 font-bold">Template</span> o carga uno existente para ahorrar tiempo.
+                                    Actualiza la lista de empleados y puestos desde <span className="text-indigo-300 font-bold">Toast</span> en tiempo real.
                                 </p>
                             </div>
                         </motion.div>
