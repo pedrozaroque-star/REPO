@@ -50,13 +50,13 @@ function SalesPageContent() {
             } else if (period === 'today') {
                 start = today
                 end = today
-                groupBy = 'day'
+                groupBy = 'hour'
             } else if (period === 'yesterday') {
                 const y = new Date(today)
                 y.setDate(y.getDate() - 1)
                 start = y
                 end = y
-                groupBy = 'day'
+                groupBy = 'hour'
             } else if (period === 'week') {
                 const day = today.getDay()
                 const diff = today.getDate() - day + (day === 0 ? -6 : 1)
@@ -171,9 +171,21 @@ function SalesPageContent() {
                 // Trend Data
                 const trendMap = new Map()
                 rows.forEach((row: any) => {
-                    const key = row.periodStart // API returns periodStart
-                    if (!trendMap.has(key)) trendMap.set(key, 0)
-                    trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
+                    // Si estamos en modo horario (groupBy=hour), usar el desglose por horas
+                    if (groupBy === 'hour' && row.hourlySales) {
+                        const datePart = row.periodStart.split('T')[0] // YYYY-MM-DD
+                        Object.entries(row.hourlySales).forEach(([h, amount]) => {
+                            // Construir formato timestamp "YYYY-MM-DD HH:00" que SalesCharts entiende para horas
+                            const timeKey = `${datePart} ${h.toString().padStart(2, '0')}:00`
+                            if (!trendMap.has(timeKey)) trendMap.set(timeKey, 0)
+                            trendMap.set(timeKey, trendMap.get(timeKey) + (Number(amount) || 0))
+                        })
+                    } else {
+                        // Modo normal diario/semanal
+                        const key = row.periodStart
+                        if (!trendMap.has(key)) trendMap.set(key, 0)
+                        trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
+                    }
                 })
                 const trendData = Array.from(trendMap.entries())
                     .map(([time, amount]) => ({ time, amount }))
