@@ -115,7 +115,7 @@ export const stringToColor = (title: string) => {
     if (t.includes('manager')) return '#3b82f6'; // Azul
     if (t.includes('shift') || t.includes('leader') || t.includes('encargado')) return '#000000'; // Negro
     if (t.includes('cashier') || t.includes('cajera')) return '#ec4899'; // Rosa
-    if (t.includes('cook') || t.includes('cocinero') || t.includes('prep') || t.includes('preparador') || t.includes('taquero') || t.includes('tortill')) return '#ef4444'; // Rojo
+    if (t.includes('cook') || t.includes('cocinero') || t.includes('prep') || t.includes('preparador') || t.includes('taquero') || t.includes('tortill')) return '#DC2626'; // Rojo Intenso
 
     // Fallback deterministic color
     let hash = 0;
