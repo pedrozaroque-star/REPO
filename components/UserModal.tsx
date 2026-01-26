@@ -80,7 +80,12 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
     }
   }
 
-  const handleToggleActive = () => {
+  const handleToggleActive = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    console.log('🔄 Toggling active state. New state:', !formData.is_active)
     setFormData(prev => ({ ...prev, is_active: !prev.is_active }))
   }
 
@@ -254,7 +259,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                     <button
                       type="button"
                       onClick={handleToggleActive}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all focus:outline-none ${formData.is_active ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-slate-700'}`}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all focus:outline-none cursor-pointer hover:scale-105 active:scale-95 ${formData.is_active ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-slate-700'}`}
                     >
                       <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${formData.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>

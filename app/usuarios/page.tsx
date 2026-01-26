@@ -71,7 +71,8 @@ function UsuariosPage() {
         role: role,
         phone: formData.phone, // Include phone in update payload
         email: formData.email, // Importante para updates visuales
-        is_active: Boolean(formData.is_active), // Convertir explícitamente a boolean
+        // Conversión explícita y robusta de is_active
+        is_active: formData.is_active === true || formData.is_active === 'true' || formData.is_active === 1,
         // Lógica condicional de tiendas:
         store_id: ['manager', 'asistente'].includes(role) && formData.store_id
           ? parseInt(formData.store_id)
