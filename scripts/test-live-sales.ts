@@ -9,7 +9,7 @@ async function test() {
     console.log(`Testing Live Sales for Store: ${storeId} Date: ${today}`)
 
     const res = await fetchToastData({
-        storeIds: [storeId],
+        storeIds: storeId,
         startDate: today,
         endDate: today,
         groupBy: 'day'
