@@ -170,23 +170,59 @@ function SalesPageContent() {
 
                 // Trend Data
                 const trendMap = new Map()
-                rows.forEach((row: any) => {
-                    // Si estamos en modo horario (groupBy=hour), usar el desglose por horas
-                    if (groupBy === 'hour' && row.hourlySales) {
-                        const datePart = row.periodStart.split('T')[0] // YYYY-MM-DD
-                        Object.entries(row.hourlySales).forEach(([h, amount]) => {
-                            // Construir formato timestamp "YYYY-MM-DD HH:00" que SalesCharts entiende para horas
-                            const timeKey = `${datePart} ${h.toString().padStart(2, '0')}:00`
-                            if (!trendMap.has(timeKey)) trendMap.set(timeKey, 0)
-                            trendMap.set(timeKey, trendMap.get(timeKey) + (Number(amount) || 0))
-                        })
-                    } else {
-                        // Modo normal diario/semanal
+
+                // Si es modo horario (Hoy/Ayer), queremos forzar el rango 7 AM -> 5 AM next day
+                if (groupBy === 'hour') {
+                    // 1. Inicializar todas las horas del rango (7am -> 29 (5am+1))
+                    const baseDateStr = formatDate(start) // YYYY-MM-DD del día seleccionado
+                    const nextDate = new Date(start)
+                    nextDate.setDate(nextDate.getDate() + 1)
+                    const nextDateStr = formatDate(nextDate)
+
+                    // Horas de interés: 7, 8... 23, 0, 1... 5
+                    const hoursOfInterest = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
+
+                    hoursOfInterest.forEach(h => {
+                        // Determinar fecha correcta para esa hora
+                        // Si es 0-5, pertenece al "día siguiente" en calendario pero al mismo día de negocio
+                        // PERO para el gráfico cronológico necesitamos la fecha calendario correcta
+                        const isNextDay = h < 6 // Asumimos corte a las 6am
+                        const dateP = isNextDay ? nextDateStr : baseDateStr
+                        const timeKey = `${dateP} ${h.toString().padStart(2, '0')}:00`
+                        trendMap.set(timeKey, 0)
+                    })
+
+                    // 2. Llenar con datos reales
+                    rows.forEach((row: any) => {
+                        if (row.hourlySales) {
+                            Object.entries(row.hourlySales).forEach(([h, amount]) => {
+                                const hourInt = parseInt(h)
+                                // Calcular la fecha real de esta venta basada en la hora
+                                // Si la venta es a las 1 AM, queremos saber si es del día base o siguiente
+                                // Toast suele reportar hourlySales dentro del objeto del día de negocio.
+                                // Si el día de negocio es "2026-01-25", una venta a la 1 AM técnicamente fue el 26.
+                                // Asumimos lógica simple: si hora < 6 es next day, else base day.
+                                const isNext = hourInt < 6
+                                const dStr = isNext ? nextDateStr : baseDateStr
+                                const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
+
+                                // Solo sumar si está en nuestro mapa (rango de interés)
+                                if (trendMap.has(key)) {
+                                    trendMap.set(key, trendMap.get(key) + (Number(amount) || 0))
+                                }
+                            })
+                        }
+                    })
+
+                } else {
+                    // Modo normal diario/semanal
+                    rows.forEach((row: any) => {
                         const key = row.periodStart
                         if (!trendMap.has(key)) trendMap.set(key, 0)
                         trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
-                    }
-                })
+                    })
+                }
+
                 const trendData = Array.from(trendMap.entries())
                     .map(([time, amount]) => ({ time, amount }))
                     .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())

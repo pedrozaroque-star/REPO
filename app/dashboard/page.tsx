@@ -28,6 +28,8 @@ function DashboardContent() {
     })
     const [loading, setLoading] = useState(true)
     const [timeFilter, setTimeFilter] = useState('month')
+    const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0])
+    const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
     const [selectedFeedback, setSelectedFeedback] = useState<any>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [user, setUser] = useState<any>(null)
@@ -61,26 +63,48 @@ function DashboardContent() {
         // Ejecutar carga inicial
         fetchStats()
 
-        // Auto-refresh cada 30 segundos
-        const interval = setInterval(fetchStats, 30000)
-        return () => clearInterval(interval)
-    }, [router, timeFilter])
+        // Auto-refresh cada 30 segundos (solo si no es custom range, para evitar refreshes molestos mientras editas fechas)
+        if (timeFilter !== 'custom') {
+            const interval = setInterval(fetchStats, 30000)
+            return () => clearInterval(interval)
+        }
+    }, [router, timeFilter, startDate, endDate]) // Re-run when dates change if in custom mode
 
-    const getDateFilter = (filter: string) => {
+    const getDateRange = (filter: string) => {
         const now = new Date()
-        now.setHours(0, 0, 0, 0)
+        const end = new Date(now)
+        let start = new Date(now)
+
+        if (filter === 'custom') {
+            return {
+                start: startDate ? new Date(startDate) : new Date(now.setHours(0, 0, 0, 0)),
+                end: endDate ? new Date(endDate) : new Date(now)
+            }
+        }
+
+        // Reset hours for standard filters
+        start.setHours(0, 0, 0, 0)
 
         switch (filter) {
-            case 'today': return now.toISOString()
+            case 'today':
+                // Start is today 00:00, End is now
+                break
             case 'week':
                 const day = now.getDay()
                 const diff = now.getDate() - day + (day === 0 ? -6 : 1)
-                const monday = new Date(now.setDate(diff))
-                return monday.toISOString()
-            case 'month': return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-            case 'year': return new Date(now.getFullYear(), 0, 1).toISOString()
-            default: return null
+                start.setDate(diff)
+                break
+            case 'month':
+                start.setDate(1)
+                break
+            case 'year':
+                start.setMonth(0, 1)
+                break
+            case 'all':
+                start = new Date('2020-01-01') // Way back
+                break
         }
+        return { start, end }
     }
 
     const fetchStats = async () => {
@@ -94,7 +118,13 @@ function DashboardContent() {
 
 
 
-            const startDate = getDateFilter(timeFilter)
+            const { start, end } = getDateRange(timeFilter)
+            const startIso = start.toISOString() // full ISO
+            const endIso = end.toISOString()   // full ISO for filters that support time
+
+            // For date-only columns (inspection_date)
+            const startDateStr = startIso.split('T')[0]
+            const endDateStr = endIso.split('T')[0]
 
             // 1. Inspecciones Query
             let queryInspections = supabase
@@ -110,9 +140,16 @@ function DashboardContent() {
                 .order('created_at', { ascending: false })
                 .limit(500)
 
-            if (startDate) {
-                const dateOnly = startDate.split('T')[0]
-                queryInspections = queryInspections.gte('inspection_date', dateOnly)
+            if (timeFilter !== 'all') {
+                if (timeFilter === 'custom') {
+                    // Inclusive range
+                    queryInspections = queryInspections
+                        .gte('inspection_date', startDateStr)
+                        .lte('inspection_date', endDateStr)
+                } else {
+                    // Standard filters: usually "from start of period until now"
+                    queryInspections = queryInspections.gte('inspection_date', startDateStr)
+                }
             }
 
             const { data: inspections } = await queryInspections
@@ -189,8 +226,19 @@ function DashboardContent() {
                 .order('submission_date', { ascending: false })
                 .limit(500)
 
-            if (startDate) {
-                queryFeedback = queryFeedback.gte('submission_date', startDate)
+            if (timeFilter !== 'all') {
+                if (timeFilter === 'custom') {
+                    // For timestamps, make sure end covers the whole day using explicit string construction
+                    // endDateStr is YYYY-MM-DD from the input/state. We apppend end of day time.
+                    // This avoids timezone shifting issues with Date.setHours on UTC dates.
+                    const endFullDayIso = `${endDateStr}T23:59:59.999Z`
+
+                    queryFeedback = queryFeedback
+                        .gte('submission_date', startIso)
+                        .lte('submission_date', endFullDayIso)
+                } else {
+                    queryFeedback = queryFeedback.gte('submission_date', startIso)
+                }
             }
 
             const { data: feedbacksRaw } = await queryFeedback
@@ -277,11 +325,29 @@ function DashboardContent() {
                     <div className="hidden lg:flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                         {[
                             { id: 'all', label: 'Todo' }, { id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' },
-                            { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' },
+                            { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }, { id: 'custom', label: 'Rango' }
                         ].map((filter) => (
                             <button key={filter.id} onClick={() => setTimeFilter(filter.id)} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400'}`}>{filter.label}</button>
                         ))}
                     </div>
+
+                    {timeFilter === 'custom' && (
+                        <div className="hidden lg:flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl ml-2 animate-in slide-in-from-left-2">
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="bg-white dark:bg-slate-900 border-none rounded-lg px-2 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                            <span className="text-slate-400 font-bold text-xs">-</span>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="bg-white dark:bg-slate-900 border-none rounded-lg px-2 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                        </div>
+                    )}
                     <div className="hidden md:flex flex-col items-end">
                         <span className="text-[11px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-wider">Eficiencia Promedio</span>
                         <span className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -289,10 +355,19 @@ function DashboardContent() {
                         </span>
                     </div>
                 </div>
-                <div className="lg:hidden mt-3 flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl overflow-x-auto">
-                    {[{ id: 'all', label: 'Todo' }, { id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' }, { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }].map((filter) => (
-                        <button key={filter.id} onClick={() => setTimeFilter(filter.id)} className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 dark:text-slate-500 active:text-slate-600'}`}>{filter.label}</button>
-                    ))}
+                <div className="lg:hidden mt-3 gap-2 flex flex-col">
+                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl overflow-x-auto">
+                        {[{ id: 'all', label: 'Todo' }, { id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' }, { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }, { id: 'custom', label: 'Rango' }].map((filter) => (
+                            <button key={filter.id} onClick={() => setTimeFilter(filter.id)} className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 dark:text-slate-500 active:text-slate-600'}`}>{filter.label}</button>
+                        ))}
+                    </div>
+                    {timeFilter === 'custom' && (
+                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
+                            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs" />
+                            <span className="text-slate-400">-</span>
+                            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs" />
+                        </div>
+                    )}
                 </div>
             </header>
 

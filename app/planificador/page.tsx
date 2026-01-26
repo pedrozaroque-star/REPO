@@ -25,6 +25,7 @@ import { useWeeklyStats } from './hooks/useWeeklyStats'
 import { useSmartProjections } from './hooks/useSmartProjections'
 import { useVisibleEmployees } from './hooks/useVisibleEmployees'
 import { useWeather } from './hooks/useWeather'
+import { useActualStats } from './hooks/useActualStats' // NEW
 import { WeatherIcon } from './components/WeatherIcon'
 import { User as UserIcon } from 'lucide-react'
 
@@ -86,6 +87,7 @@ export default function SchedulePlanner() {
     const { projections, setProjections, calculateProjections, isGenerating: isCalcProjections } = useSmartProjections(storeGuid, weekStart)
     const visibleEmployees: Employee[] = useVisibleEmployees(employees, shifts, jobs)
     const { weather } = useWeather(storeGuid)
+    const { actuals, loading: loadingActuals, refetch: refetchActuals } = useActualStats(storeGuid, weekStart) // NEW
 
     // Aggregated Daily Stats for Budget Tool
     const dailyLaborStats = useMemo(() => {
@@ -233,8 +235,22 @@ export default function SchedulePlanner() {
 
         if (shiftData) setShifts(shiftData)
 
-        // Calculate Projections (Client Side for Footer)
-        calculateProjections()
+        // Check for Saved Budget (Snapshot)
+        const { data: savedBudget } = await supabase
+            .from('weekly_budgets')
+            .select('*')
+            .eq('store_id', storeGuid)
+            .eq('week_start', startStr)
+            .single()
+
+        if (savedBudget && savedBudget.sales_projections) {
+            // Use Saved Snapshot
+            console.log('Using saved budget snapshot')
+            setProjections(savedBudget.sales_projections)
+        } else {
+            // Calculate Fresh Projections (Client Side for Footer)
+            calculateProjections()
+        }
 
         setSyncing(false)
     }
@@ -546,6 +562,17 @@ export default function SchedulePlanner() {
                             shift_ids: ids // NEW: Pass exact IDs to ensure we notify what we just updated
                         })
                     })
+
+                    // SAVE BUDGET SNAPSHOT
+                    const { error: budgetError } = await supabase.from('weekly_budgets').upsert({
+                        store_id: storeGuid,
+                        week_start: startStr,
+                        sales_projections: projections,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'store_id,week_start' })
+
+                    if (budgetError) console.error('Error saving budget snapshot:', budgetError)
+
                     toast.success('Publicado y notificado')
                 } catch (e: any) { toast.error(e.message) }
                 finally { setLoading(false) }
@@ -605,7 +632,7 @@ export default function SchedulePlanner() {
     if (loading) return <SurpriseLoader />
 
     return (
-        <div className="flex flex-col h-[calc(97.5vh-95px)] bg-gray-50 dark:bg-slate-950 overflow-hidden">
+        <div className="grid grid-rows-[auto_auto_1fr] h-[calc(97.5vh-95px)] bg-gray-50 dark:bg-slate-950 overflow-hidden">
             <ShiftModal
                 isOpen={modalConfig.isOpen}
                 onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
@@ -679,8 +706,8 @@ export default function SchedulePlanner() {
             />
 
             {/* MAIN GRID */}
-            <div className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-950 relative custom-scrollbar">
-                <div className="w-[99%] mx-auto min-h-full border-x border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+            <div className="overflow-auto bg-white dark:bg-slate-950 relative custom-scrollbar">
+                <div className="w-[99%] mx-auto border-x border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
                     <table className="w-full border-separate border-spacing-0 table-fixed">
                         <colgroup>
                             <col className="w-[25%] min-w-[300px]" />
@@ -698,10 +725,6 @@ export default function SchedulePlanner() {
                                 {weekDays.map((date, i) => {
                                     const dateStr = formatDateISO(date)
                                     const w = weather[dateStr]
-
-                                    if (i === 0 && Object.keys(weather).length > 0) {
-                                        console.log("MATCH CHECK:", dateStr, weather[dateStr], Object.keys(weather))
-                                    }
 
                                     // Staff Count logic
                                     const staffCount = new Set(
@@ -765,17 +788,21 @@ export default function SchedulePlanner() {
                             ))}
                         </Reorder.Group>
                     </table>
+
+                    {/* Budget Tool - Inside scroll container, always after last row */}
+                    <BudgetTool
+                        weekStart={weekStart}
+                        shifts={shifts}
+                        weeklyStats={shiftStats}
+                        laborStats={dailyLaborStats}
+                        projections={projections}
+                        setProjections={setProjections}
+                        actuals={actuals}
+                        storeId={storeGuid}
+                        onRefresh={refetchActuals}
+                    />
                 </div>
             </div>
-
-            <BudgetTool
-                weekStart={weekStart}
-                shifts={shifts}
-                weeklyStats={shiftStats}
-                laborStats={dailyLaborStats}
-                projections={projections}
-                setProjections={setProjections}
-            />
 
             <PrintModal
                 isOpen={isPrintModalOpen}

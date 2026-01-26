@@ -31,6 +31,7 @@ function FeedbackContent() {
   const [loading, setLoading] = useState(true)
   const [storeFilter, setStoreFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all') // New Status Filter
+  const [sourceFilter, setSourceFilter] = useState('all') // Source Filter (Google vs Other)
   const [stores, setStores] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
 
@@ -53,12 +54,13 @@ function FeedbackContent() {
 
   useEffect(() => {
     // Reset page to 1 when filters change
+    // Reset page to 1 when filters change
     setPage(1)
-  }, [storeFilter, statusFilter])
+  }, [storeFilter, statusFilter, sourceFilter])
 
   useEffect(() => {
     if (user) fetchData()
-  }, [page, storeFilter, statusFilter, user])
+  }, [page, storeFilter, statusFilter, sourceFilter, user])
 
   // Identity Check Effect
   useEffect(() => {
@@ -137,6 +139,13 @@ function FeedbackContent() {
       // Apply Store Filter (DB Level)
       if (storeFilter !== 'all') {
         query = query.eq('store_id', storeFilter)
+      }
+
+      // Apply Source Filter
+      if (sourceFilter === 'google') {
+        query = query.eq('source', 'google')
+      } else if (sourceFilter === 'internal') {
+        query = query.neq('source', 'google')
       }
 
       // Apply Status Filter (DB Level)
@@ -356,6 +365,28 @@ function FeedbackContent() {
                 </button>
               </div>
 
+              {/* Source Filters (Web) */}
+              <div className="hidden md:flex items-center bg-black/20 p-1 rounded-xl backdrop-blur-sm border border-white/5">
+                <button
+                  onClick={() => setSourceFilter('all')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${sourceFilter === 'all' ? 'bg-indigo-600 text-white shadow-lg scale-105' : 'text-gray-400 hover:text-indigo-400 hover:bg-white/10'}`}
+                >
+                  Todo
+                </button>
+                <button
+                  onClick={() => setSourceFilter('google')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide flex items-center gap-1 ${sourceFilter === 'google' ? 'bg-white text-blue-600 shadow-lg scale-105' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+                >
+                  <GoogleLogo className="w-3 h-3" /> Google
+                </button>
+                <button
+                  onClick={() => setSourceFilter('internal')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${sourceFilter === 'internal' ? 'bg-orange-500 text-white shadow-lg scale-105' : 'text-gray-400 hover:text-orange-400 hover:bg-white/10'}`}
+                >
+                  Interno
+                </button>
+              </div>
+
               {/* Leaderboard Toggle Button */}
               <button
                 onClick={() => setIsLeaderboardOpen(true)}
@@ -404,6 +435,20 @@ function FeedbackContent() {
               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
                 <Filter size={16} />
               </div>
+            </div>
+
+            {/* Mobile Source Filter */}
+            <div className="flex bg-white dark:bg-slate-900 mt-2 p-1 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
+              <button onClick={() => setSourceFilter('all')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${sourceFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>Todo</button>
+              <button onClick={() => setSourceFilter('google')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase flex items-center justify-center gap-1 ${sourceFilter === 'google' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}><GoogleLogo className="w-3 h-3" /> Google</button>
+              <button onClick={() => setSourceFilter('internal')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${sourceFilter === 'internal' ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' : 'text-slate-400 dark:text-slate-500'}`}>Interno</button>
+            </div>
+
+            {/* Mobile Status Filter */}
+            <div className="flex bg-white dark:bg-slate-900 mt-2 p-1 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
+              <button onClick={() => setStatusFilter('all')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>Todos</button>
+              <button onClick={() => setStatusFilter('pendiente')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'pendiente' ? 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400' : 'text-slate-400 dark:text-slate-500'}`}>Pendientes</button>
+              <button onClick={() => setStatusFilter('cerrado')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'cerrado' ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>Cerrados</button>
             </div>
           </div>
 

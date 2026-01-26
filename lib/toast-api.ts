@@ -24,6 +24,7 @@ export interface ToastMetricsOptions {
     startDate: string
     endDate: string
     groupBy: 'day' | 'week' | 'month' | 'year'
+    skipCache?: boolean
 }
 
 export interface MetricRow {
@@ -449,10 +450,8 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
         }
     } catch (e: any) {
         logDebug(`Detailed Sales Error [${storeId}]:`, e.message)
-        return {
-            netSales: 0, grossSales: 0, discounts: 0, tips: 0, taxes: 0, serviceCharges: 0,
-            orders: 0, guests: 0, hours: 0, hourlySales: {}
-        }
+        // RETHROW to debug live sync issues
+        throw new Error(`Toast API Error (${storeId}): ${e.message}`)
     }
 }
 
@@ -590,7 +589,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
     // We now allow cache even for single days (isHourly) to speed up "Yesterday" or specific past dates.
     // The trade-off is we lose real hourly granularity for that specific day from cache, but gain massive speed.
     try {
-        if (true) {
+        if (!options.skipCache) {
             try {
                 const supabase = await getSupabaseClient()
 
@@ -813,11 +812,9 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
             const yesterdayStrCache = yesterdayForCache.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
 
             const toCache = results.filter(r => {
-                const isToday = r.date === todayStr
-                // If it's yesterday, only cache if it's 6 AM or later
-                const isYesterdayEarly = r.date === yesterdayStrCache && laHourForCache < 6
-
-                return !r.fromCache && !isToday && !isYesterdayEarly
+                // We NOW allow Today to be cached for Real-Time Dashboard support.
+                // The nightly cron will eventually overwrite this with the final numbers.
+                return !r.fromCache
             })
 
             if (toCache.length > 0) {
@@ -847,7 +844,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // Upsert in chunks of 50 to avoid URL length issues
                 for (let i = 0; i < rowsForCache.length; i += 50) {
                     const chunk = rowsForCache.slice(i, i + 50)
-                    const { error: upsertError } = await supabase.from('sales_daily_cache').upsert(chunk)
+                    const { error: upsertError } = await supabase.from('sales_daily_cache').upsert(chunk, { onConflict: 'store_id, business_date' })
                     if (upsertError) {
                         console.error('CRITICAL CACHE UPSERT ERROR:', JSON.stringify(upsertError, null, 2))
                     } else {

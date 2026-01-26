@@ -444,3 +444,8 @@
 [2026-01-25T21:40:10.736Z] Labor Fetch Error for 80a1ec95-bc73-402e-8884-e5abbe9343e6 "fetch failed"
 [2026-01-25T21:40:10.741Z] Labor Fetch Error for 475bc112-187d-4b9c-884d-1f6a041698ce "fetch failed"
 [2026-01-25T21:40:10.744Z] Labor Fetch Error for 80a1ec95-bc73-402e-8884-e5abbe9343e6 "fetch failed"
+[2026-01-25T22:18:12.584Z] Labor Fetch Error for 80a1ec95-bc73-402e-8884-e5abbe9343e6 "This operation was aborted"
+[2026-01-26T20:54:42.812Z] Labor Fetch Error for 475bc112-187d-4b9c-884d-1f6a041698ce "This operation was aborted"
+[2026-01-26T21:07:18.770Z] Detailed Sales Error [8685e942-3f07-403a-afb6-faec697cd2cb]: "This operation was aborted"
+[2026-01-26T21:07:18.782Z] CRASH PROCESSING DATA: "Toast API Error (8685e942-3f07-403a-afb6-faec697cd2cb): This operation was abortedError: Toast API Error (8685e942-3f07-403a-afb6-faec697cd2cb): This operation was aborted\n    at getSalesForStore (C:\\Users\\pedro\\Desktop\\teg-modernizado\\lib\\toast-api.ts:454:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async processStoreDate (C:\\Users\\pedro\\Desktop\\teg-modernizado\\lib\\toast-api.ts:712:39)\n    at async Promise.all (index 0)\n    at async fetchToastData (C:\\Users\\pedro\\Desktop\\teg-modernizado\\lib\\toast-api.ts:802:34)\n    at async <anonymous> (C:\\Users\\pedro\\Desktop\\teg-modernizado\\scripts\\backfill-gap-2025.ts:74:36)\n    at async Promise.all (index 3)\n    at async runBackfill2025 (C:\\Users\\pedro\\Desktop\\teg-modernizado\\scripts\\backfill-gap-2025.ts:69:13)"
+[2026-01-26T21:07:18.784Z] OUTER CATCH ERROR: "Toast API Error (8685e942-3f07-403a-afb6-faec697cd2cb): This operation was aborted"

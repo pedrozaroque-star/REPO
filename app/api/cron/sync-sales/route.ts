@@ -31,7 +31,8 @@ export async function GET(request: Request) {
             storeIds: 'all',
             startDate: dateStr,
             endDate: dateStr,
-            groupBy: 'day'
+            groupBy: 'day',
+            skipCache: true
         })
 
         if (connectionError) {

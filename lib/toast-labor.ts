@@ -155,24 +155,38 @@ export async function syncToastPunches(storeId: string, startDate: string, endDa
 
     try {
         console.log(`Syncing punches for store ${storeId} [${startDate} to ${endDate}]`)
-        // Using encodeURIComponent as per Toast protocol for dates with +0000
-        const url = `${TOAST_API_HOST}/labor/v1/timeEntries?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`
 
-        const res = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Toast-Restaurant-External-ID': storeId
+        let allPunches: any[] = []
+        let page = 1
+        let hasMore = true
+
+        while (hasMore) {
+            const url = `${TOAST_API_HOST}/labor/v1/timeEntries?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&page=${page}&pageSize=100`
+
+            const res = await fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Toast-Restaurant-External-ID': storeId
+                }
+            })
+
+            if (!res.ok) throw new Error(`Failed to fetch punches page ${page}: ${res.status} ${await res.text()}`)
+            const data = await res.json()
+
+            if (Array.isArray(data) && data.length > 0) {
+                allPunches = [...allPunches, ...data]
+                console.log(`Fetched page ${page}: ${data.length} punches`)
+                if (data.length < 100) hasMore = false
+                else page++
+            } else {
+                hasMore = false
             }
-        })
+        }
 
-        if (!res.ok) throw new Error(`Failed to fetch punches: ${res.status} ${await res.text()}`)
-        const data = await res.json()
-        const punches = Array.isArray(data) ? data : []
+        console.log(`Total fetched: ${allPunches.length} punches from Toast`)
 
-        console.log(`Fetched ${punches.length} raw punches from Toast`)
-
-        // Prepare for DB
-        const upsertData = punches.map((p: any) => ({
+        // Prepare for DB - Include hours from Toast response
+        const upsertData = allPunches.map((p: any) => ({
             toast_id: p.guid,
             employee_toast_guid: p.employeeReference?.guid,
             job_toast_guid: p.jobReference?.guid,
@@ -180,6 +194,9 @@ export async function syncToastPunches(storeId: string, startDate: string, endDa
             clock_in: p.inDate,
             clock_out: p.outDate,
             business_date: p.businessDate ? `${p.businessDate.slice(0, 4)}-${p.businessDate.slice(4, 6)}-${p.businessDate.slice(6, 8)}` : null,
+            regular_hours: p.regularHours || 0,
+            overtime_hours: p.overtimeHours || 0,
+            hourly_wage: p.hourlyWage || null,
             last_updated: new Date().toISOString()
         }))
 
