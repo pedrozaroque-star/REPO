@@ -1472,7 +1472,6 @@ function ScheduleManager() {
                                                     <div className="flex flex-col">
                                                         <span className="font-black text-gray-900 dark:text-white text-xl flex items-center gap-1">
                                                             {supervisorUser.full_name}
-                                                            <span className="text-amber-500 text-base">👑</span>
                                                         </span>
                                                         <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/50 px-2 py-0.5 rounded w-fit mt-0.5">SUPERVISOR DE ZONA</span>
                                                     </div>
@@ -1647,7 +1646,6 @@ function ScheduleManager() {
                                                                             <div className="flex flex-col">
                                                                                 <span className="font-medium text-gray-900 dark:text-white text-lg flex items-center gap-1">
                                                                                     {user.full_name}
-                                                                                    {['manager'].some(r => user.role.toLowerCase().includes(r)) && <span className="text-amber-500">👑</span>}
                                                                                 </span>
                                                                                 <span className="text-[11px] font-medium text-gray-400 dark:text-slate-500 uppercase tracking-widest bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded w-fit mt-1">{user.role}</span>
                                                                             </div>

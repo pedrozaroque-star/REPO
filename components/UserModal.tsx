@@ -85,7 +85,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
       e.preventDefault()
       e.stopPropagation()
     }
-    console.log('🔄 Toggling active state. New state:', !formData.is_active)
+    // console.log('🔄 Toggling active state. New state:', !formData.is_active)
     setFormData(prev => ({ ...prev, is_active: !prev.is_active }))
   }
 
@@ -129,7 +129,6 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
     // Limpiar campos auxiliares antes de enviar
     const { confirmPassword, ...dataToSend } = formData
-    console.log('🔄 Modal enviando is_active:', dataToSend.is_active, 'Tipo:', typeof dataToSend.is_active)
     onSave({ ...dataToSend, id: initialData?.id }, !!initialData)
   }
 

@@ -84,13 +84,12 @@ function UsuariosPage() {
         ...(formData.password && formData.password.trim() !== '' ? { password: formData.password } : {})
       }
 
-      console.log('💾 Guardando usuario con is_active:', cleanData.is_active)
+
 
       if (isEdit) {
         // A. ACTUALIZAR USUARIO EXISTENTE
 
-        console.log('📝 Datos completos a actualizar:', cleanData)
-        console.log('🔑 ID del usuario a actualizar:', formData.id, 'Tipo:', typeof formData.id)
+
 
         // Usar API route del servidor (tiene acceso al service_role key)
         const response = await fetch('/api/admin/update-user', {
@@ -145,7 +144,7 @@ function UsuariosPage() {
 
             if (!response.ok) {
               // Solo avisar si es un error real, no un skip
-              console.warn('Sync Auth warning:', await response.json())
+              // console.warn('Sync Auth warning:', await response.json())
             }
           } catch (syncErr) {
             // Silencio total para no molestar user
