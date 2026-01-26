@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
         // 1. Sync Sales
         const salesPromise = fetchToastData({
-            storeIds: storeId ? [storeId] : 'all',
+            storeIds: storeId ? storeId : 'all',
             startDate: todayStr,
             endDate: todayStr,
             groupBy: 'day'
