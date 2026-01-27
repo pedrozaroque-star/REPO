@@ -122,12 +122,12 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
       const supabase = await getSupabaseClient()
       const { error: uploadError } = await supabase.storage
-        .from('checklists')
+        .from('checklist-photos')
         .upload(fileName, fileToUpload)
 
       if (uploadError) throw uploadError
 
-      const { data } = supabase.storage.from('checklists').getPublicUrl(fileName)
+      const { data } = supabase.storage.from('checklist-photos').getPublicUrl(fileName)
 
       if (data?.publicUrl) {
         setInspectorPhoto(data.publicUrl)
@@ -660,8 +660,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             onClick={validateLocation}
             disabled={validatingLocation || loading || completionStatus.percent < 95}
             className={`pointer-events-auto px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(37,99,235,0.4)] font-black text-lg flex items-center gap-3 border-2 border-white/20 transition-all ${completionStatus.percent >= 95
-                ? 'bg-blue-600 text-white hover:bg-blue-700 animate-pulse'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed border-gray-200 shadow-none grayscale'
+              ? 'bg-blue-600 text-white hover:bg-blue-700 animate-pulse'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed border-gray-200 shadow-none grayscale'
               }`}
           >
             {validatingLocation ? (
