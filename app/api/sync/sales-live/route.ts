@@ -11,24 +11,29 @@ export async function POST(request: Request) {
         // DEBUG: Force Lynwood ID to rule out payload issues
         const { storeId } = body
 
-        // Robust YYYY-MM-DD in LA Time
+        // Robust YYYY-MM-DD in LA Time with Business Day Awareness
         const now = new Date()
-        const laDate = now.toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
-        const [mm, dd, yyyy] = laDate.split('/')
+        const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+
+        // If < 4 AM, belongs to Previous Business Day
+        if (laTime.getHours() < 4) {
+            laTime.setDate(laTime.getDate() - 1)
+        }
+
+        const yyyy = laTime.getFullYear()
+        const mm = String(laTime.getMonth() + 1).padStart(2, '0')
+        const dd = String(laTime.getDate()).padStart(2, '0')
         const todayStr = `${yyyy}-${mm}-${dd}`
 
-        // Calculate Next Day for the End Range to cover full LA Business Day
-        // Midnight LA (00:00) is 08:00 UTC.
-        // End of Day LA (23:59) is 07:59 UTC Next Day.
-        // To be safe, we query until Noon UTC next day.
-        const tomorrow = new Date(now)
-        tomorrow.setDate(tomorrow.getDate() + 1)
-        const laTomorrow = tomorrow.toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
-        const [mm2, dd2, yyyy2] = laTomorrow.split('/')
+        // Calculate Next Day for the End Range
+        const nextDay = new Date(laTime)
+        nextDay.setDate(nextDay.getDate() + 1)
+        const yyyy2 = nextDay.getFullYear()
+        const mm2 = String(nextDay.getMonth() + 1).padStart(2, '0')
+        const dd2 = String(nextDay.getDate()).padStart(2, '0')
         const tomorrowStr = `${yyyy2}-${mm2}-${dd2}`
 
-        // Range: From 00:00 UTC (4pm Prev Day LA) to 12:00 UTC Next Day (4am Next Day LA)
-        // This safely covers the entire operating window.
+        // Range: From 00:00 UTC (Business Day Start - Buffer) to 12:00 UTC Next Day (4am LA Next Day)
         const startIso = `${todayStr}T00:00:00.000+0000`
         const endIso = `${tomorrowStr}T12:00:00.000+0000`
 

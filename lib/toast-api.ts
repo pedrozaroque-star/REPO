@@ -260,7 +260,9 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             url.searchParams.append('fields', fields)
 
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 15000) // 15s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 25000) // 25s timeout
+
+            console.log(`[FastMode] Fetching for ${storeId} (Fast=${fastMode})`)
 
             const res = await fetch(url.toString(), {
                 signal: controller.signal,
@@ -271,7 +273,11 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             })
             clearTimeout(timeoutId)
 
-            if (!res.ok) break
+            if (!res.ok) {
+                const errTxt = await res.text().catch(() => 'No Body')
+                console.error(`[FastMode] ERROR ${res.status}: ${errTxt}`)
+                break
+            }
 
             const data = await res.json()
             const orders = Array.isArray(data) ? data : []
@@ -622,9 +628,10 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
 
     // USE REAL STORES IF AVAILABLE, ELSE MOCK
     const storesToUse = realStores.length > 0 ? realStores : TOAST_STORES_MOCK
+    const targetIds = String(options.storeIds)
     const storeList = options.storeIds === 'all'
         ? storesToUse
-        : storesToUse.filter(s => options.storeIds.includes(s.id))
+        : storesToUse.filter(s => targetIds.includes(s.id))
 
     console.log(`🔍 [DEBUG] Auth Token: ${!!token}`)
     console.log(`🔍 [DEBUG] Usando Tiendas: ${realStores.length > 0 ? 'REALES (API)' : 'MOCK (Locales)'}`)
