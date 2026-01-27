@@ -29,7 +29,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
         return `${y}-${m}-${d}`
     }
 
-    const handleSync = async () => {
+    const handleSync = async (force?: boolean) => {
         if (!onRefresh || isSyncing) return
         setIsSyncing(true)
         try {
