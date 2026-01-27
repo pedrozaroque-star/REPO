@@ -1112,62 +1112,91 @@ export default function ReportesPage() {
                                 {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
                             </select>
 
-                            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                                <span className="text-[10px] font-bold text-slate-400 upper">LABOR %</span>
-                                <input
-                                    type="number"
-                                    value={targetLaborPct}
-                                    onChange={(e) => setTargetLaborPct(Number(e.target.value))}
-                                    className="w-10 bg-transparent text-sm font-black text-indigo-600 outline-none"
-                                />
-                            </div>
 
-                            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                                <span className="text-[10px] font-bold text-slate-400 upper">SPLH GOAL</span>
-                                <input
-                                    type="number"
-                                    value={targetSPLH}
-                                    onChange={(e) => setTargetSPLH(Number(e.target.value))}
-                                    className="w-10 bg-transparent text-sm font-black text-emerald-600 outline-none"
-                                />
-                            </div>
 
-                            <div className="relative group">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <Calendar size={14} className="text-slate-400" />
-                                </div>
-                                {activeTab === 'monthly' ? (
-                                    <input
-                                        type="month"
-                                        id="month-picker"
-                                        value={weekDate ? weekDate.substring(0, 7) : ''}
-                                        onChange={handleWeekDateChange}
-                                        onClick={(e) => (e.target as any).showPicker?.()}
-                                        className="absolute inset-0 opacity-0 cursor-pointer z-20 w-full h-full"
-                                    />
-                                ) : (
-                                    <input
-                                        type="date"
-                                        id="week-picker"
-                                        value={weekDate}
-                                        onChange={handleWeekDateChange}
-                                        onClick={(e) => (e.target as any).showPicker?.()}
-                                        className="absolute inset-0 opacity-0 cursor-pointer z-20 w-full h-full"
-                                    />
-                                )}
-                                <div className="pl-9 pr-3 py-2 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-black text-slate-700 dark:text-slate-200 flex items-center min-w-[140px] group-hover:bg-slate-200 dark:group-hover:bg-slate-900 transition-colors focus-within:ring-2 focus-within:ring-indigo-500">
-                                    {weekDate ? (
-                                        (() => {
-                                            if (activeTab === 'monthly') {
-                                                const [y, m] = weekDate.split('-')
-                                                const date = new Date(parseInt(y), parseInt(m) - 1);
-                                                return date.toLocaleString('default', { month: 'long', year: 'numeric' });
-                                            }
-                                            const [y, m, d] = weekDate.split('-');
-                                            return `${m}/${d}/${y}`;
-                                        })()
+                            <div className="flex items-center bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 p-1">
+                                <select
+                                    className="bg-transparent text-sm font-bold text-slate-700 dark:text-slate-200 outline-none px-3 py-1.5 cursor-pointer max-w-[140px]"
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === 'custom') return;
+
+                                        const now = new Date();
+                                        const getMonday = (d: Date) => {
+                                            const day = d.getDay();
+                                            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                                            const monday = new Date(d);
+                                            monday.setDate(diff);
+                                            return monday;
+                                        };
+
+                                        let newDate = '';
+                                        if (val === 'this_week') {
+                                            const m = getMonday(new Date());
+                                            newDate = m.toISOString().split('T')[0];
+                                            setActiveTab('ops'); // Auto-switch to Ops for weekly views
+                                        } else if (val === 'last_7_days') { // Last 7 Days logic (Custom range? Standardizing to Last Week for now or literally last 7 days?) 
+                                            // For 'Last 7 Days', usually implies rolling window. But report structure is fixed Mon-Sun.
+                                            // Let's treat it as 'Last Week' alias or previous 7 days from today?
+                                            // User asked for "Last 7 Days". Let's map it to "Last Week" logic for grid consistency or implement rolling?
+                                            // Grid is Mon-Sun. Let's map to Last Week to keep grid safe.
+                                            const d = new Date();
+                                            d.setDate(d.getDate() - 7);
+                                            const m = getMonday(d);
+                                            newDate = m.toISOString().split('T')[0];
+                                            setActiveTab('ops');
+                                        } else if (val === 'last_week') {
+                                            const d = new Date();
+                                            d.setDate(d.getDate() - 7);
+                                            const m = getMonday(d);
+                                            newDate = m.toISOString().split('T')[0];
+                                            setActiveTab('ops');
+                                        } else if (val === 'this_month') {
+                                            const y = now.getFullYear();
+                                            const m = String(now.getMonth() + 1).padStart(2, '0');
+                                            newDate = `${y}-${m}-01`;
+                                            setActiveTab('monthly');
+                                        } else if (val === 'last_month') {
+                                            now.setMonth(now.getMonth() - 1); // Go back 1 month
+                                            const y = now.getFullYear();
+                                            const m = String(now.getMonth() + 1).padStart(2, '0');
+                                            newDate = `${y}-${m}-01`;
+                                            setActiveTab('monthly');
+                                        }
+
+                                        if (newDate) setWeekDate(newDate);
+                                    }}
+                                    defaultValue="custom"
+                                >
+                                    <option value="custom" disabled hidden>Select Range</option>
+                                    <option value="this_week">This Week</option>
+                                    <option value="last_7_days">Last 7 Days</option>
+                                    <option value="last_week">Last Week</option>
+                                    <option value="this_month">This Month</option>
+                                    <option value="last_month">Last Month</option>
+                                    <option value="custom">Custom Date</option>
+                                </select>
+
+                                <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1"></div>
+
+                                <div className="relative group px-2">
+                                    <Calendar size={18} className="text-slate-400 group-hover:text-indigo-500 transition-colors cursor-pointer" />
+                                    {activeTab === 'monthly' ? (
+                                        <input
+                                            type="month"
+                                            value={weekDate ? weekDate.substring(0, 7) : ''}
+                                            onChange={handleWeekDateChange}
+                                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                            title="Seleccionar Mes"
+                                        />
                                     ) : (
-                                        <span className="text-slate-400 font-bold uppercase text-[10px]">{activeTab === 'monthly' ? 'Pick Mo.' : 'Week'}</span>
+                                        <input
+                                            type="date"
+                                            value={weekDate}
+                                            onChange={handleWeekDateChange}
+                                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                            title="Seleccionar Fecha Específica"
+                                        />
                                     )}
                                 </div>
                             </div>
