@@ -104,9 +104,9 @@ async function auditYesterday() {
         })
 
         if (liveData.rows.length > 0) {
-            const liveSales = liveData.rows[0].net_sales
+            const liveSales = liveData.rows[0].netSales
             // Find cache row
-            const cacheRow = cacheRows.find(r => r.store_id === sampleStoreId)
+            const cacheRow = cacheRows?.find(r => r.store_id === sampleStoreId)
             const cacheSales = cacheRow ? cacheRow.net_sales : 0
 
             console.log(`   - LIVE Toast Net Sales: $${liveSales}`)
