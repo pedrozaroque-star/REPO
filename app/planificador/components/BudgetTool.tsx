@@ -102,7 +102,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
     }
 
     return (
-        <div className="sticky bottom-4 z-40 mx-4 rounded-xl rounded-t-lg bg-gray-50/98 dark:bg-slate-900/98 backdrop-blur-md border-x border-b border-t-4 border-gray-200 border-t-indigo-500 dark:border-slate-600 dark:border-t-indigo-500 shadow-[0_0_60px_15px_rgba(0,0,0,0.5)] dark:shadow-[0_0_60px_20px_rgba(0,0,0,0.9)] font-sans text-xs ring-1 ring-black/5 dark:ring-white/10 transition-all duration-500">
+        <div className="sticky bottom-4 z-40 mx-4 rounded-xl rounded-t-lg bg-gray-50/98 dark:bg-slate-900/98 backdrop-blur-md border-x border-b border-t-4 border-gray-200 border-t-indigo-500 dark:border-slate-600 dark:border-t-indigo-500 shadow-[0_0_70px_20px_rgba(0,0,0,0.65)] dark:shadow-[0_0_80px_20px_rgba(0,0,0,0.95)] font-sans text-xs ring-1 ring-black/5 dark:ring-white/10 transition-all duration-500">
             {/* Handle - 3D Button Style */}
             {/* Handle - 3D Button Style */}
             <div
