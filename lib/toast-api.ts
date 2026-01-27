@@ -327,7 +327,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                             let checkSvc = 0
                             check.serviceCharges?.forEach((s: any) => checkSvc += Number(s.amount || 0))
 
-                            let checkNet = checkAmt - checkTax - checkTip + checkSvc
+                            let checkNet = checkAmt - checkTax - checkTip // Removed checkSvc (Gratuity is not Revenue)
 
                             net += checkNet
                             orderNetCalc += checkNet
@@ -346,7 +346,12 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                             }
                         })
 
-
+                        // RESTORED: Add Order Level Service Charges (Delivery Fees = Revenue)
+                        order.serviceCharges?.forEach((s: any) => {
+                            const sAmt = Number(s.amount || 0)
+                            net += sAmt
+                            if (hour >= 0 && hour < 24) hourlySales[hour] = (hourlySales[hour] || 0) + sAmt
+                        })
 
                     } else {
                         // --- FULL PRECISION LOGIC ---
