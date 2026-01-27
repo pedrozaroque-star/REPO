@@ -14,6 +14,8 @@ interface Store {
   id: string
   name: string
   code?: string
+  latitude?: number
+  longitude?: number
 }
 
 export default function InspectionForm({ user, initialData, stores }: { user: any, initialData?: any, stores: Store[] }) {
@@ -38,6 +40,16 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   const [questionComments, setQuestionComments] = useState<{ [key: string]: string }>({})
   const [questionPhotos, setQuestionPhotos] = useState<{ [key: string]: string[] }>({})
   const [startTime, setStartTime] = useState<string>('')
+
+  /* GEO-FENCING LOGIC */
+  const [locationValidated, setLocationValidated] = useState(false)
+  const [validatingLocation, setValidatingLocation] = useState(false)
+
+  // Reset validation when store changes
+  useEffect(() => {
+    setLocationValidated(false)
+  }, [formData.store_id])
+
 
   useEffect(() => {
     // Set start time on mount if not already set
@@ -273,10 +285,68 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   }
 
   if (checklistLoading && !initialData) return <div className="min-h-screen grid place-items-center bg-transparent"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
-
   const { overall } = calculateScores()
   const scoreColor = overall >= 87 ? 'text-green-600' : overall >= 70 ? 'text-orange-600' : 'text-red-600'
   const scoreBg = overall >= 87 ? 'bg-green-50 border-green-200' : overall >= 70 ? 'bg-orange-50 border-orange-200' : 'bg-red-50 border-red-200'
+
+  const validateLocation = () => {
+    if (!formData.store_id) return alert('Primero selecciona una sucursal.')
+
+    // Find selected store coordinates
+    const selectedStore = stores.find(s => s.id.toString() === formData.store_id)
+    if (!selectedStore || !selectedStore.latitude || !selectedStore.longitude) {
+      alert('Error: Esta sucursal no tiene coordenadas configuradas. Contacta a soporte.')
+      return
+    }
+
+    // Safely capture coordinates for closure
+    const storeLat = selectedStore.latitude
+    const storeLon = selectedStore.longitude
+
+    setValidatingLocation(true)
+
+    if (!navigator.geolocation) {
+      setValidatingLocation(false)
+      return alert('Tu dispositivo no soporta geolocalización o está desactivada.')
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const userLat = position.coords.latitude
+        const userLon = position.coords.longitude
+
+        // Haversine Formula
+        const R = 6371e3 // Earth radius in meters
+        const dLat = (storeLat - userLat) * (Math.PI / 180)
+        const dLon = (storeLon - userLon) * (Math.PI / 180)
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(userLat * (Math.PI / 180)) * Math.cos(storeLat * (Math.PI / 180)) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        const distance = R * c // Distance in meters
+
+        setValidatingLocation(false)
+
+        if (distance <= 100) {
+          setLocationValidated(true)
+          // alert(`✅ Ubicación validada! Estás a ${Math.round(distance)}m de la tienda.`)
+        } else {
+          alert(`🚫 ESTÁS LEJOS DE LA TIENDA\n\nDistancia detectada: ${Math.round(distance)} metros.\nLímite permitido: 100 metros.\n\nAsegúrate de estar en el restaurante.`)
+        }
+      },
+      (error) => {
+        setValidatingLocation(false)
+        console.error(error)
+        let msg = 'Error obteniendo ubicación.'
+        if (error.code === 1) msg = 'Permiso de ubicación denegado. Actívalo en tu navegador.'
+        else if (error.code === 2) msg = 'Ubicación no disponible (GPS débil).'
+        else if (error.code === 3) msg = 'Tiempo de espera agotado obteniendo GPS.'
+        alert(msg)
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  }
 
   return (
     <div className="min-h-screen bg-transparent pb-32 font-sans selection:bg-blue-200 selection:text-blue-900">
@@ -412,21 +482,41 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
       {/* Floating Action Button */}
       <div className="fixed bottom-8 left-0 right-0 z-50 flex justify-center pointer-events-none">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={handleSubmit}
-          disabled={loading}
-          className="pointer-events-auto bg-gray-900 text-white px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(0,0,0,0.4)] font-black text-lg flex items-center gap-3 hover:bg-black transition-colors disabled:opacity-50 disabled:scale-100 border-2 border-white/20"
-        >
-          {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> :
-            <>
-              <span>FINALIZAR INSPECCIÓN</span>
-              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-                <Send size={14} />
-              </div>
-            </>}
-        </motion.button>
+        {locationValidated ? (
+          /* SUBMIT BUTTON (Enabled only after GPS validation) */
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleSubmit}
+            disabled={loading}
+            className="pointer-events-auto bg-gray-900 text-white px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(0,0,0,0.4)] font-black text-lg flex items-center gap-3 hover:bg-black transition-colors disabled:opacity-50 disabled:scale-100 border-2 border-white/20"
+          >
+            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> :
+              <>
+                <span>FINALIZAR INSPECCIÓN</span>
+                <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                  <Send size={14} />
+                </div>
+              </>}
+          </motion.button>
+        ) : (
+          /* VALIDATE LOCATION BUTTON */
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={validateLocation}
+            disabled={validatingLocation || loading}
+            className="pointer-events-auto bg-blue-600 text-white px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(37,99,235,0.4)] font-black text-lg flex items-center gap-3 hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:scale-100 border-2 border-white/20 animate-pulse"
+          >
+            {validatingLocation ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> :
+              <>
+                <span>VALIDAR UBICACIÓN</span>
+                <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                  <MapPin size={16} />
+                </div>
+              </>}
+          </motion.button>
+        )}
       </div>
 
     </div>

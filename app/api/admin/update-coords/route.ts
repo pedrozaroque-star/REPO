@@ -1,12 +1,12 @@
 
-import { createClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
     try {
         const { storeId, lat, lon } = await request.json()
 
-        const supabase = await createClient()
+        const supabase = await getSupabaseAdminClient()
 
         // Update store coordinates
         const { error } = await supabase
