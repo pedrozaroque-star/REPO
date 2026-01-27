@@ -12,8 +12,8 @@ export function SystemUpdateDetector() {
     if (!hasUpdate) return null
 
     return (
-        <div className="fixed bottom-6 right-6 z-[99999]">
-            <div className="bg-slate-900/95 dark:bg-white/95 backdrop-blur-xl text-white dark:text-slate-900 p-1 pl-4 pr-1.5 rounded-full shadow-2xl flex items-center gap-4 border border-white/10 dark:border-slate-900/10 ring-1 ring-black/5 animate-in slide-in-from-bottom-5 fade-in duration-500">
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 md:left-auto md:right-6 -translate-x-1/2 md:translate-x-0 z-[99999]">
+            <div className="bg-slate-900/95 dark:bg-white/95 backdrop-blur-xl text-white dark:text-slate-900 p-1 pl-4 pr-1.5 rounded-full shadow-2xl flex items-center gap-4 border border-white/10 dark:border-slate-900/10 ring-1 ring-black/5 animate-in slide-in-from-bottom-5 fade-in duration-500 whitespace-nowrap">
 
                 <div className="flex items-center gap-3">
                     <div className="relative">
