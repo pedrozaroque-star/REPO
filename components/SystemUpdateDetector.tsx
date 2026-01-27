@@ -12,20 +12,20 @@ export function SystemUpdateDetector() {
     if (!hasUpdate) return null
 
     return (
-        <div className="fixed bottom-6 right-6 z-[9999] animate-bounce-subtle">
-            <div className="bg-slate-900/95 dark:bg-white/95 backdrop-blur-xl text-white dark:text-slate-900 p-1 pl-4 pr-1.5 rounded-full shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] flex items-center gap-4 border border-white/10 dark:border-slate-900/10 ring-1 ring-black/5 transition-all duration-300 hover:scale-105">
+        <div className="fixed bottom-6 right-6 z-[99999]">
+            <div className="bg-slate-900/95 dark:bg-white/95 backdrop-blur-xl text-white dark:text-slate-900 p-1 pl-4 pr-1.5 rounded-full shadow-2xl flex items-center gap-4 border border-white/10 dark:border-slate-900/10 ring-1 ring-black/5 animate-in slide-in-from-bottom-5 fade-in duration-500">
 
                 <div className="flex items-center gap-3">
                     <div className="relative">
-                        <Zap size={18} className="text-yellow-400 fill-yellow-400 animate-pulse" />
+                        <Zap size={18} className="text-yellow-400 fill-yellow-400" />
                         <span className="absolute -top-1 -right-1 flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
                         </span>
                     </div>
                     <div className="flex flex-col leading-tight">
-                        <span className="font-bold text-sm">Nueva versión disponible</span>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">Mejoras de rendimiento listas</span>
+                        <span className="font-bold text-sm">Actualización lista</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">Nueva versión disponible</span>
                     </div>
                 </div>
 
