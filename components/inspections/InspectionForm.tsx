@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, MoreHorizontal } from 'lucide-react'
+import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, MoreHorizontal, Trash2, CameraOff } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
@@ -90,6 +90,55 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     }
   }, [initialData, sections])
 
+  /* INSPECTOR SELFIE LOGIC */
+  const [inspectorPhoto, setInspectorPhoto] = useState<string | null>(initialData?.inspector_photo_url || null)
+  const [uploadingSelfie, setUploadingSelfie] = useState(false)
+
+  const handleInspectorPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return
+
+    setUploadingSelfie(true)
+    const file = e.target.files[0]
+
+    try {
+      // Compress
+      const options = {
+        maxSizeMB: 0.3,
+        maxWidthOrHeight: 720,
+        useWebWorker: true,
+        fileType: 'image/webp'
+      }
+
+      let fileToUpload = file
+      try {
+        const imageCompression = (await import('browser-image-compression')).default
+        fileToUpload = await imageCompression(file, options)
+      } catch (err) {
+        console.warn('Compression failed, using original', err)
+      }
+
+      const fileExt = 'webp'
+      const fileName = `inspector-evidence/${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+
+      const supabase = await getSupabaseClient()
+      const { error: uploadError } = await supabase.storage
+        .from('checklists')
+        .upload(fileName, fileToUpload)
+
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage.from('checklists').getPublicUrl(fileName)
+
+      if (data?.publicUrl) {
+        setInspectorPhoto(data.publicUrl)
+      }
+    } catch (error: any) {
+      alert('Error subiendo selfie: ' + error.message)
+    } finally {
+      setUploadingSelfie(false)
+    }
+  }
+
   const handleAnswer = (questionId: string, val: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: val }))
   }
@@ -100,6 +149,53 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   const handlePhotosChange = (questionId: string, urls: string[]) => {
     setQuestionPhotos(prev => ({ ...prev, [questionId]: urls }))
+  }
+
+  /* PROGRESS & NAVIGATION GUARD LOGIC */
+
+  // Calculate completion percentage
+  const completionStatus = useMemo(() => {
+    if (allQuestions.length === 0) return { answered: 0, total: 0, percent: 0 }
+
+    let answeredCount = 0
+    allQuestions.forEach(q => {
+      const val = answers[q.id]
+      // Check if answered (non-null/undefined for scores, non-empty for text)
+      const hasValue = val !== undefined && val !== null && (typeof val !== 'string' || val.trim().length > 0)
+      // Check photo requirement if applicable
+      const photoRequired = q.required_photo || q.type === 'photo'
+      const hasPhoto = !photoRequired || (questionPhotos[q.id] && questionPhotos[q.id].length > 0)
+
+      if (hasValue && hasPhoto) answeredCount++
+    })
+
+    return {
+      answered: answeredCount,
+      total: allQuestions.length,
+      percent: Math.round((answeredCount / allQuestions.length) * 100)
+    }
+  }, [answers, questionPhotos, allQuestions])
+
+  // Protect against accidental exit
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (completionStatus.answered > 0) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [completionStatus.answered])
+
+  const handleBack = () => {
+    if (completionStatus.answered > 0) {
+      if (confirm('⚠️ ¿Estás seguro de salir?\n\nPerderás todo el progreso de esta inspección no guardada.')) {
+        router.back()
+      }
+    } else {
+      router.back()
+    }
   }
 
   const calculateScores = () => {
@@ -133,6 +229,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
     if (!user) return alert('Sesión expirada')
     if (!formData.store_id) return alert('Selecciona una sucursal')
+
+    if (!inspectorPhoto) return alert('📸 Falta evidencia: Debes tomarte una selfie dentro de la tienda.')
 
     // Validation
     const missingAnswers = allQuestions.filter(q => {
@@ -211,6 +309,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         store_id: parseInt(formData.store_id),
         inspector_id: user.id,
         supervisor_name: user.name || user.email,
+        inspector_photo_url: inspectorPhoto, // New Evidence Field
         inspection_date: formData.inspection_date,
         inspection_time: formData.inspection_time, // Kept for legacy compatibility if needed
         start_time: startTime, // New Field
@@ -359,7 +458,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         <div className="pointer-events-auto bg-white/95 backdrop-blur-xl shadow-[0_4px_20px_rgb(0,0,0,0.12)] rounded-full px-3 py-2 flex items-center gap-4 border border-gray-200/50 max-w-2xl w-full justify-between ring-1 ring-black/5">
 
           <div className="flex items-center gap-3 pl-1">
-            <button onClick={() => router.back()} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-700 hover:bg-gray-100 hover:text-black transition-colors border border-gray-200">
+            <button onClick={handleBack} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-700 hover:bg-gray-100 hover:text-black transition-colors border border-gray-200">
               <ArrowLeft size={20} />
             </button>
             <div>
@@ -428,6 +527,60 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
               <input type="time" value={formData.inspection_time} onChange={e => setFormData({ ...formData, inspection_time: e.target.value })}
                 className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg" />
             </div>
+          </div>
+        </div>
+
+        {/* SELFIE EVIDENCE CARD */}
+        <div className="bg-gradient-to-br from-indigo-50 to-blue-50/50 backdrop-blur-sm rounded-[2.5rem] p-8 shadow-sm border border-indigo-100 ring-1 ring-black/5 text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-400 to-blue-500 opacity-50" />
+
+          <h3 className="text-indigo-900 font-black text-lg mb-2 flex items-center justify-center gap-2 tracking-tight">
+            <Camera className="w-5 h-5 text-indigo-500" />
+            EVIDENCIA DE VISITA
+          </h3>
+          <p className="text-xs font-medium text-indigo-400 uppercase tracking-wider mb-6">Firma Digital Visual</p>
+
+          <div className="flex justify-center">
+            {inspectorPhoto ? (
+              <div className="relative group animate-in fade-in zoom-in duration-300">
+                <img src={inspectorPhoto} className="w-48 h-48 object-cover rounded-full border-4 border-white shadow-xl ring-4 ring-indigo-100" alt="Evidencia" />
+                <button
+                  type="button"
+                  onClick={() => setInspectorPhoto(null)}
+                  className="absolute bottom-2 right-2 bg-red-500 text-white p-2.5 rounded-full shadow-lg hover:bg-red-600 hover:scale-110 active:scale-90 transition-all z-10"
+                >
+                  <Trash2 size={18} />
+                </button>
+                <div className="absolute inset-0 rounded-full ring-inset ring-2 ring-black/5 pointer-events-none" />
+              </div>
+            ) : (
+              <label className={`cursor-pointer group relative overflow-hidden w-48 h-48 rounded-full bg-white border-4 border-dashed border-indigo-200 flex flex-col items-center justify-center hover:bg-indigo-50 hover:border-indigo-300 transition-all ${uploadingSelfie ? 'opacity-50 pointer-events-none' : ''}`}>
+
+                {uploadingSelfie ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-xs font-bold text-indigo-400">Subiendo...</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                      <CameraOff size={24} className="text-indigo-400 group-hover:text-indigo-600" />
+                    </div>
+                    <span className="text-xs font-black text-indigo-900 group-hover:text-indigo-700 uppercase tracking-wide">Tomar Selfie</span>
+                    <span className="text-[10px] text-indigo-400 mt-1 px-4 text-center leading-tight">Obligatorio dentro de tienda</span>
+                  </>
+                )}
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  className="hidden"
+                  onChange={handleInspectorPhotoUpload}
+                  disabled={uploadingSelfie}
+                />
+              </label>
+            )}
           </div>
         </div>
 
@@ -505,16 +658,32 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={validateLocation}
-            disabled={validatingLocation || loading}
-            className="pointer-events-auto bg-blue-600 text-white px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(37,99,235,0.4)] font-black text-lg flex items-center gap-3 hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:scale-100 border-2 border-white/20 animate-pulse"
+            disabled={validatingLocation || loading || completionStatus.percent < 95}
+            className={`pointer-events-auto px-8 py-4 rounded-full shadow-[0_20px_40px_-10px_rgba(37,99,235,0.4)] font-black text-lg flex items-center gap-3 border-2 border-white/20 transition-all ${completionStatus.percent >= 95
+                ? 'bg-blue-600 text-white hover:bg-blue-700 animate-pulse'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed border-gray-200 shadow-none grayscale'
+              }`}
           >
-            {validatingLocation ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> :
+            {validatingLocation ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : completionStatus.percent < 95 ? (
+              <>
+                <div className="flex flex-col items-start leading-tight">
+                  <span className="text-xs font-bold uppercase tracking-wider opacity-70">Completa el 95%</span>
+                  <span className="text-sm font-black text-gray-600">Avance: {completionStatus.percent}%</span>
+                </div>
+                <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-400">
+                  <span className="text-[10px] font-bold">{completionStatus.answered}/{completionStatus.total}</span>
+                </div>
+              </>
+            ) : (
               <>
                 <span>VALIDAR UBICACIÓN</span>
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
                   <MapPin size={16} />
                 </div>
-              </>}
+              </>
+            )}
           </motion.button>
         )}
       </div>

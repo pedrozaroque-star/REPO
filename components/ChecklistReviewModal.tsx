@@ -770,6 +770,31 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                     </div>
                                 </div>
 
+                                {/* INSPECTOR SELFIE EVIDENCE */}
+                                {checklist.inspector_photo_url && (
+                                    <div className="bg-gradient-to-br from-indigo-50 to-blue-50/50 backdrop-blur-sm rounded-[2.5rem] p-8 shadow-sm border border-indigo-100 text-center relative overflow-hidden group mb-8">
+                                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-400 to-blue-500 opacity-50" />
+
+                                        <h3 className="text-indigo-900 font-black text-lg mb-6 flex items-center justify-center gap-2 tracking-tight">
+                                            <Camera className="w-5 h-5 text-indigo-500" />
+                                            EVIDENCIA DE VISITA
+                                        </h3>
+
+                                        <div className="flex justify-center flex-col items-center">
+                                            <div className="relative group/photo animate-in fade-in zoom-in duration-500">
+                                                <img
+                                                    src={getEmbeddableImageUrl(checklist.inspector_photo_url)}
+                                                    className="w-48 h-48 object-cover rounded-full border-4 border-white shadow-xl ring-4 ring-indigo-100 transition-transform duration-500 hover:scale-105 cursor-zoom-in"
+                                                    alt="Evidencia del Inspector"
+                                                    onClick={() => openViewer(0, [checklist.inspector_photo_url])}
+                                                />
+                                                <div className="absolute inset-0 rounded-full ring-inset ring-2 ring-black/5 pointer-events-none" />
+                                            </div>
+                                            <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider mt-4">Firma Digital Visual</p>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* 4. SECTIONS LOOP (TEMPLATE DATA) */}
                                 {templateLoading ? (
                                     <div className="flex justify-center py-20">
