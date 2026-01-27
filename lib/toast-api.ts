@@ -346,12 +346,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                             }
                         })
 
-                        // Add Order Level Service Charges (e.g. Delivery)
-                        order.serviceCharges?.forEach((s: any) => {
-                            const sAmt = Number(s.amount || 0)
-                            net += sAmt
-                            if (hour >= 0 && hour < 24) hourlySales[hour] = (hourlySales[hour] || 0) + sAmt
-                        })
+
 
                     } else {
                         // --- FULL PRECISION LOGIC ---
