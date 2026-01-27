@@ -77,7 +77,8 @@ async function runBackfill2025() {
                             startDate: dayStr,
                             endDate: dayStr,
                             groupBy: 'day',
-                            skipCache: true
+                            skipCache: true,
+                            fastMode: true // REQUIRED for bulk backfill speed
                         }),
                         180000,
                         'FetchSales'

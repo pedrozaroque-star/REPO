@@ -26,6 +26,7 @@ export interface ToastMetricsOptions {
     groupBy: 'day' | 'week' | 'month' | 'year'
     skipCache?: boolean
     fastMode?: boolean
+    readOnly?: boolean
 }
 
 export interface MetricRow {
@@ -901,7 +902,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 return true
             })
 
-            if (toCache.length > 0) {
+            if (toCache.length > 0 && !options.readOnly) {
                 const supabase = await getSupabaseClient()
                 const rowsForCache = toCache.map(r => ({
                     store_id: r.store.id,

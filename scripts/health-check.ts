@@ -57,26 +57,26 @@ async function checkHealth() {
         // Actually we confirmed RPC works via MCP previously, but here we run local script.
         // Wait, local script CANNOT run RPC 'execute_sql' unless it's exposed. 
         // We should use standard query.
-        console.log("⚠️ RPC execute_sql not accessible from client, using raw select scan (slower)...")
-        const { data: allRows } = await supabase
-            .from('sales_daily_cache')
-            .select('store_id, business_date, net_sales')
-            .gte('business_date', '2025-01-01')
+        console.log("⚠️ RPC execute_sql not accessible from client, using iterative store check (accurate)...")
 
-        if (!allRows) return
+        for (const storeId of KNOWN_STORES) {
+            const { count } = await supabase
+                .from('sales_daily_cache')
+                .select('*', { count: 'exact', head: true })
+                .eq('store_id', storeId)
+                .gte('business_date', '2025-01-01')
+                .lte('business_date', '2025-12-31')
 
-        const stats: any = {}
-        allRows.forEach((r: any) => {
-            const y = r.business_date.substring(0, 4)
-            const key = `${r.store_id}_${y}`
-            if (!stats[key]) stats[key] = { store: r.store_id, year: y, count: 0, zeros: 0 }
-            stats[key].count++
-            if (r.net_sales === 0) stats[key].zeros++
-        })
+            const { count: zeros } = await supabase
+                .from('sales_daily_cache')
+                .select('*', { count: 'exact', head: true })
+                .eq('store_id', storeId)
+                .gte('business_date', '2025-01-01')
+                .lte('business_date', '2025-12-31')
+                .eq('net_sales', 0)
 
-        Object.values(stats).forEach((s: any) => {
-            printStat(s.store, s.year, s.count, s.zeros)
-        })
+            printStat(storeId, '2025', count || 0, zeros || 0)
+        }
         return
     }
 

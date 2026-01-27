@@ -45,8 +45,9 @@ export async function POST(request: Request) {
             startDate: todayStr,
             endDate: todayStr,
             groupBy: 'day',
-            fastMode: true,
-            skipCache: true
+            fastMode: false, // Switch to Full Mode for precision parity with Sales Page
+            skipCache: true,
+            readOnly: true
         })
 
         // 2. Sync Labor (Punches)

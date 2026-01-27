@@ -102,16 +102,16 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
     }
 
     return (
-        <div className="sticky bottom-4 z-40 mx-4 rounded-xl rounded-t-lg bg-gray-50/98 dark:bg-slate-900/98 backdrop-blur-md border-x border-b border-t-4 border-gray-200 border-t-indigo-500 dark:border-slate-600 dark:border-t-indigo-500 shadow-2xl font-sans text-xs ring-1 ring-black/5 dark:ring-white/10 transition-all duration-500">
+        <div className="sticky bottom-4 z-40 mx-4 rounded-xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-[1px] border-gray-300 dark:border-slate-600 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] dark:shadow-[0_35px_60px_-15px_rgba(0,0,0,0.8)] font-sans text-xs ring-1 ring-black/5 dark:ring-white/10 transition-all duration-500">
             {/* Handle - 3D Button Style */}
             {/* Handle - 3D Button Style */}
             <div
                 onClick={() => setIsOpen(!isOpen)}
-                className="absolute -top-9 left-1/2 -translate-x-1/2 w-36 h-9 bg-indigo-500 dark:bg-indigo-600 rounded-t-lg cursor-pointer flex items-center justify-center gap-2 shadow-lg hover:bg-indigo-600 dark:hover:bg-indigo-500 transition-all z-50 ring-1 ring-black/5"
+                className="absolute -top-10 left-1/2 -translate-x-1/2 w-32 h-10 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-600 border-b-0 rounded-t-xl cursor-pointer flex items-center justify-center gap-2 shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.1)] hover:bg-gray-50 dark:hover:bg-slate-800 transition-all z-50"
             >
                 <div className="absolute inset-0 -top-4" /> {/* Invisible extended hit area */}
-                <span className="text-xs font-bold text-white uppercase tracking-wider text-shadow-sm">Budget Tool</span>
-                <ChevronDown size={16} className={`text-indigo-100 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+                <span className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Budget</span>
+                <ChevronDown size={16} className={`text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
             </div>
 
             <div className={`transition-all duration-300 overflow-hidden ${isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
@@ -161,7 +161,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
 
                     {/* DAYS DATA */}
                     {dailyData.map(day => (
-                        <div key={day.dateStr} className="flex flex-col text-center border-r border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
+                        <div key={day.dateStr} className="flex flex-col text-center border-r border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
 
                             {/* Hours Row */}
                             <div className="h-11 border-b border-gray-100 dark:border-slate-800 grid grid-cols-2 items-center px-1">
