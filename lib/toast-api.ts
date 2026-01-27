@@ -314,7 +314,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                         // --- FAST MODE LOGIC ---
                         order.checks.forEach((check: any) => {
                             if (check.voided) return
-                            if (check.payments?.some((p: any) => p.refundStatus === 'FULL')) return
+                            // check.payments?.some(...) removed
 
                             // Simple Net = Amount - Tax - Tip
                             let checkAmt = Number(check.amount || 0)
@@ -346,8 +346,8 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                         order.checks.forEach((check: any) => {
                             if (check.voided) return
 
-                            // Skip fully refunded checks
-                            if (check.payments?.some((p: any) => p.refundStatus === 'FULL')) return
+                            if (check.voided) return
+                            // check.payments?.some(...) removed to include re-paid checks
 
                             // --- EBT DETECTION (Check Level) ---
                             // iterate payments to find EBT
