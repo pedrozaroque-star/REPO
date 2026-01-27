@@ -253,6 +253,8 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                     'checks.selections.deferred',
                     'checks.selections.refundDetails',
                     'checks.selections.toastGiftCard',
+                    'checks.serviceCharges',
+                    'serviceCharges',
                     'source',
                     'deliveryService'
                 ].join(',')
@@ -316,14 +318,16 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                             if (check.voided) return
                             // check.payments?.some(...) removed
 
-                            // Simple Net = Amount - Tax - Tip
+                            // Simple Net = Amount - Tax - Tip + ServiceCharges
                             let checkAmt = Number(check.amount || 0)
                             const checkTax = Number(check.taxAmount || 0)
                             let checkTip = 0
                             check.payments?.forEach((p: any) => checkTip += Number(p.tipAmount || 0))
 
-                            // Net approximation
-                            let checkNet = checkAmt - checkTax - checkTip
+                            let checkSvc = 0
+                            check.serviceCharges?.forEach((s: any) => checkSvc += Number(s.amount || 0))
+
+                            let checkNet = checkAmt - checkTax - checkTip + checkSvc
 
                             net += checkNet
                             orderNetCalc += checkNet
@@ -341,6 +345,14 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                                 hourlySales[hour] = (hourlySales[hour] || 0) + checkNet
                             }
                         })
+
+                        // Add Order Level Service Charges (e.g. Delivery)
+                        order.serviceCharges?.forEach((s: any) => {
+                            const sAmt = Number(s.amount || 0)
+                            net += sAmt
+                            if (hour >= 0 && hour < 24) hourlySales[hour] = (hourlySales[hour] || 0) + sAmt
+                        })
+
                     } else {
                         // --- FULL PRECISION LOGIC ---
                         order.checks.forEach((check: any) => {
