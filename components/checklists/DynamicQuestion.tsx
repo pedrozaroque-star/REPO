@@ -43,7 +43,6 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
     // Separate refs for distinct Android intents
     const photoInputRef = useRef<HTMLInputElement>(null)
     const videoInputRef = useRef<HTMLInputElement>(null)
-    const galleryInputRef = useRef<HTMLInputElement>(null)
 
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files?.length) return
@@ -65,7 +64,6 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
             // Reset all inputs
             if (photoInputRef.current) photoInputRef.current.value = ''
             if (videoInputRef.current) videoInputRef.current.value = ''
-            if (galleryInputRef.current) galleryInputRef.current.value = ''
         }
     }
 
@@ -295,15 +293,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                     </button>
                     <input type="file" ref={videoInputRef} onChange={handlePhotoUpload} className="hidden" accept="video/*" capture="environment" multiple />
 
-                    {/* BUTTON 3: GALLERY */}
-                    <button
-                        type="button" onClick={() => galleryInputRef.current?.click()} disabled={uploading}
-                        className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-gray-400 dark:text-slate-500 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-                    >
-                        <ImageIcon size={18} />
-                        <span className="text-[8px] font-black uppercase">Galería</span>
-                    </button>
-                    <input type="file" ref={galleryInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*,video/*" multiple />
+
 
                 </div>
                 {/* Comment Input */}
