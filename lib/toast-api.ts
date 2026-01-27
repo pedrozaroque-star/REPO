@@ -873,9 +873,20 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
             const yesterdayStrCache = yesterdayForCache.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
 
             const toCache = results.filter(r => {
-                // We NOW allow Today to be cached for Real-Time Dashboard support.
-                // The nightly cron will eventually overwrite this with the final numbers.
-                return !r.fromCache
+                // 1. Never cache if read from cache
+                if (r.fromCache) return false
+
+                // 2. Never cache Fast Mode results (incomplete data fields)
+                if (options.fastMode) return false
+
+                // 3. Never cache TODAY (volatile data, wait for next day)
+                if (r.date === todayStr) return false
+
+                // 4. Never cache YESTERDAY if we are strictly in the "Dirty Window" (<6am)
+                // (Already handled by fetching logic, but ensuring storage safety)
+                if (r.date === yesterdayStrCache && laHourForCache < 6) return false
+
+                return true
             })
 
             if (toCache.length > 0) {
