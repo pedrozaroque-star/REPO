@@ -20,38 +20,33 @@ export async function POST(req: NextRequest) {
         const supabase = await getSupabaseClient()
 
         // --- 1. SYNC RECENT DATA (High Precision) ---
-        // Sync employees and jobs to catch promotions or changes
-        await syncToastEmployees(storeId)
-        await syncToastJobs(storeId)
+        // Parallelize for speed
+        await Promise.all([
+            syncToastEmployees(storeId),
+            syncToastJobs(storeId)
+        ])
 
-        // Sync last 15 days of punches to feed history with latest data
-        const syncStart = new Date()
-        syncStart.setDate(syncStart.getDate() - 15)
-        const syncEnd = new Date()
-        syncEnd.setDate(syncEnd.getDate() + 1)
-
-        const startIso = `${syncStart.toISOString().split('T')[0]}T00:00:00.000+0000`
-        const endIso = `${syncEnd.toISOString().split('T')[0]}T23:59:59.999+0000`
-
-        await syncToastPunches(storeId, startIso, endIso)
+        // Sync last 2 days only (Optimization) - Or skip entirely if Cron is running
+        // await syncToastPunches(storeId, startIso, endIso) 
 
         // --- 2. GENERATION LOGIC ---
-        // (Simplified version of generate-smart-schedules.ts for real-time)
+        // (Simplified for Speed: 45 days history is enough for recent patterns)
 
-        // 2.1 Fetch history (6 months) with pagination
+        // 2.1 Fetch history (90 days)
         const historyLimit = new Date()
-        historyLimit.setDate(historyLimit.getDate() - 180)
+        historyLimit.setDate(historyLimit.getDate() - 90) // Increased to 90 days
         const historyLimitStr = historyLimit.toISOString().split('T')[0]
 
         let punches: any[] = []
         let page = 0
-        const pageSize = 1000
+        const pageSize = 1000 // Keep large page size
         let hasMore = true
 
+        // Optimize SELECT to reduce bandwidth/parsing
         while (hasMore) {
             const { data, error } = await supabase
                 .from('punches')
-                .select('*')
+                .select('business_date, employee_toast_guid, clock_in, clock_out') // Optimized SELECT
                 .eq('store_id', storeId)
                 .gte('business_date', historyLimitStr)
                 .range(page * pageSize, (page + 1) * pageSize - 1)

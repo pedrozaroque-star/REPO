@@ -9,18 +9,28 @@ export async function POST(request: Request) {
     try {
         const body = await request.json()
         // DEBUG: Force Lynwood ID to rule out payload issues
-        const storeId = '80a1ec95-bc73-402e-8884-e5abbe9343e6'
-        // const { storeId } = body
+        const { storeId } = body
 
         // Robust YYYY-MM-DD in LA Time
-        const laDate = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
-        // en-US gives MM/DD/YYYY usually. Let's parse.
+        const now = new Date()
+        const laDate = now.toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
         const [mm, dd, yyyy] = laDate.split('/')
         const todayStr = `${yyyy}-${mm}-${dd}`
 
-        // Prepare Full ISO Range for Labor Sync
+        // Calculate Next Day for the End Range to cover full LA Business Day
+        // Midnight LA (00:00) is 08:00 UTC.
+        // End of Day LA (23:59) is 07:59 UTC Next Day.
+        // To be safe, we query until Noon UTC next day.
+        const tomorrow = new Date(now)
+        tomorrow.setDate(tomorrow.getDate() + 1)
+        const laTomorrow = tomorrow.toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' })
+        const [mm2, dd2, yyyy2] = laTomorrow.split('/')
+        const tomorrowStr = `${yyyy2}-${mm2}-${dd2}`
+
+        // Range: From 00:00 UTC (4pm Prev Day LA) to 12:00 UTC Next Day (4am Next Day LA)
+        // This safely covers the entire operating window.
         const startIso = `${todayStr}T00:00:00.000+0000`
-        const endIso = `${todayStr}T23:59:59.999+0000`
+        const endIso = `${tomorrowStr}T12:00:00.000+0000`
 
         console.log(`⚡ [LIVE SYNC] Triggered for Store ${storeId || 'ALL'} Date: ${todayStr}`)
 
@@ -29,7 +39,9 @@ export async function POST(request: Request) {
             storeIds: storeId ? storeId : 'all',
             startDate: todayStr,
             endDate: todayStr,
-            groupBy: 'day'
+            groupBy: 'day',
+            fastMode: true,
+            skipCache: true
         })
 
         // 2. Sync Labor (Punches)

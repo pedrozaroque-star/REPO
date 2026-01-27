@@ -25,6 +25,7 @@ export interface ToastMetricsOptions {
     endDate: string
     groupBy: 'day' | 'week' | 'month' | 'year'
     skipCache?: boolean
+    fastMode?: boolean
 }
 
 export interface MetricRow {
@@ -167,10 +168,10 @@ async function getDiningOptionsMap(token: string, storeId: string): Promise<Reco
 
 // --- HELPER: GET SALES (ATTEMPT) ---
 // Since we might not have Reporting API, we'll try to get Orders Summary or Fallback
-async function getSalesForStore(token: string, storeId: string, startDate: string, endDate: string) {
+async function getSalesForStore(token: string, storeId: string, startDate: string, endDate: string, fastMode: boolean = false) {
     try {
         // Fetch Metadata Map first
-        const diningOptionMap = await getDiningOptionsMap(token, storeId)
+        const diningOptionMap = fastMode ? {} : await getDiningOptionsMap(token, storeId)
 
 
         let net = 0
@@ -208,35 +209,54 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             url.searchParams.append('pageSize', String(pageSize))
             url.searchParams.append('page', String(page))
 
-            const fields = [
-                'diningOption',
-                'voided',
-                'openedDate',
-                'numberOfGuests',
-                'checks.voided',
-                'checks.amount',
-                'checks.taxAmount',
-                'checks.appliedDiscounts',
-                'checks.appliedServiceCharges',
-                'checks.payments.tipAmount',
-                'checks.payments.amount',
-                'checks.payments.displayName',
-                'checks.payments.paymentInstrument',
-                'checks.payments.refundStatus',
-                'checks.payments.refundAmount',
-                'checks.selections.price',
-                'checks.selections.preDiscountPrice',
-                'checks.selections.quantity',
-                'checks.selections.tax',
-                'checks.selections.taxInclusion',
-                'checks.selections.displayName',
-                'checks.selections.voided',
-                'checks.selections.deferred',
-                'checks.selections.refundDetails',
-                'checks.selections.toastGiftCard',
-                'source',
-                'deliveryService'
-            ].join(',')
+            let fields = ''
+            if (fastMode) {
+                // FAST MODE: Only Check Totals. NO SELECTIONS (Items).
+                // Net ~= Check Amount - Tax - Tip
+                fields = [
+                    'openedDate',
+                    'voided',
+                    'numberOfGuests',
+                    'checks.voided',
+                    'checks.amount', // Total with Tax/Tip
+                    'checks.taxAmount',
+                    'checks.payments.tipAmount',
+                    'checks.payments.amount',
+                    // We might need discounts to get Gross roughly
+                    'checks.appliedDiscounts'
+                ].join(',')
+            } else {
+                // FULL PRECISION MODE
+                fields = [
+                    'diningOption',
+                    'voided',
+                    'openedDate',
+                    'numberOfGuests',
+                    'checks.voided',
+                    'checks.amount',
+                    'checks.taxAmount',
+                    'checks.appliedDiscounts',
+                    'checks.appliedServiceCharges',
+                    'checks.payments.tipAmount',
+                    'checks.payments.amount',
+                    'checks.payments.displayName',
+                    'checks.payments.paymentInstrument',
+                    'checks.payments.refundStatus',
+                    'checks.payments.refundAmount',
+                    'checks.selections.price',
+                    'checks.selections.preDiscountPrice',
+                    'checks.selections.quantity',
+                    'checks.selections.tax',
+                    'checks.selections.taxInclusion',
+                    'checks.selections.displayName',
+                    'checks.selections.voided',
+                    'checks.selections.deferred',
+                    'checks.selections.refundDetails',
+                    'checks.selections.toastGiftCard',
+                    'source',
+                    'deliveryService'
+                ].join(',')
+            }
             url.searchParams.append('fields', fields)
 
             const controller = new AbortController()
@@ -284,120 +304,154 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                 }
 
                 if (order.checks && Array.isArray(order.checks)) {
-                    order.checks.forEach((check: any) => {
-                        if (check.voided) return
+                    if (fastMode) {
+                        // --- FAST MODE LOGIC ---
+                        order.checks.forEach((check: any) => {
+                            if (check.voided) return
+                            if (check.payments?.some((p: any) => p.refundStatus === 'FULL')) return
 
-                        // Skip fully refunded checks
-                        if (check.payments?.some((p: any) => p.refundStatus === 'FULL')) return
+                            // Simple Net = Amount - Tax - Tip
+                            let checkAmt = Number(check.amount || 0)
+                            const checkTax = Number(check.taxAmount || 0)
+                            let checkTip = 0
+                            check.payments?.forEach((p: any) => checkTip += Number(p.tipAmount || 0))
 
-                        // --- EBT DETECTION (Check Level) ---
-                        // iterate payments to find EBT
-                        check.payments?.forEach((p: any) => {
-                            const pName = (p.displayName || p.paymentInstrument?.displayName || '').toLowerCase()
-                            if (pName.includes('ebt')) {
-                                ebtC++
-                                ebtA += Number(p.amount || 0)
+                            // Net approximation
+                            let checkNet = checkAmt - checkTax - checkTip
+
+                            net += checkNet
+                            orderNetCalc += checkNet
+
+                            // Attempt Gross Approximation: Net + Discounts
+                            // Note: without items, we can't know pre-discount price perfectly, but Check Amount + Discounts is close enough for live
+                            let checkDisc = 0
+                            check.appliedDiscounts?.forEach((d: any) => checkDisc += Number(d.amount || 0))
+                            gross += (checkNet + checkDisc)
+                            totalDiscounts += checkDisc
+                            totalTaxes += checkTax
+                            totalTips += checkTip
+
+                            if (hour >= 0 && hour < 24) {
+                                hourlySales[hour] = (hourlySales[hour] || 0) + checkNet
                             }
                         })
+                    } else {
+                        // --- FULL PRECISION LOGIC ---
+                        order.checks.forEach((check: any) => {
+                            if (check.voided) return
 
-                        // 1. Calculate from selections (excluding gift cards)
-                        let checkItemNetSum = 0     // Sum of price (after item discounts)
-                        let checkItemGrossSum = 0   // Sum of preDiscountPrice (before any discounts)
-                        let checkItemRefunds = 0    // Sum of refunds on items
-                        let giftCardTotal = 0
+                            // Skip fully refunded checks
+                            if (check.payments?.some((p: any) => p.refundStatus === 'FULL')) return
 
-                        const sumSelection = (sel: any, isGiftCard: boolean) => {
-                            // SKIP VOIDED ITEMS
-                            if (sel.voided) return
-                            // SKIP DEFERRED ITEMS unless it is a Gift Card Load (Add Value)
-                            if (sel.deferred && !isGiftCard) return
+                            // --- EBT DETECTION (Check Level) ---
+                            // iterate payments to find EBT
+                            check.payments?.forEach((p: any) => {
+                                const pName = (p.displayName || p.paymentInstrument?.displayName || '').toLowerCase()
+                                if (pName.includes('ebt')) {
+                                    ebtC++
+                                    ebtA += Number(p.amount || 0)
+                                }
+                            })
 
-                            let itemPrice = Number(sel.price || 0)
-                            const itemPreDiscount = Number(sel.preDiscountPrice || sel.price || 0)
+                            // 1. Calculate from selections (excluding gift cards)
+                            let checkItemNetSum = 0     // Sum of price (after item discounts)
+                            let checkItemGrossSum = 0   // Sum of preDiscountPrice (before any discounts)
+                            let checkItemRefunds = 0    // Sum of refunds on items
+                            let giftCardTotal = 0
 
-                            // HANDLE TAX INCLUDED ITEMS
-                            if (sel.taxInclusion === 'INCLUDED') {
-                                const taxAmount = Number(sel.tax || 0)
-                                itemPrice -= taxAmount
+                            const sumSelection = (sel: any, isGiftCard: boolean) => {
+                                // SKIP VOIDED ITEMS
+                                if (sel.voided) return
+                                // SKIP DEFERRED ITEMS unless it is a Gift Card Load (Add Value)
+                                if (sel.deferred && !isGiftCard) return
+
+                                let itemPrice = Number(sel.price || 0)
+                                const itemPreDiscount = Number(sel.preDiscountPrice || sel.price || 0)
+
+                                // HANDLE TAX INCLUDED ITEMS
+                                if (sel.taxInclusion === 'INCLUDED') {
+                                    const taxAmount = Number(sel.tax || 0)
+                                    itemPrice -= taxAmount
+                                }
+
+                                // Item Refunds
+                                if (sel.refundDetails?.refundAmount) {
+                                    checkItemRefunds += Number(sel.refundDetails.refundAmount)
+                                }
+
+                                if (isGiftCard) {
+                                    giftCardTotal += itemPrice
+                                } else {
+                                    checkItemNetSum += itemPrice
+                                    checkItemGrossSum += itemPreDiscount
+                                }
                             }
 
-                            // Item Refunds
-                            if (sel.refundDetails?.refundAmount) {
-                                checkItemRefunds += Number(sel.refundDetails.refundAmount)
+                            check.selections?.forEach((sel: any) => {
+                                const isGiftCard = sel.toastGiftCard || sel.displayName?.toLowerCase().includes('gift card')
+                                sumSelection(sel, isGiftCard)
+                            })
+
+                            // 3. Final Net and Gross
+                            // Gross = Sum of pre-discount prices (before ANY discounts)
+                            const checkGross = checkItemGrossSum
+                            let checkNet = checkItemNetSum // Initial - refunds logic applies below
+                            let checkDiscounts = 0
+
+
+                            // Deduct Check-level discounts
+                            if (check.appliedDiscounts) {
+                                const checkLevelDiscountAmount = check.appliedDiscounts.reduce((sum: number, d: any) => sum + (d.amount || 0), 0)
+                                checkNet -= checkLevelDiscountAmount
+                                checkDiscounts += checkLevelDiscountAmount
                             }
 
-                            if (isGiftCard) {
-                                giftCardTotal += itemPrice
-                            } else {
-                                checkItemNetSum += itemPrice
-                                checkItemGrossSum += itemPreDiscount
+                            // Apply item refunds
+                            checkNet -= checkItemRefunds
+                            checkDiscounts += (checkGross - checkNet - checkDiscounts) // Adjust totalDiscounts based on final net/gross
+
+                            // 4. Other metrics
+                            const checkTax = Number(check.taxAmount || 0)
+
+                            let checkTips = 0
+                            check.payments?.forEach((p: any) => {
+                                checkTips += Number(p.tipAmount || 0)
+                            })
+
+                            let checkSvc = 0
+                            check.appliedServiceCharges?.forEach((svc: any) => {
+                                checkSvc += Number(svc.chargeAmount || 0)
+                            })
+
+                            // 5. Aggregate totals
+
+                            // ADJUST FOR UNLINKED REFUNDS (Payment refunds not attached to items)
+                            let paymentRefunds = 0
+                            check.payments?.forEach((p: any) => paymentRefunds += Number(p.refundAmount || 0))
+
+                            // If payment refunds exceed item refunds, substract the difference from Net
+                            if (paymentRefunds > (checkItemRefunds + 0.01)) {
+                                const unlinked = paymentRefunds - checkItemRefunds
+                                checkNet -= unlinked
+                                // Also reduce Gross? Usually refunds reduce Net. Gross is "Sales". 
+                                // Net = Gross - Disc - Refunds. 
+                                // Our checkNet was (checkItemNetSum - checkItemRefunds).
+                                // So reducing it further is correct.
                             }
-                        }
 
-                        check.selections?.forEach((sel: any) => {
-                            const isGiftCard = sel.toastGiftCard || sel.displayName?.toLowerCase().includes('gift card')
-                            sumSelection(sel, isGiftCard)
+                            net += checkNet
+                            orderNetCalc += checkNet
+                            gross += checkGross
+                            totalDiscounts += checkDiscounts
+                            totalTips += checkTips
+                            totalTaxes += checkTax
+                            totalSvcCharges += checkSvc
+
+                            if (hour >= 0 && hour < 24) {
+                                hourlySales[hour] = (hourlySales[hour] || 0) + checkNet
+                            }
                         })
-
-                        // 3. Final Net and Gross
-                        // Gross = Sum of pre-discount prices (before ANY discounts)
-                        const checkGross = checkItemGrossSum
-                        let checkNet = checkItemNetSum // Initial - refunds logic applies below
-                        let checkDiscounts = 0
-
-
-                        // Deduct Check-level discounts
-                        if (check.appliedDiscounts) {
-                            const checkLevelDiscountAmount = check.appliedDiscounts.reduce((sum: number, d: any) => sum + (d.amount || 0), 0)
-                            checkNet -= checkLevelDiscountAmount
-                            checkDiscounts += checkLevelDiscountAmount
-                        }
-
-                        // Apply item refunds
-                        checkNet -= checkItemRefunds
-                        checkDiscounts += (checkGross - checkNet - checkDiscounts) // Adjust totalDiscounts based on final net/gross
-
-                        // 4. Other metrics
-                        const checkTax = Number(check.taxAmount || 0)
-
-                        let checkTips = 0
-                        check.payments?.forEach((p: any) => {
-                            checkTips += Number(p.tipAmount || 0)
-                        })
-
-                        let checkSvc = 0
-                        check.appliedServiceCharges?.forEach((svc: any) => {
-                            checkSvc += Number(svc.chargeAmount || 0)
-                        })
-
-                        // 5. Aggregate totals
-
-                        // ADJUST FOR UNLINKED REFUNDS (Payment refunds not attached to items)
-                        let paymentRefunds = 0
-                        check.payments?.forEach((p: any) => paymentRefunds += Number(p.refundAmount || 0))
-
-                        // If payment refunds exceed item refunds, substract the difference from Net
-                        if (paymentRefunds > (checkItemRefunds + 0.01)) {
-                            const unlinked = paymentRefunds - checkItemRefunds
-                            checkNet -= unlinked
-                            // Also reduce Gross? Usually refunds reduce Net. Gross is "Sales". 
-                            // Net = Gross - Disc - Refunds. 
-                            // Our checkNet was (checkItemNetSum - checkItemRefunds).
-                            // So reducing it further is correct.
-                        }
-
-                        net += checkNet
-                        orderNetCalc += checkNet
-                        gross += checkGross
-                        totalDiscounts += checkDiscounts
-                        totalTips += checkTips
-                        totalTaxes += checkTax
-                        totalSvcCharges += checkSvc
-
-                        if (hour >= 0 && hour < 24) {
-                            hourlySales[hour] = (hourlySales[hour] || 0) + checkNet
-                        }
-                    })
+                    }
                 }
 
                 // --- DETECTION & ATTRIBUTION ---
@@ -709,7 +763,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // Real Fetch
                 if (realStores.length > 0 && token) {
                     try {
-                        const sales = await getSalesForStore(token, store.id, dateStr, dateStr)
+                        const sales = await getSalesForStore(token, store.id, dateStr, dateStr, options.fastMode)
 
                         // Fetch Labor specifically for this day (Lazy Load)
                         const bKey = dateStr.split('-').join('')

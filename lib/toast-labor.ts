@@ -186,19 +186,43 @@ export async function syncToastPunches(storeId: string, startDate: string, endDa
         console.log(`Total fetched: ${allPunches.length} punches from Toast`)
 
         // Prepare for DB - Include hours from Toast response
-        const upsertData = allPunches.map((p: any) => ({
-            toast_id: p.guid,
-            employee_toast_guid: p.employeeReference?.guid,
-            job_toast_guid: p.jobReference?.guid,
-            store_id: storeId, // Store GUID
-            clock_in: p.inDate,
-            clock_out: p.outDate,
-            business_date: p.businessDate ? `${p.businessDate.slice(0, 4)}-${p.businessDate.slice(4, 6)}-${p.businessDate.slice(6, 8)}` : null,
-            regular_hours: p.regularHours || 0,
-            overtime_hours: p.overtimeHours || 0,
-            hourly_wage: p.hourlyWage || null,
-            last_updated: new Date().toISOString()
-        }))
+        const upsertData = allPunches.map((p: any) => {
+            let bDate = p.businessDate ? `${p.businessDate.slice(0, 4)}-${p.businessDate.slice(4, 6)}-${p.businessDate.slice(6, 8)}` : null
+
+            // FALLBACK: If businessDate is null (common for live/open shifts), calculate from Check-In
+            if (!bDate && p.inDate) {
+                const clockIn = new Date(p.inDate)
+                // Business Day Logic: If shift starts before 4:00 AM, it belongs to previous day? 
+                // Actually standards say 6 AM but let's stick to simple "Day of Clock In in LA Time"
+                // Usually Toast assigns business date based on open time. 
+                // Let's use LA Time Date.
+                const laDate = new Date(clockIn.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+
+                // If hour < 4 (4 AM), assume late night shift belonging to previous business day
+                if (laDate.getHours() < 4) {
+                    laDate.setDate(laDate.getDate() - 1)
+                }
+
+                const y = laDate.getFullYear()
+                const m = String(laDate.getMonth() + 1).padStart(2, '0')
+                const d = String(laDate.getDate()).padStart(2, '0')
+                bDate = `${y}-${m}-${d}`
+            }
+
+            return {
+                toast_id: p.guid,
+                employee_toast_guid: p.employeeReference?.guid,
+                job_toast_guid: p.jobReference?.guid,
+                store_id: storeId, // Store GUID
+                clock_in: p.inDate,
+                clock_out: p.outDate,
+                business_date: bDate,
+                regular_hours: p.regularHours || 0,
+                overtime_hours: p.overtimeHours || 0,
+                hourly_wage: p.hourlyWage || null,
+                last_updated: new Date().toISOString()
+            }
+        })
 
         // Upsert in chunks
         let total = 0

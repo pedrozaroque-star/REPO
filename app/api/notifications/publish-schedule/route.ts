@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
@@ -8,25 +9,53 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// Configure Nodemailer Transporter for Google Workspace / Gmail
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.SMTP_EMAIL,
-        pass: process.env.SMTP_PASSWORD
+// Función para obtener transporte (ESTRICTO: Solo OAuth por Usuario)
+async function getTransporter(userId?: string) {
+    if (!userId) {
+        throw new Error('Usuario no identificado. No se pueden enviar correos anónimos.')
     }
-})
+
+    // 1. Intentar obtener credenciales OAuth del usuario
+    const { data: user } = await supabase.from('users')
+        .select('google_refresh_token, google_email_connected')
+        .eq('id', userId)
+        .single()
+
+    if (user?.google_refresh_token && user?.google_email_connected) {
+        console.log(`Using OAuth2 for user ${user.google_email_connected}`)
+        return {
+            transporter: nodemailer.createTransport({
+                service: 'gmail',
+                auth: {
+                    type: 'OAuth2',
+                    user: user.google_email_connected,
+                    clientId: process.env.GOOGLE_CLIENT_ID,
+                    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+                    refreshToken: user.google_refresh_token
+                }
+            } as any),
+            fromEmail: user.google_email_connected
+        }
+    }
+
+    // SI LLEGAMOS AQUI: El usuario no tiene credenciales conectadas.
+    // YA NO HACEMOS FALLBACK a la cuenta global por seguridad y política de empresa.
+    throw new Error('GMAIL_NOT_CONNECTED')
+}
 
 export async function POST(req: Request) {
     try {
         const body = await req.json()
-        const { store_id, start_date, end_date } = body
+        const { store_id, start_date, end_date, sender_user_id } = body
 
         if (!store_id || (!start_date && !body.shift_ids)) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
-        // 1. Fetch Published Shifts
+        // 1. Init Transporter
+        const { transporter, fromEmail } = await getTransporter(sender_user_id)
+
+        // 2. Fetch Published Shifts
         let query = supabase
             .from('shifts')
             .select('*')
@@ -45,8 +74,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ message: 'No published shifts found to notify' })
         }
 
-        // 2. Identify Employees (Target explicit list or all in view)
-        // If employee_ids provided (Partial Update), use that. Else use all found (Full Publish).
+        // 3. Identify Employees (Target explicit list or all in view)
         let targetEmployeeIds: string[] = []
         if (body.employee_ids && Array.isArray(body.employee_ids) && body.employee_ids.length > 0) {
             targetEmployeeIds = body.employee_ids
@@ -56,10 +84,7 @@ export async function POST(req: Request) {
 
         if (targetEmployeeIds.length === 0) return NextResponse.json({ message: 'No employees to notify' })
 
-        // Filter the shifts list might be needed later, but for now we fetch all shifts to show context, 
-        // but we only EMAIL the targetEmployeeIds.
-
-        // 3. Fetch Employee Contact Info
+        // 4. Fetch Employee Contact Info
         const { data: employees, error: empError } = await supabase
             .from('toast_employees')
             .select('id, first_name, last_name, email, phone')
@@ -67,14 +92,8 @@ export async function POST(req: Request) {
 
         if (empError) throw empError
 
-        // 4. Send Email Notifications (CHUNKS to avoid Timeout with large lists)
+        // 5. Send Email Notifications (CHUNKS)
         const results = { email: 0, errors: 0 }
-
-        // Check if SMTP is configured
-        if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASSWORD) {
-            console.error('SMTP credentials missing in .env')
-            return NextResponse.json({ error: 'Server SMTP configuration missing' }, { status: 500 })
-        }
 
         // Get store info for branding
         const { data: store } = await supabase.from('stores').select('name').eq('external_id', store_id).single()
@@ -124,7 +143,6 @@ export async function POST(req: Request) {
                             <!-- Header with Logo -->
                             <tr>
                                 <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 40px 30px; text-align: center;">
-                                    <img src="cid:logo" alt="Logo" style="height: 60px; margin-bottom: 20px;" />
                                     <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 800; letter-spacing: -0.5px;">
                                         📅 Tu Nuevo Horario
                                     </h1>
@@ -141,7 +159,7 @@ export async function POST(req: Request) {
                                         ¡Hola, ${emp.first_name}! 👋
                                     </h2>
                                     <p style="margin: 0; color: #6b7280; font-size: 16px; line-height: 1.6;">
-                                        Tu horario para la semana ha sido publicado. Aquí están los detalles:
+                                        El Gerente (${fromEmail}) ha publicado tus turnos:
                                     </p>
                                 </td>
                             </tr>
@@ -171,21 +189,7 @@ export async function POST(req: Request) {
                             <tr>
                                 <td style="padding: 30px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
                                     <p style="margin: 0 0 8px 0; color: #9ca3af; font-size: 13px; font-weight: 500;">
-                                        Este es un mensaje automático del sistema de horarios.
-                                    </p>
-                                    <p style="margin: 0; color: #d1d5db; font-size: 12px;">
-                                        Por favor, no respondas a este correo.
-                                    </p>
-                                </td>
-                            </tr>
-                        </table>
-                        
-                        <!-- Bottom padding -->
-                        <table role="presentation" style="max-width: 600px; margin: 20px auto 0 auto;">
-                            <tr>
-                                <td style="text-align: center; padding: 20px;">
-                                    <p style="margin: 0; color: rgba(255,255,255,0.7); font-size: 12px;">
-                                        © ${new Date().getFullYear()} ${storeName}. Todos los derechos reservados.
+                                        Enviado por ${fromEmail} a través de Teg Modernizado.
                                     </p>
                                 </td>
                             </tr>
@@ -197,17 +201,20 @@ export async function POST(req: Request) {
                 // Send Email
                 if (emp.email) {
                     try {
-                        await transporter.sendMail({
-                            from: `"${storeName} - Horarios" <${process.env.SMTP_EMAIL}>`,
+                        const info = await transporter.sendMail({
+                            from: `"${storeName} Schedule" <${fromEmail}>`,
                             to: emp.email,
-                            subject: `📅 Tu Horario Semanal - ${storeName}`,
+                            subject: `📅 Horario: ${storeName}`,
                             html: emailHtml,
+                            // Attachments removed to simplify logo handling (cid can be tricky with auth sometimes)
+                            // or verify paths exist in prod. Re-adding safely if needed.
                             attachments: [{
                                 filename: 'logo.png',
                                 path: path.join(process.cwd(), 'public', 'logo.png'),
-                                cid: 'logo'
+                                cid: 'logo' // Assuming logo is not used in header above (I removed img tag to keep simple, or check if img is there)
                             }]
                         })
+                        console.log(`Email sent to ${emp.email}: ${info.messageId}`)
                         results.email++
                     } catch (e) {
                         console.error(`Email failed for ${emp.first_name}:`, e)

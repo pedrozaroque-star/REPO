@@ -11,29 +11,55 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
     const hasAutoSynced = useRef(false)
 
     // --- LOGIC ---
+    // --- BUSINESS DATE AWARENESS ---
+    // If it's before 4 AM, "Today" is technically "Yesterday" in business terms.
+    const getBusinessDate = () => {
+        const now = new Date()
+        const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+
+        // Check if we are in the early morning (00:00 - 04:00)
+        if (laTime.getHours() < 4) {
+            laTime.setDate(laTime.getDate() - 1)
+        }
+
+        // Format YYYY-MM-DD
+        const y = laTime.getFullYear()
+        const m = String(laTime.getMonth() + 1).padStart(2, '0')
+        const d = String(laTime.getDate()).padStart(2, '0')
+        return `${y}-${m}-${d}`
+    }
+
     const handleSync = async (isManual = true) => {
         if (!storeId || isSyncing) return
         setIsSyncing(true)
         try {
-            const token = localStorage.getItem('teg_token')
-            if (!token) return
-            const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-            const query = new URLSearchParams({ storeIds: 'all', startDate: today, endDate: today, groupBy: 'day' })
-            const res = await fetch(`/api/ventas?${query}`, { headers: { 'Authorization': `Bearer ${token}` } })
-            if (!res.ok) throw new Error("API Error")
-            const json = await res.json()
-            const rows = json.data || []
-            let targetRow = rows.find((r: any) => r.storeId === storeId)
+            // Use Business Date for logging/context if needed
+            const businessDate = getBusinessDate()
 
-            if (targetRow && targetRow.netSales > 0) {
-                setLiveSalesOverride(targetRow.netSales)
+            // OPTIMIZATION: Call ONE robust endpoint that Force Syncs AND returns the Value.
+            // No need to call api/ventas (Read) AND api/sync (Write). Just Write & Read back.
+            const res = await fetch('/api/sync/sales-live', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ storeId })
+            })
+
+            if (!res.ok) throw new Error("Sync Failed")
+
+            const json = await res.json()
+            const netSales = Number(json.sales_data || 0)
+
+            if (netSales > 0) {
+                setLiveSalesOverride(netSales)
+                // Also trigger a DB refresh to get the detailed hourly breakdowns/labor
+                if (onRefresh) await onRefresh()
             } else if (isManual) {
-                const manual = prompt(`⚠️ API retornó $0. Ingresar manualmente:`)
+                const manual = prompt(`⚠️ API retornó $0 para ${businessDate}. Ingresar manualmente:`)
                 if (manual && !isNaN(Number(manual))) setLiveSalesOverride(Number(manual))
             }
-            fetch('/api/sync/sales-live', { method: 'POST', body: JSON.stringify({ storeId }) }).catch(console.error)
-            if (onRefresh) await onRefresh()
+
         } catch (e) {
+            console.error(e)
             if (isManual) {
                 const manual = prompt(`❌ Error conexión. Ingresar manual:`)
                 if (manual && !isNaN(Number(manual))) setLiveSalesOverride(Number(manual))
@@ -50,8 +76,8 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
 
     useEffect(() => {
         if (!storeId) return
-        const todayFn = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
-        const currentSales = actuals?.[todayFn]?.sales || 0
+        const businessToday = getBusinessDate()
+        const currentSales = actuals?.[businessToday]?.sales || 0
         if (!hasAutoSynced.current && currentSales === 0 && liveSalesOverride === null) {
             hasAutoSynced.current = true
             handleSync(false)
@@ -59,13 +85,16 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
     }, [storeId, actuals, liveSalesOverride])
 
     const dailyData = useMemo(() => {
+        const businessToday = getBusinessDate()
         const days = Array.from({ length: 7 }, (_, i) => {
             const date = addDays(weekStart, i)
             const dateStr = formatDateISO(date)
             const salesProj = parseFloat(projections[dateStr] || '0')
             let salesAct = actuals?.[dateStr]?.sales || 0
-            const todayStr = formatDateISO(new Date())
-            if (dateStr === todayStr && liveSalesOverride !== null) salesAct = liveSalesOverride
+
+            // Override strictly for Business Today
+            if (dateStr === businessToday && liveSalesOverride !== null) salesAct = liveSalesOverride
+
             const schedStats = laborStats[dateStr] || { cost: 0, hours: 0 }
             const actStats = actuals?.[dateStr]?.labor || { cost: 0, hours: 0 }
             const laborPctProj = salesProj > 0 ? (schedStats.cost / salesProj) * 100 : 0
