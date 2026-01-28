@@ -28,11 +28,11 @@ async function test() {
 
     result.hours.forEach(h => {
         // Only show operating hours (9am to 11pm roughly)
-        if (h.sales_projected > 10 || h.tickets_projected > 0) {
+        if (h.projected_sales > 10 || h.projected_tickets > 0) {
             const time = h.hour.toString().padStart(2, '0') + ':00'
-            const sales = `$${h.sales_projected.toFixed(0)}`.padStart(8)
-            const tix = `${h.tickets_projected.toFixed(0)} tix`.padStart(7)
-            const cash = `${h.required_cashiers}`.padStart(16)
+            const sales = `$${h.projected_sales.toFixed(0)}`.padStart(8)
+            const tix = `${h.projected_tickets.toFixed(0)} tix`.padStart(7)
+            const cash = `${h.required_foh}`.padStart(16)
             const kitch = `${h.required_kitchen}`.padStart(15)
 
             console.log(`${time} | ${sales} | ${tix} | ${cash} | ${kitch}`)

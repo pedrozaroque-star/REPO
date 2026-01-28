@@ -52,7 +52,7 @@ async function runAudit() {
         if (predicted.hours && predicted.hours.length > 0) {
             predicted.hours.forEach(h => {
                 // Use predicted sales to find peak
-                if (h.sales > maxSales) { maxSales = h.sales; peakHour = h.hour }
+                if (h.projected_sales > maxSales) { maxSales = h.projected_sales; peakHour = h.hour }
             })
         }
         peakStr = `${peakHour}:00`

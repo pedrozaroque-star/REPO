@@ -4,10 +4,11 @@ import { addDays, format, subYears } from 'date-fns'
 
 // --- CONSTANTS FROM INTELLIGENCE MINING (2025 Analysis) ---
 export const CAPACITY_RULES = {
-    // Front of House: Throughput limit driven by transaction count (Relaxed from 18.3 to 11.0)
-    CASHIER_TICKETS_PER_HOUR_MEDIAN: 18.3,
+    // Front of House: Throughput limit driven by transaction count (Calibrated from 18.3 to 11.0 based on Jan 2026 Audit)
+    CASHIER_TICKETS_PER_HOUR_MEDIAN: 11.0,
 
     // Back of House: Production throughput driven by sales volume
+    // Maintained at $211 (Industry Std). Real audit showed $249 for cooks alone, but $200 w/ manager support.
     KITCHEN_SALES_PER_HOUR_MEDIAN: 211.0,
 
     // Baseline minimums (Never schedule 0 people if open)
@@ -61,10 +62,12 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // A. Check for "Apples-to-Apples" Holiday Mapping (e.g. Super Bowl vs Super Bowl)
     // B. Default to Same Weekday (Year-1, Year-2, Year-3)
 
-    const { getComparativeDates, getHolidayName, getHolidayImpact } = await import('@/lib/holidays')
+    const { getComparativeDates, getHolidayName, getHolidayImpact, getHolidayEarlyClose, getHolidayLateOpen } = await import('@/lib/holidays')
     const specialEventPeers = getComparativeDates(targetDateStr)
     const holidayName = getHolidayName(targetDateStr)
     const holidayImpact = getHolidayImpact(targetDateStr)
+    const earlyCloseHour = getHolidayEarlyClose(targetDateStr)
+    const lateOpenHour = getHolidayLateOpen(targetDateStr)
 
     // CLOSED HOLIDAY CHECK (Abort Early)
     if (holidayImpact === 'CLOSED') {
@@ -77,6 +80,14 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             hours: [] // No operations
         }
     }
+
+    // ... (rest of code)
+
+    // 3. Make sure to update the loop logic far below (using multi_replace doesn't let me jump around easily with context)
+    // I will target the imports block first, then I'll make a second call for the loop.
+    // Wait, I can't do multiple discontinuous edits unless I use multi_replace.
+    // I will use MultiReplaceFileContent.
+
 
     let baseSales = 0
     let hourlySalesDist: Record<string, number> = {}
@@ -266,9 +277,9 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const dRecentStart = new Date(dRecentEnd)
     dRecentStart.setDate(dRecentStart.getDate() - 28)
 
-    // Range B: 21 Days (3 Weeks - Balanced Stability)
+    // Range B: 7 Days (Immediate Reactivity)
     const dShortStart = new Date(dRecentEnd)
-    dShortStart.setDate(dShortStart.getDate() - 21)
+    dShortStart.setDate(dShortStart.getDate() - 7)
 
     // Last Year Ranges
     const dLastYearEnd = new Date(dRecentEnd)
@@ -276,7 +287,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const dLastYearStart = new Date(dLastYearEnd)
     dLastYearStart.setDate(dLastYearStart.getDate() - 28)
     const dLastYearShort = new Date(dLastYearEnd)
-    dLastYearShort.setDate(dLastYearShort.getDate() - 21)
+    dLastYearShort.setDate(dLastYearShort.getDate() - 7)
 
     // FETCH 28-DAY DATA
     const { data: salesRecent28 } = await supabase
@@ -346,13 +357,13 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
     let growthFactorSales = 1.0
     if (sumLastYear28 > 1000 && sumRecent28 > 1000) {
-        const raw = (salesGrowth28 * 0.5) + (salesGrowthShort * 0.5)
+        const raw = (salesGrowth28 * 0.4) + (salesGrowthShort * 0.6)
         growthFactorSales = Math.min(Math.max(raw, 0.90), 1.50)
     }
 
     let growthFactorTickets = 1.0
     if (sumTicketsLastYear28 > 100 && sumTicketsRecent28 > 100) {
-        const rawTix = (ticketGrowth28 * 0.5) + (ticketGrowthShort * 0.5)
+        const rawTix = (ticketGrowth28 * 0.4) + (ticketGrowthShort * 0.6)
         growthFactorTickets = Math.min(Math.max(rawTix, 0.90), 1.30)
     }
 
@@ -394,8 +405,20 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         const histTickets = Number(hourlyTicketDist[h] || 0)
 
         // Apply distinct growth factors AND weather
-        const projSales = histSales * growthFactorSales * weatherFactor
+        let projSales = histSales * growthFactorSales * weatherFactor
         let projTickets = histTickets * growthFactorTickets * weatherFactor // Uses Ticket Growth
+
+        // --- OPERATING HOURS ENFORCEMENT ---
+        // Late Open (e.g. 11am) OR Early Close (e.g. 4pm)
+        if (
+            (lateOpenHour !== null && h < lateOpenHour) ||
+            (earlyCloseHour !== null && h >= earlyCloseHour)
+        ) {
+            projSales = 0
+            projTickets = 0
+        }
+
+
 
         // FALLBACK: If hourly tickets missing, estimate from Average Ticket Value (ATV)
         // Avg Ticket = Total Sales / Total Tickets (Day level)
