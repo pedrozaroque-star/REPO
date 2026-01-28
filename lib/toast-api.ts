@@ -79,7 +79,7 @@ let cachedToken: string | null = null
 let tokenExpiry: number = 0
 
 // --- AUTHENTICATION ---
-async function getAuthToken() {
+export async function getAuthToken() {
     // Return cached token if valid (buffer 5 min)
     if (cachedToken && Date.now() < tokenExpiry - 300000) {
         return cachedToken
