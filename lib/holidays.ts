@@ -8,6 +8,8 @@ export interface HolidayMapping {
     date2024: string
     date2023: string
     impact: 'HIGH' | 'LOW' | 'NEUTRAL' | 'CLOSED'
+    earlyCloseHour?: number // 24-hour format (e.g. 16 for 4pm)
+    lateOpenHour?: number // 24-hour format (e.g. 11 for 11am)
 }
 
 // MASTER HOLIDAY DICTIONARY 2023-2026
@@ -91,7 +93,8 @@ export const HOLIDAY_CALENDAR: HolidayMapping[] = [
         date2025: "2025-01-01",
         date2024: "2024-01-01",
         date2023: "2023-01-01",
-        impact: 'NEUTRAL'
+        impact: 'NEUTRAL',
+        lateOpenHour: 11 // 11am
     },
     {
         name: "Martin Luther King Day",
@@ -163,7 +166,17 @@ export const HOLIDAY_CALENDAR: HolidayMapping[] = [
         date2025: "2025-11-27",
         date2024: "2024-11-28",
         date2023: "2023-11-23",
-        impact: 'LOW' // Early Close 4pm
+        impact: 'LOW',
+        earlyCloseHour: 16 // 4pm
+    },
+    {
+        name: "Day After Thanksgiving",
+        date2026: "2026-11-27",
+        date2025: "2025-11-28",
+        date2024: "2024-11-29",
+        date2023: "2023-11-24",
+        impact: 'NEUTRAL',
+        lateOpenHour: 11 // 11am
     },
     {
         name: "Christmas Eve",
@@ -171,7 +184,8 @@ export const HOLIDAY_CALENDAR: HolidayMapping[] = [
         date2025: "2025-12-24",
         date2024: "2024-12-24",
         date2023: "2023-12-24",
-        impact: 'LOW' // Early Close 4pm
+        impact: 'LOW',
+        earlyCloseHour: 16 // 4pm
     },
     {
         name: "Christmas Day",
@@ -187,7 +201,8 @@ export const HOLIDAY_CALENDAR: HolidayMapping[] = [
         date2025: "2025-12-31",
         date2024: "2024-12-31",
         date2023: "2023-12-31",
-        impact: 'LOW' // Early Close 4pm
+        impact: 'LOW',
+        earlyCloseHour: 16 // 4pm
     }
 ]
 
@@ -232,4 +247,24 @@ export function getHolidayImpact(targetDate: string): string | null {
         h.date2023 === targetDate
     )
     return h ? h.impact : null
+}
+
+export function getHolidayEarlyClose(targetDate: string): number | null {
+    const h = HOLIDAY_CALENDAR.find(h =>
+        h.date2026 === targetDate ||
+        h.date2025 === targetDate ||
+        h.date2024 === targetDate ||
+        h.date2023 === targetDate
+    )
+    return h && h.earlyCloseHour ? h.earlyCloseHour : null
+}
+
+export function getHolidayLateOpen(targetDate: string): number | null {
+    const h = HOLIDAY_CALENDAR.find(h =>
+        h.date2026 === targetDate ||
+        h.date2025 === targetDate ||
+        h.date2024 === targetDate ||
+        h.date2023 === targetDate
+    )
+    return h && h.lateOpenHour ? h.lateOpenHour : null
 }
