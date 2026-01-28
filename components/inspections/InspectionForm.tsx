@@ -226,6 +226,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return // BLOCK DOUBLE SUBMISSIONS
 
     if (!user) return alert('Sesión expirada')
     if (!formData.store_id) return alert('Selecciona una sucursal')
@@ -377,8 +378,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
       alert('✅ Inspección Guardada')
       router.push('/inspecciones')
     } catch (err: any) {
+      console.error(err)
       alert('Error: ' + err.message)
-    } finally {
       setLoading(false)
     }
   }
