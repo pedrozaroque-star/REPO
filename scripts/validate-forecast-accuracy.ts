@@ -59,7 +59,7 @@ async function validateJan5() {
     const neededKitchForActual = Math.ceil(actSalesPk / CAPACITY_RULES.KITCHEN_SALES_PER_HOUR_MEDIAN)
 
     console.log(`      Peak Hour Detected: ${peakHour}:00`)
-    console.log(`      @ Peak - Projected Sales: $${predicted.hours.find(h => h.hour === peakHour)?.sales_projected.toFixed(0)} -> Sug: ${suggestKitch} Cooks`)
+    console.log(`      @ Peak - Projected Sales: $${predicted.hours.find(h => h.hour === peakHour)?.projected_sales.toFixed(0)} -> Sug: ${suggestKitch} Cooks`)
     console.log(`      @ Peak - Actual Sales:    $${actSalesPk.toFixed(0)} -> Need: ${neededKitchForActual} Cooks`)
 
     const diff = Math.abs(suggestKitch - neededKitchForActual)

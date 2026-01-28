@@ -2,151 +2,150 @@
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import path from 'path'
-import fs from 'fs'
+import * as fs from 'fs'
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('Missing credentials')
-    process.exit(1)
+const STORE_ID = '80a1ec95-bc73-402e-8884-e5abbe9343e6' // Lynwood
+const KEYWORDS = {
+    FOH: ['cashier', 'shift', 'manager'],
+    BOH: ['cook', 'taquero', 'dish', 'prep']
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+async function mineEfficiency() {
+    console.log("⛏️ Mining REAL Efficiency (SPLH) for Lynwood (Last 3 Months)...")
 
-// Config
-const START_DATE = '2025-01-01'
-const END_DATE = new Date().toISOString().split('T')[0] // Today
+    // 1. Get Job GUIDs & Map
+    const { data: allJobs } = await supabase.from('toast_jobs').select('title, guid')
+    const roleMap = { FOH: [] as string[], BOH: [] as string[] }
+    allJobs?.forEach(j => {
+        const title = j.title.toLowerCase()
+        if (KEYWORDS.FOH.some(k => title.includes(k))) roleMap.FOH.push(j.guid)
+        else if (KEYWORDS.BOH.some(k => title.includes(k))) roleMap.BOH.push(j.guid)
+    })
+    console.log(`   Mapped ${roleMap.FOH.length} FOH and ${roleMap.BOH.length} BOH roles.`)
 
-async function analyzeEfficiency() {
-    console.log(`⛏️  MINING EFFICIENCY DATA (${START_DATE} to ${END_DATE})...`)
+    // 2. Fetch Data
+    const startDate = '2025-11-01'
+    const endDate = '2026-02-01' // Feb 1st (exclusive)
 
-    // Fetch ALL valid sales data for the period
-    // We need: store_id, business_date, net_sales, labor_hours
-    // Filter out: net_sales = 0 or labor_hours = 0 (Closed days or Bad Data)
+    // SALES
+    const { data: salesData } = await supabase
+        .from('sales_daily_cache')
+        .select('business_date, hourly_data, hourly_tickets')
+        .eq('store_id', STORE_ID)
+        .gte('business_date', startDate)
+        .lt('business_date', endDate)
 
-    let allRows: any[] = []
-    let page = 0
-    let hasMore = true
-    const PAGE_SIZE = 1000
+    const salesByDate: any = {}
+    salesData?.forEach(r => salesByDate[r.business_date] = r)
 
-    while (hasMore) {
-        console.log(`   fetching page ${page}...`)
-        const { data, error } = await supabase
-            .from('sales_daily_cache')
-            .select('store_id, business_date, net_sales, labor_hours')
-            .gte('business_date', START_DATE)
-            .lte('business_date', END_DATE)
-            .gt('net_sales', 100) // Ignore very low sales (closed/training?)
-            .gt('labor_hours', 5) // Ignore ghost shifts
-            .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+    // PUNCHES
+    let allPunches: any[] = []
+    const chunks = [['2025-11-01', '2025-12-01'], ['2025-12-01', '2026-01-01'], ['2026-01-01', '2026-02-01']]
+    for (const [s, e] of chunks) {
+        process.stdout.write('.')
+        const { data: p } = await supabase.from('punches').select('business_date, clock_in, clock_out, job_toast_guid').eq('store_id', STORE_ID).gte('business_date', s).lt('business_date', e).limit(15000)
+        if (p) allPunches = [...allPunches, ...p]
+    }
+    console.log(`\n   Loaded ${allPunches.length} shifts.`)
 
-        if (error) {
-            console.error('Fetch error:', error)
-            break
-        }
+    // Group punches by date for speed O(1)
+    const punchesByDate: Record<string, any[]> = {}
+    allPunches.forEach(p => {
+        if (!punchesByDate[p.business_date]) punchesByDate[p.business_date] = []
+        punchesByDate[p.business_date].push(p)
+    })
 
-        if (data && data.length > 0) {
-            allRows = allRows.concat(data)
-            if (data.length < PAGE_SIZE) hasMore = false
-            page++
-        } else {
-            hasMore = false
+    // 3. Calculate Efficiency Hour by Hour
+    let totalDollars = 0
+    let totalBohHours = 0
+    let salesSamples = 0
+
+    let totalTickets = 0
+    let totalFohHours = 0
+    let ticketSamples = 0
+
+    // Helper for Timezone
+    const toLocalHour = (dStr: string) => {
+        const d = new Date(dStr)
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false }).formatToParts(d)
+        const hPart = parts.find(p => p.type === 'hour')
+        return hPart ? parseInt(hPart.value) : -1
+    }
+
+    // Loop Days
+    for (const dStr of Object.keys(salesByDate)) {
+        const dayPunches = punchesByDate[dStr] || []
+        const daySales = salesByDate[dStr]
+
+        // Loop Hours 11am - 10pm
+        for (let h = 11; h <= 22; h++) {
+            const dollars = Number(daySales.hourly_data[h] || 0)
+            const tickets = Number(daySales.hourly_tickets[h] || 0)
+
+            if (dollars < 100) continue // Skip low volume hours (skew data)
+
+            // Count Staff Active at H:30
+            let cooks = 0
+            let cashiers = 0
+
+            dayPunches.forEach((p: any) => {
+                if (!p.clock_out) return
+                const inH = toLocalHour(p.clock_in)
+                const outH = toLocalHour(p.clock_out)
+
+                let isWorking = false
+                if (outH < inH) {
+                    if (h >= inH || h < outH) isWorking = true
+                } else {
+                    if (h >= inH && h < outH) isWorking = true
+                }
+
+                if (isWorking) {
+                    if (roleMap.FOH.includes(p.job_toast_guid)) cashiers++
+                    if (roleMap.BOH.includes(p.job_toast_guid)) cooks++
+                }
+            })
+
+            // Aggregate
+            if (cooks > 0) {
+                totalDollars += dollars
+                totalBohHours += cooks // e.g. 5 cooks worked 1 hour = 5 labor hours
+                salesSamples++
+            }
+            if (cashiers > 0) {
+                totalTickets += tickets
+                totalFohHours += cashiers
+                ticketSamples++
+            }
         }
     }
 
-    console.log(`✅ Loaded ${allRows.length} valid operating days. analyzing...`)
+    // RESULTS
+    const splh = totalBohHours > 0 ? (totalDollars / totalBohHours) : 0
+    const tplh = totalFohHours > 0 ? (totalTickets / totalFohHours) : 0
 
-    // Analysis Structure
-    // Store -> { TotalSales, TotalHours, Days, AvgSPLH, WeekdayBreakdown }
-    const analysis: Record<string, any> = {}
-
-    allRows.forEach(row => {
-        const id = row.store_id
-        if (!analysis[id]) {
-            analysis[id] = {
-                totalSales: 0,
-                totalHours: 0,
-                days: 0,
-                byDay: {}, // 0=Sun, 1=Mon...
-                rawSplh: [] // To calculate Median later?
-            }
-            // Init weekdays
-            for (let i = 0; i < 7; i++) {
-                analysis[id].byDay[i] = { sales: 0, hours: 0, days: 0 }
-            }
+    const report = {
+        meta: { range: 'Nov 2025 - Jan 2026', store: 'Lynwood (80a1...)' },
+        kitchen: {
+            real_splh: Math.round(splh),
+            note: `Generan $${Math.round(splh)} por hora-hombre.`,
+            sample_hours: salesSamples
+        },
+        foh: {
+            real_tplh: tplh.toFixed(1),
+            note: `Procesan ${tplh.toFixed(1)} tickets por hora-hombre.`,
+            sample_hours: ticketSamples
         }
+    }
 
-        const sales = Number(row.net_sales)
-        const hours = Number(row.labor_hours)
-        const date = new Date(row.business_date)
-        // Fix timezone drift? business_date is YYYY-MM-DD
-        // new Date('2025-01-01') is UTC. 
-        // getUTCDay() 0=Sunday
-        const dayOfWeek = date.getUTCDay()
+    console.log("\n--- 📊 REALITY CHECK ---")
+    console.log(`Kitchen SPLH: $${report.kitchen.real_splh}`)
+    console.log(`Cashier TPLH: ${report.foh.real_tplh}`)
 
-        analysis[id].totalSales += sales
-        analysis[id].totalHours += hours
-        analysis[id].days++
-
-        // Per Day stats
-        analysis[id].byDay[dayOfWeek].sales += sales
-        analysis[id].byDay[dayOfWeek].hours += hours
-        analysis[id].byDay[dayOfWeek].days++
-    })
-
-    // Calculate Final Metrics
-    const report: any[] = []
-
-    // We need a map for Store Names if possible, or just use IDs for now
-    // Let's try to fetch store names for nicer output
-    // (Assuming generic IDs, we'll output ID first)
-
-    Object.keys(analysis).forEach(storeId => {
-        const d = analysis[storeId]
-        const avgSplh = d.totalSales / d.totalHours
-
-        // Analyze Day Volatility (Variance between Mon vs Fri)
-        const dailySplh: any = {}
-        let minSplh = 999
-        let maxSplh = 0
-
-        for (let i = 0; i < 7; i++) {
-            const dayData = d.byDay[i]
-            if (dayData.hours > 0) {
-                const s = dayData.sales / dayData.hours
-                dailySplh[i] = Number(s.toFixed(2))
-                if (s < minSplh) minSplh = s
-                if (s > maxSplh) maxSplh = s
-            }
-        }
-
-        report.push({
-            store_id: storeId,
-            days_analyzed: d.days,
-            total_sales_2025_2026: d.totalSales,
-            overall_splh: Number(avgSplh.toFixed(2)),
-            best_day_splh: Number(maxSplh.toFixed(2)),
-            worst_day_splh: Number(minSplh.toFixed(2)),
-            volatility: Number(((maxSplh - minSplh) / avgSplh * 100).toFixed(1)) + '%',
-            daily_breakdown: dailySplh
-        })
-    })
-
-    // Sort by Efficiency (Highest SPLH first)
-    report.sort((a, b) => b.overall_splh - a.overall_splh)
-
-    // Save to JSON
-    const outFile = path.join(process.cwd(), 'scripts', 'mining', 'efficiency-report.json')
-    fs.writeFileSync(outFile, JSON.stringify(report, null, 2))
-
-    console.log(`💎 Analysis Complete. Saved to ${outFile}`)
-    console.log('\n🏆 TOP 5 MOST EFFICIENT STORES:')
-    report.slice(0, 5).forEach((r, i) => {
-        console.log(`${i + 1}. Store ${r.store_id.slice(0, 8)}: $${r.overall_splh}/hr (Vol: ${r.volatility})`)
-    })
+    fs.writeFileSync('scripts/mining/efficiency-report.json', JSON.stringify(report, null, 2))
 }
 
-analyzeEfficiency()
+mineEfficiency()
