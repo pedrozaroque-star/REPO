@@ -29,8 +29,17 @@ function DashboardContent() {
     })
     const [loading, setLoading] = useState(true)
     const [timeFilter, setTimeFilter] = useState('month')
-    const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0])
-    const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date()
+        if (d.getHours() < 6) d.setDate(d.getDate() - 1) // Business day adjustment
+        d.setDate(1) // Start of month
+        return d.toISOString().split('T')[0]
+    })
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date()
+        if (d.getHours() < 6) d.setDate(d.getDate() - 1) // Business day adjustment
+        return d.toISOString().split('T')[0]
+    })
     const [selectedFeedback, setSelectedFeedback] = useState<any>(null)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [user, setUser] = useState<any>(null)
