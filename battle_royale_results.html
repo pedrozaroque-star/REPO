@@ -1,0 +1,1418 @@
+
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f9; padding: 20px; color: #333; }
+            h1 { text-align: center; color: #2c3e50; }
+            .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+            th { background-color: #34495e; color: white; padding: 12px; text-align: left; position: sticky; top: 0; }
+            td { padding: 10px; border-bottom: 1px solid #ddd; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+            tr:hover { background-color: #f1f1f1; }
+            
+            .money { font-family: 'Consolas', monospace; font-weight: 600; }
+            .error-high { color: #e74c3c; font-weight: bold; }
+            .error-low { color: #27ae60; }
+            
+            .winner-new { background-color: #d5f5e3 !important; } /* Light Green */
+            .winner-old { background-color: #fadbd8 !important; } /* Light Red */
+            
+            .future-row { background-color: #e8f6f3 !important; color: #555; font-style: italic; border-left: 5px solid #3498db; }
+            .future-high { color: #2980b9; font-weight: bold; }
+            
+            .summary-box { display: flex; justify-content: space-around; background: #ecf0f1; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+            .stat { text-align: center; }
+            .stat-val { font-size: 24px; font-weight: bold; color: #2c3e50; }
+            .stat-label { font-size: 12px; text-transform: uppercase; color: #7f8c8d; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🛡️ Battle Royale: Intelligence vs Legacy 🛡️</h1>
+            <p style="text-align: center; color: #7f8c8d;">Análisis Computacional: Nov 2025 - Mar 2026</p>
+            
+            <!-- SUMMARY PLACEHOLDER (Will inject later) -->
+            
+        <div class="summary-box">
+            <div class="stat">
+                <div class="stat-val" style="color: #e74c3c">14.5%</div>
+                <div class="stat-label">Error Viejo</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val" style="color: #27ae60">8.2%</div>
+                <div class="stat-label">Error Nuevo</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val">50 vs 38</div>
+                <div class="stat-label">Victorias (Nuevo vs Viejo)</div>
+            </div>
+        </div>
+    
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Venta Real</th>
+                        <th>Modelo Viejo</th>
+                        <th>Error Viejo</th>
+                        <th>Nuevo (Inteli)</th>
+                        <th>Error Nuevo</th>
+                        <th>Ganador</th>
+                    </tr>
+                </thead>
+                <tbody>
+    
+                <tr class="winner-old">
+                    <td>2025-11-01</td>
+                    <td class="money">$20184</td>
+                    <td class="money">$21281</td>
+                    <td class="error-low">5.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$21723</td>
+                    <td class="error-low">7.6%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-02</td>
+                    <td class="money">$19118</td>
+                    <td class="money">$18469</td>
+                    <td class="error-low">3.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$18925</td>
+                    <td class="error-low">1.0%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-03</td>
+                    <td class="money">$12552</td>
+                    <td class="money">$12223</td>
+                    <td class="error-low">2.6%</td>
+                    <td class="money" style="font-size: 1.1em;">$12259</td>
+                    <td class="error-low">2.3%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-04</td>
+                    <td class="money">$12507</td>
+                    <td class="money">$12933</td>
+                    <td class="error-low">3.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$13370</td>
+                    <td class="error-low">6.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-05</td>
+                    <td class="money">$13655</td>
+                    <td class="money">$13488</td>
+                    <td class="error-low">1.2%</td>
+                    <td class="money" style="font-size: 1.1em;">$13204</td>
+                    <td class="error-low">3.3%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-06</td>
+                    <td class="money">$14197</td>
+                    <td class="money">$14984</td>
+                    <td class="error-low">5.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$15256</td>
+                    <td class="error-low">7.5%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-07</td>
+                    <td class="money">$21169</td>
+                    <td class="money">$23010</td>
+                    <td class="error-low">8.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$19805</td>
+                    <td class="error-low">6.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-08</td>
+                    <td class="money">$19978</td>
+                    <td class="money">$20525</td>
+                    <td class="error-low">2.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$21628</td>
+                    <td class="error-low">8.3%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-09</td>
+                    <td class="money">$18377</td>
+                    <td class="money">$19390</td>
+                    <td class="error-low">5.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$18813</td>
+                    <td class="error-low">2.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-10</td>
+                    <td class="money">$13456</td>
+                    <td class="money">$12932</td>
+                    <td class="error-low">3.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$13272</td>
+                    <td class="error-low">1.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-11</td>
+                    <td class="money">$12333</td>
+                    <td class="money">$12967</td>
+                    <td class="error-low">5.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$13388</td>
+                    <td class="error-low">8.6%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-12</td>
+                    <td class="money">$13100</td>
+                    <td class="money">$13689</td>
+                    <td class="error-low">4.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$12855</td>
+                    <td class="error-low">1.9%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-13</td>
+                    <td class="money">$13434</td>
+                    <td class="money">$14696</td>
+                    <td class="error-low">9.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$14596</td>
+                    <td class="error-low">8.6%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-14</td>
+                    <td class="money">$18510</td>
+                    <td class="money">$22101</td>
+                    <td class="error-high">19.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$20755</td>
+                    <td class="error-low">12.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-15</td>
+                    <td class="money">$19787</td>
+                    <td class="money">$20544</td>
+                    <td class="error-low">3.8%</td>
+                    <td class="money" style="font-size: 1.1em;">$21779</td>
+                    <td class="error-low">10.1%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-16</td>
+                    <td class="money">$18035</td>
+                    <td class="money">$19105</td>
+                    <td class="error-low">5.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$18417</td>
+                    <td class="error-low">2.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-17</td>
+                    <td class="money">$13974</td>
+                    <td class="money">$13542</td>
+                    <td class="error-low">3.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$13399</td>
+                    <td class="error-low">4.1%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-18</td>
+                    <td class="money">$13729</td>
+                    <td class="money">$11958</td>
+                    <td class="error-low">12.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$13079</td>
+                    <td class="error-low">4.7%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-19</td>
+                    <td class="money">$12655</td>
+                    <td class="money">$13552</td>
+                    <td class="error-low">7.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$15778</td>
+                    <td class="error-high">24.7%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-20</td>
+                    <td class="money">$15925</td>
+                    <td class="money">$14259</td>
+                    <td class="error-low">10.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$10551</td>
+                    <td class="error-high">33.7%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-21</td>
+                    <td class="money">$20032</td>
+                    <td class="money">$19616</td>
+                    <td class="error-low">2.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$17962</td>
+                    <td class="error-low">10.3%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-22</td>
+                    <td class="money">$22083</td>
+                    <td class="money">$18286</td>
+                    <td class="error-high">17.2%</td>
+                    <td class="money" style="font-size: 1.1em;">$18371</td>
+                    <td class="error-high">16.8%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-23</td>
+                    <td class="money">$19803</td>
+                    <td class="money">$18823</td>
+                    <td class="error-low">5.0%</td>
+                    <td class="money" style="font-size: 1.1em;">$20271</td>
+                    <td class="error-low">2.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-24</td>
+                    <td class="money">$12086</td>
+                    <td class="money">$14203</td>
+                    <td class="error-high">17.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$13911</td>
+                    <td class="error-high">15.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-25</td>
+                    <td class="money">$14663</td>
+                    <td class="money">$14023</td>
+                    <td class="error-low">4.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$15514</td>
+                    <td class="error-low">5.8%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-26</td>
+                    <td class="money">$17602</td>
+                    <td class="money">$14623</td>
+                    <td class="error-high">16.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$16592</td>
+                    <td class="error-low">5.7%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-27</td>
+                    <td class="money">$4772</td>
+                    <td class="money">$15055</td>
+                    <td class="error-high">⚠️ 215%</td>
+                    <td class="money" style="font-size: 1.1em;">$6371</td>
+                    <td class="error-high">33.5%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-28</td>
+                    <td class="money">$14302</td>
+                    <td class="money">$17735</td>
+                    <td class="error-high">24.0%</td>
+                    <td class="money" style="font-size: 1.1em;">$15963</td>
+                    <td class="error-low">11.6%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-11-29</td>
+                    <td class="money">$21267</td>
+                    <td class="money">$21291</td>
+                    <td class="error-low">0.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$23387</td>
+                    <td class="error-low">10.0%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-11-30</td>
+                    <td class="money">$18317</td>
+                    <td class="money">$19548</td>
+                    <td class="error-low">6.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$19303</td>
+                    <td class="error-low">5.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-01</td>
+                    <td class="money">$12585</td>
+                    <td class="money">$13142</td>
+                    <td class="error-low">4.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$12724</td>
+                    <td class="error-low">1.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-02</td>
+                    <td class="money">$13232</td>
+                    <td class="money">$14710</td>
+                    <td class="error-low">11.2%</td>
+                    <td class="money" style="font-size: 1.1em;">$13696</td>
+                    <td class="error-low">3.5%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-03</td>
+                    <td class="money">$13100</td>
+                    <td class="money">$15534</td>
+                    <td class="error-high">18.6%</td>
+                    <td class="money" style="font-size: 1.1em;">$13756</td>
+                    <td class="error-low">5.0%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-04</td>
+                    <td class="money">$15028</td>
+                    <td class="money">$10721</td>
+                    <td class="error-high">28.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$14859</td>
+                    <td class="error-low">1.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-05</td>
+                    <td class="money">$21395</td>
+                    <td class="money">$17666</td>
+                    <td class="error-high">17.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$22073</td>
+                    <td class="error-low">3.2%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-06</td>
+                    <td class="money">$22017</td>
+                    <td class="money">$22484</td>
+                    <td class="error-low">2.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$22960</td>
+                    <td class="error-low">4.3%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-07</td>
+                    <td class="money">$20745</td>
+                    <td class="money">$19412</td>
+                    <td class="error-low">6.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$19700</td>
+                    <td class="error-low">5.0%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-08</td>
+                    <td class="money">$13076</td>
+                    <td class="money">$12685</td>
+                    <td class="error-low">3.0%</td>
+                    <td class="money" style="font-size: 1.1em;">$11337</td>
+                    <td class="error-low">13.3%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-09</td>
+                    <td class="money">$12812</td>
+                    <td class="money">$14606</td>
+                    <td class="error-low">14.0%</td>
+                    <td class="money" style="font-size: 1.1em;">$14805</td>
+                    <td class="error-high">15.6%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-10</td>
+                    <td class="money">$14176</td>
+                    <td class="money">$15417</td>
+                    <td class="error-low">8.8%</td>
+                    <td class="money" style="font-size: 1.1em;">$14131</td>
+                    <td class="error-low">0.3%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-11</td>
+                    <td class="money">$15531</td>
+                    <td class="money">$13005</td>
+                    <td class="error-high">16.3%</td>
+                    <td class="money" style="font-size: 1.1em;">$16401</td>
+                    <td class="error-low">5.6%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-12</td>
+                    <td class="money">$21534</td>
+                    <td class="money">$18395</td>
+                    <td class="error-low">14.6%</td>
+                    <td class="money" style="font-size: 1.1em;">$19588</td>
+                    <td class="error-low">9.0%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-13</td>
+                    <td class="money">$22134</td>
+                    <td class="money">$22592</td>
+                    <td class="error-low">2.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$21537</td>
+                    <td class="error-low">2.7%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-14</td>
+                    <td class="money">$19163</td>
+                    <td class="money">$20098</td>
+                    <td class="error-low">4.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$19836</td>
+                    <td class="error-low">3.5%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-15</td>
+                    <td class="money">$13136</td>
+                    <td class="money">$12857</td>
+                    <td class="error-low">2.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$13861</td>
+                    <td class="error-low">5.5%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-16</td>
+                    <td class="money">$14016</td>
+                    <td class="money">$13289</td>
+                    <td class="error-low">5.2%</td>
+                    <td class="money" style="font-size: 1.1em;">$14181</td>
+                    <td class="error-low">1.2%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-17</td>
+                    <td class="money">$14395</td>
+                    <td class="money">$13891</td>
+                    <td class="error-low">3.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$14631</td>
+                    <td class="error-low">1.6%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-18</td>
+                    <td class="money">$16768</td>
+                    <td class="money">$16404</td>
+                    <td class="error-low">2.2%</td>
+                    <td class="money" style="font-size: 1.1em;">$17588</td>
+                    <td class="error-low">4.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-19</td>
+                    <td class="money">$22598</td>
+                    <td class="money">$22142</td>
+                    <td class="error-low">2.0%</td>
+                    <td class="money" style="font-size: 1.1em;">$21617</td>
+                    <td class="error-low">4.3%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-20</td>
+                    <td class="money">$22340</td>
+                    <td class="money">$22445</td>
+                    <td class="error-low">0.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$19620</td>
+                    <td class="error-low">12.2%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-21</td>
+                    <td class="money">$21482</td>
+                    <td class="money">$20774</td>
+                    <td class="error-low">3.3%</td>
+                    <td class="money" style="font-size: 1.1em;">$15049</td>
+                    <td class="error-high">29.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-22</td>
+                    <td class="money">$16526</td>
+                    <td class="money">$14720</td>
+                    <td class="error-low">10.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$12024</td>
+                    <td class="error-high">27.2%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-23</td>
+                    <td class="money">$18787</td>
+                    <td class="money">$13510</td>
+                    <td class="error-high">28.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$20670</td>
+                    <td class="error-low">10.0%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-24</td>
+                    <td class="money">$6415</td>
+                    <td class="money">$15580</td>
+                    <td class="error-high">⚠️ 143%</td>
+                    <td class="money" style="font-size: 1.1em;">$6041</td>
+                    <td class="error-low">5.8%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-25</td>
+                    <td class="money">$0</td>
+                    <td class="money">$16239</td>
+                    <td class="error-high">⚠️ 100%</td>
+                    <td class="money" style="font-size: 1.1em;">$0</td>
+                    <td class="error-low">0.0%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-26</td>
+                    <td class="money">$17086</td>
+                    <td class="money">$22291</td>
+                    <td class="error-high">30.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$19805</td>
+                    <td class="error-high">15.9%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-27</td>
+                    <td class="money">$20368</td>
+                    <td class="money">$21714</td>
+                    <td class="error-low">6.6%</td>
+                    <td class="money" style="font-size: 1.1em;">$18462</td>
+                    <td class="error-low">9.4%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-28</td>
+                    <td class="money">$19406</td>
+                    <td class="money">$20355</td>
+                    <td class="error-low">4.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$14909</td>
+                    <td class="error-high">23.2%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-29</td>
+                    <td class="money">$14358</td>
+                    <td class="money">$14866</td>
+                    <td class="error-low">3.5%</td>
+                    <td class="money" style="font-size: 1.1em;">$15636</td>
+                    <td class="error-low">8.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2025-12-30</td>
+                    <td class="money">$16272</td>
+                    <td class="money">$16384</td>
+                    <td class="error-low">0.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$18048</td>
+                    <td class="error-low">10.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2025-12-31</td>
+                    <td class="money">$6473</td>
+                    <td class="money">$11907</td>
+                    <td class="error-high">⚠️ 84%</td>
+                    <td class="money" style="font-size: 1.1em;">$6118</td>
+                    <td class="error-low">5.5%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-01</td>
+                    <td class="money">$17433</td>
+                    <td class="money">$16231</td>
+                    <td class="error-low">6.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$15752</td>
+                    <td class="error-low">9.6%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-02</td>
+                    <td class="money">$18866</td>
+                    <td class="money">$19508</td>
+                    <td class="error-low">3.4%</td>
+                    <td class="money" style="font-size: 1.1em;">$17736</td>
+                    <td class="error-low">6.0%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-03</td>
+                    <td class="money">$19462</td>
+                    <td class="money">$20579</td>
+                    <td class="error-low">5.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$20803</td>
+                    <td class="error-low">6.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-04</td>
+                    <td class="money">$19174</td>
+                    <td class="money">$19998</td>
+                    <td class="error-low">4.3%</td>
+                    <td class="money" style="font-size: 1.1em;">$17608</td>
+                    <td class="error-low">8.2%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-05</td>
+                    <td class="money">$13389</td>
+                    <td class="money">$15105</td>
+                    <td class="error-low">12.8%</td>
+                    <td class="money" style="font-size: 1.1em;">$12786</td>
+                    <td class="error-low">4.5%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-06</td>
+                    <td class="money">$12687</td>
+                    <td class="money">$16461</td>
+                    <td class="error-high">29.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$13237</td>
+                    <td class="error-low">4.3%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-07</td>
+                    <td class="money">$13130</td>
+                    <td class="money">$9758</td>
+                    <td class="error-high">25.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$13445</td>
+                    <td class="error-low">2.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-08</td>
+                    <td class="money">$14961</td>
+                    <td class="money">$16891</td>
+                    <td class="error-low">12.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$13656</td>
+                    <td class="error-low">8.7%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-09</td>
+                    <td class="money">$19931</td>
+                    <td class="money">$18103</td>
+                    <td class="error-low">9.2%</td>
+                    <td class="money" style="font-size: 1.1em;">$19293</td>
+                    <td class="error-low">3.2%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-10</td>
+                    <td class="money">$20613</td>
+                    <td class="money">$19628</td>
+                    <td class="error-low">4.8%</td>
+                    <td class="money" style="font-size: 1.1em;">$20524</td>
+                    <td class="error-low">0.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-11</td>
+                    <td class="money">$18030</td>
+                    <td class="money">$18618</td>
+                    <td class="error-low">3.3%</td>
+                    <td class="money" style="font-size: 1.1em;">$18019</td>
+                    <td class="error-low">0.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-12</td>
+                    <td class="money">$11737</td>
+                    <td class="money">$13621</td>
+                    <td class="error-high">16.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$13605</td>
+                    <td class="error-high">15.9%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-13</td>
+                    <td class="money">$12020</td>
+                    <td class="money">$13692</td>
+                    <td class="error-low">13.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$12628</td>
+                    <td class="error-low">5.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-14</td>
+                    <td class="money">$13232</td>
+                    <td class="money">$10052</td>
+                    <td class="error-high">24.0%</td>
+                    <td class="money" style="font-size: 1.1em;">$11897</td>
+                    <td class="error-low">10.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-15</td>
+                    <td class="money">$13557</td>
+                    <td class="money">$16240</td>
+                    <td class="error-high">19.8%</td>
+                    <td class="money" style="font-size: 1.1em;">$14563</td>
+                    <td class="error-low">7.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-16</td>
+                    <td class="money">$16930</td>
+                    <td class="money">$18548</td>
+                    <td class="error-low">9.6%</td>
+                    <td class="money" style="font-size: 1.1em;">$19702</td>
+                    <td class="error-high">16.4%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-17</td>
+                    <td class="money">$19189</td>
+                    <td class="money">$19782</td>
+                    <td class="error-low">3.1%</td>
+                    <td class="money" style="font-size: 1.1em;">$20330</td>
+                    <td class="error-low">5.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-18</td>
+                    <td class="money">$18896</td>
+                    <td class="money">$17621</td>
+                    <td class="error-low">6.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$17694</td>
+                    <td class="error-low">6.4%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-19</td>
+                    <td class="money">$12931</td>
+                    <td class="money">$11778</td>
+                    <td class="error-low">8.9%</td>
+                    <td class="money" style="font-size: 1.1em;">$13590</td>
+                    <td class="error-low">5.1%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-20</td>
+                    <td class="money">$11180</td>
+                    <td class="money">$12029</td>
+                    <td class="error-low">7.6%</td>
+                    <td class="money" style="font-size: 1.1em;">$12996</td>
+                    <td class="error-high">16.2%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-21</td>
+                    <td class="money">$11547</td>
+                    <td class="money">$13136</td>
+                    <td class="error-low">13.8%</td>
+                    <td class="money" style="font-size: 1.1em;">$12873</td>
+                    <td class="error-low">11.5%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-22</td>
+                    <td class="money">$13217</td>
+                    <td class="money">$13832</td>
+                    <td class="error-low">4.7%</td>
+                    <td class="money" style="font-size: 1.1em;">$14807</td>
+                    <td class="error-low">12.0%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-23</td>
+                    <td class="money">$18294</td>
+                    <td class="money">$17924</td>
+                    <td class="error-low">2.0%</td>
+                    <td class="money" style="font-size: 1.1em;">$19116</td>
+                    <td class="error-low">4.5%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-24</td>
+                    <td class="money">$18419</td>
+                    <td class="money">$19561</td>
+                    <td class="error-low">6.2%</td>
+                    <td class="money" style="font-size: 1.1em;">$20788</td>
+                    <td class="error-low">12.9%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-25</td>
+                    <td class="money">$17129</td>
+                    <td class="money">$17694</td>
+                    <td class="error-low">3.3%</td>
+                    <td class="money" style="font-size: 1.1em;">$17075</td>
+                    <td class="error-low">0.3%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-new">
+                    <td>2026-01-26</td>
+                    <td class="money">$11211</td>
+                    <td class="money">$11636</td>
+                    <td class="error-low">3.8%</td>
+                    <td class="money" style="font-size: 1.1em;">$11540</td>
+                    <td class="error-low">2.9%</td>
+                    <td><b>🆕 Nuevo</b></td>
+                </tr>
+            
+                <tr class="winner-old">
+                    <td>2026-01-27</td>
+                    <td class="money">$11379</td>
+                    <td class="money">$11414</td>
+                    <td class="error-low">0.3%</td>
+                    <td class="money" style="font-size: 1.1em;">$12895</td>
+                    <td class="error-low">13.3%</td>
+                    <td><b>👴 Viejo</b></td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-01-28</td>
+                    <td>-</td>
+                    <td class="money">$13212</td>
+                    <td>-</td>
+                    <td class="money future-high">$12691</td>
+                    <td>(-521)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-01-29</td>
+                    <td>-</td>
+                    <td class="money">$13165</td>
+                    <td>-</td>
+                    <td class="money future-high">$13082</td>
+                    <td>(-83)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-01-30</td>
+                    <td>-</td>
+                    <td class="money">$17749</td>
+                    <td>-</td>
+                    <td class="money future-high">$17844</td>
+                    <td>(+95)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-01-31</td>
+                    <td>-</td>
+                    <td class="money">$19073</td>
+                    <td>-</td>
+                    <td class="money future-high">$19285</td>
+                    <td>(+212)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-01</td>
+                    <td>-</td>
+                    <td class="money">$17357</td>
+                    <td>-</td>
+                    <td class="money future-high">$15897</td>
+                    <td>(-1460)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-02</td>
+                    <td>-</td>
+                    <td class="money">$11967</td>
+                    <td>-</td>
+                    <td class="money future-high">$12050</td>
+                    <td>(+83)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-03</td>
+                    <td>-</td>
+                    <td class="money">$11489</td>
+                    <td>-</td>
+                    <td class="money future-high">$12446</td>
+                    <td>(+957)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-04</td>
+                    <td>-</td>
+                    <td class="money">$13423</td>
+                    <td>-</td>
+                    <td class="money future-high">$12683</td>
+                    <td>(-740)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-05</td>
+                    <td>-</td>
+                    <td class="money">$13175</td>
+                    <td>-</td>
+                    <td class="money future-high">$14030</td>
+                    <td>(+855)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-06</td>
+                    <td>-</td>
+                    <td class="money">$17844</td>
+                    <td>-</td>
+                    <td class="money future-high">$18142</td>
+                    <td>(+298)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-07</td>
+                    <td>-</td>
+                    <td class="money">$18947</td>
+                    <td>-</td>
+                    <td class="money future-high">$20032</td>
+                    <td>(+1085)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-08</td>
+                    <td>-</td>
+                    <td class="money">$16574</td>
+                    <td>-</td>
+                    <td class="money future-high">$14339</td>
+                    <td>(-2235)</td>
+                    <td>📉 Más Bajo</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-09</td>
+                    <td>-</td>
+                    <td class="money">$11651</td>
+                    <td>-</td>
+                    <td class="money future-high">$11744</td>
+                    <td>(+93)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-10</td>
+                    <td>-</td>
+                    <td class="money">$11223</td>
+                    <td>-</td>
+                    <td class="money future-high">$12098</td>
+                    <td>(+875)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-11</td>
+                    <td>-</td>
+                    <td class="money">$13298</td>
+                    <td>-</td>
+                    <td class="money future-high">$12509</td>
+                    <td>(-789)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-12</td>
+                    <td>-</td>
+                    <td class="money">$14476</td>
+                    <td>-</td>
+                    <td class="money future-high">$13606</td>
+                    <td>(-870)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-13</td>
+                    <td>-</td>
+                    <td class="money">$18031</td>
+                    <td>-</td>
+                    <td class="money future-high">$18179</td>
+                    <td>(+148)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-14</td>
+                    <td>-</td>
+                    <td class="money">$19485</td>
+                    <td>-</td>
+                    <td class="money future-high">$19689</td>
+                    <td>(+204)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-15</td>
+                    <td>-</td>
+                    <td class="money">$17606</td>
+                    <td>-</td>
+                    <td class="money future-high">$17299</td>
+                    <td>(-307)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-16</td>
+                    <td>-</td>
+                    <td class="money">$11737</td>
+                    <td>-</td>
+                    <td class="money future-high">$12419</td>
+                    <td>(+682)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-17</td>
+                    <td>-</td>
+                    <td class="money">$11042</td>
+                    <td>-</td>
+                    <td class="money future-high">$11772</td>
+                    <td>(+730)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-18</td>
+                    <td>-</td>
+                    <td class="money">$11563</td>
+                    <td>-</td>
+                    <td class="money future-high">$12034</td>
+                    <td>(+471)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-19</td>
+                    <td>-</td>
+                    <td class="money">$14531</td>
+                    <td>-</td>
+                    <td class="money future-high">$14170</td>
+                    <td>(-361)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-20</td>
+                    <td>-</td>
+                    <td class="money">$19138</td>
+                    <td>-</td>
+                    <td class="money future-high">$18088</td>
+                    <td>(-1050)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-21</td>
+                    <td>-</td>
+                    <td class="money">$19876</td>
+                    <td>-</td>
+                    <td class="money future-high">$20964</td>
+                    <td>(+1088)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-22</td>
+                    <td>-</td>
+                    <td class="money">$18310</td>
+                    <td>-</td>
+                    <td class="money future-high">$17847</td>
+                    <td>(-463)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-23</td>
+                    <td>-</td>
+                    <td class="money">$12544</td>
+                    <td>-</td>
+                    <td class="money future-high">$12241</td>
+                    <td>(-303)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-24</td>
+                    <td>-</td>
+                    <td class="money">$12450</td>
+                    <td>-</td>
+                    <td class="money future-high">$12663</td>
+                    <td>(+213)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-25</td>
+                    <td>-</td>
+                    <td class="money">$12472</td>
+                    <td>-</td>
+                    <td class="money future-high">$13045</td>
+                    <td>(+573)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-26</td>
+                    <td>-</td>
+                    <td class="money">$14473</td>
+                    <td>-</td>
+                    <td class="money future-high">$15482</td>
+                    <td>(+1009)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-27</td>
+                    <td>-</td>
+                    <td class="money">$19291</td>
+                    <td>-</td>
+                    <td class="money future-high">$20360</td>
+                    <td>(+1069)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-02-28</td>
+                    <td>-</td>
+                    <td class="money">$19508</td>
+                    <td>-</td>
+                    <td class="money future-high">$21645</td>
+                    <td>(+2137)</td>
+                    <td>🚀 Más Alto</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-01</td>
+                    <td>-</td>
+                    <td class="money">$18434</td>
+                    <td>-</td>
+                    <td class="money future-high">$20296</td>
+                    <td>(+1862)</td>
+                    <td>🚀 Más Alto</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-02</td>
+                    <td>-</td>
+                    <td class="money">$12056</td>
+                    <td>-</td>
+                    <td class="money future-high">$11644</td>
+                    <td>(-412)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-03</td>
+                    <td>-</td>
+                    <td class="money">$11919</td>
+                    <td>-</td>
+                    <td class="money future-high">$13794</td>
+                    <td>(+1875)</td>
+                    <td>🚀 Más Alto</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-04</td>
+                    <td>-</td>
+                    <td class="money">$12658</td>
+                    <td>-</td>
+                    <td class="money future-high">$13266</td>
+                    <td>(+608)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-05</td>
+                    <td>-</td>
+                    <td class="money">$14108</td>
+                    <td>-</td>
+                    <td class="money future-high">$15549</td>
+                    <td>(+1441)</td>
+                    <td>🚀 Más Alto</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-06</td>
+                    <td>-</td>
+                    <td class="money">$18052</td>
+                    <td>-</td>
+                    <td class="money future-high">$17712</td>
+                    <td>(-340)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-07</td>
+                    <td>-</td>
+                    <td class="money">$19653</td>
+                    <td>-</td>
+                    <td class="money future-high">$21584</td>
+                    <td>(+1931)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-08</td>
+                    <td>-</td>
+                    <td class="money">$18222</td>
+                    <td>-</td>
+                    <td class="money future-high">$19287</td>
+                    <td>(+1065)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-09</td>
+                    <td>-</td>
+                    <td class="money">$11923</td>
+                    <td>-</td>
+                    <td class="money future-high">$12603</td>
+                    <td>(+680)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-10</td>
+                    <td>-</td>
+                    <td class="money">$11818</td>
+                    <td>-</td>
+                    <td class="money future-high">$12677</td>
+                    <td>(+859)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-11</td>
+                    <td>-</td>
+                    <td class="money">$12320</td>
+                    <td>-</td>
+                    <td class="money future-high">$13397</td>
+                    <td>(+1077)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-12</td>
+                    <td>-</td>
+                    <td class="money">$13707</td>
+                    <td>-</td>
+                    <td class="money future-high">$15216</td>
+                    <td>(+1509)</td>
+                    <td>🚀 Más Alto</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-13</td>
+                    <td>-</td>
+                    <td class="money">$18010</td>
+                    <td>-</td>
+                    <td class="money future-high">$19091</td>
+                    <td>(+1081)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-14</td>
+                    <td>-</td>
+                    <td class="money">$19723</td>
+                    <td>-</td>
+                    <td class="money future-high">$22788</td>
+                    <td>(+3065)</td>
+                    <td>🚀 Más Alto</td>
+                </tr>
+            
+                <tr class="future-row">
+                    <td>2026-03-15</td>
+                    <td>-</td>
+                    <td class="money">$18178</td>
+                    <td>-</td>
+                    <td class="money future-high">$19070</td>
+                    <td>(+892)</td>
+                    <td>🔵 Proyección</td>
+                </tr>
+            </tbody></table></div></body></html>

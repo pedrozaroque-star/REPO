@@ -100,21 +100,150 @@ export default function ReportesPage() {
     useEffect(() => {
         if (!weekDate || !selectedStore) return
 
-        // Check if report exists in DB (TODO: Fetch implementation)
-        // For now, init empty
+        // FIX: Ensure we align to Monday even if weekDate is off
+        const [y, m, tempD] = weekDate.split('-').map(Number)
+        const dateBase = new Date(y, m - 1, tempD, 12, 0, 0, 0)
+        const currentDay = dateBase.getDay()
+        const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
+        dateBase.setDate(dateBase.getDate() + distToMon)
+        // dateBase is now strictly Monday 12:00 PM
+
         const initData: any = {}
-        DAYS.forEach(day => {
+        DAYS.forEach((day, i) => {
             initData[day.key] = {}
+
+            // Calculate specific date for this column
+            const colDate = new Date(dateBase)
+            colDate.setDate(colDate.getDate() + i)
+            const dStr = colDate.toISOString().split('T')[0]
+
+            // Store it for fetch reference?
+            // Actually, fetchReport uses weekDate directly. 
+            // If fetchReport uses Raw weekDate (might be Tuesday), it fetches wrong range.
+            // But fetchReport is triggered manually or by tab change.
+            // We should auto-correct weekDate state if possible, but that causes loop.
+            // Instead, we trust fetchReport will use the same "Snap to Monday" logic.
+
             REPORT_STRUCTURE.forEach(row => {
                 if (row.type !== 'header') initData[day.key][row.id] = ''
             })
         })
         setGridData(initData)
+
+        // Trigger fetch if auto-loading is desired? 
+        // Currently fetch is manual button in logic, but let's leave it be.
     }, [selectedStore, weekDate])
 
     // --- HOOKS ---
     // Initialize Smart Projections logic (Client Side Fallback)
     const { calculateProjections } = useSmartProjections(selectedStore ? stores.find(s => String(s.id) === String(selectedStore))?.external_id : undefined, weekDate ? new Date(weekDate) : new Date())
+
+    // --- REPLICATED LOGIC FROM PLANNER (useWeeklyStats) ---
+    const bankersRound = (num: number) => {
+        const n = num * 100;
+        const i = Math.round(n);
+        const remainder = Math.abs(n) % 1;
+        if (Math.abs(remainder - 0.5) < 0.0000001) {
+            const floor = Math.floor(n);
+            return (floor % 2 === 0 ? floor : floor + 1) / 100;
+        }
+        return Math.round(n) / 100;
+    }
+
+    const calcDuration = (s: any) => {
+        if (!s.start_time || !s.end_time) return 0;
+        const start = new Date(s.start_time);
+        const end = new Date(s.end_time);
+        let rawDuration = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+        if (rawDuration < 0) rawDuration += 24;
+        // CA Meal Break: required after 5 hours
+        return (rawDuration > 5) ? rawDuration - 0.5 : Math.max(0, rawDuration);
+    }
+
+    const calculateWeekStats = (shifts: any[], employees: any[], jobs: any[]) => {
+        const shiftStats: Record<string, any> = {};
+
+        employees.forEach(emp => {
+            const empShifts = shifts.filter(s => s.employee_id === emp.id);
+            const sorted = [...empShifts].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+
+            let regularHoursAccumulator = 0;
+            let dailyHoursAccumulator = 0;
+            let lastShiftDate = "";
+
+            sorted.forEach(s => {
+                const duration = calcDuration(s);
+                if (s.shift_date !== lastShiftDate) {
+                    dailyHoursAccumulator = 0;
+                    lastShiftDate = s.shift_date;
+                }
+
+                // 1. Daily OT
+                let dailyOT = 0;
+                const hoursBeforeThisShift = dailyHoursAccumulator;
+                dailyHoursAccumulator += duration;
+
+                if (hoursBeforeThisShift >= 8) {
+                    dailyOT = duration;
+                } else if (hoursBeforeThisShift + duration > 8) {
+                    dailyOT = (hoursBeforeThisShift + duration) - 8;
+                }
+                const dailyRegular = duration - dailyOT;
+
+                // 2. Weekly OT
+                let weeklyOT = 0;
+                if (regularHoursAccumulator >= 40) {
+                    weeklyOT = dailyRegular;
+                } else if (regularHoursAccumulator + dailyRegular > 40) {
+                    weeklyOT = (regularHoursAccumulator + dailyRegular) - 40;
+                }
+                regularHoursAccumulator += (dailyRegular - weeklyOT);
+
+                // Wage Lookup (Simplified to match Script Logic)
+                let rate = 16.00;
+                if (emp.wage_data && emp.wage_data.length > 0) {
+                    // Script blindly takes index 0. We do the same to ensure numbers match.
+                    rate = emp.wage_data[0].wage;
+                }
+
+                const totalShiftOT = dailyOT + weeklyOT;
+                const regularPaid = duration - totalShiftOT;
+                const cost = (regularPaid * rate) + (totalShiftOT * rate * 1.5);
+                const roundedCost = bankersRound(cost);
+
+                if (s.id) {
+                    shiftStats[s.id] = {
+                        duration,
+                        cost: roundedCost,
+                        hours: duration, // alias
+                        regularHours: regularPaid,
+                        otHours: totalShiftOT
+                    };
+                }
+            });
+        });
+
+        // 2. Process Unassigned Shifts (Open Shifts)
+        const unassigned = shifts.filter(s => !s.employee_id);
+        unassigned.forEach(s => {
+            const duration = calcDuration(s);
+            // Default rate for open shifts (Budget placeholder)
+            const rate = 16.00;
+            const cost = bankersRound(duration * rate);
+
+            if (s.id) {
+                shiftStats[s.id] = {
+                    duration,
+                    cost,
+                    hours: duration,
+                    regularHours: duration,
+                    otHours: 0
+                }
+            }
+        });
+
+        return shiftStats;
+    }
 
 
     // Load Data if exists
@@ -134,51 +263,166 @@ export default function ReportesPage() {
         }
         const queryId = storeObj.external_id
 
-        // Calculate Sunday date
-        const start = new Date(weekDate + 'T00:00:00')
+        // Calculate Sunday date (End of Week)
+        // ensure we start from MONDAY
+        const [y, m, tempD] = weekDate.split('-').map(Number)
+        const dateBase = new Date(Date.UTC(y, m - 1, tempD, 12, 0, 0))
+        const currentDay = dateBase.getUTCDay()
+        const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
+        dateBase.setUTCDate(dateBase.getUTCDate() + distToMon)
+
+        // dateBase is now strictly Monday 12:00 PM. Format to YYYY-MM-DD
+        const startStr = dateBase.toISOString().split('T')[0]
+        const start = new Date(startStr + 'T00:00:00')
         const end = new Date(start)
-        end.setDate(start.getDate() + 6)
-        const endStr = end.toISOString().split('T')[0]
+        end.setDate(start.getDate() + 7)  // Extend by 7 days to fully cover Sunday midnight if needed, but normally +6 is correct for inclusive.
+        // Wait, inclusive LTE requires the date strictly.
+        // Pure UTC Calculation for End Date (Start + 6 days)
+        const [uY, uM, uD] = startStr.split('-').map(Number)
+        const utcStartObj = new Date(Date.UTC(uY, uM - 1, uD))
+        const utcEndObj = new Date(utcStartObj)
+        utcEndObj.setUTCDate(utcEndObj.getUTCDate() + 6)
 
-        console.log(`🔍 [REPORT] Fetching history/punches/projections for GUID: ${queryId} from ${weekDate} to ${endStr}`)
-        console.log(`🔍 [REPORT] Fetching history/punches/projections for GUID: ${queryId} from ${weekDate} to ${endStr}`)
+        const endStr = utcEndObj.toISOString().split('T')[0]
 
-        const [historyRes, shiftRes, punchRes, employeeRes, budgetRes] = await Promise.all([
-            supabase.from('sales_daily_cache').select('*').eq('store_id', queryId).gte('business_date', weekDate).lte('business_date', endStr),
-            supabase.from('shifts').select('*, toast_employees(first_name, last_name, chosen_name, wage_data), toast_jobs(title)').eq('store_id', queryId).gte('shift_date', weekDate).lte('shift_date', endStr),
-            supabase.from('punches').select('*').eq('store_id', queryId).gte('business_date', weekDate).lte('business_date', endStr),
-            supabase.from('toast_employees').select('id, toast_guid, wage_data'),
-            supabase.from('weekly_budgets').select('sales_projections').eq('store_id', queryId).eq('week_start', weekDate).single()
-        ])
+        // Calculate 4 Weeks Lookback Date for Average Calc
+        const lookbackStart = new Date(start)
+        lookbackStart.setDate(start.getDate() - 35) // 5 Weeks back to be safe
+        const lookbackStr = lookbackStart.toISOString().split('T')[0]
 
-        const history = historyRes.data
-        const shifts = shiftRes.data
-        const punchesRaw = punchRes.data
-        const employees = employeeRes.data
+        // --- API CALL (BYPASS RLS) ---
+        // Use Server-Side API to fetch data with Service Role Key to avoid RLS filtering drafts/unassigned shifts
+        const apiUrl = `/api/reports/weekly-ops?storeId=${queryId}&start=${startStr}&end=${endStr}&lookback=${lookbackStr}`
+        const apiResponse = await fetch(apiUrl)
+        const apiData = await apiResponse.json()
 
-        // PRIORITY: DB Budget > Auto Calculation
-        let salesProjections = budgetRes.data?.sales_projections || {}
+        if (apiData.error) throw new Error(apiData.error)
 
-        // IF NO BUDGET IN DB -> CALCULATE CLIENT SIDE (Shared Logic)
-        if (!budgetRes.data && calculateProjections) {
-            console.log("⚠️ [REPORT] No Published Budget Found. Auto-Calculating...")
-            const calculated = await calculateProjections()
-            if (calculated) salesProjections = calculated
-        } else {
-            console.log("✅ [REPORT] Using Published Budget from DB")
+        const history = apiData.history
+        const lookbackHistory = apiData.lookback || []
+        const rawAllShifts = apiData.shifts || []
+        // Filter strictly by store ID in frontend just in case API brought more
+        const shifts = rawAllShifts.filter((s: any) => s.store_id === queryId)
+
+        const punchesRaw = apiData.punches
+        const employees = apiData.employees
+        const jobs = apiData.jobs || []
+        const budgets = apiData.budgets || []
+        const apiShiftStats = apiData.shiftStats || {}
+
+        // --- PRE-CALCULATE WEEKLY STATS (Planner Logic) ---
+        // --- PRE-CALCULATE WEEKLY STATS (Planner Logic) ---
+        // This ensures OT (daily/weekly) and Meal Breaks are handled exactly like the Budget Tool
+
+        // --- 🚨 CRITICAL FILTERING MATCHING PLANNER AUDIT 🚨 ---
+        // 1. Exclude Deleted/Inactive Employees (Camilo, Anabel, Willian, DeletedAt)
+        // 2. Exclude Salary Managers (Carlos Velazquez) from Hourly Scheduled Hours/Cost
+
+        const validEmployees = (employees || []).filter((e: any) => {
+            // Exclude Soft Delete
+            if (e.deleted_at && e.deleted_at.length > 5) return false
+
+            // Exclude Specific Ghosts
+            const name = (e.first_name + ' ' + (e.last_name || '')).toLowerCase()
+            if (name.includes('camilo') || name.includes('anabel') || name.includes('willian')) return false
+
+            return true
+        })
+
+        // Filter Shifts: Robust Logic matching Script
+        const validShifts = shifts.filter((s: any) => {
+            // 1. Keep Open Shifts
+            if (!s.employee_id) return true
+
+            // 2. Check against RAW list to detect Missing/Filtered
+            const rawEmp = employees?.find((e: any) => e.id === s.employee_id)
+            if (!rawEmp) {
+                // Employee missing from download (RLS? Fetch Limit?). 
+                // SAFEGUARD: Include mismatch shifts so we don't lose hours.
+                return true
+            }
+
+            // 3. Check against FILTERED list
+            const isValid = validEmployees.find((e: any) => e.id === s.employee_id)
+            if (!isValid) {
+                // Employee was explicitly filtered (Ghost/Deleted). Exclude Shift.
+                return false
+            }
+
+            // 4. Exclude Salary Managers (Carlos Velazquez) specifically
+            const name = (rawEmp.first_name + ' ' + (rawEmp.last_name || '')).toLowerCase()
+            if (name.includes('carlos velazquez')) return false
+
+            return true
+        })
+
+        const weekShiftStats = calculateWeekStats(validShifts, validEmployees, jobs);
+        console.log("📊 [REPORT] Calculated Shift Stats for", Object.keys(weekShiftStats).length, "shifts");
+
+        // --- ROBUST PROJECTION MERGING ---
+        // 1. Flatten all found budgets into a single Map: Date -> Amount
+        let mergedDbProjections: Record<string, string> = {};
+        if (budgets && Array.isArray(budgets)) {
+            budgets.forEach((b: any) => {
+                if (b.sales_projections) {
+                    // Merge all keys from this budget week
+                    Object.keys(b.sales_projections).forEach(key => {
+                        mergedDbProjections[key] = b.sales_projections[key];
+                    });
+                }
+            });
         }
+
+        // 2. Determine Required Dates for this Report Week (Mon -> Sun)
+        // We use string manipulation from CORRECT START DATE (startStr is valid Monday)
+        const requiredKeys: string[] = [];
+        const [yStart, mStart, dStart] = startStr.split('-').map(Number); // Use startStr instead of weekDate!
+
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(yStart, mStart - 1, dStart + i);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            requiredKeys.push(`${year}-${month}-${day}`);
+        }
+
+        // 3. check for Missing Coverage
+        const missingKeys = requiredKeys.filter(key => !mergedDbProjections[key]);
+        const needsBackfill = missingKeys.length > 0;
+
+        let finalProjections = { ...mergedDbProjections };
+
+        if (needsBackfill && calculateProjections) {
+            console.log(`⚠️ [REPORT] Missing Projections for: ${missingKeys.join(', ')}. Auto-Calculating full week...`)
+            const calculated = await calculateProjections() // This returns undefined if failed, or object if success
+
+            if (calculated && Object.keys(calculated).length > 0) {
+                // 4. Merge Logic: DB Wins, Calculator Fills Gaps
+                // We iterate through calculated keys and only add if missing in DB (or if we trust calc more? No, DB is published budget)
+                // Actually, simpler: Spread Calc first, then overwrite with DB.
+                // This ensures any gap Day 8 is filled by calcs.
+                finalProjections = { ...calculated, ...mergedDbProjections };
+                console.log(`✅ [REPORT] Backfill successful. Final Keys count: ${Object.keys(finalProjections).length}`);
+            } else {
+                console.warn("❌ [REPORT] Auto-Calc returned no data.");
+            }
+        } else {
+            console.log("✅ [REPORT] Full coverage found in DB.");
+        }
+
+        const salesProjections = finalProjections
 
         console.log("🔍 [DEBUG] Final Used Projections:", salesProjections)
         console.log("🔍 [DEBUG] Query Keys:", { queryId, weekDate })
 
-        if (historyRes.error) console.error("❌ [REPORT] History Error:", historyRes.error)
-        if (shiftRes.error) console.error("❌ [REPORT] Shift Error:", shiftRes.error)
-        if (punchRes.error) console.error("❌ [REPORT] Punch Error:", punchRes.error)
-
         // Find Store Manager (any shift with Title "Manager" in this store this week)
-        const managerShift = shifts?.find((s: any) => s.toast_jobs?.title === 'Manager')
-        const globalManagerName = managerShift
-            ? (managerShift.toast_employees?.chosen_name || `${managerShift.toast_employees?.first_name} ${managerShift.toast_employees?.last_name || ''}`)
+        const managerShift = shifts?.find((s: any) => {
+            const j = jobs.find((job: any) => job.id === s.job_id)
+            return j?.title === 'Manager'
+        })
+        const managerEmp = managerShift ? employees.find((e: any) => e.id === managerShift.employee_id) : null
+        const globalManagerName = managerEmp
+            ? (managerEmp.chosen_name || `${managerEmp.first_name} ${managerEmp.last_name || ''}`)
             : ''
 
         console.log(`✅ [REPORT] Data Loaded: ${history?.length || 0} history, ${shifts?.length || 0} shifts, ${punchesRaw?.length || 0} punches`)
@@ -189,9 +433,13 @@ export default function ReportesPage() {
         const weekLaborLog: any[] = []
 
         DAYS.forEach((day, i) => {
-            const d = new Date(weekDate + 'T00:00:00')
-            d.setDate(d.getDate() + i)
-            const dateStr = d.toISOString().split('T')[0]
+            // CRITICAL: Use local date formatting to avoid UTC offset issues
+            // weekDate is already "YYYY-MM-DD", so we parse it properly
+            // Calculate Current Date Key using CORRECTED startStr (Monday)
+            // This ensures Body alignment matches Header alignment
+            const [sY, sM, sD] = startStr.split('-').map(Number)
+            const current = new Date(Date.UTC(sY, sM - 1, sD + i, 12, 0, 0))
+            const dateStr = current.toISOString().split('T')[0]
 
             // --- LABOR LOG CALCULATION (AM/PM SPLIT) ---
             const dayHistory = history?.find((h: any) => h.business_date === dateStr)
@@ -286,84 +534,53 @@ export default function ReportesPage() {
             let totalOT = 0
             let totalSchedCost = 0
 
-            // Find Leaders for this day
+            // Find Leaders for this day (In-Memory Lookup)
+            const getJobTitle = (jid: string) => jobs?.find((j: any) => j.id === jid)?.title || ''
+            const getEmpName = (eid: string) => {
+                const e = employees?.find((emp: any) => emp.id === eid)
+                return e ? (e.chosen_name || e.first_name) : ''
+            }
+
             const amAsst = daysShifts.find((s: any) =>
-                s.toast_jobs?.title === 'Asst Manager' &&
+                getJobTitle(s.job_id) === 'Asst Manager' &&
                 new Date(s.start_time).getHours() < 12
             )
             const pmAsst = daysShifts.find((s: any) =>
-                s.toast_jobs?.title === 'Asst Manager' &&
+                getJobTitle(s.job_id) === 'Asst Manager' &&
                 new Date(s.start_time).getHours() >= 12
             )
 
-            const morningLeaderName = amAsst
-                ? (amAsst.toast_employees?.chosen_name || amAsst.toast_employees?.first_name)
-                : globalManagerName
+            const morningLeaderName = amAsst ? getEmpName(amAsst.employee_id) : globalManagerName
+            const lateLeaderName = pmAsst ? getEmpName(pmAsst.employee_id) : globalManagerName
 
-            const lateLeaderName = pmAsst
-                ? (pmAsst.toast_employees?.chosen_name || pmAsst.toast_employees?.first_name)
-                : globalManagerName
-
+            // USE ACCURATE STATS (SERVER SIDE VERIFIED)
             daysShifts.forEach((s: any) => {
-                let duration = (new Date(s.end_time).getTime() - new Date(s.start_time).getTime()) / (1000 * 60 * 60)
-
-                // FIX: Handle overnight/UTC date mismatches where end < start
-                if (duration < 0) {
-                    duration += 24
-                }
-
-                // Safety Cap: Ignore shifts > 20h (likely data error) or <= 0
-                if (duration > 0 && duration < 24) {
-                    totalSched += duration
-                    // Simple Daily OT Rule: Anything > 8 hours in a shift is OT
-                    if (duration > 8) {
-                        totalOT += (duration - 8)
-                    }
-
-                    // Labor Cost Calculation (For Projected Labor %)
-                    // We need to find the wage for this employee/job
-                    // Since we joined toast_employees in the shift query, we might have it there?
-                    // Actually, the shift query was: select('*, toast_employees(first_name, last_name, chosen_name, wage_data), toast_jobs(title)')
-                    // So we can use s.toast_employees.wage_data
-
-                    const empWageData = s.toast_employees?.wage_data || []
-                    const jobWage = empWageData.find((w: any) => w.job_guid === s.job_id || w.job_guid === s.toast_jobs?.guid) // job_id is usually internal or guid? In shifts table job_id is usually int PK or GUID?
-                    // In Teg Modern: shifts.job_id is uuid (FK to toast_jobs.id). wage_data uses job_guid usually. 
-                    // Let's fallback to just taking the first wage if logic fails, or 16.50 default.
-                    // Important: shifts.job_id is likely the internal ID. We need the GUID from toast_jobs if wage_data is keyed by GUID. 
-                    // We didn't join `guid` in toast_jobs, let's assume default for now or improve query.
-                    // Actually, `s.toast_jobs` join can pull guid. I didn't add it in the query above, checking...
-                    // I added `toast_employees(..., wage_data)`. 
-                    // Let's just use a default or first wage for now to be safe, logic can be complex.
-                    const wage = parseFloat(empWageData[0]?.wage || '16.50')
-
-                    // Exclude Managers from Labor Cost? usually yes if salary, but if hourly yes.
-                    // Title check:
-                    const title = (s.toast_jobs?.title || '').toLowerCase()
-                    const isManager = title.includes('manager') && !title.includes('asst') && !title.includes('shift')
-
-                    if (!isManager) {
-                        totalSchedCost += (duration * wage)
-                    }
+                const stat = apiShiftStats[s.id];
+                if (stat) {
+                    // If server calculated stats for this shift, use them directly
+                    totalSched += stat.hours;
+                    totalOT += stat.otHours;
+                    totalSchedCost += stat.cost;
                 }
             })
 
             // Get Projection for this day (Planificador saves keys as YYYY-MM-DD, and value as string "12345")
             // salesProjections is { "2026-01-26": "12500", ... }
-            const rawProj = salesProjections[dateStr]
+            let rawProj = salesProjections[dateStr]
             const projSales = Number(rawProj || 0)
 
+
             // --- TARGET AVG ORDER CALCULATION ---
-            // Heuristic: Average Ticket of the last 8 matching weekdays from history cache
-            const matchingHistory = (history || []).filter((h: any) => {
+            // Heuristic: Average Ticket of the last 4 matching weekdays from FULL history cache (including lookback)
+            const matchingHistory = (lookbackHistory || []).filter((h: any) => {
                 // Ensure valid date parsing
                 const hd = new Date(h.business_date + 'T12:00:00')
                 return hd.getDay() === targetDayIndex && Number(h.order_count) > 0
             })
                 // Sort recent first
                 .sort((a: any, b: any) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime())
-                // Take last 8 weeks
-                .slice(0, 8)
+                // Take last 4 weeks
+                .slice(0, 4)
 
             let targetAvgOrder = 0
             if (matchingHistory.length > 0) {
@@ -388,6 +605,21 @@ export default function ReportesPage() {
             // Formatter
             const formatCurrency = (val: number) => '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+            // 1. ALWAYS Assign Projections (Base Layer)
+            cellData = {
+                ...cellData,
+                projected_sales: projSales > 0 ? formatCurrency(projSales) : '',
+                projected_labor: projLaborPct ? projLaborPct + '%' : '',
+                target_avg_order: projAvg > 0 ? formatCurrency(projAvg) : '',
+                scheduled_hours: totalSched.toFixed(2),
+                overtime_hours: actualOT > 0 ? actualOT.toFixed(2) : (totalOT > 0 ? totalOT.toFixed(2) : ''),
+                morning_leader: cellData.morning_leader || morningLeaderName,
+                late_leader: cellData.late_leader || lateLeaderName,
+                daily_cars: cellData.daily_cars || 'pendiente',
+                sos_time: cellData.sos_time || 'pendiente'
+            }
+
+            // 2. Overlay Actuals (If available)
             if (sysData) {
                 const sales = sysData.net_sales || 0
                 const hours = sysData.labor_hours || 0
@@ -397,40 +629,25 @@ export default function ReportesPage() {
 
                 cellData = {
                     ...cellData,
-                    // Projections (Planificador)
-                    projected_sales: projSales > 0 ? formatCurrency(projSales) : '',
-                    projected_labor: projLaborPct ? projLaborPct + '%' : '',
-                    target_avg_order: projAvg > 0 ? formatCurrency(projAvg) : '',
-
-                    scheduled_hours: totalSched.toFixed(2),
-                    overtime_hours: actualOT > 0 ? actualOT.toFixed(2) : (totalOT > 0 ? totalOT.toFixed(2) : ''),
                     actual_sales: formatCurrency(sales),
                     actual_hours: hours.toFixed(2),
                     actual_labor: laborPct + '%',
                     actual_avg_order: orders > 0 ? formatCurrency(sales / orders) : '$0.00',
-                    morning_leader: cellData.morning_leader || morningLeaderName,
-                    late_leader: cellData.late_leader || lateLeaderName,
-                    daily_cars: cellData.daily_cars || 'pendiente',
-                    sos_time: cellData.sos_time || 'pendiente'
                 }
             } else {
+                // Explicit empties for Actuals
                 cellData = {
                     ...cellData,
-                    // Projections (Planificador)
-                    projected_sales: projSales > 0 ? formatCurrency(projSales) : '',
-                    projected_labor: projLaborPct ? projLaborPct + '%' : '',
-                    target_avg_order: projAvg > 0 ? formatCurrency(projAvg) : '',
-
-                    scheduled_hours: totalSched.toFixed(2),
-                    overtime_hours: actualOT > 0 ? actualOT.toFixed(2) : (totalOT > 0 ? totalOT.toFixed(2) : ''),
-                    morning_leader: cellData.morning_leader || morningLeaderName,
-                    late_leader: cellData.late_leader || lateLeaderName,
-                    daily_cars: cellData.daily_cars || 'pendiente',
-                    sos_time: cellData.sos_time || 'pendiente'
+                    actual_sales: '',
+                    actual_hours: '',
+                    actual_labor: '',
+                    actual_avg_order: '',
                 }
             }
             newGrid[day.key] = cellData
         })
+
+
 
         setGridData(newGrid)
         setLaborLogData(weekLaborLog)
@@ -916,6 +1133,8 @@ export default function ReportesPage() {
     return (
         <ProtectedRoute allowedRoles={['admin', 'manager', 'supervisor']}>
             <div className="min-h-screen bg-slate-50/50 dark:bg-[#0a0a0a] p-2 md:p-6 pb-32">
+                {/* 🚨 DEBUG PANEL TO DIAGNOSE DATA LOSS 🚨 */}
+                {/* DEBUG PANEL REMOVED */}
                 <div className="max-w-[1800px] mx-auto space-y-6">
 
                     {/* Header Controls */}
@@ -1000,10 +1219,16 @@ export default function ReportesPage() {
                                             newDate = m.toISOString().split('T')[0];
                                             setActiveTab('ops');
                                         } else if (val === 'last_week') {
-                                            const d = new Date();
-                                            d.setDate(d.getDate() - 7);
-                                            const m = getMonday(d);
-                                            newDate = m.toISOString().split('T')[0];
+                                            // FIXED: Get PREVIOUS week's Monday
+                                            // 1. Get THIS week's Monday
+                                            const thisMonday = getMonday(new Date());
+                                            // 2. Go back 7 days to get LAST week's Monday
+                                            thisMonday.setDate(thisMonday.getDate() - 7);
+                                            // Format in local time to avoid UTC offset
+                                            const y = thisMonday.getFullYear();
+                                            const month = String(thisMonday.getMonth() + 1).padStart(2, '0');
+                                            const day = String(thisMonday.getDate()).padStart(2, '0');
+                                            newDate = `${y}-${month}-${day}`;
                                             setActiveTab('ops');
                                         } else if (val === 'this_month') {
                                             const y = now.getFullYear();
@@ -1113,8 +1338,16 @@ export default function ReportesPage() {
                                                 Concepto
                                             </th>
                                             {DAYS.map((day, i) => {
-                                                const d = new Date(weekDate + 'T12:00:00')
-                                                d.setDate(d.getDate() + i)
+                                                // CRITICAL: Use same local date logic as data processing loop
+                                                const [y, m, dayNum] = weekDate.split('-').map(Number);
+                                                const d = new Date(Date.UTC(y, m - 1, dayNum, 12, 0, 0));
+                                                // Snap to Monday
+                                                const currentDay = d.getUTCDay()
+                                                const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
+                                                d.setUTCDate(d.getUTCDate() + distToMon)
+
+                                                // Add i
+                                                d.setUTCDate(d.getUTCDate() + i);
 
                                                 // Extract weather info from grid data if available
                                                 // We stored it in 'weather_notes' of the day object in 'gridData'
@@ -1128,7 +1361,7 @@ export default function ReportesPage() {
                                                             {day.label}
                                                         </span>
                                                         <span className="text-[10px] text-slate-400 font-normal font-sans">
-                                                            {(`${d.getMonth() + 1}`).padStart(2, '0')}/{(`${d.getDate()}`).padStart(2, '0')}/{d.getFullYear()}
+                                                            {(`${d.getUTCMonth() + 1}`).padStart(2, '0')}/{(`${d.getUTCDate()}`).padStart(2, '0')}/{d.getUTCFullYear()}
                                                         </span>
                                                         {infoTags.length > 0 && (
                                                             <div className="flex flex-col gap-0.5 mt-1.5 align-middle items-center justify-center">

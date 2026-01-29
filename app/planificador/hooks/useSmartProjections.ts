@@ -3,9 +3,15 @@ import { getSupabaseClient } from '@/lib/supabase'
 import { addDays, formatDateISO } from '../lib/utils'
 import { checkHoliday } from '../lib/holidayEngine'
 
-export function useSmartProjections(storeGuid: string | undefined, weekStart: Date) {
+export function useSmartProjections(storeGuid: string | undefined, weekStartInput: string | Date) {
     const [projections, setProjections] = useState<Record<string, string>>({})
     const [isGenerating, setIsGenerating] = useState(false)
+
+    // Helper: Parse naive date string "YYYY-MM-DD" to Local Midnight Date
+    const parseNaiveDate = (dateStr: string) => {
+        const [y, m, d] = dateStr.split('-').map(Number)
+        return new Date(y, m - 1, d, 0, 0, 0, 0)
+    }
 
     const generateSmartProjections = useCallback(async () => {
         if (!storeGuid) return
@@ -13,9 +19,14 @@ export function useSmartProjections(storeGuid: string | undefined, weekStart: Da
         setIsGenerating(true)
         const supabase = await getSupabaseClient()
 
-        // 1. Define Range: 8 Weeks Lookback + 1 Year Seasonal
-        const targetStart = new Date(weekStart)
-        targetStart.setHours(0, 0, 0, 0) // Force Midnight
+        // 1. Normalize Start Date
+        let targetStart: Date
+        if (typeof weekStartInput === 'string') {
+            targetStart = parseNaiveDate(weekStartInput)
+        } else {
+            targetStart = new Date(weekStartInput)
+            targetStart.setHours(0, 0, 0, 0)
+        }
 
         const targetEndDay = new Date(targetStart)
         targetEndDay.setDate(targetStart.getDate() + 6)
@@ -69,7 +80,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStart: Da
         const newProjections: Record<string, string> = {}
 
         for (let i = 0; i < 7; i++) {
-            const dayDate = addDays(weekStart, i)
+            const dayDate = addDays(targetStart, i)
             const dateStr = formatDateISO(dayDate)
 
             // Note: getDay() returns 0=Sun, 1=Mon.
@@ -202,14 +213,16 @@ export function useSmartProjections(storeGuid: string | undefined, weekStart: Da
             }
         }
 
+        console.log("🧩 [HOOK] Generated Keys:", Object.keys(newProjections))
         if (Object.keys(newProjections).length > 0) {
             setProjections(prev => ({ ...prev, ...newProjections }))
         }
 
         setIsGenerating(false)
+        return newProjections // Critical: Return data so caller can use it immediately
         return newProjections
 
-    }, [storeGuid, weekStart])
+    }, [storeGuid, weekStartInput])
 
     return { projections, setProjections, calculateProjections: generateSmartProjections, isGenerating }
 }

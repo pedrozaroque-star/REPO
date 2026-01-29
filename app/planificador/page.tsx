@@ -708,17 +708,27 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
             })
 
             // SAVE BUDGET SNAPSHOT
-            const { error: budgetError } = await supabase.from('weekly_budgets').upsert({
+            console.log('💾 Saving Budget Snapshot...', { storeGuid, startStr, projCount: Object.keys(projections).length })
+
+            const { data: savedBudget, error: budgetError } = await supabase.from('weekly_budgets').upsert({
                 store_id: storeGuid,
                 week_start: startStr,
                 sales_projections: projections,
                 updated_at: new Date().toISOString()
-            }, { onConflict: 'store_id,week_start' })
+            }, { onConflict: 'store_id,week_start' }).select()
 
-            if (budgetError) console.error('Error saving budget snapshot:', budgetError)
+            if (budgetError) {
+                console.error('❌ Error saving budget snapshot:', budgetError)
+                toast.error('Error guardando presupuesto: ' + budgetError.message)
+            } else {
+                console.log('✅ Budget Saved:', savedBudget)
+            }
 
             toast.success('Publicado y notificado')
-        } catch (e: any) { toast.error(e.message) }
+        } catch (e: any) {
+            console.error('CRITICAL PUBLISH ERROR:', e)
+            toast.error(e.message)
+        }
         finally { setLoading(false) }
     }
 
@@ -733,6 +743,14 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
         if (drafts.length === 0) return toast.error('No hay turnos "Borrador" para publicar')
         setShiftsToPublish(drafts)
         setIsConfirmModalOpen(true)
+    }
+
+    const handlePrint = () => {
+        if (!storeGuid) {
+            toast.error('Error: No se ha identificado la tienda activa.')
+            return
+        }
+        setIsPrintModalOpen(true)
     }
 
     // --- DRAG & DROP ---
@@ -869,10 +887,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                 setShowClearInfo={setShowClearInfo}
                 showTemplateInfo={showTemplateInfo}
                 setShowTemplateInfo={setShowTemplateInfo}
-                handlePrint={() => {
-                    if (!storeGuid) return
-                    setIsPrintModalOpen(true)
-                }}
+                handlePrint={handlePrint}
                 showPrintInfo={showPrintInfo}
                 setShowPrintInfo={setShowPrintInfo}
             />
