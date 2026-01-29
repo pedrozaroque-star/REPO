@@ -1152,7 +1152,7 @@ export default function ReportesPage() {
                         </div>
 
                         {/* Tab Switcher */}
-                        <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 ml-4">
+                        <div className="flex w-full md:w-auto justify-center md:justify-start overflow-x-auto bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 md:ml-4">
                             <button
                                 onClick={() => setActiveTab('ops')}
                                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'ops' ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -1331,200 +1331,350 @@ export default function ReportesPage() {
                     ) : selectedStore && weekDate ? (
                         activeTab === 'ops' ? (
                             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 pb-4">
-                                <table className="w-full border-collapse">
-                                    <thead>
-                                        <tr className="bg-slate-50 dark:bg-slate-800/50">
-                                            <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-wider border-r dark:border-slate-700 sticky left-0 bg-slate-50 dark:bg-slate-800 z-20 border-b border-slate-200 dark:border-slate-700">
-                                                Concepto
-                                            </th>
-                                            {DAYS.map((day, i) => {
-                                                // CRITICAL: Use same local date logic as data processing loop
-                                                const [y, m, dayNum] = weekDate.split('-').map(Number);
-                                                const d = new Date(Date.UTC(y, m - 1, dayNum, 12, 0, 0));
-                                                // Snap to Monday
-                                                const currentDay = d.getUTCDay()
-                                                const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
-                                                d.setUTCDate(d.getUTCDate() + distToMon)
+                                {/* DESKTOP TABLE VIEW */}
+                                <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 dark:bg-slate-800/50">
+                                                <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-wider border-r dark:border-slate-700 sticky left-0 bg-slate-50 dark:bg-slate-800 z-20 border-b border-slate-200 dark:border-slate-700">
+                                                    Concepto
+                                                </th>
+                                                {DAYS.map((day, i) => {
+                                                    const [y, m, dayNum] = weekDate.split('-').map(Number);
+                                                    const d = new Date(Date.UTC(y, m - 1, dayNum, 12, 0, 0));
+                                                    const currentDay = d.getUTCDay()
+                                                    const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
+                                                    d.setUTCDate(d.getUTCDate() + distToMon)
+                                                    d.setUTCDate(d.getUTCDate() + i);
 
-                                                // Add i
-                                                d.setUTCDate(d.getUTCDate() + i);
+                                                    const dayData = gridData[day.key]
+                                                    const infoTags = dayData?.weather_notes || []
 
-                                                // Extract weather info from grid data if available
-                                                // We stored it in 'weather_notes' of the day object in 'gridData'
-                                                // Since we are iterating header, we can access current gridData state? No, 'gridData' is in scope.
-                                                const dayData = gridData[day.key]
-                                                const infoTags = dayData?.weather_notes || []
+                                                    return (
+                                                        <th key={day.key} className="px-4 py-4 text-center border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700 min-w-[120px]">
+                                                            <span className="block text-[13px] font-bold text-slate-900 dark:text-white uppercase leading-tight font-sans">
+                                                                {day.label}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-normal font-sans">
+                                                                {(`${d.getUTCMonth() + 1}`).padStart(2, '0')}/{(`${d.getUTCDate()}`).padStart(2, '0')}/{d.getUTCFullYear()}
+                                                            </span>
+                                                            {infoTags.length > 0 && (
+                                                                <div className="flex flex-col gap-0.5 mt-1.5 align-middle items-center justify-center">
+                                                                    {infoTags.map((tag: string, idx: number) => (
+                                                                        <span key={idx} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 whitespace-nowrap overflow-hidden text-ellipsis max-w-[100px] mx-auto block text-center">
+                                                                            {tag}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </th>
+                                                    )
+                                                })}
+                                                <th className="px-4 py-4 text-center bg-indigo-50/50 dark:bg-indigo-900/20 border-b border-slate-200 dark:border-slate-700">
+                                                    <span className="block text-[13px] font-black text-indigo-600 dark:text-indigo-400 font-sans uppercase">
+                                                        Week Total
+                                                    </span>
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {REPORT_STRUCTURE.map(row => {
+                                                if (row.type === 'header') {
+                                                    return (
+                                                        <tr key={row.id} className="bg-slate-100/50 dark:bg-white/5">
+                                                            <td colSpan={DAYS.length + 2} className="px-6 py-1.5 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
+                                                                {row.label}
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                }
+
+                                                const isComputed = row.computed
+                                                const isInverse = row.inverseColor
+                                                const isProjected = row.id.startsWith('projected_') || row.id.startsWith('target_') || row.id === 'scheduled_hours'
 
                                                 return (
-                                                    <th key={day.key} className="px-4 py-4 text-center border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700 min-w-[120px]">
-                                                        <span className="block text-[13px] font-bold text-slate-900 dark:text-white uppercase leading-tight font-sans">
-                                                            {day.label}
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-400 font-normal font-sans">
-                                                            {(`${d.getUTCMonth() + 1}`).padStart(2, '0')}/{(`${d.getUTCDate()}`).padStart(2, '0')}/{d.getUTCFullYear()}
-                                                        </span>
-                                                        {infoTags.length > 0 && (
-                                                            <div className="flex flex-col gap-0.5 mt-1.5 align-middle items-center justify-center">
-                                                                {infoTags.map((tag: string, idx: number) => (
-                                                                    <span key={idx} className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 whitespace-nowrap overflow-hidden text-ellipsis max-w-[100px] mx-auto block text-center">
-                                                                        {tag}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-
-                                                    </th>
-                                                )
-                                            })}
-                                            <th className="px-4 py-4 text-center bg-indigo-50/50 dark:bg-indigo-900/20 border-b border-slate-200 dark:border-slate-700">
-                                                <span className="block text-[13px] font-black text-indigo-600 dark:text-indigo-400 font-sans uppercase">
-                                                    Week Total
-                                                </span>
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {REPORT_STRUCTURE.map(row => {
-                                            if (row.type === 'header') {
-                                                return (
-                                                    <tr key={row.id} className="bg-slate-100/50 dark:bg-white/5">
-                                                        <td colSpan={DAYS.length + 2} className="px-6 py-1.5 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
+                                                    <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group">
+                                                        <td className="px-6 py-2 font-medium text-slate-700 dark:text-slate-300 border-r dark:border-slate-800 sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors z-10 border-b border-slate-100 dark:border-slate-800">
                                                             {row.label}
                                                         </td>
-                                                    </tr>
-                                                )
-                                            }
 
-                                            const isComputed = row.computed
-                                            const isDiff = row.isDiff
-                                            const isInverse = row.inverseColor
-                                            const isProjected = row.id.startsWith('projected_') || row.id.startsWith('target_') || row.id === 'scheduled_hours'
+                                                        {DAYS.map(day => {
+                                                            const value = getCellValue(day.key, row.id)
+                                                            const isPending = value === 'pendiente'
 
-                                            return (
-                                                <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group">
-                                                    {/* Label Column */}
-                                                    <td className="px-6 py-2 font-medium text-slate-700 dark:text-slate-300 border-r dark:border-slate-800 sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors z-10 border-b border-slate-100 dark:border-slate-800">
-                                                        {row.label}
-                                                    </td>
+                                                            if (isComputed) {
+                                                                const style = getComputedStyle(value, isInverse)
+                                                                let displayValue = value
+                                                                if (row.type === 'currency' && value && !String(value).includes('$')) {
+                                                                    displayValue = '$' + value
+                                                                } else if (row.type === 'percent' && value && !String(value).includes('%')) {
+                                                                    displayValue = value + '%'
+                                                                }
 
-                                                    {/* Days Columns */}
-                                                    {DAYS.map(day => {
-                                                        const value = getCellValue(day.key, row.id)
-                                                        const isPending = value === 'pendiente'
-
-                                                        if (isComputed) {
-                                                            const style = getComputedStyle(value, isInverse)
-                                                            // Ensure value doesn't double-dip on symbols
-                                                            let displayValue = value
-                                                            if (row.type === 'currency' && value && !String(value).includes('$')) {
-                                                                displayValue = '$' + value
-                                                            } else if (row.type === 'percent' && value && !String(value).includes('%')) {
-                                                                displayValue = value + '%'
+                                                                return (
+                                                                    <td key={day.key} className="p-0 border-r border-b border-slate-100 dark:border-slate-800">
+                                                                        <div className={`w-full h-full py-3 px-2 text-center text-xs md:text-sm font-sans ${style} ${isProjected ? 'font-bold' : 'font-medium'}`}>
+                                                                            {displayValue}
+                                                                        </div>
+                                                                    </td>
+                                                                )
                                                             }
 
                                                             return (
-                                                                <td key={day.key} className="p-0 border-r border-b border-slate-100 dark:border-slate-800">
-                                                                    <div className={`w-full h-full py-3 px-2 text-center text-xs md:text-sm font-sans ${style} ${isProjected ? 'font-bold' : 'font-medium'}`}>
-                                                                        {displayValue}
-                                                                    </div>
+                                                                <td key={day.key} className={`p-0 border-r border-b border-slate-100 dark:border-slate-800 ${isPending ? 'bg-yellow-100 dark:bg-yellow-900/30' : ''}`}>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={value}
+                                                                        onChange={(e) => handleInputChange(day.key, row.id, e.target.value)}
+                                                                        onBlur={(e) => handleInputBlur(day.key, row.id, e.target.value)}
+                                                                        className={`w-full h-full py-3 px-2 text-center bg-transparent border-none outline-none focus:bg-indigo-50 dark:focus:bg-indigo-900/30 font-sans text-xs md:text-sm text-slate-800 dark:text-slate-200 transition-all placeholder:text-transparent ${isProjected ? 'font-bold text-indigo-700 dark:text-indigo-400' : ''} ${isPending ? 'text-yellow-800 dark:text-yellow-200 font-bold italic' : ''}`}
+                                                                        placeholder="-"
+                                                                    />
                                                                 </td>
+                                                            )
+                                                        })}
+
+                                                        {(() => {
+                                                            const totalString = calculateWeekTotal(row.id, row.type)
+                                                            const totalValue = parseNumber(totalString)
+                                                            const totalStyle = isComputed ? getComputedStyle(totalValue, isInverse) : ''
+
+                                                            return (
+                                                                <td className={`px-4 py-2 text-center font-bold font-sans text-xs md:text-sm border-b border-slate-100 dark:border-slate-800 ${totalStyle || 'bg-indigo-50/30 dark:bg-indigo-900/10'} ${isProjected ? 'text-indigo-900 dark:text-indigo-100 italic' : (totalStyle ? '' : 'text-slate-900 dark:text-white')}`}>
+                                                                    {totalString}
+                                                                </td>
+                                                            )
+                                                        })()}
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* MOBILE CARD VIEW */}
+                                <div className="md:hidden flex flex-col gap-4 p-3 bg-slate-50 dark:bg-black/20">
+                                    {DAYS.map((day, i) => {
+                                        const [y, m, dayNum] = weekDate.split('-').map(Number);
+                                        const d = new Date(Date.UTC(y, m - 1, dayNum, 12, 0, 0));
+                                        const currentDay = d.getUTCDay()
+                                        const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
+                                        d.setUTCDate(d.getUTCDate() + distToMon)
+                                        d.setUTCDate(d.getUTCDate() + i);
+                                        const dateLabel = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+
+                                        return (
+                                            <div key={day.key} className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+                                                <div className="bg-slate-100 dark:bg-slate-800/50 px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+                                                    <h3 className="font-black text-slate-700 dark:text-white uppercase">{day.label}</h3>
+                                                    <span className="text-xs font-bold text-slate-400 bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">{dateLabel}</span>
+                                                </div>
+                                                <div className="p-0">
+                                                    {REPORT_STRUCTURE.map(row => {
+                                                        if (row.type === 'header') {
+                                                            return (
+                                                                <div key={row.id} className="bg-indigo-50/50 dark:bg-indigo-900/10 px-4 py-1.5 text-[10px] font-black text-indigo-400 uppercase tracking-widest border-y border-indigo-100 dark:border-indigo-900/20 mt-2 first:mt-0">
+                                                                    {row.label}
+                                                                </div>
                                                             )
                                                         }
 
-                                                        return (
-                                                            <td key={day.key} className={`p-0 border-r border-b border-slate-100 dark:border-slate-800 ${isPending ? 'bg-yellow-100 dark:bg-yellow-900/30' : ''}`}>
+                                                        const value = getCellValue(day.key, row.id)
+                                                        const isComputed = row.computed
+                                                        const isInverse = row.inverseColor
+                                                        const isProjected = row.id.startsWith('projected_') || row.id.startsWith('target_') || row.id === 'scheduled_hours'
+
+                                                        let displayValue: React.ReactNode = value
+                                                        if (isComputed) {
+                                                            const style = getComputedStyle(value, isInverse)
+                                                            if (row.type === 'currency' && value && !String(value).includes('$')) displayValue = '$' + value
+                                                            else if (row.type === 'percent' && value && !String(value).includes('%')) displayValue = value + '%'
+
+                                                            displayValue = <span className={style}>{displayValue}</span>
+                                                        } else {
+                                                            displayValue = (
                                                                 <input
                                                                     type="text"
                                                                     value={value}
                                                                     onChange={(e) => handleInputChange(day.key, row.id, e.target.value)}
                                                                     onBlur={(e) => handleInputBlur(day.key, row.id, e.target.value)}
-                                                                    className={`w-full h-full py-3 px-2 text-center bg-transparent border-none outline-none focus:bg-indigo-50 dark:focus:bg-indigo-900/30 font-sans text-xs md:text-sm text-slate-800 dark:text-slate-200 transition-all placeholder:text-transparent ${isProjected ? 'font-bold text-indigo-700 dark:text-indigo-400' : ''} ${isPending ? 'text-yellow-800 dark:text-yellow-200 font-bold italic' : ''}`}
+                                                                    className={`text-right bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 outline-none focus:border-indigo-500 w-24 ${isProjected ? 'font-bold text-indigo-700 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300'}`}
                                                                     placeholder="-"
                                                                 />
-                                                            </td>
-                                                        )
-                                                    })}
-
-                                                    {/* Total Column */}
-                                                    {(() => {
-                                                        const totalString = calculateWeekTotal(row.id, row.type)
-                                                        const totalValue = parseNumber(totalString)
-                                                        const totalStyle = isComputed ? getComputedStyle(totalValue, isInverse) : ''
+                                                            )
+                                                        }
 
                                                         return (
-                                                            <td className={`px-4 py-2 text-center font-bold font-sans text-xs md:text-sm border-b border-slate-100 dark:border-slate-800 ${totalStyle || 'bg-indigo-50/30 dark:bg-indigo-900/10'} ${isProjected ? 'text-indigo-900 dark:text-indigo-100 italic' : (totalStyle ? '' : 'text-slate-900 dark:text-white')}`}>
-                                                                {totalString}
-                                                            </td>
+                                                            <div key={row.id} className="flex justify-between items-center px-4 py-2 border-b border-slate-50 dark:border-slate-800/50 last:border-0 text-sm">
+                                                                <span className="text-slate-600 dark:text-slate-400 font-medium text-xs">{row.label}</span>
+                                                                <div className="font-semibold">{displayValue}</div>
+                                                            </div>
                                                         )
-                                                    })()}
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+
+                                    {/* WEEK TOTAL CARD */}
+                                    <div className="bg-indigo-900 text-white rounded-xl shadow-lg border border-indigo-800 overflow-hidden mt-4">
+                                        <div className="px-4 py-3 border-b border-indigo-800 bg-indigo-950/50">
+                                            <h3 className="font-black uppercase tracking-wider text-center">Resumen Semanal</h3>
+                                        </div>
+                                        <div className="p-4 space-y-2">
+                                            {REPORT_STRUCTURE.filter(r => r.type !== 'header').map(row => {
+                                                const totalString = calculateWeekTotal(row.id, row.type)
+                                                if (!totalString || totalString === '$0.00' || totalString === '0.00') return null
+                                                return (
+                                                    <div key={row.id} className="flex justify-between items-center border-b border-indigo-800/50 last:border-0 pb-1 last:pb-0 text-sm">
+                                                        <span className="text-indigo-300 font-medium">{row.label}</span>
+                                                        <span className="font-bold">{totalString}</span>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         ) : activeTab === 'labor' ? (
                             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4">
-                                <table className="w-full border-collapse">
-                                    <thead>
-                                        <tr className="bg-slate-50 dark:bg-slate-800/50">
-                                            <th className="px-6 py-6 text-left text-xs font-black text-slate-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
-                                                Day
-                                            </th>
-                                            <th className="px-6 py-6 text-center text-[13px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
-                                                Morning (AM)
-                                            </th>
-                                            <th className="px-6 py-6 text-center text-[13px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
-                                                Night (PM)
-                                            </th>
-                                            <th className="px-6 py-6 text-center text-[13px] font-black text-slate-900 dark:text-white uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                                Day Total
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                        {laborLogData.map((day, idx) => {
-                                            const mNum = Number(day.morning)
-                                            const nNum = Number(day.night)
-                                            const tNum = Number(day.total)
-                                            const threshold = 21.5
+                                {/* DESKTOP TABLE */}
+                                <div className="hidden md:block">
+                                    <table className="w-full border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 dark:bg-slate-800/50">
+                                                <th className="px-6 py-6 text-left text-xs font-black text-slate-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
+                                                    Day
+                                                </th>
+                                                <th className="px-6 py-6 text-center text-[13px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
+                                                    Morning (AM)
+                                                </th>
+                                                <th className="px-6 py-6 text-center text-[13px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
+                                                    Night (PM)
+                                                </th>
+                                                <th className="px-6 py-6 text-center text-[13px] font-black text-slate-900 dark:text-white uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                                                    Day Total
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {laborLogData.map((day, idx) => {
+                                                const mNum = Number(day.morning)
+                                                const nNum = Number(day.night)
+                                                const tNum = Number(day.total)
+                                                const threshold = 21.5
 
-                                            return (
-                                                <tr key={day.date} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                                                    <td className="px-6 py-4 border-r dark:border-slate-800">
-                                                        <div className="flex flex-col">
-                                                            <span className="font-bold text-slate-900 dark:text-white text-sm md:text-base leading-tight">{day.dayLabel}</span>
-                                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                                                                {(() => {
-                                                                    const dateObj = new Date(day.date + 'T12:00:00');
-                                                                    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-                                                                    const dd = String(dateObj.getDate()).padStart(2, '0');
-                                                                    const yyyy = dateObj.getFullYear();
-                                                                    return `${mm}/${dd}/${yyyy}`;
-                                                                })()}
+                                                return (
+                                                    <tr key={day.date} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                                        <td className="px-6 py-4 border-r dark:border-slate-800">
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-slate-900 dark:text-white text-sm md:text-base leading-tight">{day.dayLabel}</span>
+                                                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                                                                    {(() => {
+                                                                        const dateObj = new Date(day.date + 'T12:00:00');
+                                                                        const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                                                                        const dd = String(dateObj.getDate()).padStart(2, '0');
+                                                                        const yyyy = dateObj.getFullYear();
+                                                                        return `${mm}/${dd}/${yyyy}`;
+                                                                    })()}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center border-r dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
+                                                            <span className={`text-sm font-bold ${mNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-300'}`}>
+                                                                {day.morning}%
                                                             </span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-center border-r dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
-                                                        <span className={`text-sm font-bold ${mNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-300'}`}>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center border-r dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
+                                                            <span className={`text-sm font-bold ${nNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-300'}`}>
+                                                                {day.night}%
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`text-sm font-black ${tNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                                                                {day.total}%
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                        <tfoot>
+                                            {(() => {
+                                                const avgMorning = (laborLogData.reduce((a, b) => a + Number(b.morning), 0) / (laborLogData.length || 1))
+                                                const avgNight = (laborLogData.reduce((a, b) => a + Number(b.night), 0) / (laborLogData.length || 1))
+                                                const avgTotal = (laborLogData.reduce((a, b) => a + Number(b.total), 0) / (laborLogData.length || 1))
+                                                const threshold = 21.5
+
+                                                return (
+                                                    <tr className="bg-slate-50 dark:bg-slate-800/80">
+                                                        <td className="px-6 py-6 font-black text-indigo-600 dark:text-indigo-400 uppercase text-xs border-r dark:border-slate-700">
+                                                            Week Total
+                                                        </td>
+                                                        <td className="px-6 py-6 text-center text-lg font-black border-r dark:border-slate-700">
+                                                            <span className={avgMorning > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-400'}>
+                                                                {avgMorning.toFixed(2)}%
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-6 text-center text-lg font-black border-r dark:border-slate-700">
+                                                            <span className={avgNight > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-400'}>
+                                                                {avgNight.toFixed(2)}%
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-6 text-center text-lg font-black">
+                                                            <span className={avgTotal > threshold ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}>
+                                                                {avgTotal.toFixed(2)}%
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })()}
+                                        </tfoot>
+                                    </table>
+                                </div>
+
+                                {/* MOBILE CARD VIEW */}
+                                <div className="md:hidden flex flex-col gap-3 p-3 bg-slate-50 dark:bg-black/20">
+                                    {laborLogData.map((day, idx) => {
+                                        const mNum = Number(day.morning)
+                                        const nNum = Number(day.night)
+                                        const tNum = Number(day.total)
+                                        const threshold = 21.5
+                                        const dateObj = new Date(day.date + 'T12:00:00')
+
+                                        return (
+                                            <div key={day.date} className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-4">
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <div>
+                                                        <h3 className="font-black text-slate-800 dark:text-white text-lg">{day.dayLabel}</h3>
+                                                        <p className="text-xs text-slate-400 font-bold">{dateObj.toLocaleDateString()}</p>
+                                                    </div>
+                                                    <div className={`text-xl font-black ${tNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white'}`}>
+                                                        {day.total}%
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-2 rounded-lg text-center">
+                                                        <span className="text-xs font-bold text-indigo-400 uppercase block mb-1">Morning</span>
+                                                        <span className={`text-lg font-bold ${mNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-600 dark:text-indigo-300'}`}>
                                                             {day.morning}%
                                                         </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-center border-r dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
-                                                        <span className={`text-sm font-bold ${nNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-300'}`}>
+                                                    </div>
+                                                    <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-2 rounded-lg text-center">
+                                                        <span className="text-xs font-bold text-indigo-400 uppercase block mb-1">Night</span>
+                                                        <span className={`text-lg font-bold ${nNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-600 dark:text-indigo-300'}`}>
                                                             {day.night}%
                                                         </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <span className={`text-sm font-black ${tNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
-                                                            {day.total}%
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                    <tfoot>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+
+                                    {/* WEEK SUMMARY CARD */}
+                                    <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 p-4 mt-2">
                                         {(() => {
                                             const avgMorning = (laborLogData.reduce((a, b) => a + Number(b.morning), 0) / (laborLogData.length || 1))
                                             const avgNight = (laborLogData.reduce((a, b) => a + Number(b.night), 0) / (laborLogData.length || 1))
@@ -1532,35 +1682,33 @@ export default function ReportesPage() {
                                             const threshold = 21.5
 
                                             return (
-                                                <tr className="bg-slate-50 dark:bg-slate-800/80">
-                                                    <td className="px-6 py-6 font-black text-indigo-600 dark:text-indigo-400 uppercase text-xs border-r dark:border-slate-700">
-                                                        Week Total
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center text-lg font-black border-r dark:border-slate-700">
-                                                        <span className={avgMorning > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-400'}>
-                                                            {avgMorning.toFixed(2)}%
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center text-lg font-black border-r dark:border-slate-700">
-                                                        <span className={avgNight > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-400'}>
-                                                            {avgNight.toFixed(2)}%
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center text-lg font-black">
-                                                        <span className={avgTotal > threshold ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}>
-                                                            {avgTotal.toFixed(2)}%
-                                                        </span>
-                                                    </td>
-                                                </tr>
+                                                <div className="flex justify-between items-center text-center">
+                                                    <div>
+                                                        <span className="text-xs text-slate-400 uppercase font-bold block">Avg Morning</span>
+                                                        <span className={`font-bold text-lg ${avgMorning > threshold ? 'text-red-400' : 'text-indigo-200'}`}>{avgMorning.toFixed(2)}%</span>
+                                                    </div>
+                                                    <div className="w-[1px] h-8 bg-slate-600"></div>
+                                                    <div>
+                                                        <span className="text-xs text-slate-400 uppercase font-bold block">Avg Night</span>
+                                                        <span className={`font-bold text-lg ${avgNight > threshold ? 'text-red-400' : 'text-indigo-200'}`}>{avgNight.toFixed(2)}%</span>
+                                                    </div>
+                                                    <div className="w-[1px] h-8 bg-slate-600"></div>
+                                                    <div>
+                                                        <span className="text-xs text-slate-400 uppercase font-bold block">Week Total</span>
+                                                        <span className={`font-black text-xl ${avgTotal > threshold ? 'text-red-400' : 'text-white'}`}>{avgTotal.toFixed(2)}%</span>
+                                                    </div>
+                                                </div>
                                             )
                                         })()}
-                                    </tfoot>
-                                </table>
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             // MONTHLY TAB VIEW
+                            // MONTHLY TAB VIEW
                             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4">
-                                <div className="max-h-[800px] overflow-y-auto">
+                                {/* DESKTOP TABLE */}
+                                <div className="hidden md:block max-h-[800px] overflow-y-auto">
                                     <table className="w-full border-collapse relative">
                                         <thead className="sticky top-0 z-20 shadow-sm">
                                             <tr className="bg-orange-100 dark:bg-orange-900/30">
@@ -1633,6 +1781,81 @@ export default function ReportesPage() {
                                             </tr>
                                         </tfoot>
                                     </table>
+                                </div>
+
+                                {/* MOBILE CARD VIEW */}
+                                <div className="md:hidden flex flex-col gap-4 p-3 bg-slate-50 dark:bg-black/20">
+                                    {Object.keys(monthlyData).sort().map((dateKey, idx) => {
+                                        const row = monthlyData[dateKey]
+                                        const [y, m, d] = dateKey.split('-')
+                                        const dateDisp = `${m}/${d}/${y.substring(2)}`
+                                        const dateObj = new Date(dateKey + 'T12:00:00')
+                                        const dayOfWeek = dateObj.toLocaleDateString('en-US', { weekday: 'short' })
+                                        const isSunday = dateObj.getDay() === 0
+
+                                        return (
+                                            <div key={dateKey} className={`bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden ${isSunday ? 'ring-2 ring-indigo-200 dark:ring-indigo-900' : ''}`}>
+                                                <div className="bg-orange-50 dark:bg-orange-900/20 px-4 py-2 border-b border-orange-100 dark:border-orange-800/30 flex justify-between items-center">
+                                                    <h3 className="font-black text-orange-900 dark:text-orange-200">{dayOfWeek} {dateDisp}</h3>
+                                                    {row.week_sales && (
+                                                        <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 rounded-md shadow-sm">
+                                                            Week: {row.week_sales}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="p-3 grid grid-cols-2 gap-x-4 gap-y-2">
+                                                    {MONTHLY_STRUCTURE.slice(1).map(col => {
+                                                        if (col.id === 'week_sales') return null // Handled in header
+
+                                                        return (
+                                                            <div key={col.id} className="flex flex-col">
+                                                                <label className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 mb-0.5">{col.label}</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={row[col.id] || ''}
+                                                                    onChange={(e) => handleMonthlyInputChange(dateKey, col.id, e.target.value)}
+                                                                    className="bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-slate-800 rounded px-2 py-1.5 text-sm font-semibold text-slate-800 dark:text-slate-200 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none transition-all"
+                                                                    placeholder="-"
+                                                                />
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+
+                                    {/* MONTHLY SUMMARY CARD */}
+                                    <div className="bg-orange-900 text-white rounded-xl shadow-lg border border-orange-800 p-4 mt-4">
+                                        <h3 className="font-black uppercase text-center mb-4 border-b border-orange-800 pb-2">Monthly Totals</h3>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {MONTHLY_STRUCTURE.slice(1).map(col => {
+                                                // Reuse Sum Logic
+                                                let sum = 0
+                                                let count = 0
+                                                Object.values(monthlyData).forEach((r: any) => {
+                                                    const val = parseFloat(String(r[col.id] || '').replace(/[^0-9.-]+/g, ""))
+                                                    if (!isNaN(val)) {
+                                                        sum += val
+                                                        count++
+                                                    }
+                                                })
+                                                let disp = ''
+                                                if (col.type === 'currency' || col.label.includes('Sales')) disp = '$' + sum.toLocaleString('en-US', { maximumFractionDigits: 2 })
+                                                else if (col.type === 'number') disp = sum.toLocaleString('en-US')
+                                                else if (col.id === 'actual_avg_order') disp = count > 0 ? '$' + (sum / count).toFixed(2) : '-'
+
+                                                if (col.id === 'week_sales') return null
+
+                                                return (
+                                                    <div key={col.id} className="flex justify-between items-center text-sm border-b border-orange-800/50 pb-1">
+                                                        <span className="text-orange-300 font-medium">{col.label}</span>
+                                                        <span className="font-bold">{disp}</span>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )
