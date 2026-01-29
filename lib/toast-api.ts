@@ -741,7 +741,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 const isDirty = isToday || isYesterdayEarlyHours
 
                 // Use cache ONLY for past dates that are outside the dirty window
-                if (cached && !isDirty) {
+                // SAFETY: Also ignore cache if it reports $0 sales (likely failed sync), ensuring we retry fetching live.
+                if (cached && !isDirty && Number(cached.net_sales) > 0) {
                     return {
                         store,
                         date: dateStr,
@@ -792,6 +793,51 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             const laborMap = await getLaborForRange(token, store.id, dateStr, dateStr)
                             if (laborMap[bKey]) labor = laborMap[bKey]
                         } catch (e) { /* ignore labor error */ }
+
+                        // --- SELF-HEALING CACHE (Write-Back) ---
+                        // If we successfully fetched a PAST date (not dirty), save it to DB for next time.
+                        if (!isDirty && !options.readOnly) {
+                            // Run in background (fire and forget) so we don't slow down the response
+                            (async () => {
+                                try {
+                                    const { createClient } = require('@supabase/supabase-js')
+                                    const adminAuthClient = createClient(
+                                        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                                        process.env.SUPABASE_SERVICE_ROLE_KEY!
+                                    )
+
+                                    const payload = {
+                                        store_id: store.id,
+                                        business_date: dateStr,
+                                        net_sales: sales.netSales,
+                                        gross_sales: sales.grossSales,
+                                        discounts: sales.discounts,
+                                        tips: sales.tips,
+                                        taxes: sales.taxes,
+                                        service_charges: sales.serviceCharges,
+                                        order_count: sales.orders,
+                                        guest_count: sales.guests,
+                                        labor_cost: labor.laborCost,
+                                        labor_hours: labor.hours,
+                                        hourly_data: sales.hourlySales,
+                                        hourly_tickets: sales.hourlyTickets,
+                                        uber_sales: sales.uberSales || 0,
+                                        doordash_sales: sales.doordashSales || 0,
+                                        grubhub_sales: sales.grubhubSales || 0,
+                                        ebt_count: sales.ebtCount || 0,
+                                        ebt_amount: sales.ebtAmount || 0,
+                                        updated_at: new Date().toISOString()
+                                    }
+
+                                    await adminAuthClient
+                                        .from('sales_daily_cache')
+                                        .upsert(payload, { onConflict: 'store_id,business_date' })
+                                } catch (err) {
+                                    console.error('Cache Write-Back Error:', err)
+                                }
+                            })()
+                        }
+                        // ----------------------------------------
 
                         return {
                             store,

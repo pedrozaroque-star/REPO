@@ -40,13 +40,56 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: connectionError }, { status: 502 })
         }
 
+        // --- SAVE TO SUPABASE ---
+        if (rows.length > 0) {
+            const { createClient } = require('@supabase/supabase-js')
+            const supabase = createClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.SUPABASE_SERVICE_ROLE_KEY!
+            )
+
+            const dbRows = rows.map(r => ({
+                store_id: r.storeId,
+                business_date: dateStr,
+                net_sales: r.netSales,
+                gross_sales: r.grossSales,
+                discounts: r.discounts,
+                tips: r.tips,
+                taxes: r.taxes,
+                service_charges: r.serviceCharges,
+                order_count: r.orderCount,
+                guest_count: r.guestCount,
+                labor_cost: r.laborCost,
+                labor_hours: r.totalHours,
+                hourly_data: r.hourlySales,
+                hourly_tickets: r.hourlyTickets,
+                uber_sales: r.uberSales || 0,
+                doordash_sales: r.doordashSales || 0,
+                grubhub_sales: r.grubhubSales || 0,
+                ebt_count: r.ebtCount || 0,
+                ebt_amount: r.ebtAmount || 0,
+                updated_at: new Date().toISOString()
+            }))
+
+            const { error: upsertError } = await supabase
+                .from('sales_daily_cache')
+                .upsert(dbRows, { onConflict: 'store_id,business_date' })
+
+            if (upsertError) {
+                console.error(`❌ [CRON] DB Save Error:`, upsertError)
+                throw new Error(`DB Save Failed: ${upsertError.message}`)
+            }
+            console.log(`💾 [CRON] Guardado en DB: ${dbRows.length} filas.`)
+        }
+        // ------------------------
+
         console.log(`✅ [CRON] Sincronización exitosa: ${rows.length} registros guardados/actualizados.`)
 
         return NextResponse.json({
             success: true,
             date: dateStr,
             records_processed: rows.length,
-            message: `Ventas del ${dateStr} sincronizadas correctamente.`
+            message: `Ventas del ${dateStr} guardadas correctamente en caché.`
         })
 
     } catch (error: any) {
