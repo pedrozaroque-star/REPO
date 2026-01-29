@@ -28,12 +28,12 @@ async function forcePublish() {
         .eq('store_id', LYNWOOD_GUID)
         .gte('shift_date', TARGET_WEEK)
         .lte('shift_date', endStr)
-        .select('*', { count: 'exact' })
+        .select('*')
 
     if (error) {
         console.error("❌ Error publishing:", error.message)
     } else {
-        console.log(`✅ Successfully updated ${count} shifts to 'published'.`)
+        console.log(`✅ Successfully updated ${data?.length || 0} shifts to 'published'.`)
     }
 
     // 2. Also patch the Budget Projections to match the Image (Blue numbers)
