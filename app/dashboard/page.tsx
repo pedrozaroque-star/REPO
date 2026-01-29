@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
+import DateRangeFilter from '@/components/sales/DateRangeFilter'
 
 function DashboardContent() {
     const router = useRouter()
@@ -70,42 +71,7 @@ function DashboardContent() {
         }
     }, [router, timeFilter, startDate, endDate]) // Re-run when dates change if in custom mode
 
-    const getDateRange = (filter: string) => {
-        const now = new Date()
-        const end = new Date(now)
-        let start = new Date(now)
-
-        if (filter === 'custom') {
-            return {
-                start: startDate ? new Date(startDate) : new Date(now.setHours(0, 0, 0, 0)),
-                end: endDate ? new Date(endDate) : new Date(now)
-            }
-        }
-
-        // Reset hours for standard filters
-        start.setHours(0, 0, 0, 0)
-
-        switch (filter) {
-            case 'today':
-                // Start is today 00:00, End is now
-                break
-            case 'week':
-                const day = now.getDay()
-                const diff = now.getDate() - day + (day === 0 ? -6 : 1)
-                start.setDate(diff)
-                break
-            case 'month':
-                start.setDate(1)
-                break
-            case 'year':
-                start.setMonth(0, 1)
-                break
-            case 'all':
-                start = new Date('2020-01-01') // Way back
-                break
-        }
-        return { start, end }
-    }
+    // getDateRange helper removed (logic handled by DateRangeFilter)
 
     const fetchStats = async () => {
         try {
@@ -116,15 +82,10 @@ function DashboardContent() {
                 await supabase.auth.setSession({ access_token: token, refresh_token: '' })
             }
 
-
-
-            const { start, end } = getDateRange(timeFilter)
-            const startIso = start.toISOString() // full ISO
-            const endIso = end.toISOString()   // full ISO for filters that support time
-
-            // For date-only columns (inspection_date)
-            const startDateStr = startIso.split('T')[0]
-            const endDateStr = endIso.split('T')[0]
+            // USE STATE DATES DIRECTLY
+            // DateRangeFilter already provides correct start/end strings
+            const startDateStr = startDate
+            const endDateStr = endDate
 
             // 1. Inspecciones Query
             let queryInspections = supabase
@@ -141,15 +102,11 @@ function DashboardContent() {
                 .limit(500)
 
             if (timeFilter !== 'all') {
-                if (timeFilter === 'custom') {
-                    // Inclusive range
-                    queryInspections = queryInspections
-                        .gte('inspection_date', startDateStr)
-                        .lte('inspection_date', endDateStr)
-                } else {
-                    // Standard filters: usually "from start of period until now"
-                    queryInspections = queryInspections.gte('inspection_date', startDateStr)
-                }
+                // For standard filters, we usually want >= startDate and <= endDate
+                // But inspection_date is just a date column, so simple comparison works.
+                queryInspections = queryInspections
+                    .gte('inspection_date', startDateStr)
+                    .lte('inspection_date', endDateStr)
             }
 
             const { data: inspections } = await queryInspections
@@ -227,18 +184,17 @@ function DashboardContent() {
                 .limit(500)
 
             if (timeFilter !== 'all') {
-                if (timeFilter === 'custom') {
-                    // For timestamps, make sure end covers the whole day using explicit string construction
-                    // endDateStr is YYYY-MM-DD from the input/state. We apppend end of day time.
-                    // This avoids timezone shifting issues with Date.setHours on UTC dates.
-                    const endFullDayIso = `${endDateStr}T23:59:59.999Z`
+                // Construct ISO timestamps from the date strings
+                // Start: YYYY-MM-DDT00:00:00
+                // End: YYYY-MM-DDT23:59:59 (inclusive)
 
-                    queryFeedback = queryFeedback
-                        .gte('submission_date', startIso)
-                        .lte('submission_date', endFullDayIso)
-                } else {
-                    queryFeedback = queryFeedback.gte('submission_date', startIso)
-                }
+                // Note: supabase gte/lte on timestamptz works with ISO strings
+                const startTs = `${startDateStr}T00:00:00`
+                const endTs = `${endDateStr}T23:59:59.999`
+
+                queryFeedback = queryFeedback
+                    .gte('submission_date', startTs)
+                    .lte('submission_date', endTs)
             }
 
             const { data: feedbacksRaw } = await queryFeedback
@@ -322,32 +278,20 @@ function DashboardContent() {
                             <p className="hidden md:block text-sm font-bold text-slate-400 dark:text-slate-300 uppercase tracking-widest mt-1.5">Análisis Operativo en Tiempo Real</p>
                         </div>
                     </div>
-                    <div className="hidden lg:flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                        {[
-                            { id: 'all', label: 'Todo' }, { id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' },
-                            { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }, { id: 'custom', label: 'Rango' }
-                        ].map((filter) => (
-                            <button key={filter.id} onClick={() => setTimeFilter(filter.id)} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400'}`}>{filter.label}</button>
-                        ))}
-                    </div>
-
-                    {timeFilter === 'custom' && (
-                        <div className="hidden lg:flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl ml-2 animate-in slide-in-from-left-2">
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="bg-white dark:bg-slate-900 border-none rounded-lg px-2 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                            <span className="text-slate-400 font-bold text-xs">-</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="bg-white dark:bg-slate-900 border-none rounded-lg px-2 py-1 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    <div className="flex items-center gap-2">
+                        <div className="hidden lg:block">
+                            <DateRangeFilter
+                                period={timeFilter}
+                                startDate={startDate}
+                                endDate={endDate}
+                                onChange={(p, s, e) => {
+                                    setTimeFilter(p)
+                                    setStartDate(s)
+                                    setEndDate(e)
+                                }}
                             />
                         </div>
-                    )}
+                    </div>
                     <div className="hidden md:flex flex-col items-end">
                         <span className="text-[11px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-wider">Eficiencia Promedio</span>
                         <span className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -355,19 +299,18 @@ function DashboardContent() {
                         </span>
                     </div>
                 </div>
-                <div className="lg:hidden mt-3 gap-2 flex flex-col">
-                    <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl overflow-x-auto">
-                        {[{ id: 'all', label: 'Todo' }, { id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' }, { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }, { id: 'custom', label: 'Rango' }].map((filter) => (
-                            <button key={filter.id} onClick={() => setTimeFilter(filter.id)} className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${timeFilter === filter.id ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 dark:text-slate-500 active:text-slate-600'}`}>{filter.label}</button>
-                        ))}
-                    </div>
-                    {timeFilter === 'custom' && (
-                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-xl">
-                            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs" />
-                            <span className="text-slate-400">-</span>
-                            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full bg-white dark:bg-slate-900 rounded px-2 py-1 text-xs" />
-                        </div>
-                    )}
+                <div className="lg:hidden mt-3">
+                    <DateRangeFilter
+                        period={timeFilter}
+                        startDate={startDate}
+                        endDate={endDate}
+                        onChange={(p, s, e) => {
+                            setTimeFilter(p)
+                            setStartDate(s)
+                            setEndDate(e)
+                        }}
+                        className="w-full"
+                    />
                 </div>
             </header>
 
