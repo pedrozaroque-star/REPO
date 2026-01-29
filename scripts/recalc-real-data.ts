@@ -54,7 +54,7 @@ async function run() {
         const salesOnly = { ...currentProjections }
         delete salesOnly._snapshot
 
-        const totalSales = Object.values(salesOnly).reduce((a: any, b: any) => a + Number(b), 0)
+        const totalSales = Object.values(salesOnly).reduce((a: any, b: any) => a + Number(b), 0) as number
 
         if (hasRealShifts) {
             console.log(`✅ ${weekStart}: Found ${shifts.length} Real Shifts. Calculating exacts...`)

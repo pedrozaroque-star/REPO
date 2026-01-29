@@ -111,7 +111,7 @@ async function run() {
         } else {
             // Calculate from Projections + Visible Shifts
             if (budget?.sales_projections) {
-                sales = Object.values(budget.sales_projections).reduce((a: any, b: any) => a + Number(b), 0)
+                sales = Object.values(budget.sales_projections).reduce((a: any, b: any) => a + Number(b), 0) as number
             }
             const stats = calculateWeekStats(shifts || [], lynwoodEmps, jobs || [])
             laborCost = stats.totalSchedCost

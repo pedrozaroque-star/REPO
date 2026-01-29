@@ -30,7 +30,7 @@ async function generateFinalReport() {
     // CALCULO
     let totalSales = 0
     if (budget?.sales_projections) {
-        totalSales = Object.values(budget.sales_projections).reduce((a: any, b: any) => a + Number(b), 0)
+        totalSales = Object.values(budget.sales_projections).reduce((a: any, b: any) => a + Number(b), 0) as number
     }
 
     let totalHours = 0
