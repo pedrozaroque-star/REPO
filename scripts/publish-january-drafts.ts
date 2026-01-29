@@ -354,7 +354,7 @@ async function run() {
                 }
             }
 
-            const totalProjectedSales = Object.values(salesProjections).reduce((a, b) => a + Number(b), 0)
+            const totalProjectedSales = Object.values(salesProjections).reduce((a: any, b: any) => a + Number(b), 0) as number
             const laborPct = totalProjectedSales > 0 ? (totalSchedCost / totalProjectedSales) * 100 : 0
             console.log(`      💰 Proj Sales: $${totalProjectedSales.toFixed(0)} | Cost: $${totalSchedCost.toFixed(0)} | Hours: ${totalSchedHours.toFixed(1)} | Labor: ${laborPct.toFixed(1)}%`)
 
