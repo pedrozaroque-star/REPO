@@ -362,29 +362,38 @@ function SalesPageContent() {
                                 }}
                             />
 
-                            <div className="hidden sm:block w-[1px] h-6 bg-slate-700 mx-1"></div>
+                            <div className="hidden sm:block w-[1px] h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
-                            {isAdmin && (
+                            <div className="flex items-center gap-2">
+                                {isAdmin && (
+                                    <button
+                                        onClick={() => window.location.href = '/ventas/historial'}
+                                        className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0"
+                                        title="Historial"
+                                    >
+                                        <Clock size={18} />
+                                        <span className="hidden sm:inline text-xs font-medium">Historial</span>
+                                    </button>
+                                )}
+
                                 <button
-                                    onClick={() => window.location.href = '/ventas/historial'}
-                                    className="hidden lg:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium transition-colors mr-2 border border-black/5 dark:border-slate-700 whitespace-nowrap"
+                                    onClick={() => window.location.href = '/ventas/reportes'}
+                                    className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0"
+                                    title="Reportes"
                                 >
-                                    <Clock size={16} />
-                                    <span className="text-xs">Historial</span>
+                                    <ClipboardList size={18} />
+                                    <span className="hidden sm:inline text-xs font-medium">Reportes</span>
                                 </button>
-                            )}
 
-                            <button
-                                onClick={() => window.location.href = '/ventas/reportes'}
-                                className="hidden lg:flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium transition-colors mr-2 border border-black/5 dark:border-slate-700 whitespace-nowrap"
-                            >
-                                <ClipboardList size={16} />
-                                <span className="text-xs">Reportes</span>
-                            </button>
-
-                            <button onClick={refreshData} disabled={loading} className="hidden sm:block p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors">
-                                <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-                            </button>
+                                <button
+                                    onClick={refreshData}
+                                    disabled={loading}
+                                    className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0"
+                                    title="Actualizar"
+                                >
+                                    <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
