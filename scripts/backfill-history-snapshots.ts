@@ -37,7 +37,7 @@ async function run() {
         // If snapshot already exists (and isn't our manual 19th week), we overwrite to ensure hours are present?
         // User asked for hours. Best to overwrite calculated snapshots.
 
-        const totalSales = Object.values(projections).reduce((a: any, b: any) => a + Number(b), 0)
+        const totalSales = Object.values(projections).reduce((a: any, b: any) => a + Number(b), 0) as number
 
         // Calculate Targets
         const targetLaborCost = totalSales * TARGET_RATIO
