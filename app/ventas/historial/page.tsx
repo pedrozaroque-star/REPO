@@ -231,28 +231,60 @@ function HistoryPageContent() {
                                 </table>
                             </div>
                         </div>
-                    </>
-                )}
 
-            </div>
+                        {/* MOBILE CARD VIEW FOR HISTORY MATRIX */}
+                        <div className="md:hidden space-y-4">
+                            {data.map((row, idx) => (
+                                <div key={idx} className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800">
+                                    <div className="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">
+                                        <h3 className="font-bold text-lg text-slate-800 dark:text-white">
+                                            {formatStoreName(row.name)}
+                                        </h3>
+                                        <span className="bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-lg text-xs font-bold">
+                                            {formatCurrency(row.total)}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2 text-center">
+                                        {row.months.map((val: number, mIdx: number) => (
+                                            <div key={mIdx} className={`rounded-lg p-1.5 flex flex-col ${getCellStyle(val, row.months)}`}>
+                                                <span className="text-[10px] uppercase font-bold opacity-60">{months[mIdx]}</span>
+                                                <span className="text-xs font-semibold">
+                                                    {val === 0 ? '-' : (val / 1000).toFixed(1) + 'k'}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-3 pt-2 text-right text-xs text-slate-400">
+                                        Valores en miles (k)
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                )
+                }
+            </div >
 
             {/* SECCIÓN DE ANÁLISIS PROFUNDO (BUSINESS INTELLIGENCE) */}
-            {!loading && data.length > 0 && (
-                <div className="space-y-6 mt-12 border-t pt-8 border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 bg-blue-100 dark:bg-blue-900/20 rounded-xl">
-                            <TrendingUp className="text-blue-600 dark:text-blue-400" size={24} />
+            {
+                !loading && data.length > 0 && (
+                    <div className="space-y-6 mt-12 border-t pt-8 border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-blue-100 dark:bg-blue-900/20 rounded-xl">
+                                <TrendingUp className="text-blue-600 dark:text-blue-400" size={24} />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Análisis de Crecimiento</h2>
+                                <p className="text-slate-500 dark:text-slate-400">Comparativa vs. Año Anterior ({year - 1})</p>
+                            </div>
                         </div>
-                        <div>
-                            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Análisis de Crecimiento</h2>
-                            <p className="text-slate-500 dark:text-slate-400">Comparativa vs. Año Anterior ({year - 1})</p>
-                        </div>
-                    </div>
 
-                    <AnalysisSection currentData={data} year={year} />
-                </div>
-            )}
-        </div>
+                        <AnalysisSection currentData={data} year={year} />
+                    </div>
+                )
+            }
+        </div >
     )
 }
 
@@ -386,12 +418,14 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                 </div>
             </div>
 
-            {/* 2. TABLA COMPARATIVA DETALLADA */}
+            {/* 2. TABLA COMPARATIVA DETALLADA VS CARD VIEW */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-black/5 dark:border-slate-800 overflow-hidden shadow-sm">
                 <div className="px-6 py-4 border-b border-black/5 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
                     <h3 className="font-bold text-slate-800 dark:text-slate-200">Desglose por Sucursal (Año vs Año)</h3>
                 </div>
-                <div className="overflow-x-auto">
+
+                {/* DESKTOP TABLE */}
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead className="bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase text-xs font-bold">
                             <tr>
@@ -423,6 +457,33 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                             ))}
                         </tbody>
                     </table>
+                </div>
+
+                {/* MOBILE LIST */}
+                <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                    {comparison.map((item, idx) => (
+                        <div key={idx} className="p-4 flex flex-col gap-2">
+                            <div className="flex justify-between items-center">
+                                <h4 className="font-bold text-slate-900 dark:text-white">{formatStoreName(item.name)}</h4>
+                                <span className={`px-2 py-1 rounded-lg font-bold text-xs ${item.percent >= 0
+                                    ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300'
+                                    }`}>
+                                    {formatPercent(item.percent)}
+                                </span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <div className="text-slate-500">
+                                    <span className="text-xs uppercase tracking-wider block opacity-70">{year - 1}</span>
+                                    {formatCurrency(item.prev)}
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-xs uppercase tracking-wider block opacity-70 text-slate-500">{year}</span>
+                                    <span className="font-bold text-slate-800 dark:text-white">{formatCurrency(item.curr)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>
