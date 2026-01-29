@@ -461,7 +461,7 @@ export default function ReportesPage() {
             let nightLaborCost = 0
 
             dayPunches.forEach((p: any) => {
-                const emp = employees?.find(e => e.toast_guid === p.employee_toast_guid)
+                const emp = employees?.find((e: any) => e.toast_guid === p.employee_toast_guid)
                 const wageEntry = emp?.wage_data?.find((w: any) => w.job_guid === p.job_toast_guid) || emp?.wage_data?.[0]
                 const hourlyRate = wageEntry?.wage || 16.5 // Default fallback
 
