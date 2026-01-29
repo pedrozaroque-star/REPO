@@ -424,60 +424,112 @@ function SalesPageContent() {
                                 </button>
                             </div>
 
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-base text-left">
-                                    <thead className="bg-slate-100 dark:bg-slate-950/50 text-slate-700 dark:text-slate-400 text-xs uppercase font-semibold tracking-widest border-b border-black/5 dark:border-slate-800">
-                                        <tr>
-                                            <th className="px-6 py-4 w-12 text-center">#</th>
-                                            <th className="px-6 py-4">Sucursal</th>
-                                            <th className="px-6 py-4 text-right">Ventas Netas</th>
-                                            <th className="px-6 py-4 text-right">Órdenes</th>
-                                            <th className="px-6 py-4 text-right">Ticket Promedio</th>
-                                            <th className="px-6 py-4 text-right">Labor %</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-black/5 dark:divide-slate-800">
-                                        {data.storeData.map((store: any, idx: number) => {
-                                            const orders = store.orderCount || 1
-                                            const laborPct = store.laborPercentage.toFixed(2)
+                        </div>
 
-                                            return (
-                                                <tr key={idx} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors group">
-                                                    <td className="px-6 py-4 text-center text-slate-400 font-mono text-sm">
-                                                        {idx + 1}
-                                                    </td>
-                                                    <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-lg">
-                                                        {formatStoreName(store.name || store.storeName)}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-lg">
-                                                        ${store.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right text-slate-700 dark:text-white font-medium">
-                                                        {orders.toLocaleString('en-US')}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right text-slate-500 dark:text-slate-300">
-                                                        ${(store.amount / orders).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <span className={`px-2.5 py-1 rounded-lg font-bold text-lg inline-flex items-center gap-1 ${Number(laborPct) < 21.5
-                                                            ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                                            : Number(laborPct) > 23
-                                                                ? 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 animate-pulse'
-                                                                : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
-                                                            }`}>
-                                                            {laborPct}%
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
+                        {/* Mobile Card View (Visible ONLY on small screens) */}
+                        <div className="md:hidden flex flex-col gap-3 p-4 bg-slate-50/50 dark:bg-slate-900/20">
+                            {data.storeData.map((store: any, idx: number) => {
+                                const orders = store.orderCount || 1
+                                const laborPct = store.laborPercentage.toFixed(2)
+                                const avgTicket = store.amount / orders
+
+                                return (
+                                    <div key={idx} className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
+                                        <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-700 pb-2">
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-slate-400 font-mono text-xs font-bold">#{idx + 1}</span>
+                                                <h4 className="font-bold text-slate-900 dark:text-white text-lg">
+                                                    {formatStoreName(store.name || store.storeName)}
+                                                </h4>
+                                            </div>
+                                            <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${Number(laborPct) < 21.5
+                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                                                : Number(laborPct) > 23
+                                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+                                                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400'
+                                                }`}>
+                                                Labor: {laborPct}%
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Ventas</span>
+                                                <span className="text-emerald-600 dark:text-emerald-400 font-bold text-lg">
+                                                    ${store.amount.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-col text-center border-l border-slate-100 dark:border-slate-700 pl-2">
+                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Órdenes</span>
+                                                <span className="text-slate-700 dark:text-slate-300 font-semibold">
+                                                    {orders.toLocaleString('en-US')}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-col text-right border-l border-slate-100 dark:border-slate-700 pl-2">
+                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Ticket Prom.</span>
+                                                <span className="text-slate-500 dark:text-slate-400 font-medium">
+                                                    ${avgTicket.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        {/* Desktop Table View (Hidden on mobile) */}
+                        <div className="hidden md:block overflow-x-auto">
+                            <table className="w-full text-base text-left">
+                                <thead className="bg-slate-100 dark:bg-slate-950/50 text-slate-700 dark:text-slate-400 text-xs uppercase font-semibold tracking-widest border-b border-black/5 dark:border-slate-800">
+                                    <tr>
+                                        <th className="px-6 py-4 w-12 text-center">#</th>
+                                        <th className="px-6 py-4">Sucursal</th>
+                                        <th className="px-6 py-4 text-right">Ventas Netas</th>
+                                        <th className="px-6 py-4 text-right">Órdenes</th>
+                                        <th className="px-6 py-4 text-right">Ticket Promedio</th>
+                                        <th className="px-6 py-4 text-right">Labor %</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-black/5 dark:divide-slate-800">
+                                    {data.storeData.map((store: any, idx: number) => {
+                                        const orders = store.orderCount || 1
+                                        const laborPct = store.laborPercentage.toFixed(2)
+
+                                        return (
+                                            <tr key={idx} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors group">
+                                                <td className="px-6 py-4 text-center text-slate-400 font-mono text-sm">
+                                                    {idx + 1}
+                                                </td>
+                                                <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-lg">
+                                                    {formatStoreName(store.name || store.storeName)}
+                                                </td>
+                                                <td className="px-6 py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-lg">
+                                                    ${store.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className="px-6 py-4 text-right text-slate-700 dark:text-white font-medium">
+                                                    {orders.toLocaleString('en-US')}
+                                                </td>
+                                                <td className="px-6 py-4 text-right text-slate-500 dark:text-slate-300">
+                                                    ${(store.amount / orders).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <span className={`px-2.5 py-1 rounded-lg font-bold text-lg inline-flex items-center gap-1 ${Number(laborPct) < 21.5
+                                                        ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                                        : Number(laborPct) > 23
+                                                            ? 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 animate-pulse'
+                                                            : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
+                                                        }`}>
+                                                        {laborPct}%
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 )}
-
             </div>
         </div>
     )
