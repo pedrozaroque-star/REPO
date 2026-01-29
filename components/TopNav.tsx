@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
 import ThemeToggle from './ThemeToggle'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
-import { Menu, X, LogOut, ChevronDown, User, QrCode } from 'lucide-react'
+import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 // Definición de tipos para los ítems y grupos (Copiado de Sidebar.tsx)
@@ -36,33 +36,33 @@ export default function TopNav() {
             title: 'OPERACIONES',
             id: 'operaciones',
             items: [
-                { name: 'Supervisor', path: '/inspecciones', icon: '📋', roles: ['supervisor', 'admin'] },
-                { name: 'Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Asistentes', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-                { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Supervisor', path: '/inspecciones', icon: <ClipboardList size={20} />, roles: ['supervisor', 'admin'] },
+                { name: 'Manager', path: '/checklists-manager', icon: <Briefcase size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Asistentes', path: '/checklists', icon: <CheckSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
             ]
         },
         {
             title: 'GESTIÓN',
             id: 'gestion',
             items: [
-                { name: 'Tiendas', path: '/tiendas', icon: '🏪', roles: ['admin'] },
-                { name: 'Usuarios', path: '/usuarios', icon: '👥', roles: ['admin', 'supervisor'] },
-                { name: 'Plantillas', path: '/admin/plantillas', icon: '📝', roles: ['admin'] },
+                { name: 'Tiendas', path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
+                { name: 'Usuarios', path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
+                { name: 'Plantillas', path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
             ]
         },
         {
             title: 'ANÁLISIS',
             id: 'analisis',
             items: [
-                { name: 'Ventas', path: '/ventas', icon: '💰', roles: ['admin', 'manager', 'supervisor'] },
+                { name: 'Ventas', path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 {
                     name: 'Reportes',
                     path: '/ventas/reportes',
                     icon: (
                         <div className="relative inline-block">
-                            📈
+                            <TrendingUp size={20} />
                             <span className="absolute -top-1 -right-2 flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
@@ -71,16 +71,16 @@ export default function TopNav() {
                     ),
                     roles: ['manager', 'supervisor', 'admin']
                 },
-                { name: 'Planificador', path: '/planificador', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Feedback Clientes', path: '/feedback', icon: '💬', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: 'Planificador', path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Feedback Clientes', path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
             ]
         },
         {
             title: 'KIOSKS QR',
             id: 'kioskos',
             items: [
-                { name: 'Feedback Clientes', path: '/clientes', icon: <QrCode size={16} />, roles: ['admin', 'manager'] },
-                { name: 'Eval. Staff', path: '/evaluacion', icon: <QrCode size={16} />, roles: ['admin', 'manager'] },
+                { name: 'Feedback Clientes', path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
+                { name: 'Eval. Staff', path: '/evaluacion', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
             ]
         }
     ]
@@ -131,17 +131,17 @@ export default function TopNav() {
             <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-8">
 
                 {/* Logo Section */}
-                <div className="flex items-center gap-8">
+                <div className="flex items-center gap-2 md:gap-8">
                     <Link href="/dashboard" className="flex items-center gap-4 group relative">
                         {/* Placeholder para mantener espacio en el flujo, pero el logo real flota y es gigante */}
                         <div className="h-10 w-10 md:h-12 md:w-12 relative flex-shrink-0">
                             <img
                                 src="/logo.png"
                                 alt="TEG Logo"
-                                className="absolute -top-1 -left-1 w-14 h-14 md:w-24 md:h-24 max-w-none object-contain drop-shadow-xl z-50 transform transition-transform group-hover:scale-110"
+                                className="absolute -top-1 -left-1 w-12 h-12 md:w-24 md:h-24 max-w-none object-contain drop-shadow-xl z-50 transform transition-transform group-hover:scale-110"
                             />
                         </div>
-                        <div className="flex flex-col leading-tight ml-4 md:ml-12">
+                        <div className="hidden md:flex flex-col leading-tight ml-4 md:ml-12">
                             <span className="text-xl md:text-2xl font-black tracking-tighter text-slate-900 dark:text-white group-hover:text-red-600 transition-colors">
                                 SM<span className="text-base md:text-lg text-red-600 font-medium ml-0.5">TEG</span>
                             </span>
@@ -191,18 +191,46 @@ export default function TopNav() {
                                     </div>
                                     {group.items.map((item) => {
                                         const isActive = pathname === item.path
+
+                                        // Definir estilos de ESTADO ACTIVO por grupo para mayor énfasis
+                                        let activeContainerClass = ''
+                                        let iconColorClass = 'text-slate-500 dark:text-slate-400'
+
+                                        if (group.id === 'operaciones') {
+                                            iconColorClass = 'text-blue-600 dark:text-blue-400'
+                                            activeContainerClass = 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                                        } else if (group.id === 'gestion') {
+                                            iconColorClass = 'text-emerald-600 dark:text-emerald-400'
+                                            activeContainerClass = 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+                                        } else if (group.id === 'analisis') {
+                                            iconColorClass = 'text-orange-600 dark:text-orange-400'
+                                            activeContainerClass = 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
+                                        } else if (group.id === 'kioskos') {
+                                            iconColorClass = 'text-pink-600 dark:text-pink-400'
+                                            activeContainerClass = 'bg-pink-50 dark:bg-pink-900/20 border-pink-200 dark:border-pink-800'
+                                        }
+
                                         return (
                                             <Link
                                                 key={item.path}
                                                 href={item.path}
                                                 onClick={() => setOpenDropdownId(null)}
-                                                className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors ${isActive
-                                                    ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                                                    : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-white'
+                                                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all border ${isActive
+                                                    ? `${activeContainerClass} shadow-sm translate-x-1`
+                                                    : 'border-transparent hover:bg-gray-50 dark:hover:bg-slate-800'
                                                     }`}
                                             >
-                                                <span className="text-lg">{item.icon}</span>
-                                                {item.name}
+                                                <div className={`${iconColorClass} transition-transform ${isActive ? 'scale-110' : ''}`}>
+                                                    {React.cloneElement(item.icon as any, {
+                                                        size: isActive ? 20 : 18,
+                                                        strokeWidth: isActive ? 2.5 : 2,
+                                                        fill: 'currentColor',
+                                                        fillOpacity: isActive ? 0.2 : 0.15
+                                                    })}
+                                                </div>
+                                                <span className={`font-medium ${isActive ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-600 dark:text-slate-300'}`}>
+                                                    {item.name}
+                                                </span>
                                             </Link>
                                         )
                                     })}
@@ -217,23 +245,23 @@ export default function TopNav() {
                 </div>
 
                 {/* Right Section: Notifications & Profile */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 md:gap-3">
                     <ThemeToggle />
                     <NotificationBell />
 
                     <div className="relative">
                         <button
                             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                            className="flex items-center gap-2 rounded-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 pr-3 shadow-sm hover:shadow-md transition-all ml-2"
+                            className="flex items-center gap-2 rounded-full border-none md:border border-gray-200 dark:border-slate-700 bg-transparent md:bg-white md:dark:bg-slate-900 p-1 md:pr-3 shadow-none md:shadow-sm hover:bg-gray-50 dark:hover:bg-slate-800 transition-all ml-1"
                         >
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-tr from-red-500 to-orange-500 text-white">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-tr from-red-500 to-orange-500 text-white shadow-sm ring-2 ring-white dark:ring-slate-900">
                                 <User size={16} />
                             </div>
                             <div className="hidden text-left text-xs sm:block">
                                 <p className="font-medium text-gray-700 dark:text-slate-200">{user?.name?.split(' ')[0] || 'Usuario'}</p>
                                 <p className="text-[10px] text-gray-500 dark:text-slate-400 capitalize">{user?.role || 'Staff'}</p>
                             </div>
-                            <ChevronDown size={14} className={`text-gray-400 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
+                            <ChevronDown size={14} className={`hidden md:block text-gray-400 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
                         </button>
 
                         {/* User Dropdown */}
@@ -243,7 +271,7 @@ export default function TopNav() {
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
                                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    className="absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none"
+                                    className="absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-[100]"
                                 >
                                     <button
                                         onClick={() => window.location.reload()}
@@ -267,7 +295,7 @@ export default function TopNav() {
                     {/* Mobile Menu Button */}
                     <button
                         onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                        className="md:hidden ml-2 rounded-md p-2 text-gray-500 hover:bg-gray-100"
+                        className="md:hidden ml-1 p-2 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                     >
                         {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                     </button>
@@ -282,34 +310,66 @@ export default function TopNav() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="md:hidden border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900"
+                            className="md:hidden overflow-hidden border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl"
                         >
-                            <div className="space-y-1 p-4">
-                                {filteredGroups.map(group => (
-                                    <div key={group.id} className="py-2">
-                                        <div className="px-2 py-1 text-xs font-semibold uppercase text-gray-400">
-                                            {group.title}
+                            <div className="p-4 space-y-6">
+                                {filteredGroups.map(group => {
+                                    // Colores vibrantes para los iconos (Texto + Fill sutil)
+                                    const getGroupColorClass = (id: string) => {
+                                        switch (id) {
+                                            case 'operaciones': return 'text-blue-600 dark:text-blue-400'
+                                            case 'gestion': return 'text-emerald-600 dark:text-emerald-400'
+                                            case 'analisis': return 'text-orange-600 dark:text-orange-400'
+                                            case 'kioskos': return 'text-pink-600 dark:text-pink-400'
+                                            default: return 'text-slate-600 dark:text-slate-400'
+                                        }
+                                    }
+                                    const groupColorClass = getGroupColorClass(group.id)
+
+                                    return (
+                                        <div key={group.id} className="space-y-3">
+                                            <div className="flex items-center gap-2 pb-1 border-b border-gray-100 dark:border-slate-800">
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                                                    {group.title}
+                                                </span>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {group.items.map(item => {
+                                                    const isActive = pathname === item.path
+                                                    return (
+                                                        <Link
+                                                            key={item.path}
+                                                            href={item.path}
+                                                            onClick={() => setMobileMenuOpen(false)}
+                                                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${isActive
+                                                                ? 'bg-gradient-to-r from-gray-50 to-white dark:from-slate-800 dark:to-slate-900 border-gray-200 dark:border-slate-700 shadow-md transform scale-[1.02]'
+                                                                : 'bg-white dark:bg-slate-900 border-transparent shadow-sm hover:shadow-md hover:bg-gray-50 dark:hover:bg-slate-800'
+                                                                }`}
+                                                        >
+                                                            {/* Icono Grande, Coloreado y con "Relleno Duotone" */}
+                                                            <div className={`transition-transform duration-300 ${isActive ? 'scale-110' : ''} ${groupColorClass}`}>
+                                                                {React.cloneElement(item.icon as any, {
+                                                                    size: 26,
+                                                                    strokeWidth: 2,
+                                                                    fill: 'currentColor',
+                                                                    fillOpacity: 0.15
+                                                                })}
+                                                            </div>
+
+                                                            <span className={`text-xs font-bold leading-tight ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>
+                                                                {item.name}
+                                                            </span>
+                                                        </Link>
+                                                    )
+                                                })}
+                                            </div>
                                         </div>
-                                        {group.items.map(item => (
-                                            <Link
-                                                key={item.path}
-                                                href={item.path}
-                                                onClick={() => setMobileMenuOpen(false)}
-                                                className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm ${pathname === item.path
-                                                    ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 font-medium'
-                                                    : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-white'
-                                                    }`}
-                                            >
-                                                <span className="text-lg">{item.icon}</span>
-                                                {item.name}
-                                            </Link>
-                                        ))}
-                                    </div>
-                                ))}
-                                <div className="border-t border-gray-100 pt-2 mt-2">
+                                    )
+                                })}
+                                <div className="pt-4 border-t border-gray-100 dark:border-slate-800">
                                     <button
                                         onClick={handleLogout}
-                                        className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-red-600 hover:bg-red-50"
+                                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 py-3 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 transition-colors"
                                     >
                                         <LogOut size={18} />
                                         Cerrar Sesión

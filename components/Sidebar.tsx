@@ -3,10 +3,10 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
-import { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useAuth } from './ProtectedRoute'
 import { getSupabaseClient } from '@/lib/supabase'
-import { ChevronDown, ChevronRight, ChevronsUpDown, ChevronLeft, PanelLeftClose, PanelLeft, QrCode } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronsUpDown, ChevronLeft, PanelLeftClose, PanelLeft, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare, LogOut } from 'lucide-react'
 
 interface SidebarProps {
   isCollapsed: boolean
@@ -48,38 +48,51 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
       title: 'OPERACIONES',
       id: 'operaciones',
       items: [
-        { name: 'Supervisor', path: '/inspecciones', icon: '📋', roles: ['supervisor', 'admin'] },
-        { name: 'Manager', path: '/checklists-manager', icon: '👔', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Asistentes', path: '/checklists', icon: '✅', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-        { name: 'Horarios', path: '/horarios', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Dashboard', path: '/dashboard', icon: '📊', roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Supervisor', path: '/inspecciones', icon: <ClipboardList size={20} />, roles: ['supervisor', 'admin'] },
+        { name: 'Manager', path: '/checklists-manager', icon: <Briefcase size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Asistentes', path: '/checklists', icon: <CheckSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+        { name: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
       ]
     },
     {
       title: 'GESTIÓN',
       id: 'gestion',
       items: [
-        { name: 'Tiendas', path: '/tiendas', icon: '🏪', roles: ['admin'] },
-        { name: 'Usuarios', path: '/usuarios', icon: '👥', roles: ['admin', 'supervisor'] },
-        { name: 'Plantillas', path: '/admin/plantillas', icon: '📝', roles: ['admin'] },
+        { name: 'Tiendas', path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
+        { name: 'Usuarios', path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
+        { name: 'Plantillas', path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
       ]
     },
     {
       title: 'ANÁLISIS',
       id: 'analisis',
       items: [
-        { name: 'Ventas', path: '/ventas', icon: '💰', roles: ['admin', 'manager', 'supervisor'] },
-        { name: 'Reportes Ops', path: '/ventas/reportes', icon: '📈', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Planificador', path: '/planificador', icon: '📅', roles: ['manager', 'supervisor', 'admin'] },
-        { name: 'Feedback Clientes', path: '/feedback', icon: '💬', roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+        { name: 'Ventas', path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+        {
+          name: 'Reportes Ops',
+          path: '/ventas/reportes',
+          icon: (
+            <div className="relative inline-block">
+              <TrendingUp size={20} />
+              <span className="absolute -top-1 -right-2 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+              </span>
+            </div>
+          ),
+          roles: ['manager', 'supervisor', 'admin']
+        },
+        { name: 'Planificador', path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+        { name: 'Feedback Clientes', path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
       ]
     },
     {
       title: 'KIOSKS QR',
       id: 'kioskos',
       items: [
-        { name: 'Feedback Clientes', path: '/clientes', icon: <QrCode size={18} />, roles: ['admin', 'manager'] },
-        { name: 'Eval. Staff', path: '/evaluacion', icon: <QrCode size={18} />, roles: ['admin', 'manager'] },
+        { name: 'Feedback Clientes', path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
+        { name: 'Eval. Staff', path: '/evaluacion', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
       ]
     }
   ]
