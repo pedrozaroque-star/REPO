@@ -253,8 +253,8 @@ function SalesPageContent() {
     useEffect(() => {
         if (!data || loading || verifying) return
 
-        // Only run for Recent History (Today/Yesterday) to fix "Managers modifying punches late"
-        if (period === 'today' || period === 'yesterday') {
+        // Only run for Recent History (Yesterday) - User requested to SKIP Today to keep it volatile
+        if (period === 'yesterday') {
             // Only run if we haven't verified yet this session
             if (integrityStatus === 'idle') {
                 const runVerify = async () => {
