@@ -14,6 +14,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Palabras clave para detectar roles
 const KITCHEN_ROLES = ['COOK', 'PREP', 'COCINA', 'PARRILLA', 'TAQUERO', 'DISH', 'LAVALOZA'];
+const FOH_ROLES = ['CASHIER', 'CAJERA', 'FRONT', 'SERVER', 'MESERA', 'MOSTRADOR', 'FOH'];
 const LEADERSHIP_ROLES = ['SHIFT LEADER', 'MANAGER', 'ASST', 'JEFE', 'ENCARGADO'];
 
 async function validateMonth() {
@@ -50,7 +51,7 @@ async function validateMonth() {
         // 2. Traer Ventas Reales (Solo si hay punches)
         const { data: realData } = await supabase
             .from('sales_daily_cache')
-            .select('net_sales, hourly_data')
+            .select('net_sales, hourly_data, hourly_tickets')
             .eq('store_id', storeId)
             .eq('business_date', dateStr)
             .maybeSingle();
