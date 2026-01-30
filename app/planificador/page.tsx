@@ -5,7 +5,7 @@ import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 // Libs & Types
 import { Shift, Employee, Job } from './lib/types'
@@ -72,6 +72,7 @@ export default function SchedulePlanner() {
     const [googleConnected, setGoogleConnected] = useState(false)
     const [googleEmail, setGoogleEmail] = useState('')
     const router = useRouter()
+    const searchParams = useSearchParams()
 
     // State
     const [currentDate, setCurrentDate] = useState(new Date())
@@ -281,14 +282,29 @@ export default function SchedulePlanner() {
             if (storesData) {
                 setStores(storesData)
                 if (storesData.length > 0) {
-                    // If restricts to 1 store, select it automatically
+                    // PERSISTENCE LOGIC: Prefer URL -> LocalStorage -> Default
+                    const savedStore = searchParams?.get('store') || localStorage.getItem('planner_store')
+                    const matchedStore = savedStore ? storesData.find((s: any) => String(s.id) === savedStore) : null
+
                     if (storesData.length === 1) {
                         setSelectedStoreId(String(storesData[0].id))
+                    } else if (matchedStore) {
+                        setSelectedStoreId(String(matchedStore.id))
                     } else {
-                        // Admin logic: Default to Lynwood or first
+                        // Default to Lynwood or first
                         const lynwood = storesData.find((s: any) => s.name.toLowerCase().includes('lynwood'));
                         setSelectedStoreId(String(lynwood ? lynwood.id : storesData[0].id));
                     }
+                }
+            }
+
+            // DATE PERSISTENCE
+            const savedDate = searchParams?.get('date') || localStorage.getItem('planner_date')
+            if (savedDate) {
+                // Parse YYYY-MM-DD safely forcing noon to avoid TZ shift
+                const d = new Date(savedDate + 'T12:00:00')
+                if (!isNaN(d.getTime())) {
+                    setCurrentDate(d)
                 }
             }
 
@@ -300,6 +316,24 @@ export default function SchedulePlanner() {
         }
         if (user) checkGoogleAndBasics()
     }, [user])
+
+    // --- PERSISTENCE WATCHER (Save state on change) ---
+    useEffect(() => {
+        if (!loading && selectedStoreId) {
+            // 1. Save to LocalStorage
+            localStorage.setItem('planner_store', selectedStoreId)
+            const dStr = formatDateISO(currentDate)
+            localStorage.setItem('planner_date', dStr)
+
+            // 2. Update URL silently (without reload)
+            const p = new URLSearchParams(window.location.search)
+            p.set('store', selectedStoreId)
+            p.set('date', dStr)
+
+            const newUrl = `${window.location.pathname}?${p.toString()}`
+            window.history.replaceState(null, '', newUrl)
+        }
+    }, [selectedStoreId, currentDate, loading])
 
     // --- DATA LOADING ---
     async function loadStoreData() {
