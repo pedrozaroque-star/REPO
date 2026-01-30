@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCircle2, AlertCircle, ChevronRight, Store, User, Hash, FileText, ArrowLeft, MoreHorizontal, Trash2, CameraOff } from 'lucide-react'
@@ -21,6 +21,7 @@ interface Store {
 export default function InspectionForm({ user, initialData, stores }: { user: any, initialData?: any, stores: Store[] }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const isSubmittingRef = useRef(false)
 
   // Dynamic Hooks
   const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('supervisor_inspection_v1')
@@ -179,7 +180,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   // Protect against accidental exit
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (completionStatus.answered > 0) {
+      if (completionStatus.answered > 0 && !isSubmittingRef.current) {
         e.preventDefault()
         e.returnValue = ''
       }
