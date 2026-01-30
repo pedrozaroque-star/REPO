@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 // Definición de tipos para los ítems y grupos (Copiado de Sidebar.tsx)
 type MenuItem = {
-    name: string
+    name: string | React.ReactNode
     path: string
     icon: React.ReactNode
     roles: string[]
@@ -80,7 +80,17 @@ export default function TopNav() {
             id: 'kioskos',
             items: [
                 { name: 'Feedback Clientes', path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
-                { name: 'Eval. Staff', path: '/evaluacion', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
+                {
+                    name: (
+                        <div className="flex items-center gap-2">
+                            <span>Eval. Staff</span>
+                            <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded font-black tracking-widest">DEMO</span>
+                        </div>
+                    ),
+                    path: '/evaluacion',
+                    icon: <QrCode size={20} />,
+                    roles: ['admin', 'manager']
+                },
             ]
         }
     ]
