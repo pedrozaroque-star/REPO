@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
             storeIds: storeIds || 'all',
             groupBy: 'day',
             skipCache: true, // FORCE LIVE FETCH
-            fastMode: true // We only need totals for comparison (Sales/Labor)
+            fastMode: false // DISABLING FAST MODE: It causes Net=Net-Tax errors on Delivery orders. Using Full Mode for safety.
         })
 
         if (!toastData.rows || toastData.rows.length === 0) {

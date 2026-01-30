@@ -94,9 +94,13 @@ export async function GET(req: NextRequest) {
                     guest_count: live.guestCount,
                     labor_hours: live.totalHours,
                     labor_cost: live.laborCost,
+                    hourly_data: live.hourlySales,
+                    hourly_tickets: live.hourlyTickets,
                     uber_sales: live.uberSales || 0,
                     doordash_sales: live.doordashSales || 0,
-                    grubhub_sales: live.grubhubSales || 0
+                    grubhub_sales: live.grubhubSales || 0,
+                    ebt_count: live.ebtCount || 0,
+                    ebt_amount: live.ebtAmount || 0
                 }
 
                 const { error: upsertError } = await supabase

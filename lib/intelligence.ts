@@ -5,7 +5,7 @@ import { addDays, format, subYears } from 'date-fns'
 // --- CONSTANTS FROM INTELLIGENCE MINING (2025 Analysis) ---
 export const CAPACITY_RULES = {
     // Front of House: Throughput limit driven by transaction count (Calibrated from 18.3 to 11.0 based on Jan 2026 Audit)
-    CASHIER_TICKETS_PER_HOUR_MEDIAN: 11.0,
+    CASHIER_TICKETS_PER_HOUR_MEDIAN: 18.3,
 
     // Back of House: Production throughput driven by sales volume
     // Maintained at $211 (Industry Std). Real audit showed $249 for cooks alone, but $200 w/ manager support.
@@ -351,21 +351,101 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     if (sumTicketsLastYearShort > 100) ticketGrowthShort = sumTicketsRecentShort / sumTicketsLastYearShort
 
 
-    // WEIGHTED MERGE: BALANCED (50/50)
-    // We need Fixed Date history (Seasonality) BUT matched with current year reality (Trend).
-    // 80/20 was too optimistic. 50/50 allows recent slowdowns to temper the historical spikes.
 
-    let growthFactorSales = 1.0
+    // WEIGHTED MERGE: SEGMENTED TREND LOGIC (NEW v2)
+    // Instead of global 28-day trend, we look at THIS specific weekday's recent performance.
+    // If Mondays are tanking but Saturdays are booming, we shouldn't lift Monday's forecast.
+
+    // 1. Filter history for SAME WEEKDAY only (e.g. only Mondays)
+    const targetDayOfWeek = targetDate.getUTCDay() // 0-6
+    const safeHistory = historyPoints || []
+    const sameWeekdayHistory = safeHistory.filter(h => {
+        const d = new Date(h.business_date)
+        return d.getUTCDay() === targetDayOfWeek
+    })
+
+    // 2. Sort by date desc
+    sameWeekdayHistory.sort((a, b) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime())
+
+    // 3. Take last 4 instances (Last 4 Mondays)
+    const recent4SameDays = sameWeekdayHistory.slice(0, 4) // Today is 2026, historyPoints includes 2025 comp. 
+    // WAIT! historyPoints ONLY has the Comp Dates (Year -1, -2, -3). It does NOT have "Last Week".
+    // We need to fetch "Last 4 Weeks" ACTUALS to calculate trend.
+    // The previous code had "sumRecent28". Let's reuse that but filter carefully.
+
+    // RE-FETCH RECENT TREND DATA (Last 28 Days)
+    // We need to fetch it here because historyPoints above only has the OLD data.
+    const trendStartDate = new Date(targetDate)
+    trendStartDate.setDate(trendStartDate.getDate() - 35) // 5 weeks buffer
+
+    const { data: recentTrendData } = await supabase
+        .from('sales_daily_cache')
+        .select('business_date, net_sales, hourly_tickets')
+        .eq('store_id', storeId)
+        .gte('business_date', trendStartDate.toISOString().split('T')[0])
+        .lt('business_date', targetDateStr)
+
+    // Calculate Trend specific to Day of Week
+    let specificTrendFactor = 1.0
+
+    if (recentTrendData && recentTrendData.length > 0) {
+        // Filter for same weekday in recent data (e.g. Jan 21, Jan 14, Jan 7 -> for Jan 28 target)
+        const recentSameWeekdays = recentTrendData.filter(d => {
+            const dt = new Date(d.business_date)
+            return dt.getUTCDay() === targetDayOfWeek
+        })
+
+        // Compare "Recent Same Weekdays" vs "Last Year Same Weekdays" (from historyPoints)
+        // Actually, simpler: Compare "Recent Same Day Average" vs "Last Year Same Day Average"
+
+        let sumRecentSpecific = 0
+        let countRecentSpecific = 0
+        recentSameWeekdays.forEach(d => {
+            if (d.net_sales > 100) { // Filter noise
+                sumRecentSpecific += d.net_sales
+                countRecentSpecific++
+            }
+        })
+
+        let sumHistSpecific = 0
+        let countHistSpecific = 0
+        const safeHistPoints = historyPoints || []
+        safeHistPoints.forEach(h => {
+            // historyPoints already filtered for comp days (which are same weekday by definition)
+            if (h.net_sales > 100) {
+                sumHistSpecific += h.net_sales
+                countHistSpecific++
+            }
+        })
+
+        if (countRecentSpecific > 0 && countHistSpecific > 0) {
+            const avgRecent = sumRecentSpecific / countRecentSpecific
+            const avgHist = sumHistSpecific / countHistSpecific
+            specificTrendFactor = avgRecent / avgHist
+        }
+    }
+
+    // Blend: 70% Specific Trend, 30% Global Trend (to capture macro shifts like "Holidays are booming")
+    // Previous global calculation:
+    let globalGrowth = 1.0
     if (sumLastYear28 > 1000 && sumRecent28 > 1000) {
-        const raw = (salesGrowth28 * 0.4) + (salesGrowthShort * 0.6)
-        growthFactorSales = Math.min(Math.max(raw, 0.90), 1.50)
+        globalGrowth = sumRecent28 / sumLastYear28
     }
 
-    let growthFactorTickets = 1.0
-    if (sumTicketsLastYear28 > 100 && sumTicketsRecent28 > 100) {
-        const rawTix = (ticketGrowth28 * 0.4) + (ticketGrowthShort * 0.6)
-        growthFactorTickets = Math.min(Math.max(rawTix, 0.90), 1.30)
+    let growthFactorSales = (specificTrendFactor * 0.7) + (globalGrowth * 0.3)
+
+    // Safety Bounds (Don't let it go crazy)
+    growthFactorSales = Math.min(Math.max(growthFactorSales, 0.85), 1.40)
+
+    // --- SPECIAL RULE: SHORT DAYS (Early Close) ---
+    // If the day is physically shorter multiple hours, high growth is unlikely realized.
+    // Cap growth at 5% for short days to be conservative.
+    if (earlyCloseHour !== null) {
+        growthFactorSales = Math.min(growthFactorSales, 1.05)
     }
+
+    // Apply same logic to Tickets? For now just mirror Sales factor
+    let growthFactorTickets = growthFactorSales; // Simplified alignment
 
     // --- WEATHER INTEL ---
     const { getStoreWeatherForecast } = await import('@/lib/weather')
@@ -456,10 +536,13 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         })
     }
 
+    // RE-CALCULATE TOTAL FROM HOURS (To account for Early Close / Late Open cuts)
+    const finalTotalSales = hours.reduce((acc, h) => acc + h.projected_sales, 0)
+
     return {
         date: targetDateStr,
         store_id: storeId,
-        total_sales: projectedTotal,
+        total_sales: finalTotalSales,
         growth_factor_applied: growthFactorSales,
         weather_adjustment: weatherFactor < 1.0,
         hours

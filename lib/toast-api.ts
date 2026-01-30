@@ -935,7 +935,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // 1. Never cache if read from cache
                 if (r.fromCache) return false
 
-                // 2. Never cache Fast Mode results (incomplete data fields)
+                // 2. Never cache Fast Mode results (incomplete data fields - UNSAFE FOR STORAGE)
+                // This is the CRITICAL safety lock preventing UI 'fast checks' from corrupting DB
                 if (options.fastMode) return false
 
                 // 3. Never cache TODAY (volatile data, wait for next day)

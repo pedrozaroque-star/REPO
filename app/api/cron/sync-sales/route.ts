@@ -50,6 +50,7 @@ export async function GET(request: Request) {
 
             const dbRows = rows.map(r => ({
                 store_id: r.storeId,
+                store_name: r.storeName,
                 business_date: dateStr,
                 net_sales: r.netSales,
                 gross_sales: r.grossSales,

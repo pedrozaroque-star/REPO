@@ -2,7 +2,7 @@
     "crons": [
         {
             "path": "/api/cron/sync-sales",
-            "schedule": "0 17 * * *"
+            "schedule": "1 14 * * *"
         },
         {
             "path": "/api/cron/sync-labor",
@@ -14,7 +14,7 @@
         },
         {
             "path": "/api/cron/integrity-check",
-            "schedule": "0 13 * * *"
+            "schedule": "0 18 * * *"
         }
     ]
 }

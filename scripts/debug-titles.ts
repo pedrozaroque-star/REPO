@@ -9,15 +9,24 @@ dotenv.config({ path: envPath });
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 async function checkPunches() {
-    const { data: punches } = await supabase
+    console.log('Consultando punches...');
+    const { data, error } = await supabase
         .from('punches')
-        .select('in_date, out_date, toast_jobs(title)')
+        .select('*')
         .eq('store_id', '80a1ec95-bc73-402e-8884-e5abbe9343e6')
-        .eq('business_date', '2026-01-23')
-        .limit(3);
+        .eq('business_date', '2026-01-28');
 
-    console.log('--- MUESTRA DE PUNCHES RAW ---');
-    console.log(JSON.stringify(punches, null, 2));
+    if (error) {
+        console.error('Error:', error);
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        console.log('No data found via select *');
+    } else {
+        console.log(`Found ${data.length} records!`);
+        console.log(JSON.stringify(data[0], null, 2));
+    }
 }
 
 checkPunches();
