@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useLanguage } from '@/lib/i18n'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [showSplash, setShowSplash] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
+  const { t, language, setLanguage } = useLanguage()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,7 +36,7 @@ export default function LoginPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        setError(data.error || 'Error al iniciar sesión')
+        setError(data.error || t('login.error_generic'))
         setLoading(false)
         return
       }
@@ -58,7 +60,7 @@ export default function LoginPage() {
 
     } catch (err) {
       console.error('Error inesperado:', err)
-      setError('Error inesperado. Por favor intenta de nuevo.')
+      setError(t('login.error_unexpected'))
       setLoading(false)
     }
   }
@@ -132,6 +134,14 @@ export default function LoginPage() {
       {/* Fondo decorativo sutil */}
       <div className="absolute inset-0 opacity-60 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
 
+      {/* Language Toggle */}
+      <button
+        onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+        className="absolute top-4 right-4 z-50 px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-full text-xs font-bold uppercase tracking-widest backdrop-blur-sm border border-white/10 transition-colors"
+      >
+        {language === 'es' ? 'EN' : 'ES'}
+      </button>
+
       <div className="w-full max-w-md z-10">
 
         {/* LOGO Y ESLOGAN */}
@@ -158,7 +168,7 @@ export default function LoginPage() {
         </div>
 
         <h1 className="text-2xl font-bold text-white tracking-wider text-center mb-8">
-          Sistema de Monitoreo y Seguimiento
+          {t('login.system_title')}
         </h1>
       </div>
 
@@ -169,20 +179,20 @@ export default function LoginPage() {
 
         <div className="p-8">
           <h2 className="text-xl font-bold text-gray-800 mb-6 text-center">
-            Ingreso al Sistema
+            {t('login.card_title')}
           </h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">
-                Usuario / Correo
+                {t('login.user_label')}
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition text-gray-900 placeholder-gray-400"
-                placeholder="ejemplo@tacosgavilan.com"
+                placeholder={t('login.user_placeholder')}
                 required
                 disabled={loading}
                 autoComplete="email"
@@ -191,7 +201,7 @@ export default function LoginPage() {
 
             <div className="relative">
               <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">
-                Contraseña
+                {t('login.pass_label')}
               </label>
               <div className="relative">
                 <input
@@ -226,7 +236,7 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full bg-red-700 hover:bg-red-800 text-white font-bold py-3.5 px-4 rounded-lg shadow-md hover:shadow-lg transition-all transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed uppercase tracking-wide"
             >
-              {loading ? 'Validando...' : 'Entrar'}
+              {loading ? t('login.validating') : t('login.enter_button')}
             </button>
 
             <div className="relative my-6">
@@ -234,7 +244,7 @@ export default function LoginPage() {
                 <div className="w-full border-t border-gray-300"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">O ingresa con</span>
+                <span className="px-2 bg-white text-gray-500">{t('login.or_login_with')}</span>
               </div>
             </div>
 
@@ -250,7 +260,7 @@ export default function LoginPage() {
                 <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
               </svg>
-              <span>Cuenta Corporativa Google</span>
+              <span>{t('login.google_button')}</span>
             </button>
           </form>
         </div>
@@ -258,7 +268,7 @@ export default function LoginPage() {
         {/* Footer de la tarjeta */}
         <div className="bg-gray-100 p-4 text-center border-t border-gray-200">
           <p className="text-xs text-gray-500">
-            © {new Date().getFullYear()} Tacos Gavilan. Uso exclusivo autorizado.
+            © {new Date().getFullYear()} Tacos Gavilan. {t('login.footer_text')}
           </p>
         </div>
       </div>

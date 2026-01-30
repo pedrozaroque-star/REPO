@@ -8,6 +8,7 @@ import SalesCharts from '@/components/sales/SalesCharts'
 import { formatStoreName } from '@/lib/supabase'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
+import { useLanguage } from '@/lib/i18n'
 
 function SalesPageContent() {
     const [loading, setLoading] = useState(false)
@@ -29,6 +30,7 @@ function SalesPageContent() {
     const [verifying, setVerifying] = useState(false)
     const [integrityStatus, setIntegrityStatus] = useState<'idle' | 'verifying' | 'fixed' | 'ok'>('idle')
     const { user } = useAuth()
+    const { t } = useLanguage()
     const isAdmin = user?.role === 'admin'
 
     // Helper to process raw rows into UI Data Structure
@@ -138,7 +140,7 @@ function SalesPageContent() {
 
     const refreshData = async () => {
         setLoading(true)
-        setLoadingMessage('Conectando con Toast API...')
+        setLoadingMessage(t('sales.loading_connecting'))
         try {
             const now = new Date()
             if (now.getHours() < 6) now.setDate(now.getDate() - 1)
@@ -201,7 +203,7 @@ function SalesPageContent() {
                 groupBy: groupBy
             })
 
-            setLoadingMessage('Obteniendo datos de 15 tiendas...')
+            setLoadingMessage(t('sales.loading_fetching'))
             // Get Token
             const token = localStorage.getItem('teg_token')
 
@@ -212,12 +214,12 @@ function SalesPageContent() {
             })
 
             if (res.status === 401 || res.status === 403) {
-                setLoadingMessage('Acceso Denegado: Sesión expirada o permisos insuficientes.')
+                setLoadingMessage(t('sales.access_denied'))
                 setLoading(false)
                 return
             }
 
-            setLoadingMessage('Procesando información...')
+            setLoadingMessage(t('sales.loading_processing'))
             const json = await res.json()
 
             if (json.meta?.connectionError) {
@@ -347,11 +349,11 @@ function SalesPageContent() {
         const startStr = start.toLocaleDateString('es-ES', options)
         const endStr = end.toLocaleDateString('es-ES', options)
 
-        if (period === 'today') return `Hoy, ${startStr}`
-        if (period === 'yesterday') return `Ayer, ${startStr}`
-        if (period === 'week') return `Esta Semana (${startStr} - ${endStr})`
-        if (period === 'month') return `Mes Actual (${startStr} - ${endStr})`
-        if (period === 'quarter') return `Trimestre (${startStr} - ${endStr})`
+        if (period === 'today') return `${t('sales.today')}, ${startStr}`
+        if (period === 'yesterday') return `${t('sales.yesterday')}, ${startStr}`
+        if (period === 'week') return `${t('sales.this_week')} (${startStr} - ${endStr})`
+        if (period === 'month') return `${t('sales.current_month')} (${startStr} - ${endStr})`
+        if (period === 'quarter') return `${t('sales.quarter')} (${startStr} - ${endStr})`
         if (startDate === endDate) return startStr
 
         return `${startStr} - ${endStr}`
@@ -369,8 +371,8 @@ function SalesPageContent() {
                         <div className="bg-rose-500 text-white px-4 py-3 rounded-xl flex items-center gap-3 shadow-lg animate-in slide-in-from-top-2">
                             <WifiOff size={20} className="stroke-2" />
                             <div>
-                                <p className="font-bold text-sm">Conexión con Toast Interrumpida</p>
-                                <p className="text-xs opacity-90">Mostrando datos almacenados en caché o limitados. {connError}</p>
+                                <p className="font-bold text-sm">{t('sales.connection_interrupted')}</p>
+                                <p className="text-xs opacity-90">{t('sales.cache_warning')} {connError}</p>
                             </div>
                         </div>
                     )}
@@ -385,22 +387,22 @@ function SalesPageContent() {
                                     <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
                                     {verifying ? (
                                         <span className="text-indigo-600 dark:text-indigo-400 animate-pulse flex items-center gap-1">
-                                            <ShieldCheck size={10} /> Validando Integridad...
+                                            <ShieldCheck size={10} /> {t('sales.validating')}
                                         </span>
                                     ) : integrityStatus === 'fixed' ? (
                                         <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                            <CheckCircle size={10} /> Datos Corregidos Auto.
+                                            <CheckCircle size={10} /> {t('sales.corrected')}
                                         </span>
                                     ) : (
-                                        <span>Actualizado: {lastUpdated.toLocaleTimeString()}</span>
+                                        <span>{t('sales.updated')}: {lastUpdated.toLocaleTimeString()}</span>
                                     )}
                                 </span>
                             </div>
                             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">
-                                Dashboard de Ventas
+                                {t('sales.title')}
                             </h1>
                             <p className="text-slate-500 dark:text-slate-400 mt-1">
-                                Monitoreo en tiempo real de 15 sucursales (Toast API)
+                                {t('sales.subtitle')}
                             </p>
                         </div>
 
@@ -425,10 +427,10 @@ function SalesPageContent() {
                                     <button
                                         onClick={() => window.location.href = '/ventas/historial'}
                                         className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0"
-                                        title="Historial"
+                                        title={t('sales.history')}
                                     >
                                         <Clock size={18} />
-                                        <span className="hidden sm:inline text-xs font-medium">Historial</span>
+                                        <span className="hidden sm:inline text-xs font-medium">{t('sales.history')}</span>
                                     </button>
                                 )}
 
@@ -445,7 +447,7 @@ function SalesPageContent() {
                                     onClick={refreshData}
                                     disabled={loading}
                                     className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0"
-                                    title="Actualizar"
+                                    title={t('sales.refresh')}
                                 >
                                     <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
                                 </button>
@@ -473,10 +475,10 @@ function SalesPageContent() {
                             <div className="px-6 py-4 border-b border-black/5 dark:border-slate-800 flex justify-between items-center">
                                 <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 text-lg">
                                     <Store size={18} className="text-emerald-500" />
-                                    Detalle por Sucursal
+                                    {t('sales.detail_by_store')}
                                 </h3>
                                 <button className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:opacity-80 flex items-center gap-1 uppercase tracking-wider">
-                                    <Download size={14} /> Exportar CSV
+                                    <Download size={14} /> {t('sales.export_csv')}
                                 </button>
                             </div>
 
@@ -504,25 +506,25 @@ function SalesPageContent() {
                                                     ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
                                                     : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400'
                                                 }`}>
-                                                Labor: {laborPct}%
+                                                {t('sales.labor_label')}: {laborPct}%
                                             </span>
                                         </div>
 
                                         <div className="grid grid-cols-3 gap-2">
                                             <div className="flex flex-col">
-                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Ventas</span>
+                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">{t('sales.sales_label')}</span>
                                                 <span className="text-emerald-600 dark:text-emerald-400 font-bold text-lg">
                                                     ${store.amount.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                                                 </span>
                                             </div>
                                             <div className="flex flex-col text-center border-l border-slate-100 dark:border-slate-700 pl-2">
-                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Órdenes</span>
+                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">{t('sales.orders_label')}</span>
                                                 <span className="text-slate-700 dark:text-slate-300 font-semibold">
                                                     {orders.toLocaleString('en-US')}
                                                 </span>
                                             </div>
                                             <div className="flex flex-col text-right border-l border-slate-100 dark:border-slate-700 pl-2">
-                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Ticket Prom.</span>
+                                                <span className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">{t('sales.ticket_label')}</span>
                                                 <span className="text-slate-500 dark:text-slate-400 font-medium">
                                                     ${avgTicket.toLocaleString('en-US', { maximumFractionDigits: 2 })}
                                                 </span>
@@ -539,11 +541,11 @@ function SalesPageContent() {
                                 <thead className="bg-slate-100 dark:bg-slate-950/50 text-slate-700 dark:text-slate-400 text-xs uppercase font-semibold tracking-widest border-b border-black/5 dark:border-slate-800">
                                     <tr>
                                         <th className="px-6 py-4 w-12 text-center">#</th>
-                                        <th className="px-6 py-4">Sucursal</th>
-                                        <th className="px-6 py-4 text-right">Ventas Netas</th>
-                                        <th className="px-6 py-4 text-right">Órdenes</th>
-                                        <th className="px-6 py-4 text-right">Ticket Promedio</th>
-                                        <th className="px-6 py-4 text-right">Labor %</th>
+                                        <th className="px-6 py-4">{t('sales.store')}</th>
+                                        <th className="px-6 py-4 text-right">{t('sales.net_sales')}</th>
+                                        <th className="px-6 py-4 text-right">{t('sales.orders')}</th>
+                                        <th className="px-6 py-4 text-right">{t('sales.avg_ticket')}</th>
+                                        <th className="px-6 py-4 text-right">{t('sales.labor_pct')}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-black/5 dark:divide-slate-800">

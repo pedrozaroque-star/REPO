@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isWithinInterval, subDays, addDays, startOfWeek as startOfWeekFns, endOfWeek as endOfWeekFns, startOfMonth as startOfMonthFns, endOfMonth as endOfMonthFns, subWeeks, subMonths as subMonthsFns, startOfYear, isAfter, isBefore } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { es, enUS } from 'date-fns/locale'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 type Period = 'today' | 'yesterday' | 'week' | 'last_week' | 'last_7' | 'month' | 'last_month' | 'quarter' | 'custom'
 
@@ -14,6 +15,8 @@ interface DateRangeFilterProps {
 }
 
 export default function DateRangeFilter({ period, startDate, endDate, onChange, className }: DateRangeFilterProps) {
+    const { t, language } = useLanguage()
+    const localeObj = language === 'es' ? es : enUS // Locale for date-fns
     const [isOpen, setIsOpen] = useState(false)
     const [viewDate, setViewDate] = useState(new Date()) // Controls the left calendar month
     const [tempStart, setTempStart] = useState<Date | null>(null)
@@ -199,22 +202,22 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
 
     // Header label logic
     const getButtonLabel = () => {
-        if (!tempStart || !tempEnd) return 'Seleccionar fechas'
+        if (!tempStart || !tempEnd) return t('sales.select_dates')
 
-        const startStr = format(tempStart, 'MMM d, yyyy')
-        const endStr = format(tempEnd, 'MMM d, yyyy')
+        const startStr = format(tempStart, 'MMM d, yyyy', { locale: localeObj })
+        const endStr = format(tempEnd, 'MMM d, yyyy', { locale: localeObj })
 
         const periodLabels: Record<string, string> = {
-            'today': 'Today',
-            'yesterday': 'Yesterday',
-            'week': 'This Week',
-            'last_week': 'Last Week',
-            'last_7': 'Last 7 Days',
-            'month': 'This Month',
-            'last_month': 'Last Month'
+            'today': t('sales.today'),
+            'yesterday': t('sales.yesterday'),
+            'week': t('sales.this_week'),
+            'last_week': t('sales.last_week'),
+            'last_7': t('sales.last_7'),
+            'month': t('sales.current_month'),
+            'last_month': t('sales.last_month')
         }
 
-        const pLabel = periodLabels[period] || 'Custom'
+        const pLabel = periodLabels[period] || t('sales.custom_date')
         return (
             <div className="flex flex-col items-start leading-tight">
                 <span className="font-semibold text-sm">{pLabel}</span>
@@ -244,13 +247,13 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                     {/* Sidebar Presets */}
                     <div className="w-40 border-r border-slate-100 dark:border-slate-800 p-2 flex flex-col gap-1 bg-slate-50/50 dark:bg-slate-900/50">
                         {[
-                            { id: 'today', label: 'Today' },
-                            { id: 'yesterday', label: 'Yesterday' },
-                            { id: 'week', label: 'This week' },
-                            { id: 'last_week', label: 'Last week' },
-                            { id: 'last_7', label: 'Last 7 days' },
-                            { id: 'month', label: 'This month' },
-                            { id: 'last_month', label: 'Last month' },
+                            { id: 'today', label: t('sales.today') },
+                            { id: 'yesterday', label: t('sales.yesterday') },
+                            { id: 'week', label: t('sales.this_week') },
+                            { id: 'last_week', label: t('sales.last_week') },
+                            { id: 'last_7', label: t('sales.last_7') },
+                            { id: 'month', label: t('sales.current_month') },
+                            { id: 'last_month', label: t('sales.last_month') },
                         ].map((item) => (
                             <button
                                 key={item.id}
@@ -269,7 +272,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                                 }`}
                         >
-                            Custom date
+                            {t('sales.custom_date')}
                         </button>
                     </div>
 
@@ -282,7 +285,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                     <button onClick={() => setViewDate(subMonths(viewDate, 1))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
                                         <ChevronLeft size={16} />
                                     </button>
-                                    <span className="font-semibold text-sm">{format(viewDate, 'MMMM yyyy')}</span>
+                                    <span className="font-semibold text-sm capitalize">{format(viewDate, 'MMMM yyyy', { locale: localeObj })}</span>
                                     <div className="w-6"></div> {/* Spacer */}
                                 </div>
                                 <div className="grid grid-cols-7 mb-1 text-center text-xs text-slate-400 font-medium">
@@ -295,7 +298,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                             <div className="hidden sm:block">
                                 <div className="flex items-center justify-between mb-2 px-2">
                                     <div className="w-6"></div> {/* Spacer */}
-                                    <span className="font-semibold text-sm">{format(addMonths(viewDate, 1), 'MMMM yyyy')}</span>
+                                    <span className="font-semibold text-sm capitalize">{format(addMonths(viewDate, 1), 'MMMM yyyy', { locale: localeObj })}</span>
                                     <button onClick={() => setViewDate(addMonths(viewDate, 1))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
                                         <ChevronRight size={16} />
                                     </button>
@@ -311,7 +314,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                             <div className="flex items-center gap-2 w-full sm:w-auto">
                                 <div className="flex flex-col gap-1 w-full">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">Start date</label>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.start_date')}</label>
                                     <input
                                         type="date"
                                         value={tempStart ? formatDateISO(tempStart) : ''}
@@ -320,7 +323,7 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                     />
                                 </div>
                                 <div className="flex flex-col gap-1 w-full">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">End date</label>
+                                    <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.end_date')}</label>
                                     <input
                                         type="date"
                                         value={tempEnd ? formatDateISO(tempEnd) : ''}
@@ -334,13 +337,13 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                     onClick={() => setIsOpen(false)}
                                     className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors w-full sm:w-auto"
                                 >
-                                    Cancel
+                                    {t('sales.cancel')}
                                 </button>
                                 <button
                                     onClick={handleApply}
                                     className="px-6 py-2 rounded-lg text-sm font-bold bg-slate-900 dark:bg-blue-600 text-white hover:opacity-90 transition-opacity w-full sm:w-auto"
                                 >
-                                    Apply
+                                    {t('sales.apply')}
                                 </button>
                             </div>
                         </div>

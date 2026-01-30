@@ -8,6 +8,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
 import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useLanguage } from '@/lib/i18n'
 
 // Definición de tipos para los ítems y grupos (Copiado de Sidebar.tsx)
 type MenuItem = {
@@ -29,36 +30,37 @@ export default function TopNav() {
     const { user } = useAuth()
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
+    const { t, language, setLanguage } = useLanguage()
 
     // Estructura de grupos (Copiado de Sidebar.tsx)
     const menuGroups: MenuGroup[] = [
         {
-            title: 'OPERACIONES',
+            title: t('sections.operations'),
             id: 'operaciones',
             items: [
-                { name: 'Supervisor', path: '/inspecciones', icon: <ClipboardList size={20} />, roles: ['supervisor', 'admin'] },
-                { name: 'Manager', path: '/checklists-manager', icon: <Briefcase size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Asistentes', path: '/checklists', icon: <CheckSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-                { name: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.supervisor'), path: '/inspecciones', icon: <ClipboardList size={20} />, roles: ['supervisor', 'admin'] },
+                { name: t('items.manager'), path: '/checklists-manager', icon: <Briefcase size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.assistants'), path: '/checklists', icon: <CheckSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: t('items.schedules'), path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.dashboard'), path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
             ]
         },
         {
-            title: 'GESTIÓN',
+            title: t('sections.management'),
             id: 'gestion',
             items: [
-                { name: 'Tiendas', path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
-                { name: 'Usuarios', path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
-                { name: 'Plantillas', path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
+                { name: t('items.stores'), path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
+                { name: t('items.users'), path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
+                { name: t('items.templates'), path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
             ]
         },
         {
-            title: 'ANÁLISIS',
+            title: t('sections.analysis'),
             id: 'analisis',
             items: [
-                { name: 'Ventas', path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.sales'), path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 {
-                    name: 'Reportes',
+                    name: t('items.reports'),
                     path: '/ventas/reportes',
                     icon: (
                         <div className="relative inline-block">
@@ -71,19 +73,19 @@ export default function TopNav() {
                     ),
                     roles: ['manager', 'supervisor', 'admin']
                 },
-                { name: 'Planificador', path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Feedback Clientes', path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: t('items.planner'), path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.feedback'), path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
             ]
         },
         {
-            title: 'KIOSKS QR',
+            title: t('sections.kiosks'),
             id: 'kioskos',
             items: [
-                { name: 'Feedback Clientes', path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
+                { name: t('items.kiosk_feedback'), path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
                 {
                     name: (
                         <div className="flex items-center gap-2">
-                            <span>Eval. Staff</span>
+                            <span>{t('items.eval_staff')}</span>
                             <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded font-black tracking-widest">DEMO</span>
                         </div>
                     ),
@@ -116,7 +118,7 @@ export default function TopNav() {
             })
             return { ...group, items: validItems }
         }).filter(group => group.items.length > 0)
-    }, [user])
+    }, [user, language])
 
     // Aplanamos la lista para el menú móvil
     const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
@@ -156,7 +158,7 @@ export default function TopNav() {
                                 SM<span className="text-base md:text-lg text-red-600 font-medium ml-0.5">TEG</span>
                             </span>
                             <span className="hidden md:block text-base font-medium text-red-600 dark:text-red-500 tracking-wide -mt-0.5 animate-pulse">
-                                Sistema de Monitoreo
+                                {t('nav.title')}
                             </span>
                         </div>
                     </Link>
@@ -254,8 +256,13 @@ export default function TopNav() {
 
                 </div>
 
-                {/* Right Section: Notifications & Profile */}
                 <div className="flex items-center gap-1 md:gap-3">
+                    <button
+                        onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+                        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors text-xs font-black w-10 h-10 flex items-center justify-center text-slate-500 dark:text-slate-400"
+                    >
+                        {language.toUpperCase()}
+                    </button>
                     <ThemeToggle />
                     <NotificationBell />
 
@@ -288,14 +295,14 @@ export default function TopNav() {
                                         className="flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors border-b border-gray-100 dark:border-slate-800"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></svg>
-                                        Actualizar App
+                                        {t('nav.update')}
                                     </button>
                                     <button
                                         onClick={handleLogout}
                                         className="flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
                                     >
                                         <LogOut size={16} />
-                                        Cerrar Sesión
+                                        {t('nav.logout')}
                                     </button>
                                 </motion.div>
                             )}
@@ -382,7 +389,7 @@ export default function TopNav() {
                                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 py-3 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 transition-colors"
                                     >
                                         <LogOut size={18} />
-                                        Cerrar Sesión
+                                        {t('nav.logout')}
                                     </button>
                                 </div>
                             </div>

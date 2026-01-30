@@ -13,9 +13,11 @@ import {
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
+import { useLanguage } from '@/lib/i18n'
 
 function DashboardContent() {
     const router = useRouter()
+    const { t } = useLanguage()
     const [stats, setStats] = useState({
         totalInspections: 0,
         avgInspectionScore: 0,
@@ -122,12 +124,12 @@ function DashboardContent() {
             const validInspections = inspections || []
 
             const categories = [
-                { key: 'service_score', label: 'Servicio' },
-                { key: 'meat_score', label: 'Carnes' },
-                { key: 'food_score', label: 'Alimentos' },
-                { key: 'tortilla_score', label: 'Tortillas' },
-                { key: 'cleaning_score', label: 'Limpieza' },
-                { key: 'grooming_score', label: 'Personal' }
+                { key: 'service_score', label: t('dashboard.cat_service') },
+                { key: 'meat_score', label: t('dashboard.cat_meat') },
+                { key: 'food_score', label: t('dashboard.cat_food') },
+                { key: 'tortilla_score', label: t('dashboard.cat_tortilla') },
+                { key: 'cleaning_score', label: t('dashboard.cat_cleaning') },
+                { key: 'grooming_score', label: t('dashboard.cat_grooming') }
             ]
 
             const sectionPerf = categories.map(cat => {
@@ -275,16 +277,16 @@ function DashboardContent() {
                         </div>
                         <div>
                             <h1 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tighter leading-none flex items-center gap-3">
-                                Dashboard
+                                {t('dashboard.title')}
                                 <span className="hidden sm:flex items-center gap-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-3 py-1.5 rounded-full text-[11px] uppercase tracking-widest border border-red-100 dark:border-red-900/30 font-black">
                                     <span className="relative flex h-3 w-3">
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                                         <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
                                     </span>
-                                    En Vivo
+                                    {t('dashboard.live')}
                                 </span>
                             </h1>
-                            <p className="hidden md:block text-sm font-bold text-slate-400 dark:text-slate-300 uppercase tracking-widest mt-1.5">Análisis Operativo en Tiempo Real</p>
+                            <p className="hidden md:block text-sm font-bold text-slate-400 dark:text-slate-300 uppercase tracking-widest mt-1.5">{t('dashboard.subtitle')}</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -302,7 +304,7 @@ function DashboardContent() {
                         </div>
                     </div>
                     <div className="hidden md:flex flex-col items-end">
-                        <span className="text-[11px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-wider">Eficiencia Promedio</span>
+                        <span className="text-[11px] font-black text-slate-400 dark:text-slate-300 uppercase tracking-wider">{t('dashboard.avg_efficiency')}</span>
                         <span className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                             <Timer size={18} className="text-indigo-600 dark:text-indigo-400" /> {stats.avgDuration}
                         </span>
@@ -329,19 +331,19 @@ function DashboardContent() {
                         <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Activity size={80} /></div>
                         <div className="flex justify-between items-start">
                             <div>
-                                <p className="text-slate-400 dark:text-slate-300 text-xs font-black uppercase tracking-widest">Score Global</p>
+                                <p className="text-slate-400 dark:text-slate-300 text-xs font-black uppercase tracking-widest">{t('dashboard.global_score')}</p>
                                 <h2 className="text-7xl font-black tracking-tighter mt-1">{stats.avgInspectionScore}<span className="text-3xl text-slate-500">%</span></h2>
                             </div>
-                            <div className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide shadow-lg ${stats.avgInspectionScore >= 85 ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>{stats.avgInspectionScore >= 85 ? 'Buen Desempeño' : 'Alerta Roja'}</div>
+                            <div className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide shadow-lg ${stats.avgInspectionScore >= 85 ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>{stats.avgInspectionScore >= 85 ? t('dashboard.good_perf') : t('dashboard.red_alert')}</div>
                         </div>
                         <div className="mt-6 pt-6 border-t border-slate-800 flex justify-between items-end">
                             <div>
-                                <p className="text-slate-400 dark:text-slate-300 text-xs font-bold uppercase tracking-wide">NPS Clientes</p>
+                                <p className="text-slate-400 dark:text-slate-300 text-xs font-bold uppercase tracking-wide">{t('dashboard.nps')}</p>
                                 <p className="text-3xl font-black">{stats.avgNPS}</p>
                             </div>
                             <div className="text-right">
                                 <p className="text-slate-400 dark:text-slate-300 text-xs font-bold uppercase tracking-wide">
-                                    {timeFilter === 'today' ? 'Auditorías Hoy' : timeFilter === 'week' ? 'Auditorías Semana' : timeFilter === 'month' ? 'Auditorías Mes' : timeFilter === 'year' ? 'Auditorías Año' : 'Total Auditorías'}
+                                    {timeFilter === 'today' ? t('dashboard.audits_today') : timeFilter === 'week' ? t('dashboard.audits_week') : timeFilter === 'month' ? t('dashboard.audits_month') : timeFilter === 'year' ? t('dashboard.audits_year') : t('dashboard.audits_total')}
                                 </p>
                                 <p className="text-3xl font-black text-indigo-400">{stats.totalInspections}</p>
                             </div>
@@ -350,8 +352,8 @@ function DashboardContent() {
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm md:col-span-2 flex flex-col">
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-black text-slate-900 dark:text-white text-lg flex items-center gap-3"><BarChart3 size={24} className="text-indigo-500" /> Desempeño por Categoría</h3>
-                            <span className="text-xs font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest">Áreas de Enfoque</span>
+                            <h3 className="font-black text-slate-900 dark:text-white text-lg flex items-center gap-3"><BarChart3 size={24} className="text-indigo-500" /> {t('dashboard.perf_by_category')}</h3>
+                            <span className="text-xs font-black text-slate-400 dark:text-slate-300 uppercase tracking-widest">{t('dashboard.focus_areas')}</span>
                         </div>
                         <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
                             {stats.sectionPerformance.map((cat, i) => (
@@ -370,7 +372,7 @@ function DashboardContent() {
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col">
-                        <h3 className="font-black text-slate-900 dark:text-white text-lg mb-6 flex items-center gap-3"><Award size={24} className="text-orange-500" /> Top Supervisores</h3>
+                        <h3 className="font-black text-slate-900 dark:text-white text-lg mb-6 flex items-center gap-3"><Award size={24} className="text-orange-500" /> {t('dashboard.top_supervisors')}</h3>
                         <div className="space-y-4 flex-1 overflow-y-auto pr-1 custom-scrollbar">
                             {stats.supervisorStats.map((sup, i) => (
                                 <div key={i} className="flex items-center justify-between text-sm group">
@@ -393,10 +395,10 @@ function DashboardContent() {
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-indigo-50/40 dark:bg-indigo-900/10 flex justify-between items-center">
                             <h3 onClick={() => router.push('/feedback')} className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3 cursor-pointer hover:text-indigo-600 transition-colors">
                                 <MessageSquare size={20} className="text-indigo-600 dark:text-indigo-400" />
-                                Feedback de Clientes
+                                {t('dashboard.customer_feedback')}
                                 <ExternalLink size={14} className="text-indigo-400 opacity-50" />
                             </h3>
-                            <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-md shadow-indigo-100">Últimos {stats.recentFeedback?.length || 0}</span>
+                            <span className="bg-indigo-600 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-md shadow-indigo-100">{t('dashboard.latest')} {stats.recentFeedback?.length || 0}</span>
                         </div>
                         <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-3 custom-scrollbar">
                             {stats.recentFeedback && stats.recentFeedback.length > 0 ? stats.recentFeedback.map((item: any, i: number) => (
@@ -431,19 +433,19 @@ function DashboardContent() {
                                     </div>
                                 </div>
                             )) : (
-                                <div className="h-full flex flex-col items-center justify-center text-slate-300"><MessageSquare size={40} className="mb-2 text-indigo-100" /><p className="text-xs font-bold">Sin comentarios recientes</p></div>
+                                <div className="h-full flex flex-col items-center justify-center text-slate-300"><MessageSquare size={40} className="mb-2 text-indigo-100" /><p className="text-xs font-bold">{t('dashboard.no_comments')}</p></div>
                             )}
                         </div>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col h-[400px]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900">
-                            <h3 className="font-black text-slate-900 dark:text-white text-base flex items-center gap-3"><Store size={22} className="text-blue-600 dark:text-blue-400" /> Ranking de Sucursales</h3>
+                            <h3 className="font-black text-slate-900 dark:text-white text-base flex items-center gap-3"><Store size={22} className="text-blue-600 dark:text-blue-400" /> {t('dashboard.store_ranking')}</h3>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-black text-[11px] uppercase tracking-widest sticky top-0 z-10">
-                                    <tr><th className="pl-6 py-4">#</th><th className="py-4">Tienda</th><th className="pr-6 py-4 text-right">Score</th></tr>
+                                    <tr><th className="pl-6 py-4">#</th><th className="py-4">{t('dashboard.store')}</th><th className="pr-6 py-4 text-right">{t('dashboard.score')}</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {stats.topStores.map((store, i) => (
@@ -464,7 +466,7 @@ function DashboardContent() {
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col h-[400px]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-indigo-50/40 dark:bg-indigo-900/10">
-                            <h3 className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3"><Activity size={22} className="text-indigo-600 dark:text-indigo-400" /> Historial de Actividad</h3>
+                            <h3 className="font-black text-indigo-950 dark:text-indigo-100 text-base flex items-center gap-3"><Activity size={22} className="text-indigo-600 dark:text-indigo-400" /> {t('dashboard.activity_history')}</h3>
                         </div>
                         <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
                             {stats.recentActivity.map((act, i) => (
@@ -475,12 +477,12 @@ function DashboardContent() {
                                     </div>
                                     <div className="flex-1">
                                         <p className="text-sm font-black text-slate-900 dark:text-white leading-none group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors uppercase tracking-tight">{act.store}</p>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">Auditoría de <span className="font-black text-slate-700 dark:text-slate-300">{act.user}</span></p>
-                                        <span className={`text-xs font-black mt-2 inline-flex items-center px-2 py-0.5 rounded-md shadow-inner ${act.score >= 80 ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}`}>Score: {act.score}%</span>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium">{t('dashboard.audit_by')} <span className="font-black text-slate-700 dark:text-slate-300">{act.user}</span></p>
+                                        <span className={`text-xs font-black mt-2 inline-flex items-center px-2 py-0.5 rounded-md shadow-inner ${act.score >= 80 ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}`}>{t('dashboard.score')}: {act.score}%</span>
                                     </div>
                                     <div className="flex flex-col items-end gap-1">
                                         <span className="text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-lg self-start">{formatDateLA(act.date)}</span>
-                                        <span className="text-[10px] font-bold text-indigo-400 dark:text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity">Ver detalle →</span>
+                                        <span className="text-[10px] font-bold text-indigo-400 dark:text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity">{t('dashboard.view_detail')} →</span>
                                     </div>
                                 </div>
                             ))}

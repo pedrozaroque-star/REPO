@@ -8,11 +8,13 @@ import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { canEditChecklist, getStatusColor, getStatusLabel, formatDateLA, isOverdue } from '@/lib/checklistPermissions'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { useLanguage } from '@/lib/i18n'
 
 function ChecklistsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user } = useAuth()
+  const { t } = useLanguage()
   const [checklists, setChecklists] = useState<any[]>([])
   const [stats, setStats] = useState({
     total: 0,
@@ -231,12 +233,12 @@ function ChecklistsContent() {
   }
 
   const checklistTypes = [
-    { value: 'daily', label: 'Daily Checklist', icon: '📝', color: 'border-blue-600' },
-    { value: 'temperaturas', label: 'Temperaturas', icon: '🌡️', color: 'border-red-600' },
-    { value: 'sobrante', label: 'Producto Sobrante', icon: '📦', color: 'border-yellow-600' },
-    { value: 'recorrido', label: 'Recorrido', icon: '🚶', color: 'border-green-600' },
-    { value: 'cierre', label: 'Cierre', icon: '🌙', color: 'border-purple-600' },
-    { value: 'apertura', label: 'Apertura', icon: '🌅', color: 'border-orange-600' }
+    { value: 'daily', label: t('checklists.daily'), icon: '📝', color: 'border-blue-600' },
+    { value: 'temperaturas', label: t('checklists.temps'), icon: '🌡️', color: 'border-red-600' },
+    { value: 'sobrante', label: t('checklists.leftover'), icon: '📦', color: 'border-yellow-600' },
+    { value: 'recorrido', label: t('checklists.tour'), icon: '🚶', color: 'border-green-600' },
+    { value: 'cierre', label: t('checklists.closing'), icon: '🌙', color: 'border-purple-600' },
+    { value: 'apertura', label: t('checklists.opening'), icon: '🌅', color: 'border-orange-600' }
   ]
 
   const getTypeInfo = (type: string) => {
@@ -254,7 +256,7 @@ function ChecklistsContent() {
     }
 
     const colorClass = getStatusColor(status)
-    const label = getStatusLabel(status) + extraLabel
+    const label = (t(`status.${status.toLowerCase()}`) || getStatusLabel(status)) + extraLabel
 
     return (
       <span className={`px-2 py-1 rounded text-xs font-semibold border ${colorClass}`}>
@@ -314,8 +316,8 @@ function ChecklistsContent() {
                 <FileText size={18} />
               </div>
               <div>
-                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Checklists</h1>
-                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest mt-1">Gestión de checklists de asistente</p>
+                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">{t('checklists.title')}</h1>
+                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-widest mt-1">{t('checklists.subtitle')}</p>
               </div>
             </div>
 
@@ -328,7 +330,7 @@ function ChecklistsContent() {
                   onChange={(e) => setStoreFilter(e.target.value)}
                   className="px-3 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border-none outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-bold text-gray-600 dark:text-slate-300 cursor-pointer transition-all"
                 >
-                  <option value="all">Todas las sucursales</option>
+                  <option value="all">{t('checklists.all_stores')}</option>
                   {stores.map(store => (
                     <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>
                   ))}
@@ -340,7 +342,7 @@ function ChecklistsContent() {
                 className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-blue-600 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-blue-700 dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-blue-200 dark:shadow-none"
               >
                 <Plus size={16} strokeWidth={3} />
-                <span className="hidden md:inline font-bold text-xs tracking-wide">NUEVO CHECKLIST</span>
+                <span className="hidden md:inline font-bold text-xs tracking-wide">{t('checklists.new_checklist')}</span>
               </button>
             </div>
           </div>
@@ -357,7 +359,7 @@ function ChecklistsContent() {
                 onChange={(e) => setStoreFilter(e.target.value)}
                 className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-800 text-sm font-bold text-gray-900 dark:text-white appearance-none transition-all"
               >
-                <option value="all">Todas las sucursales</option>
+                <option value="all">{t('checklists.all_stores')}</option>
                 {stores.map(store => (
                   <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>
                 ))}
@@ -377,7 +379,7 @@ function ChecklistsContent() {
                     : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-700'
                     }`}
                 >
-                  {status === 'all' ? 'Todos' : getStatusLabel(status)}
+                  {status === 'all' ? t('checklists.all_status') : (t(`status.${status}`) || getStatusLabel(status))}
                 </button>
               ))}
             </div>
@@ -386,31 +388,31 @@ function ChecklistsContent() {
           {/* Stats Cards - Adaptive Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-indigo-600 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Total</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">{t('checklists.total')}</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.total}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-blue-600 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">📝 Daily</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">📝 {t('checklists.daily')}</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.daily}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-red-600 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">🌡️ Temps</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">🌡️ {t('checklists.temps')}</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.temperaturas}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-yellow-600 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">📦 Sobrante</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">📦 {t('checklists.leftover')}</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.sobrante}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-green-600 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">🚶 Recorrido</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">🚶 {t('checklists.tour')}</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.recorrido}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-purple-600 border-y border-r border-gray-100 dark:border-slate-800 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">🌙 Cierre</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">🌙 {t('checklists.closing')}</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.cierre}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-3 md:p-4 border-l-4 border-orange-600 border-y border-r border-gray-100 dark:border-slate-800 col-span-2 md:col-span-1 transition-all">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">🌅 Apertura</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">🌅 {t('checklists.opening')}</p>
               <p className="text-xl md:text-2xl font-black text-gray-900 dark:text-white md:mt-1">{stats.apertura}</p>
             </div>
           </div>
@@ -419,7 +421,7 @@ function ChecklistsContent() {
           {checklists.length === 0 ? (
             <div className="text-center py-20 opacity-50">
               <FileText size={64} className="mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-900 font-bold">No hay checklists registrados</p>
+              <p className="text-gray-900 font-bold">{t('checklists.empty')}</p>
             </div>
           ) : (
             <>
@@ -468,7 +470,7 @@ function ChecklistsContent() {
                             }}
                             className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold"
                           >
-                            ✏️ EDITAR
+                            ✏️ {t('checklists.edit')}
                           </button>
                         )}
                       </div>
@@ -483,15 +485,15 @@ function ChecklistsContent() {
                   <table className="w-full">
                     <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800">
                       <tr>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Fecha</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Tipo</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Sucursal</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Turno</th>
-                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Usuario</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Duración</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Score</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Estado</th>
-                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Acciones</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.date')}</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.type')}</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.store')}</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.shift')}</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.user')}</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.duration')}</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.score')}</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.status')}</th>
+                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('checklists.actions')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
@@ -559,7 +561,7 @@ function ChecklistsContent() {
                                   }}
                                   className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-bold text-xs bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
                                 >
-                                  EDITAR
+                                  {t('checklists.edit')}
                                 </button>
                               )}
                             </td>

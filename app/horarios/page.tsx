@@ -13,6 +13,9 @@ import {
     Briefcase, Activity, ShieldAlert
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { useLanguage } from '@/lib/i18n'
+import { format } from 'date-fns'
+import { es, enUS } from 'date-fns/locale'
 
 // --- CONFIGURACIÓN DE DATOS ---
 const PRESETS = [
@@ -43,11 +46,6 @@ const formatDateISO = (d: Date) => {
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
-const formatDateNice = (d: Date) => {
-    const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    return `${d.getDate()} ${months[d.getMonth()]}`;
-}
-const getDayName = (d: Date) => ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][d.getDay()];
 
 // Helper para formato 12h (AM/PM)
 const formatTime12h = (time: string) => {
@@ -98,6 +96,7 @@ const coversBlock = (shift: any, blockStartHour: number, blockEndHour: number) =
 // --- SEMÁFORO (LÓGICA OPERATIVA 4H + COMODÍN) ---
 // --- SEMÁFORO (LÓGICA OPERATIVA 4H + COMODÍN FINITO) ---
 const calculateDailyStatus = (
+    t: any,
     dateStr: string,
     storeShifts: any[],
     storeUsers: any[],
@@ -149,7 +148,7 @@ const calculateDailyStatus = (
         return {
             ...baseResult,
             status: 'empty',
-            label: 'VACÍO',
+            label: t('schedule.empty'),
             color: 'bg-gray-100 text-gray-400 border-gray-200'
         };
     }
@@ -159,7 +158,7 @@ const calculateDailyStatus = (
         return {
             ...baseResult,
             status: coveredBySup ? 'ok-sup' : 'ok',
-            label: coveredBySup ? 'CUBIERTO (SUP)' : 'CUBIERTO',
+            label: coveredBySup ? `${t('schedule.covered')} (SUP)` : t('schedule.covered'),
             color: coveredBySup ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-emerald-500 text-white shadow-md'
         };
     }
@@ -168,13 +167,15 @@ const calculateDailyStatus = (
     return {
         ...baseResult,
         status: 'bad',
-        label: !finalAM && !finalPM ? 'FALTA AM/PM' : (!finalAM ? 'FALTA AM' : 'FALTA PM'),
+        label: !finalAM && !finalPM ? t('schedule.missing') : (!finalAM ? 'FALTA AM' : 'FALTA PM'), // Partial translations for specific cases
         color: 'bg-red-500 text-white animate-pulse shadow-md'
     };
 }
 
 // --- COMPONENTE UI: PICKER DE SEMANA PERSONALIZADO (Copia Visual) ---
 function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: Date, onDateChange: (d: Date) => void, weekStart: Date }) {
+    const { t, language } = useLanguage()
+    const localeObj = language === 'es' ? es : enUS
     const [isOpen, setIsOpen] = useState(false);
     const [viewDate, setViewDate] = useState(new Date(currentDate)); // Para navegar meses sin cambiar selección
 
@@ -182,8 +183,7 @@ function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: D
     useEffect(() => { setViewDate(new Date(currentDate)); }, [currentDate]);
 
     // Helpers de Fecha UI
-    const MonthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    const ShortMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    // Removed legacy arrays in favor of dynamic formatting
 
     const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
     const getFirstDayOfMonth = (year: number, month: number) => {
@@ -250,7 +250,7 @@ function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: D
         return target.toDateString() === wEnd.toDateString();
     };
 
-    const dateRangeText = `${ShortMonths[weekStart.getMonth()]} ${weekStart.getDate()}, ${weekStart.getFullYear()}  →  ${ShortMonths[addDays(weekStart, 6).getMonth()]} ${addDays(weekStart, 6).getDate()}, ${addDays(weekStart, 6).getFullYear()}`;
+    const dateRangeText = `${format(weekStart, 'MMM d, yyyy', { locale: localeObj })}  →  ${format(addDays(weekStart, 6), 'MMM d, yyyy', { locale: localeObj })}`;
 
     return (
         <div className="relative flex items-center gap-2 z-[100]">
@@ -287,7 +287,7 @@ function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: D
                 onClick={() => onDateChange(new Date())}
                 className="bg-white border border-gray-200 text-gray-700 text-xs font-bold px-3 py-1.5 rounded-md shadow-sm hover:bg-gray-50 transition-colors hidden md:block"
             >
-                Hoy
+                {t('sales.today')}
             </button>
 
             {/* POPOVER CALENDARIO */}
@@ -300,8 +300,8 @@ function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: D
                 >
                     {/* Header Mes */}
                     <div className="flex items-center justify-between mb-4">
-                        <span className="font-bold text-gray-800 text-sm">
-                            {MonthNames[viewDate.getMonth()]} {viewDate.getFullYear()}
+                        <span className="font-bold text-gray-800 text-sm capitalize">
+                            {format(viewDate, 'MMMM yyyy', { locale: localeObj })}
                         </span>
                         <div className="flex gap-1">
                             <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-100 rounded text-gray-500"><ChevronLeft size={16} /></button>
@@ -311,9 +311,15 @@ function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: D
 
                     {/* Grid Dias Semana */}
                     <div className="grid grid-cols-7 mb-2 text-center">
-                        {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'].map(d => (
-                            <span key={d} className="text-[10px] font-bold text-gray-400 uppercase">{d}</span>
-                        ))}
+                        {Array.from({ length: 7 }).map((_, i) => {
+                            // Generate header (Mon, Tue...) based on locale
+                            const d = new Date(2024, 0, i + 1) // Jan 1 2024 was Monday
+                            return (
+                                <span key={i} className="text-[10px] font-bold text-gray-400 uppercase">
+                                    {format(d, 'EEEEE', { locale: localeObj })}
+                                </span>
+                            )
+                        })}
                     </div>
 
                     {/* Grid Fechas */}
@@ -359,6 +365,8 @@ function WeekSelector({ currentDate, onDateChange, weekStart }: { currentDate: D
 // --- COMPONENTE PRINCIPAL ---
 function ScheduleManager() {
     const { user } = useAuth()
+    const { t, language } = useLanguage()
+    const localeObj = language === 'es' ? es : enUS
     const searchParams = useSearchParams()
     const canEdit = ['admin', 'supervisor'].some(role => user?.role?.toLowerCase().includes(role));
 
@@ -1006,7 +1014,7 @@ function ScheduleManager() {
 
             if (error) throw error;
             if (!lastWeekData || lastWeekData.length === 0) {
-                alert("No se encontraron horarios en la semana anterior para esta tienda.");
+                alert(t('schedule.alert_no_schedules'));
                 return;
             }
 
@@ -1030,11 +1038,11 @@ function ScheduleManager() {
 
             // 5. Recargar datos globales para actualizar UI
             await loadGlobalData();
-            alert(`¡Éxito! Se han copiado ${newSchedules.length} horarios de la semana anterior.`);
+            alert(t('schedule.alert_copy_success').replace('{n}', String(newSchedules.length)));
 
         } catch (e) {
             console.error("Error al copiar semana:", e);
-            alert("Hubo un error al copiar los horarios.");
+            alert(t('schedule.alert_copy_error'));
         } finally {
             setLoading(false);
         }
@@ -1145,6 +1153,7 @@ function ScheduleManager() {
 
                     // Calcular estatus pasando disponibilidad (Solo disponible si NO se ha usado)
                     const result = calculateDailyStatus(
+                        t,
                         dateStr,
                         storeShifts,
                         allUsers || [],
@@ -1173,12 +1182,12 @@ function ScheduleManager() {
 
             if (storeHasBad) {
                 const badDays = weekStatuses
-                    .map((s, idx) => s.status === 'bad' ? getDayName(weekDays[idx]).substring(0, 3) : null)
+                    .map((s, idx) => s.status === 'bad' ? format(weekDays[idx], 'EEE', { locale: localeObj }).substring(0, 3).toUpperCase() : null)
                     .filter(Boolean);
                 acc[supId].issues.push({ store: formatStoreName(store.name), days: badDays, type: 'bad' });
             } else if (storeHasEmpty) {
                 const emptyDays = weekStatuses
-                    .map((s, idx) => s.status === 'empty' ? getDayName(weekDays[idx]).substring(0, 3) : null)
+                    .map((s, idx) => s.status === 'empty' ? format(weekDays[idx], 'EEE', { locale: localeObj }).substring(0, 3).toUpperCase() : null)
                     .filter(Boolean);
                 acc[supId].issues.push({ store: formatStoreName(store.name), days: emptyDays, type: 'empty' });
             }
@@ -1220,7 +1229,7 @@ function ScheduleManager() {
             if (badIssues.length > 0) {
                 badIssues.forEach((i: any) => {
                     sup.alertLines.push({
-                        text: `Alerta: ${i.store} tiene turnos descubiertos (${i.days.join(', ')}).`,
+                        text: `${t('schedule.alert_attention')}: ${i.store} ${t('schedule.alert_missing_coverage')} (${i.days.join(', ')}).`,
                         color: 'text-red-600 bg-red-50'
                     });
                 });
@@ -1228,18 +1237,18 @@ function ScheduleManager() {
                 // Si hay problemas de progreso o vacío, lo contamos como pendiente (Ambar)
                 const totalPending = emptyIssues.length;
                 sup.alertLines.push({
-                    text: `${totalPending} ${totalPending === 1 ? 'tienda está' : 'tiendas están'} sin horarios programados.`,
+                    text: `${totalPending} ${t('schedule.alert_missing_shifts')}`,
                     color: 'text-amber-600 bg-amber-50'
                 });
             } else if (sup.alertLines.length === 0) {
                 if (sup.overallStatus === 'ok') {
                     sup.alertLines.push({
-                        text: `¡Excelente! Todas las tiendas están cubiertas.`,
+                        text: t('schedule.alert_covered'),
                         color: 'text-emerald-600 bg-emerald-50'
                     });
                 } else {
                     sup.alertLines.push({
-                        text: `${sup.stores.length} tiendas sin horarios programados.`,
+                        text: `${sup.stores.length} ${t('schedule.alert_missing_shifts')}`,
                         color: 'text-amber-600 bg-amber-50'
                     });
                 }
@@ -1250,7 +1259,7 @@ function ScheduleManager() {
             return (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-slate-500">
                     <Store size={48} className="mb-4 opacity-20" />
-                    <p>No hay tiendas configuradas.</p>
+                    <p>{t('schedule.no_stores')}</p>
                 </div>
             )
         }
@@ -1259,7 +1268,7 @@ function ScheduleManager() {
             return (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-slate-500">
                     <User size={48} className="mb-4 opacity-20" />
-                    <p>No se encontraron supervisores asignados.</p>
+                    <p>{t('schedule.no_supervisors')}</p>
                 </div>
             )
         }
@@ -1269,9 +1278,9 @@ function ScheduleManager() {
                 <div className="max-w-[1536px] mx-auto">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
                         <div>
-                            <h2 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight text-balance">Control de Operaciones</h2>
+                            <h2 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight text-balance">{t('schedule.title')}</h2>
                             <p className="text-lg text-gray-500 dark:text-slate-400 mt-1">
-                                {canEdit ? 'Revisa el estado de tus tiendas y atiende las alertas de la semana.' : '👀 Vista de lectura: Monitor de cobertura de tiendas.'}
+                                {canEdit ? t('schedule.subtitle_edit') : t('schedule.subtitle_view')}
                             </p>
                         </div>
                         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -1279,7 +1288,7 @@ function ScheduleManager() {
 
                             <div className="hidden md:flex bg-white dark:bg-slate-900 px-4 py-2 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm items-center gap-2">
                                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">Alerta</span>
+                                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">{t('dashboard.red_alert')}</span>
                             </div>
                         </div>
                     </div>
@@ -1301,7 +1310,7 @@ function ScheduleManager() {
 
                                 {sup.risk && (
                                     <div className="absolute top-0 right-0 bg-red-50 dark:bg-red-900/40 text-red-600 dark:text-red-300 text-[11px] font-black px-4 py-2 rounded-bl-2xl shadow-sm z-10 border-b border-l border-red-100 dark:border-red-900/50 uppercase tracking-widest">
-                                        ATENCIÓN
+                                        {t('schedule.alert_attention')}
                                     </div>
                                 )}
 
@@ -1319,12 +1328,12 @@ function ScheduleManager() {
                                             {sup.name}
                                         </h3>
                                         <p className="text-sm text-gray-500 dark:text-slate-400 font-medium uppercase tracking-wide mt-1">
-                                            {sup.stores.length} Tiendas Asignadas
+                                            {sup.stores.length} {t('schedule.assigned_stores')}
                                         </p>
                                         {sup.lastCapture && (
                                             <p className="text-xs text-indigo-500 dark:text-indigo-300 font-bold uppercase tracking-wider mt-1.5 flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-md w-fit">
                                                 <Clock size={12} />
-                                                Última captura: {formatDateLA(sup.lastCapture)} {formatTimeLA(sup.lastCapture)}
+                                                {t('schedule.last_capture')}: {formatDateLA(sup.lastCapture)} {formatTimeLA(sup.lastCapture)}
                                             </p>
                                         )}
                                     </div>
@@ -1370,17 +1379,17 @@ function ScheduleManager() {
                         <div className="flex items-center gap-4">
                             <button onClick={() => setViewMode('dashboard')} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-all border border-gray-200 dark:border-slate-700">←</button>
                             <div>
-                                <h2 className="text-2xl font-black text-gray-900 dark:text-white">Organizador de Horarios</h2>
-                                <p className="text-sm text-gray-500 dark:text-slate-400 font-medium tracking-tight">Asigna los turnos de tu equipo y asegura que todo esté cubierto.</p>
+                                <h2 className="text-2xl font-black text-gray-900 dark:text-white">{t('schedule.organizer')}</h2>
+                                <p className="text-sm text-gray-500 dark:text-slate-400 font-medium tracking-tight">{t('schedule.organizer_subtitle')}</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
                             {/* Leyenda de colores */}
                             <div className="hidden md:flex items-center gap-2 mr-4 border-r border-gray-200 dark:border-slate-700 pr-4">
-                                <span className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mr-1">ESTATUS:</span>
-                                <span className="px-4 py-2 rounded-md text-xs font-black bg-emerald-500 text-white shadow-sm">CUBIERTO</span>
-                                <span className="px-4 py-2 rounded-md text-xs font-black bg-red-500 text-white shadow-sm animate-pulse">FALTA AM/PM</span>
-                                <span className="px-4 py-2 rounded-md text-xs font-black bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 border border-gray-200 dark:border-slate-700">VACÍO</span>
+                                <span className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mr-1">{t('schedule.status_label')}</span>
+                                <span className="px-4 py-2 rounded-md text-xs font-black bg-emerald-500 text-white shadow-sm">{t('schedule.covered')}</span>
+                                <span className="px-4 py-2 rounded-md text-xs font-black bg-red-500 text-white shadow-sm animate-pulse">{t('schedule.missing')}</span>
+                                <span className="px-4 py-2 rounded-md text-xs font-black bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 border border-gray-200 dark:border-slate-700">{t('schedule.empty')}</span>
                             </div>
                             <WeekSelector currentDate={currentDate} onDateChange={setCurrentDate} weekStart={weekStart} />
                         </div>
@@ -1397,7 +1406,7 @@ function ScheduleManager() {
                                             <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
                                                 <User size={20} />
                                             </div>
-                                            <span className="text-sm font-black text-gray-500 dark:text-slate-400 uppercase tracking-widest">Colaborador</span>
+                                            <span className="text-sm font-black text-gray-500 dark:text-slate-400 uppercase tracking-widest">{t('schedule.collab')}</span>
                                         </div>
                                     </th>
                                     {weekDays.map((day, idx) => {
@@ -1427,7 +1436,7 @@ function ScheduleManager() {
                                                 const sShifts = allSchedules.filter(s => String(s.store_id) === String(store.id) && sUserIds.has(String(s.user_id)));
                                                 const valShifts = sShifts.filter(s => String(s.user_id) !== String(selectedSupervisorId));
 
-                                                const status = calculateDailyStatus(formatDateISO(day), valShifts, sUsers, supShift, tempSupAvailable.am, tempSupAvailable.pm);
+                                                const status = calculateDailyStatus(t, formatDateISO(day), valShifts, sUsers, supShift, tempSupAvailable.am, tempSupAvailable.pm);
 
                                                 if (status.usedSupAM) tempSupAvailable.am = false;
                                                 if (status.usedSupPM) tempSupAvailable.pm = false;
@@ -1443,13 +1452,13 @@ function ScheduleManager() {
                                         return (
                                             <th key={idx} className={`p-1 min-w-[105px] border-b border-gray-200 dark:border-slate-800 last:border-0 bg-white dark:bg-slate-900 z-[20] ${idx === 6 ? 'border-r-4 border-slate-300 dark:border-slate-600' : 'border-r border-gray-200 dark:border-slate-800'}`}>
                                                 <div className="flex flex-col items-center gap-1 py-2">
-                                                    <span className="text-[14px] font-medium text-black dark:text-white uppercase tracking-wide">{getDayName(day)}</span>
+                                                    <span className="text-[14px] font-medium text-black dark:text-white uppercase tracking-wide">{format(day, 'EEE', { locale: localeObj })}</span>
                                                     <span className="text-2xl font-black text-gray-900 dark:text-white -mt-1">{day.getDate()}</span>
                                                     <div className={`mt-1 px-4 py-1 rounded-full text-[11px] font-black tracking-wide shadow-sm ${globalStatus === 'ok' ? 'bg-emerald-500 text-white' :
                                                         globalStatus === 'empty' ? 'bg-amber-100 text-amber-700 border border-amber-200 font-bold' :
                                                             'bg-red-500 text-white animate-pulse'
                                                         }`}>
-                                                        {globalStatus === 'ok' ? 'CUBIERTO' : globalStatus === 'empty' ? 'PENDIENTE' : 'FALTA AM/PM'}
+                                                        {globalStatus === 'ok' ? t('schedule.covered') : globalStatus === 'empty' ? t('schedule.pending') : t('schedule.missing')}
                                                     </div>
                                                 </div>
                                             </th>
@@ -1473,7 +1482,7 @@ function ScheduleManager() {
                                                         <span className="font-black text-gray-900 dark:text-white text-xl flex items-center gap-1">
                                                             {supervisorUser.full_name}
                                                         </span>
-                                                        <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/50 px-2 py-0.5 rounded w-fit mt-0.5">SUPERVISOR DE ZONA</span>
+                                                        <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-300 uppercase tracking-widest bg-indigo-50 dark:bg-indigo-900/50 px-2 py-0.5 rounded w-fit mt-0.5">{t('schedule.supervisor_zone')}</span>
                                                     </div>
                                                 </div>
                                             </th>
@@ -1553,6 +1562,7 @@ function ScheduleManager() {
 
                                             // Calcular estatus pasando disponibilidad (Solo disponible si NO se ha usado)
                                             const result = calculateDailyStatus(
+                                                t,
                                                 dateStr,
                                                 validationSchedules,
                                                 storeUsers,
@@ -1592,7 +1602,7 @@ function ScheduleManager() {
                                                                 <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 mx-auto shadow-sm ring-2 ring-emerald-100"></div>
                                                             ) : status.status === 'ok-sup' ? (
                                                                 <div className="mx-auto px-2 py-1 rounded-lg bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-black tracking-wide shadow-sm whitespace-nowrap">
-                                                                    SUPLIDO
+                                                                    {status.label}
                                                                 </div>
                                                             ) : status.status === 'bad' ? (
                                                                 <div className="mx-auto px-2 py-1 rounded-lg bg-red-400 text-white text-[10px] font-black tracking-wider animate-pulse shadow-sm shadow-red-200">
@@ -1736,7 +1746,7 @@ function ScheduleManager() {
                     {loading ? (
                         <div className="flex flex-col items-center justify-center h-64 gap-4">
                             <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                            <p className="text-gray-400 dark:text-slate-500 font-medium">Sincronizando horarios...</p>
+                            <p className="text-gray-400 dark:text-slate-500 font-medium">{t('schedule.syncing')}</p>
                         </div>
                     ) : (
                         viewMode === 'dashboard' ? renderDashboard() : renderEditor()
@@ -1773,7 +1783,7 @@ function ScheduleManager() {
                                             <h3 className="text-lg font-bold leading-tight">{editingShift.userName}</h3>
                                             <div className="flex items-center gap-1 text-indigo-100 text-xs font-medium uppercase tracking-wide">
                                                 <Calendar size={12} />
-                                                {formatDateNice(editingShift.date)}
+                                                {format(new Date(editingShift.date), 'MMM d', { locale: localeObj })}
                                             </div>
                                         </div>
                                     </div>
@@ -1788,7 +1798,7 @@ function ScheduleManager() {
                                 <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
                                     {/* Presets Grid - Clean Style */}
                                     <div className="space-y-3">
-                                        <label className="text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider block">Turnos Comunes</label>
+                                        <label className="text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider block">{t('schedule.common_shifts')}</label>
                                         <div className="grid grid-cols-2 gap-2">
                                             <button
                                                 onClick={() => setEditingShift({ ...editingShift, start: '', end: '', presetId: 'off' })}
@@ -1798,7 +1808,7 @@ function ScheduleManager() {
                                                         : 'bg-white dark:bg-slate-800 border-indigo-100 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30'}`}
                                             >
                                                 <MoonStar size={14} />
-                                                <span>DESCANSO</span>
+                                                <span>{t('schedule.off')}</span>
                                             </button>
 
                                             {PRESETS.map(p => {
@@ -1821,10 +1831,10 @@ function ScheduleManager() {
 
                                     {/* Time Inputs - Digital Clock Style */}
                                     <div className="space-y-3">
-                                        <label className="text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider block">Horario Manual</label>
+                                        <label className="text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider block">{t('schedule.manual_schedule')}</label>
                                         <div className="flex items-center gap-4 bg-indigo-50/50 dark:bg-indigo-900/10 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                                             <div className="flex-1">
-                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Entrada</label>
+                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-1 block">{t('schedule.start_time')}</label>
                                                 <input
                                                     type="time"
                                                     value={editingShift.start}
@@ -1836,7 +1846,7 @@ function ScheduleManager() {
                                                 <ArrowRight size={20} />
                                             </div>
                                             <div className="flex-1 text-right">
-                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-1 block">Salida</label>
+                                                <label className="text-[10px] font-bold text-indigo-400 uppercase mb-1 block">{t('schedule.end_time')}</label>
                                                 <input
                                                     type="time"
                                                     value={editingShift.end}
@@ -1854,7 +1864,7 @@ function ScheduleManager() {
                                         onClick={() => setEditingShift(null)}
                                         className="px-5 py-3 rounded-xl text-sm font-bold text-indigo-400 dark:text-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-100 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
                                     >
-                                        Cancelar
+                                        {t('sales.cancel')}
                                     </button>
                                     <motion.button
                                         whileHover={{ scale: 1.02 }}
@@ -1863,7 +1873,7 @@ function ScheduleManager() {
                                         className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 flex items-center gap-2 transition-all"
                                     >
                                         <Save size={16} />
-                                        <span>Guardar</span>
+                                        <span>{t('schedule.save')}</span>
                                     </motion.button>
                                 </div>
                             </motion.div>
@@ -1887,16 +1897,16 @@ function ScheduleManager() {
                         >
                             <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 p-6 text-white text-center">
                                 <Sparkles size={48} className="mx-auto mb-4 opacity-80" />
-                                <h3 className="text-xl font-black">¿Copiar Semana Anterior?</h3>
+                                <h3 className="text-xl font-black">{t('schedule.copy_week_question')}</h3>
                                 <p className="text-indigo-100 text-sm mt-2 leading-relaxed">
-                                    Detectamos tiendas sin horarios. ¿Deseas replicar los turnos anteriores?
+                                    {t('schedule.replication_text')}
                                 </p>
                             </div>
                             <div className="p-6">
                                 <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-4 mb-6 border border-indigo-100 dark:border-indigo-900/30">
                                     <div className="flex items-center gap-2 text-indigo-900 dark:text-indigo-300 text-sm font-bold mb-2">
                                         <Store size={16} className="text-indigo-500 dark:text-indigo-400" />
-                                        <span>Tiendas a rellenar:</span>
+                                        <span>{t('schedule.stores_to_fill')}</span>
                                     </div>
                                     <ul className="list-disc pl-8 mb-3 space-y-1">
                                         {replicationCandidates.map(c => (
@@ -1908,11 +1918,11 @@ function ScheduleManager() {
                                     <div className="h-px bg-indigo-200 dark:bg-indigo-800 my-2"></div>
                                     <div className="flex items-center gap-2 text-indigo-900 dark:text-indigo-300 text-xs font-medium">
                                         <Calendar size={14} className="text-indigo-400" />
-                                        <span>Origen: {formatDateNice(addDays(weekStart, -7))} al {formatDateNice(addDays(weekStart, -1))}</span>
+                                        <span>{t('schedule.source')} {format(addDays(weekStart, -7), 'MMM d', { locale: localeObj })} al {format(addDays(weekStart, -1), 'MMM d', { locale: localeObj })}</span>
                                     </div>
                                     <div className="flex items-center gap-2 text-indigo-900 dark:text-indigo-300 text-xs font-medium mt-1">
                                         <ArrowRight size={14} className="text-emerald-500" />
-                                        <span>Destino: {formatDateNice(weekStart)} al {formatDateNice(addDays(weekStart, 6))} (Semana 1)</span>
+                                        <span>{t('schedule.destination')} {format(weekStart, 'MMM d', { locale: localeObj })} al {format(addDays(weekStart, 6), 'MMM d', { locale: localeObj })} (Semana 1)</span>
                                     </div>
                                 </div>
 
@@ -1921,14 +1931,14 @@ function ScheduleManager() {
                                         onClick={dismissReplication}
                                         className="flex-1 py-3 px-4 rounded-xl font-bold text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                                     >
-                                        No, gracias
+                                        {t('schedule.no_thanks')}
                                     </button>
                                     <button
                                         onClick={handleReplicateWeek}
                                         disabled={replicationLoading}
                                         className="flex-1 py-3 px-4 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
                                     >
-                                        {replicationLoading ? 'Copiando...' : 'Sí, Copiar'}
+                                        {replicationLoading ? t('schedule.copying') : t('schedule.yes_copy')}
                                     </button>
                                 </div>
                             </div>
