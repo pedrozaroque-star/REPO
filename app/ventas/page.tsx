@@ -31,6 +31,111 @@ function SalesPageContent() {
     const { user } = useAuth()
     const isAdmin = user?.role === 'admin'
 
+    // Helper to process raw rows into UI Data Structure
+    const processData = (rows: any[], groupByMode: string) => {
+        // Calculate Summary Totals
+        const summary = rows.reduce((acc: any, row: any) => ({
+            netSales: acc.netSales + (row.netSales || 0),
+            grossSales: acc.grossSales + (row.grossSales || 0),
+            discounts: acc.discounts + (row.discounts || 0),
+            tips: acc.tips + (row.tips || 0),
+            taxes: acc.taxes + (row.taxes || 0),
+            orderCount: acc.orderCount + (row.orderCount || 0),
+            guestCount: acc.guestCount + (row.guestCount || 0),
+            totalHours: acc.totalHours + (row.totalHours || 0),
+            laborCost: acc.laborCost + (row.laborCost || 0)
+        }), { netSales: 0, grossSales: 0, discounts: 0, tips: 0, taxes: 0, orderCount: 0, guestCount: 0, totalHours: 0, laborCost: 0 })
+
+        summary.laborPercentage = summary.netSales > 0 ? (summary.laborCost / summary.netSales) * 100 : 0
+
+        // Store Data
+        const storeMap = new Map()
+        rows.forEach((row: any) => {
+            const storeName = row.storeName || 'Tienda Desconocida'
+            if (!storeMap.has(storeName)) {
+                storeMap.set(storeName, {
+                    name: storeName,
+                    storeName: storeName,
+                    amount: 0,
+                    netSales: 0,
+                    orderCount: 0,
+                    guestCount: 0,
+                    laborCost: 0,
+                    laborPercentage: 0,
+                    totalHours: 0
+                })
+            }
+            const s = storeMap.get(storeName)
+            s.amount += (row.netSales || 0)
+            s.netSales += (row.netSales || 0)
+            s.orderCount += (row.orderCount || 0)
+            s.guestCount += (row.guestCount || 0)
+            s.laborCost += (row.laborCost || 0)
+            s.totalHours += (row.totalHours || 0)
+        })
+
+        const storeData = Array.from(storeMap.values())
+            .map((s: any) => ({
+                ...s,
+                laborPercentage: s.netSales > 0 ? (s.laborCost / s.netSales) * 100 : 0
+            }))
+            .sort((a: any, b: any) => b.amount - a.amount)
+
+        // Trend Data
+        const trendMap = new Map()
+
+        // Helper date formatter needed here or assume passed via closure? 
+        // We need 'start' date to generate Hourly Ticks.
+        // Let's assume start = startDate state because this function is inside component.
+        const sDate = new Date(startDate + 'T00:00:00')
+        // Fix timezone offset issue manually if needed, or just depend on startDate string format YYYY-MM-DD
+        const formatDateLocal = (d: Date) => d.toISOString().split('T')[0]
+
+        if (groupByMode === 'hour') {
+            // 1. Inicializar todas las horas del rango (7am -> 29 (5am+1))
+            const baseDateStr = startDate // Using state directly
+            const nextDate = new Date(startDate)
+            nextDate.setDate(nextDate.getDate() + 1)
+            const nextDateStr = nextDate.toISOString().split('T')[0]
+
+            // Horas de interés: 7, 8... 23, 0, 1... 5
+            const hoursOfInterest = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
+
+            hoursOfInterest.forEach(h => {
+                const isNextDay = h < 6
+                const dateP = isNextDay ? nextDateStr : baseDateStr
+                const timeKey = `${dateP} ${h.toString().padStart(2, '0')}:00`
+                trendMap.set(timeKey, 0)
+            })
+
+            rows.forEach((row: any) => {
+                if (row.hourlySales) {
+                    Object.entries(row.hourlySales).forEach(([h, amount]) => {
+                        const hourInt = parseInt(h)
+                        const isNext = hourInt < 6
+                        const dStr = isNext ? nextDateStr : baseDateStr
+                        const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
+                        if (trendMap.has(key)) {
+                            trendMap.set(key, trendMap.get(key) + (Number(amount) || 0))
+                        }
+                    })
+                }
+            })
+        } else {
+            rows.forEach((row: any) => {
+                const key = row.periodStart
+                if (!trendMap.has(key)) trendMap.set(key, 0)
+                trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
+            })
+        }
+
+        const trendData = Array.from(trendMap.entries())
+            .map(([time, amount]) => ({ time, amount }))
+            .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+
+        return { summary, trendData, storeData, rows }
+    }
+
     const refreshData = async () => {
         setLoading(true)
         setLoadingMessage('Conectando con Toast API...')
@@ -122,116 +227,8 @@ function SalesPageContent() {
             }
 
             if (json.data) {
-                const rows = json.data
-
-                // Calculate Summary Totals
-                const summary = rows.reduce((acc: any, row: any) => ({
-                    netSales: acc.netSales + (row.netSales || 0),
-                    grossSales: acc.grossSales + (row.grossSales || 0),
-                    discounts: acc.discounts + (row.discounts || 0),
-                    tips: acc.tips + (row.tips || 0),
-                    taxes: acc.taxes + (row.taxes || 0),
-                    orderCount: acc.orderCount + (row.orderCount || 0),
-                    guestCount: acc.guestCount + (row.guestCount || 0),
-                    totalHours: acc.totalHours + (row.totalHours || 0),
-                    laborCost: acc.laborCost + (row.laborCost || 0)
-                }), { netSales: 0, grossSales: 0, discounts: 0, tips: 0, taxes: 0, orderCount: 0, guestCount: 0, totalHours: 0, laborCost: 0 })
-
-                summary.laborPercentage = summary.netSales > 0 ? (summary.laborCost / summary.netSales) * 100 : 0
-
-                // Store Data
-                const storeMap = new Map()
-                rows.forEach((row: any) => {
-                    const storeName = row.storeName || 'Tienda Desconocida'
-                    if (!storeMap.has(storeName)) {
-                        storeMap.set(storeName, {
-                            name: storeName,
-                            storeName: storeName,
-                            amount: 0,
-                            netSales: 0,
-                            orderCount: 0,
-                            guestCount: 0,
-                            laborCost: 0,
-                            laborPercentage: 0,
-                            totalHours: 0
-                        })
-                    }
-                    const s = storeMap.get(storeName)
-                    s.amount += (row.netSales || 0)
-                    s.netSales += (row.netSales || 0)
-                    s.orderCount += (row.orderCount || 0)
-                    s.guestCount += (row.guestCount || 0)
-                    s.laborCost += (row.laborCost || 0)
-                    s.totalHours += (row.totalHours || 0)
-                })
-
-                const storeData = Array.from(storeMap.values())
-                    .map((s: any) => ({
-                        ...s,
-                        laborPercentage: s.netSales > 0 ? (s.laborCost / s.netSales) * 100 : 0
-                    }))
-                    .sort((a: any, b: any) => b.amount - a.amount)
-
-                // Trend Data
-                const trendMap = new Map()
-
-                // Si es modo horario (Hoy/Ayer), queremos forzar el rango 7 AM -> 5 AM next day
-                if (groupBy === 'hour') {
-                    // 1. Inicializar todas las horas del rango (7am -> 29 (5am+1))
-                    const baseDateStr = formatDate(start) // YYYY-MM-DD del día seleccionado
-                    const nextDate = new Date(start)
-                    nextDate.setDate(nextDate.getDate() + 1)
-                    const nextDateStr = formatDate(nextDate)
-
-                    // Horas de interés: 7, 8... 23, 0, 1... 5
-                    const hoursOfInterest = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
-
-                    hoursOfInterest.forEach(h => {
-                        // Determinar fecha correcta para esa hora
-                        // Si es 0-5, pertenece al "día siguiente" en calendario pero al mismo día de negocio
-                        // PERO para el gráfico cronológico necesitamos la fecha calendario correcta
-                        const isNextDay = h < 6 // Asumimos corte a las 6am
-                        const dateP = isNextDay ? nextDateStr : baseDateStr
-                        const timeKey = `${dateP} ${h.toString().padStart(2, '0')}:00`
-                        trendMap.set(timeKey, 0)
-                    })
-
-                    // 2. Llenar con datos reales
-                    rows.forEach((row: any) => {
-                        if (row.hourlySales) {
-                            Object.entries(row.hourlySales).forEach(([h, amount]) => {
-                                const hourInt = parseInt(h)
-                                // Calcular la fecha real de esta venta basada en la hora
-                                // Si la venta es a las 1 AM, queremos saber si es del día base o siguiente
-                                // Toast suele reportar hourlySales dentro del objeto del día de negocio.
-                                // Si el día de negocio es "2026-01-25", una venta a la 1 AM técnicamente fue el 26.
-                                // Asumimos lógica simple: si hora < 6 es next day, else base day.
-                                const isNext = hourInt < 6
-                                const dStr = isNext ? nextDateStr : baseDateStr
-                                const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-
-                                // Solo sumar si está en nuestro mapa (rango de interés)
-                                if (trendMap.has(key)) {
-                                    trendMap.set(key, trendMap.get(key) + (Number(amount) || 0))
-                                }
-                            })
-                        }
-                    })
-
-                } else {
-                    // Modo normal diario/semanal
-                    rows.forEach((row: any) => {
-                        const key = row.periodStart
-                        if (!trendMap.has(key)) trendMap.set(key, 0)
-                        trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
-                    })
-                }
-
-                const trendData = Array.from(trendMap.entries())
-                    .map(([time, amount]) => ({ time, amount }))
-                    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-
-                setData({ summary, trendData, storeData, rows })
+                const processed = processData(json.data, groupBy)
+                setData(processed)
             } else {
                 setData(null)
             }
@@ -276,7 +273,9 @@ function SalesPageContent() {
                             console.log("🛠️ [AUTO-HEAL] Discrepancias corregidas. Actualizando UI silenciosamente...")
                             setIntegrityStatus('fixed')
                             // SILENT UPDATE: Update data directly without full reload/spinner
-                            setData(json.freshData)
+                            // FIX: Process data to generate storeData/trendData needed by UI
+                            const freshProcessed = processData(json.freshData.data, 'hour') // integrity check forces hour/day view
+                            setData(freshProcessed)
                             setLastUpdated(new Date())
                         } else {
                             setIntegrityStatus('ok')
