@@ -225,6 +225,9 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     return { sectionScores, overall }
   }
 
+  /* UPLOAD PROGRESS STATE */
+  const [uploadProgress, setUploadProgress] = useState(0)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (loading) return // BLOCK DOUBLE SUBMISSIONS
@@ -251,143 +254,202 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     }
 
     setLoading(true)
+    setUploadProgress(10) // Start Progress
+
+    // Simulate progress while payload builds
+    const progressInterval = setInterval(() => {
+      setUploadProgress(prev => {
+        if (prev >= 90) return prev
+        // Fast at first, then slow
+        const increment = prev < 50 ? 10 : 2
+        return prev + increment
+      })
+    }, 500)
+
+    // WRAPPER: Add Race Condition Timeout
+    const submitWithTimeout = async () => {
+      return Promise.race([
+        (async () => {
+          const supabase = await getSupabaseClient()
+          const { sectionScores, overall } = calculateScores()
+
+          // FIX: Use Set to prevent duplicate photos
+          const allPhotosSet = new Set([
+            ...(initialData?.photos || []),
+            ...Object.values(questionPhotos).flat()
+          ])
+          const allPhotos = Array.from(allPhotosSet).filter(url => url && typeof url === 'string')
+
+          // Map answers back to rich structure for compatibility
+          const richAnswers: any = {}
+          sections.forEach((section: any) => {
+            const itemsObj: any = {}
+            section.questions.forEach((q: any, idx: number) => {
+              itemsObj[`i${idx}`] = {
+                label: q.text,
+                score: answers[q.id],
+                comment: questionComments[q.id] || ''
+              }
+            })
+            richAnswers[section.title] = { score: sectionScores[section.title] || 0, items: itemsObj }
+          })
+
+          richAnswers['__question_photos'] = questionPhotos
+
+          // Anchor text photos
+          const textPhotos: any = {}
+          allQuestions.forEach((q: any) => {
+            if (questionPhotos[q.id] && questionPhotos[q.id].length > 0) {
+              textPhotos[q.text.toLowerCase().trim()] = questionPhotos[q.id]
+            }
+          })
+          richAnswers['__text_photos'] = textPhotos
+
+          const now = new Date()
+          const endTime = now.toTimeString().slice(0, 5)
+
+          let duration = '0 min'
+          if (startTime) {
+            const [startH, startM] = startTime.split(':').map(Number)
+            const [endH, endM] = endTime.split(':').map(Number)
+            const startMinutes = startH * 60 + startM
+            const endMinutes = endH * 60 + endM
+            let diff = endMinutes - startMinutes
+            if (diff < 0) diff += 24 * 60
+            const hours = Math.floor(diff / 60)
+            const minutes = diff % 60
+            duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes} min`
+          }
+
+          const payload = {
+            store_id: parseInt(formData.store_id) || 0, // Safety fallback
+            inspector_id: user.id,
+            supervisor_name: user.name || user.email,
+            inspector_photo_url: inspectorPhoto,
+            inspection_date: formData.inspection_date,
+            inspection_time: formData.inspection_time,
+            start_time: startTime,
+            end_time: endTime,
+            duration: duration,
+            shift: formData.shift,
+            overall_score: isNaN(overall) ? 0 : overall, // Safety check
+            answers: richAnswers,
+            observaciones: formData.observaciones || '',
+            photos: allPhotos
+          }
+
+          // Map section titles
+          const sectionMapping: { [key: string]: string } = {
+            'Servicio al Cliente': 'service_score',
+            'Procedimiento de Carnes': 'meat_score',
+            'Preparación de Alimentos': 'food_score',
+            'Seguimiento a Tortillas': 'tortilla_score',
+            'Limpieza General y Baños': 'cleaning_score',
+            'Checklists y Bitácoras': 'log_score',
+            'Aseo Personal': 'grooming_score'
+          }
+
+          Object.entries(sectionScores).forEach(([title, score]) => {
+            const colName = sectionMapping[title]
+            if (colName) (payload as any)[colName] = score
+          })
+
+          console.log("🚀 [INSPECTION] Submitting payload...", payload)
+
+          const { data: savedData, error } = initialData?.id
+            ? await supabase.from('supervisor_inspections').update(payload).eq('id', initialData.id).select()
+            : await supabase.from('supervisor_inspections').insert([payload]).select()
+
+          if (error) throw error
+
+          // Notifications (Fire & Forget, handled outside critical path logic usually, but kept here for logical grouping)
+          // We wrap in non-awaiting try/catch so it doesn't block success
+          try {
+            const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin')
+            let recipients = admins ? admins.map(a => a.id) : []
+
+            if (overall < 87) {
+              const { data: managers } = await supabase.from('users').select('id').eq('store_id', payload.store_id).in('role', ['manager', 'gerente'])
+              if (managers) recipients = [...new Set([...recipients, ...managers.map(m => m.id)])]
+            }
+
+            if (recipients.length > 0) {
+              const storeName = stores.find(s => s.id.toString() === formData.store_id)?.name || 'Tienda'
+              const notifs = recipients.map(uid => ({
+                user_id: uid,
+                title: overall < 87 ? `⚠️ Alerta: ${storeName}` : `Nueva Inspección: ${storeName}`,
+                message: `El supervisor ${payload.supervisor_name} completó una auditoría con ${overall}%`,
+                type: overall < 87 ? 'alert' : 'info',
+                link: '/inspecciones',
+                reference_id: savedData?.[0]?.id,
+                reference_type: 'supervisor_inspection'
+              }))
+              supabase.from('notifications').insert(notifs).then(() => console.log('Notifs sent'))
+            }
+          } catch (notifErr) { console.warn("Notif error ignored", notifErr) }
+
+          return savedData
+        })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado (30s). Verifica tu conexión.')), 30000))
+      ])
+    }
 
     try {
-      const supabase = await getSupabaseClient()
-      const { sectionScores, overall } = calculateScores()
+      setUploadProgress(50) // Force bump before request
+      await submitWithTimeout()
 
-      // FIX: Use Set to prevent duplicate photos
-      const allPhotosSet = new Set([
-        ...(initialData?.photos || []),
-        ...Object.values(questionPhotos).flat()
-      ])
-      const allPhotos = Array.from(allPhotosSet).filter(url => url && typeof url === 'string')
+      clearInterval(progressInterval)
+      setUploadProgress(100)
 
-      // Map answers back to rich structure for compatibility
-      const richAnswers: any = {}
-      sections.forEach((section: any) => {
-        const itemsObj: any = {}
-        section.questions.forEach((q: any, idx: number) => {
-          itemsObj[`i${idx}`] = {
-            label: q.text,
-            score: answers[q.id],
-            comment: questionComments[q.id] || ''
-          }
-        })
-        richAnswers[section.title] = { score: sectionScores[section.title] || 0, items: itemsObj }
-      })
-
-      // Add rich photo mapping
-      richAnswers['__question_photos'] = questionPhotos
-
-      // ALSO: Add text-based photo mapping as a permanent anchor (immune to ID changes)
-      const textPhotos: any = {}
-      allQuestions.forEach((q: any) => {
-        if (questionPhotos[q.id] && questionPhotos[q.id].length > 0) {
-          textPhotos[q.text.toLowerCase().trim()] = questionPhotos[q.id]
-        }
-      })
-      richAnswers['__text_photos'] = textPhotos
-
-      // Calculate duration
-      const now = new Date()
-      const endTime = now.toTimeString().slice(0, 5)
-
-      let duration = '0 min'
-      if (startTime) {
-        const [startH, startM] = startTime.split(':').map(Number)
-        const [endH, endM] = endTime.split(':').map(Number)
-        const startMinutes = startH * 60 + startM
-        const endMinutes = endH * 60 + endM
-        let diff = endMinutes - startMinutes
-        if (diff < 0) diff += 24 * 60 // Handle midnight crossing
-
-        const hours = Math.floor(diff / 60)
-        const minutes = diff % 60
-        duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes} min`
-      }
-
-      const payload = {
-        store_id: parseInt(formData.store_id),
-        inspector_id: user.id,
-        supervisor_name: user.name || user.email,
-        inspector_photo_url: inspectorPhoto, // New Evidence Field
-        inspection_date: formData.inspection_date,
-        inspection_time: formData.inspection_time, // Kept for legacy compatibility if needed
-        start_time: startTime, // New Field
-        end_time: endTime, // New Field
-        duration: duration, // New Field
-        shift: formData.shift,
-        overall_score: overall,
-        answers: richAnswers,
-        observaciones: formData.observaciones,
-        photos: allPhotos
-      }
-
-      // Map section titles to database columns
-      const sectionMapping: { [key: string]: string } = {
-        'Servicio al Cliente': 'service_score',
-        'Procedimiento de Carnes': 'meat_score',
-        'Preparación de Alimentos': 'food_score',
-        'Seguimiento a Tortillas': 'tortilla_score',
-        'Limpieza General y Baños': 'cleaning_score',
-        'Checklists y Bitácoras': 'log_score',
-        'Aseo Personal': 'grooming_score'
-      }
-
-      // Add dynamic scores
-      Object.entries(sectionScores).forEach(([title, score]) => {
-        const colName = sectionMapping[title]
-        if (colName) {
-          (payload as any)[colName] = score
-        }
-      })
-
-      const { data: savedData, error } = initialData?.id
-        ? await supabase.from('supervisor_inspections').update(payload).eq('id', initialData.id).select()
-        : await supabase.from('supervisor_inspections').insert([payload]).select()
-
-      if (error) throw error
-
-      // Notifications
-      try {
-        const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin')
-        let recipients = admins ? admins.map(a => a.id) : []
-
-        if (overall < 87) {
-          const { data: managers } = await supabase.from('users').select('id').eq('store_id', payload.store_id).in('role', ['manager', 'gerente'])
-          if (managers) recipients = [...new Set([...recipients, ...managers.map(m => m.id)])]
-        }
-
-        if (recipients.length > 0) {
-          const storeName = stores.find(s => s.id.toString() === formData.store_id)?.name || 'Tienda'
-          const notifs = recipients.map(uid => ({
-            user_id: uid,
-            title: overall < 87 ? `⚠️ Alerta: ${storeName}` : `Nueva Inspección: ${storeName}`,
-            message: `El supervisor ${payload.supervisor_name} completó una auditoría con ${overall}%`,
-            type: overall < 87 ? 'alert' : 'info',
-            link: '/inspecciones',
-            reference_id: savedData?.[0]?.id,
-            reference_type: 'supervisor_inspection'
-          }))
-          // Fire and forget notifications to speed up UI
-          supabase.from('notifications').insert(notifs).then(() => console.log('Notifs sent'))
-        }
-      } catch (e) {
-        console.error('Notification error:', e)
-      }
-
-      // NO BLOCKING ALETS. JUST GO.
       console.log('✅ Inspección Guardada. Redirigiendo...')
-
-      // Force Hard Reload to clear memory and state
-      window.location.href = '/inspecciones'
+      setTimeout(() => {
+        window.location.href = '/inspecciones'
+      }, 1000)
 
     } catch (err: any) {
+      clearInterval(progressInterval)
       console.error(err)
-      alert('Error: ' + err.message)
+      alert('Error guardando inspección: ' + err.message + '\n\nIntenta de nuevo.')
       setLoading(false)
+      setUploadProgress(0)
     }
+  }
+
+
+  // RENDER UPLOAD OVERLAY (Blocking)
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-white/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in duration-300">
+        <div className="w-full max-w-sm space-y-8 text-center">
+
+          {/* Icon Animation */}
+          <div className="relative w-24 h-24 mx-auto">
+            <div className="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-xl font-black text-indigo-600">{Math.round(uploadProgress)}%</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight">Guardando Inspección...</h2>
+            <p className="text-gray-500 font-medium">Sincronizando fotos y evidencias con la nube.</p>
+          </div>
+
+          {/* Progress Bar Container */}
+          <div className="h-4 bg-gray-100 rounded-full overflow-hidden border border-gray-200 w-full relative">
+            <motion.div
+              className="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-500 to-purple-600"
+              initial={{ width: 0 }}
+              animate={{ width: `${uploadProgress}%` }}
+              transition={{ type: "spring", stiffness: 50 }}
+            />
+          </div>
+
+          <p className="text-xs text-gray-400 font-mono">ID Transacción: {user?.id?.slice(0, 8) || '...'}</p>
+        </div>
+      </div>
+    )
   }
 
   if (checklistLoading && !initialData) return <div className="min-h-screen grid place-items-center bg-transparent"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>

@@ -738,23 +738,35 @@ export default function ReportesPage() {
 
         setLoading(true)
         const supabase = await getSupabaseClient()
-        // 2. Resolve Store GUID
-        const storeObj = stores.find(s => String(s.id) === String(selectedStore))
-        if (!storeObj?.external_id) {
-            setLoading(false)
-            return
+        // 2. Resolve Store Query
+        let salesData: any[] = []
+
+        if (selectedStore === 'all') {
+            const { data, error } = await supabase
+                .from('sales_daily_cache')
+                .select('*')
+                .gte('business_date', startStr)
+                .lte('business_date', endStr)
+
+            if (!error && data) salesData = data
+        } else {
+            const storeObj = stores.find(s => String(s.id) === String(selectedStore))
+            if (!storeObj?.external_id) {
+                setLoading(false)
+                return
+            }
+            const queryId = storeObj.external_id
+
+            // Fetch Sales Cache for Month
+            const { data, error } = await supabase
+                .from('sales_daily_cache')
+                .select('*')
+                .eq('store_id', queryId)
+                .gte('business_date', startStr)
+                .lte('business_date', endStr)
+
+            if (!error && data) salesData = data
         }
-        const queryId = storeObj.external_id
-
-        // Fetch Sales Cache for Month
-        const { data: sales, error } = await supabase
-            .from('sales_daily_cache')
-            .select('*')
-            .eq('store_id', queryId)
-            .gte('business_date', startStr)
-            .lte('business_date', endStr)
-
-        if (error) console.error("Monthly Fetch Error", error)
 
         const newMonthly: any = {}
         const daysInMon = endOfMonth.getDate()
@@ -763,7 +775,37 @@ export default function ReportesPage() {
             const dateObj = new Date(y, m - 1, d)
             const dateKey = dateObj.toISOString().split('T')[0]
 
-            const sysData = sales?.find((s: any) => s.business_date === dateKey)
+            // Find rows for this date
+            const dayRows = salesData.filter((s: any) => s.business_date === dateKey)
+
+            // AGGREGATE IF MULTIPLE ROWS (ALL STORES)
+            let sysData = {
+                net_sales: 0,
+                order_count: 0,
+                act_avg_order: 0,
+                open_sales: 0,
+                close_sales: 0,
+                uber_sales: 0,
+                doordash_sales: 0,
+                grubhub_sales: 0,
+                ebt_count: 0
+            }
+
+            if (dayRows.length > 0) {
+                dayRows.forEach(r => {
+                    sysData.net_sales += (r.net_sales || 0)
+                    sysData.order_count += (r.order_count || 0)
+                    sysData.open_sales += (r.open_sales || 0)
+                    sysData.close_sales += (r.close_sales || 0)
+                    sysData.uber_sales += (r.uber_sales || 0)
+                    sysData.doordash_sales += (r.doordash_sales || 0)
+                    sysData.grubhub_sales += (r.grubhub_sales || 0)
+                    sysData.ebt_count += (r.ebt_count || 0)
+                })
+                // Recalc Avg Order globally
+                sysData.act_avg_order = sysData.order_count > 0 ? (sysData.net_sales / sysData.order_count) : 0
+            }
+
 
             // Default Structure
             newMonthly[dateKey] = {
@@ -781,7 +823,7 @@ export default function ReportesPage() {
                 week_sales: '',
             }
 
-            if (sysData) {
+            if (dayRows.length > 0) {
                 // Populate from Cache if available
                 const formatCurrency = (val: number) => val ? '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
 
@@ -789,7 +831,7 @@ export default function ReportesPage() {
                     ...newMonthly[dateKey],
                     actual_sales: formatCurrency(sysData.net_sales),
                     daily_cars: sysData.order_count || '',
-                    actual_avg_order: sysData.act_avg_order ? formatCurrency(sysData.act_avg_order) : (sysData.order_count > 0 ? formatCurrency(sysData.net_sales / sysData.order_count) : ''),
+                    actual_avg_order: formatCurrency(sysData.act_avg_order),
 
                     // New Fields
                     open_sales: formatCurrency(sysData.open_sales),
