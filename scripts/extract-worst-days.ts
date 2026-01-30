@@ -1,7 +1,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import * as cheerio from 'cheerio'; // Hacky but standard text processing works too if cheerio not avail
+
 
 const reportPath = path.resolve(process.cwd(), 'public', 'audit-report-6m.html');
 
