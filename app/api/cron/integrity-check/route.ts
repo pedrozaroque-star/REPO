@@ -113,10 +113,11 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        console.log(`✅ [CRON INTEGRITY] Completed. Healed ${fixedCount} records.`)
+        console.log(`✅ [CRON INTEGRITY] Completed. Healed ${fixedCount} records. / Completado. ${fixedCount} registros corregidos.`)
 
         return NextResponse.json({
             success: true,
+            message: `Scanned 7 days. Healed ${fixedCount} records. / Escaneados 7 dias. Corregidos ${fixedCount} registros.`,
             scannedWindow: `${startStr} to ${endStr}`,
             recordsScanned: toastData.rows.length,
             correctionsMade: fixedCount,
