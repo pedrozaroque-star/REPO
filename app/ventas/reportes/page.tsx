@@ -253,15 +253,18 @@ export default function ReportesPage() {
         const supabase = await getSupabaseClient()
 
         // 2. Resolve Store GUID from numeric ID
-        // CRITICAL FIX: Use the external_id from the 'stores' table as the Toast GUID
-        const storeObj = stores.find(s => String(s.id) === String(selectedStore))
-
-        if (!storeObj?.external_id) {
-            console.warn(`⚠️ [REPORT] Waiting for store external_id for '${storeObj?.name || 'Unknown'}'...`)
-            setLoading(false)
-            return
+        let queryId = ''
+        if (selectedStore === 'all') {
+            queryId = 'all'
+        } else {
+            const storeObj = stores.find(s => String(s.id) === String(selectedStore))
+            if (!storeObj?.external_id) {
+                console.warn(`⚠️ [REPORT] Waiting for store external_id for '${storeObj?.name || 'Unknown'}'...`)
+                setLoading(false)
+                return
+            }
+            queryId = storeObj.external_id
         }
-        const queryId = storeObj.external_id
 
         // Calculate Sunday date (End of Week)
         // ensure we start from MONDAY
@@ -301,8 +304,8 @@ export default function ReportesPage() {
         const history = apiData.history
         const lookbackHistory = apiData.lookback || []
         const rawAllShifts = apiData.shifts || []
-        // Filter strictly by store ID in frontend just in case API brought more
-        const shifts = rawAllShifts.filter((s: any) => s.store_id === queryId)
+        // With 'all', we don't filter by store_id
+        const shifts = selectedStore === 'all' ? rawAllShifts : rawAllShifts.filter((s: any) => s.store_id === queryId)
 
         const punchesRaw = apiData.punches
         const employees = apiData.employees
@@ -360,21 +363,7 @@ export default function ReportesPage() {
         console.log("📊 [REPORT] Calculated Shift Stats for", Object.keys(weekShiftStats).length, "shifts");
 
         // --- ROBUST PROJECTION MERGING ---
-        // 1. Flatten all found budgets into a single Map: Date -> Amount
-        let mergedDbProjections: Record<string, string> = {};
-        if (budgets && Array.isArray(budgets)) {
-            budgets.forEach((b: any) => {
-                if (b.sales_projections) {
-                    // Merge all keys from this budget week
-                    Object.keys(b.sales_projections).forEach(key => {
-                        mergedDbProjections[key] = b.sales_projections[key];
-                    });
-                }
-            });
-        }
-
         // 2. Determine Required Dates for this Report Week (Mon -> Sun)
-        // We use string manipulation from CORRECT START DATE (startStr is valid Monday)
         const requiredKeys: string[] = [];
         const [yStart, mStart, dStart] = startStr.split('-').map(Number); // Use startStr instead of weekDate!
 
@@ -386,28 +375,85 @@ export default function ReportesPage() {
             requiredKeys.push(`${year}-${month}-${day}`);
         }
 
-        // 3. check for Missing Coverage
-        const missingKeys = requiredKeys.filter(key => !mergedDbProjections[key]);
-        const needsBackfill = missingKeys.length > 0;
+        let finalProjections: Record<string, string> = {};
 
-        let finalProjections = { ...mergedDbProjections };
+        if (selectedStore === 'all') {
+            console.log("🧩 [REPORT] Calculating Aggregate Projections for ALL Stores...");
 
-        if (needsBackfill && calculateProjections) {
-            console.log(`⚠️ [REPORT] Missing Projections for: ${missingKeys.join(', ')}. Auto-Calculating full week...`)
-            const calculated = await calculateProjections() // This returns undefined if failed, or object if success
+            // Loop through ALL known stores to ensure we cover gaps
+            stores.forEach(store => {
+                const sId = store.external_id;
+                if (!sId) return;
 
-            if (calculated && Object.keys(calculated).length > 0) {
-                // 4. Merge Logic: DB Wins, Calculator Fills Gaps
-                // We iterate through calculated keys and only add if missing in DB (or if we trust calc more? No, DB is published budget)
-                // Actually, simpler: Spread Calc first, then overwrite with DB.
-                // This ensures any gap Day 8 is filled by calcs.
-                finalProjections = { ...calculated, ...mergedDbProjections };
-                console.log(`✅ [REPORT] Backfill successful. Final Keys count: ${Object.keys(finalProjections).length}`);
-            } else {
-                console.warn("❌ [REPORT] Auto-Calc returned no data.");
-            }
+                requiredKeys.forEach(dateKey => {
+                    let val = 0;
+                    let foundSrc = 'none';
+
+                    // A. Try DB Budget
+                    // budgets array contains rows with { sales_projections: { 'YYYY-MM-DD': '123' }, store_id: ... }
+                    const budgetRow = budgets.find((b: any) =>
+                        b.store_id === sId &&
+                        b.sales_projections &&
+                        b.sales_projections[dateKey]
+                    );
+
+                    if (budgetRow) {
+                        val = parseFloat(budgetRow.sales_projections[dateKey]);
+                        foundSrc = 'db';
+                    } else {
+                        // B. Fallback: Average of Lookback (Same Day of Week)
+                        // lookbackHistory contains { business_date, net_sales, store_id }
+                        const targetDow = new Date(dateKey + 'T12:00:00').getDay();
+                        const historyRows = lookbackHistory.filter((h: any) =>
+                            h.store_id === sId &&
+                            new Date(h.business_date + 'T12:00:00').getDay() === targetDow &&
+                            Number(h.net_sales) > 100 // Basic validity check
+                        );
+
+                        // Sort desc by date and take recent 4
+                        const recent = historyRows.sort((a: any, b: any) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime()).slice(0, 4);
+
+                        if (recent.length > 0) {
+                            const sum = recent.reduce((acc: number, r: any) => acc + (Number(r.net_sales) || 0), 0);
+                            val = sum / recent.length;
+                            foundSrc = `avg(${recent.length})`;
+                        }
+                    }
+
+                    // Accumulate
+                    if (val > 0) {
+                        const current = parseFloat(finalProjections[dateKey] || '0');
+                        finalProjections[dateKey] = String(current + val);
+                    }
+                });
+            });
+
         } else {
-            console.log("✅ [REPORT] Full coverage found in DB.");
+            // SINGLE STORE LOGIC (Existing)
+
+            // 1. Flatten found budgets
+            let mergedDbProjections: Record<string, string> = {};
+            if (budgets && Array.isArray(budgets)) {
+                budgets.forEach((b: any) => {
+                    if (b.sales_projections) {
+                        Object.keys(b.sales_projections).forEach(key => {
+                            mergedDbProjections[key] = b.sales_projections[key];
+                        });
+                    }
+                });
+            }
+
+            const missingKeys = requiredKeys.filter(key => !mergedDbProjections[key]);
+            const needsBackfill = missingKeys.length > 0;
+            finalProjections = { ...mergedDbProjections };
+
+            if (needsBackfill && calculateProjections) {
+                console.log(`⚠️ [REPORT] Missing Projections for: ${missingKeys.join(', ')}. Auto-Calculating full week...`)
+                const calculated = await calculateProjections()
+                if (calculated && Object.keys(calculated).length > 0) {
+                    finalProjections = { ...calculated, ...mergedDbProjections }; // DB overwrites Calc
+                }
+            }
         }
 
         const salesProjections = finalProjections
@@ -442,8 +488,19 @@ export default function ReportesPage() {
             const dateStr = current.toISOString().split('T')[0]
 
             // --- LABOR LOG CALCULATION (AM/PM SPLIT) ---
-            const dayHistory = history?.find((h: any) => h.business_date === dateStr)
-            const hourlySales = dayHistory?.hourly_data || {}
+            // AGGREGATION: Find ALL matching history records for this date
+            const dayHistories = history?.filter((h: any) => h.business_date === dateStr) || []
+
+            // Calc Hourly Sales Sum for AM/PM split logic
+            let hourlySalesSum: Record<string, number> = {}
+            dayHistories.forEach((h: any) => {
+                const hourly = h.hourly_data || {}
+                Object.keys(hourly).forEach(k => {
+                    hourlySalesSum[k] = (hourlySalesSum[k] || 0) + Number(hourly[k] || 0)
+                })
+            })
+
+            const hourlySales = hourlySalesSum
 
             // Morning Sales (6 AM to 4:59 PM -> indices 6-16)
             let morningSales = 0
@@ -596,11 +653,14 @@ export default function ReportesPage() {
             // D. Get Actual Overtime from Punches
             const actualOT = dayPunches.reduce((sum: number, p: any) => sum + (Number(p.overtime_hours) || 0), 0)
 
-            // C. Overlay System Data
-            const sysData = history?.find((h: any) =>
-                h.business_date === dateStr ||
-                (h.business_date && h.business_date.startsWith(dateStr))
-            )
+            // C. Overlay System Data (AGGREGATED)
+            // We already have dayHistories from Labor Log section
+            const sysData = dayHistories.length > 0 ? {
+                net_sales: dayHistories.reduce((a: number, b: any) => a + (b.net_sales || 0), 0),
+                labor_hours: dayHistories.reduce((a: number, b: any) => a + (b.labor_hours || 0), 0),
+                labor_cost: dayHistories.reduce((a: number, b: any) => a + (b.labor_cost || 0), 0),
+                order_count: dayHistories.reduce((a: number, b: any) => a + (b.order_count || 0), 0),
+            } : null
 
             // Formatter
             const formatCurrency = (val: number) => '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1179,10 +1239,14 @@ export default function ReportesPage() {
                             <select
                                 value={selectedStore}
                                 onChange={(e) => setSelectedStore(e.target.value)}
-                                className="px-3 py-2 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                className={`px-3 py-2 border rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${selectedStore === 'all'
+                                    ? 'bg-indigo-600 text-white border-indigo-500'
+                                    : 'bg-slate-100 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200'
+                                    }`}
                             >
-                                <option value="">Seleccionar Tienda</option>
-                                {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
+                                <option value="" className="text-slate-500 bg-white">Seleccionar Tienda</option>
+                                <option value="all" className="bg-indigo-600 text-white font-black uppercase tracking-wider">🌟 TODAS LAS TIENDAS</option>
+                                {stores.map(s => <option key={s.id} value={s.id} className="text-slate-900 bg-white">{formatStoreName(s.name)}</option>)}
                             </select>
 
 
@@ -1306,14 +1370,14 @@ export default function ReportesPage() {
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={saveMonthlyReport}
-                                    disabled={loading || !selectedStore || !weekDate}
+                                    disabled={loading || !selectedStore || !weekDate || selectedStore === 'all'}
                                     className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-700 transition-colors disabled:opacity-50"
                                 >
                                     <Save size={16} /> Save
                                 </button>
                                 <button
                                     onClick={handleMonthlyAutoFill}
-                                    disabled={loading || !selectedStore || !weekDate}
+                                    disabled={loading || !selectedStore || !weekDate || selectedStore === 'all'}
                                     className="flex items-center gap-2 px-4 py-2 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-xl text-xs font-bold hover:bg-orange-200 transition-colors disabled:opacity-50"
                                 >
                                     <Clock size={16} /> Sync Toast Month

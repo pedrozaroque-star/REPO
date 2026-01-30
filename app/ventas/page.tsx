@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Calendar, ChevronDown, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList } from 'lucide-react'
+import { Calendar, ChevronDown, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
@@ -26,6 +26,8 @@ function SalesPageContent() {
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
     const [loadingMessage, setLoadingMessage] = useState('')
     const [connError, setConnError] = useState<string | null>(null)
+    const [verifying, setVerifying] = useState(false)
+    const [integrityStatus, setIntegrityStatus] = useState<'idle' | 'verifying' | 'fixed' | 'ok'>('idle')
     const { user } = useAuth()
     const isAdmin = user?.role === 'admin'
 
@@ -246,8 +248,56 @@ function SalesPageContent() {
     useEffect(() => {
         if (period !== 'custom') {
             refreshData()
+            setIntegrityStatus('idle') // Reset status on new fetch
         }
     }, [period]) // Removed startDate/endDate from dep array to avoid double fetch on custom change
+
+    // INTEGRITY CHECK HOOK
+    useEffect(() => {
+        if (!data || loading || verifying) return
+
+        // Only run for Recent History (Today/Yesterday) to fix "Managers modifying punches late"
+        if (period === 'today' || period === 'yesterday') {
+            // Only run if we haven't verified yet this session OR if we just fixed it (to confirm ok)
+            if (integrityStatus === 'idle' || integrityStatus === 'fixed') {
+                const runVerify = async () => {
+                    setVerifying(true)
+                    setIntegrityStatus('verifying')
+                    try {
+                        // Use startDate because in 'yesterday' mode, startDate is set correctly to Y-M-D
+                        const res = await fetch('/api/integrity/verify-day', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ date: startDate, storeIds: 'all' })
+                        })
+                        const json = await res.json()
+
+                        if (json.status === 'corrected') {
+                            console.log("🛠️ [AUTO-HEAL] Discrepancias corregidas. Recargando datos...")
+                            setIntegrityStatus('fixed')
+                            // Trigger reload to show corrected data
+                            // We don't want to loop forever, so next time status will be 'fixed', 
+                            // allow ONE re-verification to confirm 'ok' or stop?
+                            // Logic: fixed -> refreshData -> data changes -> effect runs -> status is 'fixed' -> runVerify -> should return 'ok' -> status 'ok'. 
+                            // Loop closes.
+                            refreshData()
+                        } else {
+                            setIntegrityStatus('ok')
+                        }
+                    } catch (e) {
+                        console.warn("Integrity check skipped", e)
+                        setIntegrityStatus('idle')
+                    } finally {
+                        setVerifying(false)
+                    }
+                }
+
+                // Small delay to allow render
+                const timer = setTimeout(runVerify, 2000)
+                return () => clearTimeout(timer)
+            }
+        }
+    }, [data, loading, period, startDate])
 
     if (!data) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -337,7 +387,17 @@ function SalesPageContent() {
                                 </span>
                                 <span className="text-xs text-slate-600 dark:text-slate-500 flex items-center gap-1 font-medium italic opacity-80">
                                     <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
-                                    Updated: {lastUpdated.toLocaleTimeString()}
+                                    {verifying ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 animate-pulse flex items-center gap-1">
+                                            <ShieldCheck size={10} /> Validando Integridad...
+                                        </span>
+                                    ) : integrityStatus === 'fixed' ? (
+                                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                            <CheckCircle size={10} /> Datos Corregidos Auto.
+                                        </span>
+                                    ) : (
+                                        <span>Actualizado: {lastUpdated.toLocaleTimeString()}</span>
+                                    )}
                                 </span>
                             </div>
                             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">

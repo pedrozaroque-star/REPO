@@ -35,19 +35,25 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Missing params' }, { status: 400 })
     }
 
+    const isAll = storeId === 'all'
+
     try {
         // 1. Initial Fetch (Shifts first to identify necessary employees)
+
+        // Helper to apply store filter conditionally
+        const withStore = (query: any) => isAll ? query : query.eq('store_id', storeId)
+
         const [historyRes, shiftRes, punchRes, budgetRes, lookbackRes, jobsRes] = await Promise.all([
             // History
-            supabaseAdmin.from('sales_daily_cache').select('*').eq('store_id', storeId).gte('business_date', startStr).lte('business_date', endStr),
+            withStore(supabaseAdmin.from('sales_daily_cache').select('*')).gte('business_date', startStr).lte('business_date', endStr),
             // Shifts (Raw) - Restore Filter & Boost Limit
-            supabaseAdmin.from('shifts').select('*').eq('store_id', storeId).gte('shift_date', startStr).lte('shift_date', endStr).limit(5000),
+            withStore(supabaseAdmin.from('shifts').select('*')).gte('shift_date', startStr).lte('shift_date', endStr).limit(10000),
             // Punches
-            supabaseAdmin.from('punches').select('*').eq('store_id', storeId).gte('business_date', startStr).lte('business_date', endStr),
+            withStore(supabaseAdmin.from('punches').select('*')).gte('business_date', startStr).lte('business_date', endStr),
             // Budget
-            supabaseAdmin.from('weekly_budgets').select('sales_projections, week_start').eq('store_id', storeId).gte('week_start', lookbackStr || startStr).lte('week_start', new Date(new Date(endStr).setDate(new Date(endStr).getDate() + 14)).toISOString().split('T')[0]),
+            withStore(supabaseAdmin.from('weekly_budgets').select('sales_projections, week_start, store_id')).gte('week_start', lookbackStr || startStr).lte('week_start', new Date(new Date(endStr).setDate(new Date(endStr).getDate() + 14)).toISOString().split('T')[0]),
             // Lookback
-            supabaseAdmin.from('sales_daily_cache').select('business_date, net_sales, order_count').eq('store_id', storeId).gte('business_date', lookbackStr || startStr).lte('business_date', startStr),
+            withStore(supabaseAdmin.from('sales_daily_cache').select('business_date, net_sales, order_count, store_id')).gte('business_date', lookbackStr || startStr).lte('business_date', startStr),
             // Jobs
             supabaseAdmin.from('toast_jobs').select('*')
         ])

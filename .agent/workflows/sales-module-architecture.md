@@ -68,6 +68,23 @@ Tabla en Supabase encargada de la persistencia:
 *   **API Fallback:** Si la llamada a Toast API falla (timeout/500) y tenemos datos "viejos" en caché para ese día, se sirven los datos viejos en lugar de un error.
 *   **Silent Fail:** Errores en la capa de Labor (ej. timeout en `/timeEntries`) no bloquean la respuesta de Ventas. Se asume Labor=0 y se devuelve la venta.
 
+
+## 5. Capa de Integridad y Auto-Curación (Self-Healing)
+
+Implementado en Enero 2026 para garantizar que la caché coincida con la realidad de Toast, incluso si hay correcciones tardías (ej. Managers editando turnos días después).
+
+### Nivel 1: Verificación Reactiva (Frontend)
+*   Cuando el usuario visita el Dashboard viendo **"Today"** o **"Yesterday"**.
+*   El frontend dispara silenciosamente `POST /api/integrity/verify-day` después de 2 segundos.
+*   Compara los datos mostrados vs Toast Live. Si detecta discrepancia > $5.00 en Ventas o > 1.00 en Labor Cost, actualiza la DB y refresca la UI automáticamente.
+
+### Nivel 2: Sanador Nocturno (Cron Job)
+*   **Tarea:** `GET /api/cron/integrity-check`
+*   **Horario:** 13:00 UTC (5:00 AM PST)
+*   **Alcance:** Escanea los **últimos 7 días** completos.
+*   **Lógica:** Fuerza `skipCache: true` para obtener la verdad absoluta de Toast y sobresscribe cualquier dato en Supabase que difiera de la realidad.
+*   Esto corrige refunds tardíos y ajustes de nómina semanales automáticamente.
+
 ---
 **Documento Generado:** Enero 2026
 **Mantenimiento:** Actualizar si cambian las reglas de OT o la estructura de caché.
