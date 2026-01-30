@@ -269,13 +269,13 @@ export function FloatingToolbar({
                                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400">Limpiar Todo</h4>
                                 </div>
                                 <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    Elimina permanentemente todos los turnos en <span className="text-red-300 font-bold">Borrador</span> de esta semana.
+                                    Elimina permanentemente <span className="text-red-300 font-bold">TODOS</span> los turnos de la semana (incluyendo publicados).
                                 </p>
                             </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
             </div>
-        </div>
+        </div >
     )
 }

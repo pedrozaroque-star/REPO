@@ -239,7 +239,7 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
               onClick={() => setIsOpen(false)}
             />
 
-            <div className={`fixed z-50 top-16 ${isCollapsed ? 'left-20' : 'left-64'} w-96 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-gray-200 dark:border-slate-700 overflow-hidden ring-1 ring-black/5 dark:ring-white/5 animate-in slide-in-from-top-2 fade-in duration-200 transition-all max-h-[80vh] flex flex-col md:top-16 md:left-auto md:right-4`}>
+            <div className={`fixed z-50 top-16 left-2 right-2 w-auto md:w-96 md:left-auto md:right-4 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-gray-200 dark:border-slate-700 overflow-hidden ring-1 ring-black/5 dark:ring-white/5 animate-in slide-in-from-top-2 fade-in duration-200 transition-all max-h-[80vh] flex flex-col max-w-[calc(100vw-16px)]`}>
 
               <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Notificaciones</h3>

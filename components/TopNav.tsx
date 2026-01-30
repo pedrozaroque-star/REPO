@@ -141,7 +141,7 @@ export default function TopNav() {
                                 className="absolute -top-1 -left-1 w-12 h-12 md:w-24 md:h-24 max-w-none object-contain drop-shadow-xl z-50 transform transition-transform group-hover:scale-110"
                             />
                         </div>
-                        <div className="hidden md:flex flex-col leading-tight ml-4 md:ml-12">
+                        <div className="flex flex-col leading-tight ml-10 md:ml-12">
                             <span className="text-xl md:text-2xl font-black tracking-tighter text-slate-900 dark:text-white group-hover:text-red-600 transition-colors">
                                 SM<span className="text-base md:text-lg text-red-600 font-medium ml-0.5">TEG</span>
                             </span>

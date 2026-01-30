@@ -369,14 +369,19 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             reference_id: savedData?.[0]?.id,
             reference_type: 'supervisor_inspection'
           }))
-          await supabase.from('notifications').insert(notifs)
+          // Fire and forget notifications to speed up UI
+          supabase.from('notifications').insert(notifs).then(() => console.log('Notifs sent'))
         }
       } catch (e) {
         console.error('Notification error:', e)
       }
 
-      alert('✅ Inspección Guardada')
-      router.push('/inspecciones')
+      // NO BLOCKING ALETS. JUST GO.
+      console.log('✅ Inspección Guardada. Redirigiendo...')
+
+      // Force Hard Reload to clear memory and state
+      window.location.href = '/inspecciones'
+
     } catch (err: any) {
       console.error(err)
       alert('Error: ' + err.message)

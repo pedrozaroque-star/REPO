@@ -220,7 +220,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
 
         setIsGenerating(false)
         return newProjections // Critical: Return data so caller can use it immediately
-        return newProjections
+        return newProjections // Critical: Return data so caller can use it immediately
 
     }, [storeGuid, weekStartInput])
 

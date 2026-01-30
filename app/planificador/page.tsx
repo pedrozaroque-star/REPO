@@ -197,22 +197,43 @@ export default function SchedulePlanner() {
                 const ge = params.get('ge')
 
                 if (ge) {
+                    // SECURITY ENFORCEMENT: System Login Email must match Google Auth Email
+                    if (user?.email && ge.toLowerCase() !== user.email.toLowerCase()) {
+                        // Alert User
+                        // We use a timeout to ensure the toast is seen after redirect (though replace happens fast)
+                        // Actually, just show it and return.
+                        console.error(`Security Mismatch: System(${user.email}) != Google(${ge})`)
+                        toast.error(`⚠️ ACCESO DENEGADO: Debes conectar TU cuenta corporativa (${user.email}).\nNo se permite usar ${ge}.`)
+
+                        // Clear URL and Stop
+                        router.replace('/planificador')
+                        return
+                    }
+
                     // Update User Profile with new Creds
                     // Note: We only get RT on first consent or re-consent. 
                     // If we have RT, save it. If not, maybe we just got the email (re-login without offline access)
                     const updates: any = { google_email_connected: ge }
-                    if (rt) updates.google_refresh_token = rt
+                    if (rt) {
+                        console.log('✅ Refresh Token Received in URL')
+                        updates.google_refresh_token = rt
+                    } else {
+                        console.warn('⚠️ No Refresh Token in URL (User might need to revoke access in Google Permissions)')
+                    }
 
+                    console.log('Wait... Updating User...', { userId: user?.id, updates })
                     const { error } = await supabase.from('users').update(updates).eq('id', user?.id)
 
                     if (!error) {
+                        console.log('✅ User updated successfully')
                         toast.success(`Gmail conectado: ${ge}`)
                         setGoogleConnected(true)
                         setGoogleEmail(ge)
                         // Clean URL
                         router.replace('/planificador')
                     } else {
-                        toast.error('Error guardando credenciales Google')
+                        console.error('❌ Database Update Failed:', error)
+                        toast.error('Error guardando credenciales DB: ' + error.message)
                     }
                 }
             }
@@ -642,31 +663,37 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
     }
 
     const handleClearDrafts = async () => {
-        const draftCount = shifts.filter(s => s.status === 'draft').length
-        if (draftCount === 0) return toast.info('No hay borradores para eliminar')
+        const totalShifts = shifts.length
+        if (totalShifts === 0) return toast.info('No hay turnos para eliminar')
 
         setConfirmModal({
             isOpen: true,
-            title: 'Limpiar Borradores',
-            message: `¿ESTÁS SEGURO?\nSe eliminarán ${draftCount} turnos en estado BORRADOR de esta semana.\nLos turnos publicados NO se tocarán.`,
+            title: 'Limpiar Todo el Horario', // Updated Title
+            message: `¿ESTÁS SEGURO?\nSe eliminarán TODOS los ${totalShifts} turnos de esta semana (Borradores y Publicados).\nEsta acción no se puede deshacer.`, // Updated Message
             type: 'danger',
             icon: Trash2,
             onConfirm: async () => {
                 setIsProcessing(true)
                 try {
                     const supabase = await getSupabaseClient()
-                    const drafts = shifts.filter(s => s.status === 'draft')
-                    const ids = drafts.map(s => s.id)
+                    // Target ALL shifts in current view (which are filtered by week in loadStoreData)
+                    // But to be safe, let's use the explicit week range again
+                    const startStr = formatDateISO(weekStart)
+                    const endStr = formatDateISO(addDays(weekStart, 6))
 
+                    // We can match by IDs to be precise based on client view
+                    const ids = shifts.map(s => s.id)
+
+                    // Delete ALL, not just drafts
                     await supabase.from('shifts').delete().in('id', ids)
-                    setShifts(prev => prev.filter(s => s.status !== 'draft'))
+                    setShifts([]) // Clear client state completely
 
                     setIsProcessing(false)
 
                     setConfirmModal({
                         isOpen: true,
-                        title: 'Limpieza Completada',
-                        message: `Se han eliminado ${draftCount} borradores correctamente.\nEl tablero está limpio.`,
+                        title: 'Horario Limpiado',
+                        message: `Se han eliminado ${totalShifts} turnos correctamente.\nEl tablero está vacío.`,
                         type: 'success',
                         icon: Trash2,
                         onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
@@ -694,7 +721,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
             const startStr = formatDateISO(weekStart)
             const endStr = formatDateISO(addDays(weekStart, 6))
 
-            await fetch('/api/notifications/publish-schedule', {
+            const notifyRes = await fetch('/api/notifications/publish-schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -706,6 +733,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                     sender_user_id: user?.id // CRITICAL: Identify WHO is publishing to use their Gmail token
                 })
             })
+            const notifyData = await notifyRes.json()
 
             // SAVE BUDGET SNAPSHOT
             console.log('💾 Saving Budget Snapshot...', { storeGuid, startStr, projCount: Object.keys(projections).length })
@@ -724,7 +752,17 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                 console.log('✅ Budget Saved:', savedBudget)
             }
 
-            toast.success('Publicado y notificado')
+            // FEEDBACK FINAL
+            if (notifyData.success) {
+                const { email, errors } = notifyData.stats || { email: 0, errors: 0 }
+                if (email > 0) toast.success(`Publicado y ${email} correos enviados`)
+                else if (errors > 0) toast.info(`Publicado, pero fallaron ${errors} correos`)
+                else toast.success('Publicado (Nadie para notificar)')
+
+                if (errors > 0) console.error('Email Errors:', notifyData)
+            } else {
+                toast.error('Publicado, pero error al notificar: ' + (notifyData.error || notifyData.message))
+            }
         } catch (e: any) {
             console.error('CRITICAL PUBLISH ERROR:', e)
             toast.error(e.message)

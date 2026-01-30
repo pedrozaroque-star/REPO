@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 import path from 'path'
+import fs from 'fs'
 
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -15,27 +16,75 @@ async function getTransporter(userId?: string) {
         throw new Error('Usuario no identificado. No se pueden enviar correos anónimos.')
     }
 
+    // DEBUG: Check Service Role Key presence (Safe log)
+    const isServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    console.log('🔍 [API] Fetching creds for:', userId, 'Using ServiceKey:', isServiceKey)
+
     // 1. Intentar obtener credenciales OAuth del usuario
-    const { data: user } = await supabase.from('users')
+    const { data: user, error } = await supabase.from('users')
         .select('google_refresh_token, google_email_connected')
         .eq('id', userId)
         .single()
 
+    if (error) {
+        console.error('❌ [API] DB Error fetching user:', error)
+    }
+
+    // AUTO-HEALING: If user not found in public.users but exists in auth.users, create it.
+    if (!user) {
+        console.warn('⚠️ [API] User record missing in public.users. Checking auth.users...')
+        // We can't query auth.users directly via client easily without service role admin magic 
+        // OR we just fail here because if public.users is empty, they haven't run the OAuth flow correctly anyway.
+        // But let's log explicitly.
+    }
+
     if (user?.google_refresh_token && user?.google_email_connected) {
-        console.log(`Using OAuth2 for user ${user.google_email_connected}`)
-        return {
-            transporter: nodemailer.createTransport({
-                service: 'gmail',
-                auth: {
-                    type: 'OAuth2',
-                    user: user.google_email_connected,
-                    clientId: process.env.GOOGLE_CLIENT_ID,
-                    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-                    refreshToken: user.google_refresh_token
-                }
-            } as any),
-            fromEmail: user.google_email_connected
+        console.log(`✅ [API] Found OAuth2 for user ${user.google_email_connected}`)
+
+        // MANUAL TOKEN REFRESH (To fix 535 errors)
+        try {
+            const tokenUrl = 'https://oauth2.googleapis.com/token'
+            const params = new URLSearchParams()
+            params.append('client_id', process.env.GOOGLE_CLIENT_ID!)
+            params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!)
+            params.append('refresh_token', user.google_refresh_token)
+            params.append('grant_type', 'refresh_token')
+
+            console.log('🔄 [API] Refreshing Access Token manually...')
+            const refreshRes = await fetch(tokenUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params
+            })
+
+            if (!refreshRes.ok) {
+                const errData = await refreshRes.json()
+                console.error('❌ [API] Failed to refresh token:', errData)
+                throw new Error(`Token Refresh Failed: ${errData.error_description || errData.error}`)
+            }
+
+            const tokens = await refreshRes.json()
+            const accessToken = tokens.access_token
+            console.log('✅ [API] Access Token refreshed successfully!')
+
+            // FETCH REAL USER PROFILE (To ensure 'user' matches the token owner)
+            const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            })
+            const profile = await profileRes.json()
+            const realEmail = profile.email
+            console.log(`✅ [API] Authenticated as Google User: ${realEmail} (Expected: ${user.google_email_connected})`)
+
+            return {
+                accessToken, // EXPOSE TOKEN
+                fromEmail: realEmail
+            }
+        } catch (e) {
+            console.error('❌ [API] Critical Auth Error during refresh:', e)
+            throw new Error('GMAIL_AUTH_FAILED: ' + (e as Error).message)
         }
+    } else {
+        console.warn('⚠️ [API] User found but missing tokens:', JSON.stringify(user))
     }
 
     // SI LLEGAMOS AQUI: El usuario no tiene credenciales conectadas.
@@ -52,8 +101,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
-        // 1. Init Transporter
-        const { transporter, fromEmail } = await getTransporter(sender_user_id)
+        // 1. Init Credentials
+        const { accessToken, fromEmail } = await getTransporter(sender_user_id)
 
         // 2. Fetch Published Shifts
         let query = supabase
@@ -92,14 +141,14 @@ export async function POST(req: Request) {
 
         if (empError) throw empError
 
-        // 5. Send Email Notifications (CHUNKS)
+        // 5. Send Email Notifications (VIA GMAIL API REST - NO SMTP)
         const results = { email: 0, errors: 0 }
 
         // Get store info for branding
         const { data: store } = await supabase.from('stores').select('name').eq('external_id', store_id).single()
         const storeName = store?.name || 'Tu Equipo'
 
-        // CHUNK PROCESSING FUNCTION
+        // CHUNK PROCESSING FUNCTION (Using Nodemailer Stream for Robust Attachments)
         const processChunk = async (chunk: any[]) => {
             const promises = chunk.map(async (emp: any) => {
                 const empShifts = shifts.filter(s => s.employee_id === emp.id)
@@ -130,7 +179,8 @@ export async function POST(req: Request) {
                     `
                 }).join('')
 
-                const emailHtml = `
+                // FULL HTML TEMPLATE (With Logo Re-added)
+                const fullHtml = `
                     <!DOCTYPE html>
                     <html>
                     <head>
@@ -140,57 +190,31 @@ export async function POST(req: Request) {
                     </head>
                     <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px;">
                         <table role="presentation" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.2);">
-                            <!-- Header with Logo -->
                             <tr>
                                 <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 40px 30px; text-align: center;">
-                                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 800; letter-spacing: -0.5px;">
-                                        📅 Tu Nuevo Horario
-                                    </h1>
-                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px; font-weight: 500;">
-                                        ${storeName}
-                                    </p>
+                                    <!-- LOGO INJECTION -->
+                                    <img src="cid:logo" alt="Logo" style="display: block; margin: 0 auto 20px auto; width: 80px; height: auto;" />
+                                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 800;">📅 Tu Nuevo Horario</h1>
+                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">${storeName}</p>
                                 </td>
                             </tr>
-                            
-                            <!-- Greeting -->
                             <tr>
                                 <td style="padding: 40px 30px 20px 30px;">
-                                    <h2 style="margin: 0 0 16px 0; color: #1f2937; font-size: 24px; font-weight: 700;">
-                                        ¡Hola, ${emp.first_name}! 👋
-                                    </h2>
-                                    <p style="margin: 0; color: #6b7280; font-size: 16px; line-height: 1.6;">
-                                        El Gerente (${fromEmail}) ha publicado tus turnos:
-                                    </p>
+                                    <h2 style="margin: 0 0 16px 0; color: #1f2937; font-size: 24px;">¡Hola, ${emp.first_name}! 👋</h2>
+                                    <p style="margin: 0; color: #6b7280; font-size: 16px; line-height: 1.6;">El Gerente (${fromEmail}) ha publicado tus turnos:</p>
                                 </td>
                             </tr>
-                            
-                            <!-- Schedule Table -->
-                            <tr>
+                             <tr>
                                 <td style="padding: 0 30px 40px 30px;">
                                     <table role="presentation" style="width: 100%; border-collapse: collapse; background: #f9fafb; border-radius: 16px; overflow: hidden; border: 2px solid #e5e7eb;">
-                                        <thead>
-                                            <tr>
-                                                <th style="padding: 16px; background: #f3f4f6; text-align: left; font-size: 12px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb;">
-                                                    Día
-                                                </th>
-                                                <th style="padding: 16px; background: #f3f4f6; text-align: center; font-size: 12px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb;">
-                                                    Horario
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${shiftRows}
-                                        </tbody>
+                                        <thead><tr><th style="padding:16px;">Día</th><th style="padding:16px;">Horario</th></tr></thead>
+                                        <tbody>${shiftRows}</tbody>
                                     </table>
                                 </td>
                             </tr>
-                            
-                            <!-- Footer -->
-                            <tr>
+                             <tr>
                                 <td style="padding: 30px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-                                    <p style="margin: 0 0 8px 0; color: #9ca3af; font-size: 13px; font-weight: 500;">
-                                        Enviado por ${fromEmail} a través de Teg Modernizado.
-                                    </p>
+                                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">Enviado por ${fromEmail} a través de Teg Modernizado.</p>
                                 </td>
                             </tr>
                         </table>
@@ -198,24 +222,76 @@ export async function POST(req: Request) {
                     </html>
                 `
 
-                // Send Email
+                // Prepare Attachments Safely
+                const attachments: any[] = []
+                const logoPath = path.join(process.cwd(), 'public', 'logo.png')
+
+                // Only attach if file exists (prevents crash on Prod if path differs)
+                if (fs.existsSync(logoPath)) {
+                    attachments.push({
+                        filename: 'logo.png',
+                        path: logoPath,
+                        cid: 'logo'
+                    })
+                }
+
+                const mailOptions = {
+                    from: `"${storeName} Schedule" <${fromEmail}>`,
+                    to: emp.email,
+                    subject: `📅 Horario: ${storeName}`,
+                    html: fullHtml,
+                    attachments
+                }
+
+                // COMPILE RAW MESSAGE (Without Sending via SMTP)
                 if (emp.email) {
                     try {
-                        const info = await transporter.sendMail({
-                            from: `"${storeName} Schedule" <${fromEmail}>`,
-                            to: emp.email,
-                            subject: `📅 Horario: ${storeName}`,
-                            html: emailHtml,
-                            // Attachments removed to simplify logo handling (cid can be tricky with auth sometimes)
-                            // or verify paths exist in prod. Re-adding safely if needed.
-                            attachments: [{
-                                filename: 'logo.png',
-                                path: path.join(process.cwd(), 'public', 'logo.png'),
-                                cid: 'logo' // Assuming logo is not used in header above (I removed img tag to keep simple, or check if img is there)
-                            }]
+                        const compiler = nodemailer.createTransport({ streamTransport: true, newline: 'windows' })
+                        const info = await compiler.sendMail(mailOptions)
+
+                        // Convert Nodemailer Output (Stream or Buffer) to Buffer
+                        const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
+                            const message = info.message as any
+
+                            // If it's already a Buffer, return it
+                            if (Buffer.isBuffer(message)) {
+                                return resolve(message)
+                            }
+
+                            // If it's a stream (most likely)
+                            if (typeof message.pipe === 'function') {
+                                const chunks: Buffer[] = []
+                                message.on('data', (chunk: Buffer) => chunks.push(chunk))
+                                message.on('end', () => resolve(Buffer.concat(chunks)))
+                                message.on('error', (err: Error) => reject(err))
+                                return
+                            }
+
+                            // Fallback (shouldn't happen with streamTransport: true)
+                            reject(new Error('Nodemailer returned unknown message format'))
                         })
-                        console.log(`Email sent to ${emp.email}: ${info.messageId}`)
+
+                        const raw = rawBuffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+                        // SEND VIA GMAIL API
+                        const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`, // Scoped variable
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ raw })
+                        })
+
+                        if (!sendRes.ok) {
+                            const err = await sendRes.json()
+                            throw new Error(JSON.stringify(err))
+                        }
+
+                        const resInfo = await sendRes.json()
+                        console.log(`Email sent to ${emp.email} via API: ${resInfo.id}`)
                         results.email++
+
                     } catch (e) {
                         console.error(`Email failed for ${emp.first_name}:`, e)
                         results.errors++

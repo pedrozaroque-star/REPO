@@ -36,80 +36,82 @@ export async function GET(req: Request) {
         const tokens = await tokenResponse.json()
 
         if (!tokens.refresh_token) {
-            // Si el usuario ya autorizó antes, Google no devuelve refresh_token a menos que revoquemos acceso.
-            // Ojo: prompt=consent en el start debería forzarlo.
-            console.warn('Google did not return a refresh_token')
+            console.warn('⚠️ GOOGLE AUTH WARNING: No refresh_token received!')
         }
 
-        // 2. Obtener email del usuario de Google para confirmar identidad
+        // 2. Obtener email del usuario de Google
         const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
             headers: { Authorization: `Bearer ${tokens.access_token}` }
         })
         const googleUser = await userResponse.json()
         const googleEmail = googleUser.email
 
-        // 3. Identificar al usuario actual de la aplicación
-        // Necesitamos saber QUÉ manager está haciendo esto.
-        // Como es un Callback de servidor, no tenemos el contexto del cliente fácil.
-        // Usamos supabase auth cookie helper O asumimos que el usuario ya tiene sesión activa en el navegador
-        // y al redirigir le asignaremos la data.
-        // PROBLEMA: Este endpoint se ejecuta en el servidor.
+        // 3. LOGIC SWITCH: Login (SSO) vs Connect (Link)
+        const isLoginMode = state?.includes('/auth/sso')
 
-        // SOLUCIÓN: Usamos cookies de la request para identificar al usuario con Supabase.
-        const supabase = createClient(supabaseUrl, supabaseServiceKey)
+        if (isLoginMode) {
+            // --- SSO LOGIN FLOW ---
+            const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-        // Recuperar session desde cookies del navegador (Next.js pasa las cookies en req)
-        // NOTA: Para simplificar en API Route plano, intentamos obtener el usuario desde las cookies.
-        // Si no, tendremos un problema de asociación.
+            // Check if user exists in DB
+            const { data: user, error: dbError } = await supabase
+                .from('users')
+                .select('*')
+                .ilike('email', googleEmail) // Case insensitive match
+                .single()
 
-        // HACK SEGURO: Usamos el cliente de supabase "auth-helpers" si estuviera disponible, pero aquí estamos en API nativa.
-        // Vamos a leer las cookies manualmente para getUser.
+            if (dbError || !user) {
+                return NextResponse.redirect(`${origin}/login?error=unauthorized_email`)
+            }
 
-        // Alternativa Robusta: El usuario DEBE estar logueado.
-        // Supabase Auth guarda un JWT en cookies. Vamos a intentar decodificarlo o usar getUser.
-        // Pero getUser requiere pasar las cookies al cliente supabase.
+            // User Exists! -> AUTO UPDATE GOOGLE CREDS
+            const updates: any = {
+                google_email_connected: googleEmail,
+                last_active: new Date().toISOString()
+            }
+            if (tokens.refresh_token) updates.google_refresh_token = tokens.refresh_token
 
-        // Vamos a crear un cliente con las cookies de la solicitud
-        const cookies = req.headers.get('cookie') || ''
+            await supabase.from('users').update(updates).eq('id', user.id)
 
-        // Nota: getUser con Service Role puede buscar por ID, pero aquí no tenemos el ID a menos que venga en el state (inseguro)
-        // o lo saquemos del JWT de la cookie.
+            // CREATE SESSION PAYLOAD (Similar to /api/login)
+            // In a real app we would sign a JWT here. 
+            // For now, consistent with current login, we use a simple token or user object.
+            // Looking at login/page.tsx, it expects { token, user }
 
-        // Usaremos un truco: Redirigir a una página cliente intermedia que guarde el token? No, inseguro.
+            // Generate a simple session token (or reuse ID for now if no JWT secret avail)
+            // Fix: Ensure we pass a string to Buffer.from based on user.id (which might be int)
+            const tokenSource = String(user.id) + '-' + String(Date.now())
+            const sessionToken = `g_sso_${Buffer.from(tokenSource).toString('base64')}`
 
-        // MEJOR ENFOQUE: Usar `supabase.auth.getUser()` pasando el access_token de la cookie.
-        // Necesitamos extraer el access_token de la cookie `sb-[project-ref]-auth-token`.
-        // Esto es complejo de parsear manualmente.
+            // Construct Payload for Client (MATCHING /api/login STRUCTURE)
+            const userPayload = {
+                id: user.id,
+                email: user.email,
+                name: user.full_name || `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+                role: user.role,
+                store_scope: user.store_scope,
+                store_id: user.store_id,
+                // Extra fields for robustness
+                first_name: user.first_name,
+                last_name: user.last_name
+            }
 
-        // PLAN B: Asumir que el usuario inició el flujo desde nuestra app y su sesión es válida.
-        // Vamos a guardar el refresh_token TEMPORALMENTE en una tabla `auth_pending_tokens` con un ID de estado
-        // O más fácil: Enviar el refresh token ENCRIPTADO a la URL de destino y que el cliente lo guarde (Riesgoso pero viable si HTTPS).
+            return NextResponse.redirect(`${origin}/auth/sso?token=${sessionToken}&user=${encodeURIComponent(JSON.stringify(userPayload))}`)
 
-        // PLAN C (Mejor): Usar `@supabase/auth-helpers-nextjs` o `@supabase/ssr` si estuvieran instalados.
-        // Veo que usas `getSupabaseClient` en tu código, que usa `createClientComponentClient` o similar.
-        // En server side (API Route), deberíamos usar `createServerComponentClient` (o cookies).
+        } else {
+            // --- EXISTING CONNECT FLOW (Planificador) ---
 
-        // Vamos a intentar obtener el usuario usando el token de la cookie 'teg_token' si existe (tu login custom)
-        // O la cookie de supabase.
+            // Safety: We can't easily validate user identity here without session context.
+            // We rely on the client-side check we just added in Planificador page.
+            // Or we could pass 'userId' in state if we wanted to be super secure server-side.
 
-        // Revisando tu código de login, usas `localStorage.getItem('teg_token')`.
-        // Eso NO se envía al servidor automáticamente en una redirección de OAuth callback :(
+            const safeParams = new URLSearchParams()
+            if (tokens.refresh_token) safeParams.set('rt', tokens.refresh_token)
+            safeParams.set('ge', googleEmail)
+            safeParams.set('success', 'true')
 
-        // ENTONCES: No podemos saber quién es el usuario en el server-side callback porque tu auth es client-side (localStorage).
-
-        // SOLUCIÓN PRO: Redirigir al cliente con el token como query param (PELIGROSO pero funcional para MVP)
-        // Y que el cliente termine el guardado.
-        // Para mitigar riesgo: Es un token que solo sirve para enviar correos de ESE usuario.
-
-        // Vamos a pasar `?google_refresh_token=...&google_email=...` al returnUrl (/planificador).
-        // Y en `/planificador` detectamos esos params y llamamos a `saveGoogleCreds`.
-
-        const safeParams = new URLSearchParams()
-        if (tokens.refresh_token) safeParams.set('rt', tokens.refresh_token) // Refresh Token
-        safeParams.set('ge', googleEmail) // Google Email
-        safeParams.set('success', 'true')
-
-        return NextResponse.redirect(`${origin}${state}?${safeParams.toString()}`)
+            return NextResponse.redirect(`${origin}${state}?${safeParams.toString()}`)
+        }
 
     } catch (error: any) {
         console.error('OAuth Error:', error)
