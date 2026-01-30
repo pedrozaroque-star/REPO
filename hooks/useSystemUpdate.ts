@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 
 export function useSystemUpdate(checkIntervalMs = 60000) {
     const [hasUpdate, setHasUpdate] = useState(false)
+    const [updateMessage, setUpdateMessage] = useState('')
     const [currentVersion, setCurrentVersion] = useState<string | null>(null)
 
     useEffect(() => {
@@ -26,6 +27,7 @@ export function useSystemUpdate(checkIntervalMs = 60000) {
                         // Ignore if both are 'dev' (local dev mode usually returns stable 'dev')
                         if (currentVersion !== 'dev' || remoteVersion !== 'dev') {
                             setHasUpdate(true)
+                            setUpdateMessage(data.message || 'Mejoras y correcciones')
                         }
                     }
                 }
@@ -56,5 +58,5 @@ export function useSystemUpdate(checkIntervalMs = 60000) {
         }
     }, [currentVersion, checkIntervalMs])
 
-    return { hasUpdate, triggerUpdate: () => window.location.reload() }
+    return { hasUpdate, updateMessage, triggerUpdate: () => window.location.reload() }
 }

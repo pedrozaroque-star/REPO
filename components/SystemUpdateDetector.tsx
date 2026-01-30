@@ -7,7 +7,7 @@ import { RefreshCcw, Zap } from 'lucide-react'
 
 export function SystemUpdateDetector() {
     // Check every 2 minutes
-    const { hasUpdate, triggerUpdate } = useSystemUpdate(1000 * 60 * 2)
+    const { hasUpdate, updateMessage, triggerUpdate } = useSystemUpdate(1000 * 60 * 2)
 
     if (!hasUpdate) return null
 
@@ -25,7 +25,9 @@ export function SystemUpdateDetector() {
                     </div>
                     <div className="flex flex-col leading-tight">
                         <span className="font-bold text-sm">Actualización lista</span>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">Nueva versión disponible</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium max-w-[200px] truncate">
+                            {updateMessage || 'Nueva versión disponible'}
+                        </span>
                     </div>
                 </div>
 
