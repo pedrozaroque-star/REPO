@@ -258,8 +258,8 @@ function SalesPageContent() {
 
         // Only run for Recent History (Today/Yesterday) to fix "Managers modifying punches late"
         if (period === 'today' || period === 'yesterday') {
-            // Only run if we haven't verified yet this session OR if we just fixed it (to confirm ok)
-            if (integrityStatus === 'idle' || integrityStatus === 'fixed') {
+            // Only run if we haven't verified yet this session
+            if (integrityStatus === 'idle') {
                 const runVerify = async () => {
                     setVerifying(true)
                     setIntegrityStatus('verifying')
@@ -272,15 +272,12 @@ function SalesPageContent() {
                         })
                         const json = await res.json()
 
-                        if (json.status === 'corrected') {
-                            console.log("🛠️ [AUTO-HEAL] Discrepancias corregidas. Recargando datos...")
+                        if (json.status === 'corrected' && json.freshData) {
+                            console.log("🛠️ [AUTO-HEAL] Discrepancias corregidas. Actualizando UI silenciosamente...")
                             setIntegrityStatus('fixed')
-                            // Trigger reload to show corrected data
-                            // We don't want to loop forever, so next time status will be 'fixed', 
-                            // allow ONE re-verification to confirm 'ok' or stop?
-                            // Logic: fixed -> refreshData -> data changes -> effect runs -> status is 'fixed' -> runVerify -> should return 'ok' -> status 'ok'. 
-                            // Loop closes.
-                            refreshData()
+                            // SILENT UPDATE: Update data directly without full reload/spinner
+                            setData(json.freshData)
+                            setLastUpdated(new Date())
                         } else {
                             setIntegrityStatus('ok')
                         }

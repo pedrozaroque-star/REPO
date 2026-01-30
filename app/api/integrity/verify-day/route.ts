@@ -88,15 +88,74 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        // 4. Construct Fresh Data Payload (to update UI silently)
+        // Recalculate Summary
+        const summary = {
+            netSales: 0,
+            grossSales: 0,
+            discounts: 0,
+            tips: 0,
+            laborCost: 0,
+            laborHours: 0,
+            orders: 0,
+            guests: 0
+        }
+
+        // Use the FRESH live data (toastData.rows) which is now the source of truth
+        toastData.rows.forEach((r: any) => {
+            summary.netSales += r.netSales || 0
+            summary.grossSales += r.grossSales || 0
+            summary.discounts += r.discounts || 0
+            summary.tips += r.tips || 0
+            summary.laborCost += r.laborCost || 0
+            summary.laborHours += r.totalHours || 0
+            summary.orders += r.orderCount || 0
+            summary.guests += r.guestCount || 0
+        })
+
+        // Hourly aggregation
+        const hourlyData: Record<number, number> = {}
+        const hourlyTickets: Record<number, number> = {}
+
+        toastData.rows.forEach((r: any) => {
+            if (r.hourlySales) {
+                Object.entries(r.hourlySales).forEach(([h, val]) => {
+                    const hour = Number(h)
+                    hourlyData[hour] = (hourlyData[hour] || 0) + Number(val)
+                })
+            }
+            if (r.hourlyTickets) {
+                Object.entries(r.hourlyTickets).forEach(([h, val]) => {
+                    const hour = Number(h)
+                    hourlyTickets[hour] = (hourlyTickets[hour] || 0) + Number(val)
+                })
+            }
+        })
+
+        const freshDataPayload = {
+            summary,
+            data: toastData.rows.map((r: any) => ({
+                ...r,
+                labor_cost: r.laborCost, // Map for frontend compatibility if needed
+                labor_hours: r.totalHours,
+                net_sales: r.netSales
+            })),
+            hourlyData,
+            hourlyTickets
+        }
+
         if (correctionsMade > 0) {
             console.log(`✅ [INTEGRITY] Healed ${correctionsMade} stores: ${fixedStores.join(', ')}`)
             return NextResponse.json({
                 status: 'corrected',
                 fixed: fixedStores,
-                message: `Corregidas discrepancias en: ${fixedStores.join(', ')}`
+                message: `Corregidas discrepancias en: ${fixedStores.join(', ')}`,
+                freshData: freshDataPayload
             })
         } else {
             console.log(`✅ [INTEGRITY] Integrity Verified. No drift detected.`)
+            // Even if no drift, we can return fresh data if we want to be super sure, 
+            // but usually 'ok' is enough to keep current state.
             return NextResponse.json({ status: 'ok', message: 'Datos verificados (Sincronizados)' })
         }
 
