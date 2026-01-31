@@ -259,9 +259,11 @@ export default function TopNav() {
                 <div className="flex items-center gap-1 md:gap-3">
                     <button
                         onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
-                        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors text-xs font-black w-10 h-10 flex items-center justify-center text-slate-500 dark:text-slate-400"
+                        className="p-2 px-3 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors text-xs font-black flex items-center justify-center gap-0.5 min-w-[60px]"
                     >
-                        {language.toUpperCase()}
+                        <span className={language === 'en' ? 'text-red-600 dark:text-red-500 scale-110' : 'text-slate-400 dark:text-slate-600'}>EN</span>
+                        <span className="text-slate-300 dark:text-slate-700">/</span>
+                        <span className={language === 'es' ? 'text-red-600 dark:text-red-500 scale-110' : 'text-slate-400 dark:text-slate-600'}>ES</span>
                     </button>
                     <ThemeToggle />
                     <NotificationBell />
