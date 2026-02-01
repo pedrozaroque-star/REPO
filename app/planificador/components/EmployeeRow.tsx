@@ -157,10 +157,14 @@ export function EmployeeRow({
                                             // PREMIUM CARD STYLE
                                             className={`relative p-2.5 rounded-lg border-l-[4px] shadow-sm cursor-grab active:cursor-grabbing hover:scale-[1.02] hover:shadow-md transition-all group/card
                                             ${isPublished
-                                                    ? 'bg-blue-50 dark:bg-[#1e293b] border-blue-500' // Dark mode: Slate 800 bg
-                                                    : 'bg-white dark:bg-slate-900 border-dashed border-gray-300 dark:border-slate-600'}
+                                                    ? 'bg-white dark:bg-[#1e293b] border-t-0 border-r-0 border-b-0 shadow-sm'
+                                                    : 'border-dashed border'}
                                         `}
-                                            style={{ borderLeftColor: isPublished ? stringToColor(jobTitle) : undefined }}
+                                            style={{
+                                                borderLeftColor: stringToColor(jobTitle),
+                                                borderColor: !isPublished ? stringToColor(jobTitle) : undefined,
+                                                backgroundColor: !isPublished ? `${stringToColor(jobTitle)}20` : undefined // 20 = 12% opacity hex
+                                            }}
                                         >
                                             <div className="flex flex-col justify-center gap-0.5">
                                                 <div className={`font-bold leading-none text-sm tracking-tight
