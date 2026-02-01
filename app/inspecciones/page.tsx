@@ -7,8 +7,11 @@ import ChecklistReviewModal from '@/components/ChecklistReviewModal'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { getEmbeddableImageUrl } from '@/lib/imageUtils'
 import SurpriseLoader from '@/components/SurpriseLoader'
-import { getStatusColor, getStatusLabel, formatDateLA, canEditChecklist } from '@/lib/checklistPermissions'
+import { getStatusColor, canEditChecklist } from '@/lib/checklistPermissions'
 import { MessageCircleMore, Edit } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
+import { format } from 'date-fns'
+import { es, enUS } from 'date-fns/locale'
 
 
 function InspeccionesContent() {
@@ -16,6 +19,8 @@ function InspeccionesContent() {
   const searchParams = useSearchParams()
   const openId = searchParams.get('openId') || searchParams.get('id')
   const storeParam = searchParams.get('store') // New: URL param for store filter
+  const { t, language } = useLanguage()
+  const localeObj = language === 'es' ? es : enUS
   const { user } = useAuth()
   const [inspections, setInspections] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -168,7 +173,7 @@ function InspeccionesContent() {
         return
       }
 
-      setErrorMsg(error.message || 'Error al cargar inspecciones')
+      setErrorMsg(error.message || t('inspections.alerts.load_error'))
     } finally {
       setLoading(false)
     }
@@ -192,11 +197,22 @@ function InspeccionesContent() {
     )
 
     if (!permission.canEdit) {
-      alert(permission.reason || 'No tienes permiso para editar esta inspección.')
+      alert(permission.reason || t('inspections.alerts.no_permission'))
       return
     }
 
     router.push(`/inspecciones/editar/${item.id}`)
+  }
+
+  // Robust date parser to match legacy behavior (avoid Timezone shifts for simple dates)
+  const parseChecklistDate = (dateStr: any) => {
+    if (!dateStr) return new Date()
+    // If YYYY-MM-DD, treat as local noon to avoid timezone shift
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split('-').map(Number)
+      return new Date(y, m - 1, d, 12, 0, 0)
+    }
+    return new Date(dateStr)
   }
 
   // --- RENDER ---
@@ -210,8 +226,8 @@ function InspeccionesContent() {
         {/* 1. STICKY HEADER (Matches Reportes Design) */}
         <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shadow-sm shrink-0">
           <div className="w-full md:w-auto">
-            <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white leading-none">Inspecciones de Supervisor</h1>
-            <p className="text-xs font-bold text-gray-400 dark:text-gray-500 mt-1 uppercase tracking-wide">Auditoría y control de calidad</p>
+            <h1 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white leading-none">{t('inspections.title')}</h1>
+            <p className="text-xs font-bold text-gray-400 dark:text-gray-500 mt-1 uppercase tracking-wide">{t('inspections.subtitle')}</p>
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto">
@@ -222,7 +238,7 @@ function InspeccionesContent() {
               onClick={() => router.push('/inspecciones/nueva')}
               className="bg-gray-900 dark:bg-red-600 hover:bg-black dark:hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 w-full md:w-auto text-sm"
             >
-              <span>+</span> Nueva Inspección
+              <span>+</span> {t('inspections.new_inspection')}
             </button>
           </div>
         </div>
@@ -233,11 +249,11 @@ function InspeccionesContent() {
           {/* STATS CARDS */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-indigo-100 dark:border-slate-800 border-l-4 border-l-indigo-500 transition-all">
-              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Total</p>
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.total')}</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">{inspections.length}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-green-100 dark:border-slate-800 border-l-4 border-l-green-500 transition-all">
-              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Promedio</p>
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.average')}</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.length > 0
                   ? Math.round(inspections.reduce((acc, curr) => acc + (curr.overall_score || 0), 0) / inspections.length) + '%'
@@ -245,13 +261,13 @@ function InspeccionesContent() {
               </p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-yellow-100 dark:border-slate-800 border-l-4 border-l-yellow-500 transition-all">
-              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Pendientes</p>
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.pending')}</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.filter(i => (i.estatus_admin || 'pendiente').toLowerCase().trim() === 'pendiente').length}
               </p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-blue-100 dark:border-slate-800 border-l-4 border-l-blue-500 transition-all">
-              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Aprobados</p>
+              <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.approved')}</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
                 {inspections.filter(i => {
                   const s = (i.estatus_admin || '').toLowerCase().trim()
@@ -272,7 +288,7 @@ function InspeccionesContent() {
                     onChange={(e) => setStoreFilter(e.target.value)}
                     className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
                   >
-                    <option value="all">🏪 Todas las Tiendas</option>
+                    <option value="all">{t('inspections.filters.all_stores')}</option>
                     {stores.map(s => (
                       <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                     ))}
@@ -288,7 +304,7 @@ function InspeccionesContent() {
                     onChange={(e) => setSupervisorFilter(e.target.value)}
                     className="appearance-none bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 py-2 pl-4 pr-10 rounded-lg font-bold text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all w-full md:w-56 cursor-pointer"
                   >
-                    <option value="all">🧑‍🏫 Todos los Supervisores</option>
+                    <option value="all">{t('inspections.filters.all_supervisors')}</option>
                     {users
                       .filter(u => ['supervisor', 'admin', 'auditor'].includes(u.role))
                       .map(u => (
@@ -308,25 +324,25 @@ function InspeccionesContent() {
                 onClick={() => setStatusFilter('all')}
                 className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-gray-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
               >
-                Todos
+                {t('inspections.filters.all')}
               </button>
               <button
                 onClick={() => setStatusFilter('pendiente')}
                 className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/30 hover:text-yellow-600 dark:hover:text-yellow-400'}`}
               >
-                Pendientes
+                {t('inspections.filters.pending')}
               </button>
               <button
                 onClick={() => setStatusFilter('aprobado')}
                 className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'aprobado' ? 'bg-green-500 text-white shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-green-50 dark:hover:bg-green-900/30 hover:text-green-600 dark:hover:text-green-400'}`}
               >
-                Aprobados
+                {t('inspections.filters.approved')}
               </button>
               <button
                 onClick={() => setStatusFilter('rechazado')}
                 className={`px-4 py-2 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'rechazado' ? 'bg-red-500 text-white shadow-md transform scale-105' : 'bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400'}`}
               >
-                Rechazados
+                {t('inspections.filters.rejected')}
               </button>
             </div>
           </div>
@@ -338,16 +354,16 @@ function InspeccionesContent() {
               <table className="w-full text-left border-collapse relative">
                 <thead className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800 text-base uppercase text-gray-500 dark:text-slate-300 font-bold tracking-wide">
                   <tr>
-                    <th className="p-4 pl-6">Tienda</th>
-                    <th className="p-4">Supervisor</th>
-                    <th className="p-4 text-center">Fecha</th>
-                    <th className="p-4 text-center">Turno</th>
-                    <th className="p-4 text-center">Duración</th>
-                    <th className="p-4 text-center">Score</th>
-                    <th className="p-4 text-left">Estado</th>
-                    <th className="p-4 text-left">Revisó</th>
-                    <th className="p-4 text-center">Evidencia</th>
-                    <th className="p-4 text-center">Acciones</th>
+                    <th className="p-4 pl-6">{t('inspections.table.store')}</th>
+                    <th className="p-4">{t('inspections.table.supervisor')}</th>
+                    <th className="p-4 text-center">{t('inspections.table.date')}</th>
+                    <th className="p-4 text-center">{t('inspections.table.shift')}</th>
+                    <th className="p-4 text-center">{t('inspections.table.duration')}</th>
+                    <th className="p-4 text-center">{t('inspections.table.score')}</th>
+                    <th className="p-4 text-left">{t('inspections.table.status')}</th>
+                    <th className="p-4 text-left">{t('inspections.table.reviewed_by')}</th>
+                    <th className="p-4 text-center">{t('inspections.table.evidence')}</th>
+                    <th className="p-4 text-center">{t('inspections.table.actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="text-base divide-y divide-gray-100 dark:divide-slate-800">
@@ -359,7 +375,7 @@ function InspeccionesContent() {
                     </tr>
                   ) : inspections.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-gray-400 italic">No se encontraron inspecciones.</td>
+                      <td colSpan={9} className="p-8 text-center text-gray-400 italic">{t('inspections.list.empty_search')}</td>
                     </tr>
                   ) : (
                     inspections.map((item) => {
@@ -403,7 +419,7 @@ function InspeccionesContent() {
                         >
                           <td className="p-4 pl-6 font-black text-gray-900 dark:text-white text-lg">{item.store_name}</td>
                           <td className="p-4 text-gray-600 dark:text-slate-200 text-base font-semibold">{item.supervisor_name}</td>
-                          <td className="p-4 text-center text-gray-500 dark:text-slate-400 text-base font-semibold">{formatDateLA(item.checklist_date)}</td>
+                          <td className="p-4 text-center text-gray-500 dark:text-slate-400 text-base font-semibold">{format(parseChecklistDate(item.checklist_date), 'dd MMM yyyy', { locale: localeObj })}</td>
                           <td className="p-4 text-center">
                             {displayShift ? (
                               <span className={`px-2.5 py-1 rounded text-base font-black uppercase ${displayShift === 'AM' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'}`}>
@@ -424,7 +440,7 @@ function InspeccionesContent() {
                           <td className="p-4 text-left">
                             <div className="flex items-center justify-start gap-2">
                               <span className={`px-3 py-1 rounded-full text-xs font-black uppercase border tracking-wide ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
-                                {getStatusLabel(item.estatus_admin || 'pendiente')}
+                                {t(`status.${(item.estatus_admin || 'pendiente').toLowerCase()}`)}
                               </span>
                               {item.has_comments && (
                                 <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-100 dark:border-blue-900/30" title="Hay comentarios">
@@ -440,7 +456,7 @@ function InspeccionesContent() {
                             {(item.photos && item.photos.length > 0) ? (
                               <div className="flex items-center justify-center">
                                 <span className="text-sm font-bold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 px-3 py-1 rounded-full border border-gray-200 dark:border-slate-700">
-                                  {item.photos.length} Fotos
+                                  {item.photos.length} {t('inspections.table.photos_count')}
                                 </span>
                               </div>
                             ) : (
@@ -452,7 +468,7 @@ function InspeccionesContent() {
                             <button
                               onClick={(e) => handleEdit(item, e)}
                               className="p-2 text-gray-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
-                              title="Editar Inspección"
+                              title={t('inspections.actions.edit') || "Editar Inspección"}
                             >
                               <Edit size={18} />
                             </button>
@@ -477,7 +493,7 @@ function InspeccionesContent() {
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex flex-col">
                     <h3 className="text-lg font-black text-gray-900 dark:text-white leading-tight">{item.store_name}</h3>
-                    <span className="text-sm font-bold text-gray-500 dark:text-slate-400 mt-1">{formatDateLA(item.checklist_date)}</span>
+                    <span className="text-sm font-bold text-gray-500 dark:text-slate-400 mt-1">{format(parseChecklistDate(item.checklist_date), 'dd MMM yyyy', { locale: localeObj })}</span>
                   </div>
                   <span className={`text-2xl font-black ${item.overall_score >= 87 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
                     {item.overall_score}%
@@ -487,7 +503,7 @@ function InspeccionesContent() {
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50 dark:border-slate-800">
                   <div className="flex items-center gap-2">
                     <span className={`px-3 py-1 rounded-md text-xs font-black uppercase tracking-wide border ${getStatusColor(item.estatus_admin || 'pendiente')}`}>
-                      {getStatusLabel(item.estatus_admin || 'pendiente')}
+                      {t(`status.${(item.estatus_admin || 'pendiente').toLowerCase()}`)}
                     </span>
                     {item.has_comments && (
                       <div className="p-1 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-100 dark:border-blue-900/30">
@@ -529,7 +545,7 @@ function InspeccionesContent() {
               </div>
             ))}
             {inspections.length === 0 && !loading && (
-              <div className="text-center text-gray-400 py-10 font-bold">No hay inspecciones.</div>
+              <div className="text-center text-gray-400 py-10 font-bold">{t('inspections.list.empty')}</div>
             )}
           </div>
 
@@ -546,10 +562,10 @@ function InspeccionesContent() {
             onClose={() => setIsModalOpen(false)}
             checklist={selectedInspection}
             currentUser={{
-              id: user.id || 0,
-              name: user.name || user.email || 'Usuario',
-              email: user.email || '',
-              role: user.role || 'viewer'
+              id: user?.id || 0,
+              name: user?.name || user?.email || 'Usuario',
+              email: user?.email || '',
+              role: user?.role || 'viewer'
             }}
             onUpdate={fetchData}
           />

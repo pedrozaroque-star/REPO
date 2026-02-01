@@ -10,6 +10,7 @@ import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { useLanguage } from '@/lib/i18n'
 
 interface Store {
   id: string
@@ -20,6 +21,7 @@ interface Store {
 function ManagerChecklistContent() {
   const router = useRouter()
   const { user } = useAuth()
+  const { t } = useLanguage()
   const [stores, setStores] = useState<Store[]>([])
   const [loading, setLoading] = useState(false)
   const [showThanks, setShowThanks] = useState(false)
@@ -118,13 +120,13 @@ function ManagerChecklistContent() {
     })
 
     if (missingAnswers.length > 0) {
-      alert(`⚠️ Faltan ${missingAnswers.length} tareas por reportar.`)
+      alert(t('checklists.form.error_missing').replace('{n}', missingAnswers.length.toString()))
       return
     }
 
     const missingRequiredPhotos = questions.filter(q => q.required_photo && (!questionPhotos[q.id] || questionPhotos[q.id].length === 0))
     if (missingRequiredPhotos.length > 0) {
-      alert(`📸 Hay ${missingRequiredPhotos.length} preguntas que requieren foto obligatoria.`)
+      alert(t('checklists.form.error_photos').replace('{n}', missingRequiredPhotos.length.toString()))
       return
     }
 
@@ -191,10 +193,10 @@ function ManagerChecklistContent() {
       <div className="min-h-screen bg-transparent grid place-items-center animate-in zoom-in duration-500">
         <div className="text-center p-8 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 max-w-sm mx-auto">
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="text-8xl mb-6">👔</motion.div>
-          <h1 className="text-4xl font-black text-gray-900 dark:text-white mb-2">¡Todo Listo!</h1>
-          <p className="text-gray-500 dark:text-slate-400 font-medium mb-8">El checklist de manager ha sido registrado correctamente.</p>
+          <h1 className="text-4xl font-black text-gray-900 dark:text-white mb-2">{t('checklists.success.manager_title')}</h1>
+          <p className="text-gray-500 dark:text-slate-400 font-medium mb-8">{t('checklists.success.manager_subtitle')}</p>
           <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-100 dark:shadow-none transition-transform active:scale-95">
-            Volver al Inicio
+            {t('checklists.success.back_home')}
           </button>
         </div>
       </div>
@@ -219,7 +221,7 @@ function ManagerChecklistContent() {
                 {template?.title || 'Manager Checklist'}
                 {isCached && (
                   <span className="bg-yellow-500/10 text-yellow-600 text-[10px] px-2 py-0.5 rounded-full border border-yellow-400/20 font-bold uppercase tracking-widest">
-                    Offline
+                    {t('checklists.form.offline')}
                   </span>
                 )}
               </h1>
@@ -237,23 +239,23 @@ function ManagerChecklistContent() {
         <form onSubmit={handleSubmit} className="space-y-8">
           <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Sucursal *</label>
+              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('checklists.form.store')} *</label>
               <select required value={formData.store_id} onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
                 className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
-                <option value="">Selecciona...</option>
+                <option value="">{t('checklists.form.select')}</option>
                 {stores.map(store => <option key={store.id} value={store.id}>{formatStoreName(store.name)}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Fecha y Turno *</label>
+              <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('checklists.form.date')} & {t('checklists.form.shift')} *</label>
               <div className="grid grid-cols-2 gap-3">
                 <input type="date" required value={formData.checklist_date}
                   onChange={(e) => setFormData({ ...formData, checklist_date: e.target.value })}
                   className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all" />
                 <select value={formData.shift} onChange={(e) => setFormData({ ...formData, shift: e.target.value as 'AM' | 'PM' })}
                   className="w-full p-3 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-700 rounded-xl font-bold text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all">
-                  <option value="AM">AM (Mañana)</option>
-                  <option value="PM">PM (Tarde)</option>
+                  <option value="AM">{t('checklists.form.shift_am')}</option>
+                  <option value="PM">{t('checklists.form.shift_pm')}</option>
                 </select>
               </div>
             </div>
@@ -286,16 +288,16 @@ function ManagerChecklistContent() {
           </div>
 
           <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm p-6 border border-gray-100 dark:border-slate-800 space-y-3">
-            <label className="text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-widest">Feedback General del Checklist</label>
+            <label className="text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-widest">{t('checklists.form.feedback_label')}</label>
             <textarea value={formData.comments} onChange={(e) => setFormData({ ...formData, comments: e.target.value })} rows={3}
               className="w-full p-4 bg-gray-50 dark:bg-slate-800 border-gray-100 dark:border-slate-800 rounded-2xl font-medium text-gray-700 dark:text-white outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/20 transition-all resize-none shadow-sm"
-              placeholder="Notas generales sobre la operación de hoy..." />
+              placeholder={t('checklists.form.feedback_placeholder')} />
           </div>
 
           <div className="pt-4">
             <button type="submit" disabled={loading}
               className="w-full bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-700 hover:to-violet-800 text-white font-black text-lg py-5 rounded-3xl shadow-xl shadow-indigo-100 dark:shadow-none transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3">
-              {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : 'Finalizar Checklist'}
+              {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : t('checklists.form.submit')}
             </button>
           </div>
         </form>

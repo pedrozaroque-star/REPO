@@ -1,5 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import { useLanguage } from '@/lib/i18n'
 
 interface ScoreGaugeProps {
     score: number
@@ -7,6 +8,7 @@ interface ScoreGaugeProps {
 }
 
 export function ScoreGauge({ score, size = 120 }: ScoreGaugeProps) {
+    const { t } = useLanguage()
     const radius = (size - 16) / 2
     const circumference = 2 * Math.PI * radius
     // Asegurar que el score esté entre 0 y 100 para evitar errores visuales
@@ -55,7 +57,7 @@ export function ScoreGauge({ score, size = 120 }: ScoreGaugeProps) {
                 >
                     {Math.round(clampedScore)}%
                 </motion.span>
-                <span className="text-xs text-gray-400 font-medium">Score</span>
+                <span className="text-xs text-gray-400 font-medium">{t('inspections.review.score')}</span>
             </div>
         </div>
     )

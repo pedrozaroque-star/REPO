@@ -63,7 +63,10 @@ const DAYS = [
     { key: 'sunday', label: 'Sunday' },
 ]
 
+import { useLanguage } from '@/lib/i18n'
+
 export default function ReportesPage() {
+    const { t, language } = useLanguage()
     const router = useRouter()
     const [loading, setLoading] = useState(false)
 
@@ -533,13 +536,13 @@ export default function ReportesPage() {
                     const totalMs = end.getTime() - start.getTime()
                     if (totalMs <= 0) return
 
-                    // AM Window: [BusinessDate 06:00, BusinessDate 17:00]
-                    const amStart = new Date(dateStr + 'T06:00:00')
+                    // AM Window: 06:01 AM to 05:00 PM
+                    const amStart = new Date(dateStr + 'T06:01:00')
                     const amEnd = new Date(dateStr + 'T17:00:00')
 
-                    // PM Window: [BusinessDate 17:00, BusinessDate+1 06:00]
+                    // PM Window: 05:00 PM to 05:59 AM (Next Day)
                     const pmStart = new Date(dateStr + 'T17:00:00')
-                    const pmEnd = new Date(amStart)
+                    const pmEnd = new Date(dateStr + 'T05:59:00')
                     pmEnd.setDate(pmEnd.getDate() + 1)
 
                     const intersect = (s1: Date, e1: Date, s2: Date, e2: Date) => {
@@ -900,9 +903,16 @@ export default function ReportesPage() {
             const startStr = startOfMonth.toISOString().split('T')[0]
             const endStr = endOfMonth.toISOString().split('T')[0]
 
-            const res = await fetch(`/api/ventas/autofill?storeId=${selectedStore}&start=${startStr}&end=${endStr}`)
+            const res = await fetch(`/api/ventas/autofill?storeId=${selectedStore}&start=${startStr}&end=${endStr}&t=${Date.now()}`)
             const json = await res.json()
             if (json.error) throw new Error(json.error)
+
+            // DEBUG: Check what we actually got
+            if (json.debug) {
+                alert(`DEBUG INFO:\nRows: ${json.debug.rowsFetched}\nErr: ${json.debug.connectionError}\nRange: ${json.debug.period}`)
+            }
+
+            const firstKey = Object.keys(json.data)[0]
 
             // Merge
             setMonthlyData(prev => {
@@ -913,6 +923,7 @@ export default function ReportesPage() {
 
                     // Helper: Format
                     const fmt = (val: any, pre: string = '') => {
+                        if (val === undefined || val === null) return 'ERR' // Debugging indicator
                         const n = parseFloat(val)
                         if (isNaN(n)) return ''
                         // Show 0.00 to indicate successful fetch
@@ -1050,7 +1061,7 @@ export default function ReportesPage() {
             end.setDate(start.getDate() + 6)
             const endStr = end.toISOString().split('T')[0]
 
-            const res = await fetch(`/api/ventas/autofill?storeId=${selectedStore}&start=${weekDate}&end=${endStr}`)
+            const res = await fetch(`/api/ventas/autofill?storeId=${selectedStore}&start=${weekDate}&end=${endStr}&t=${Date.now()}`)
             const json = await res.json()
 
             if (json.error) throw new Error(json.error)
@@ -1189,6 +1200,59 @@ export default function ReportesPage() {
     // I will cancel this replace and view the render logic first.
 
 
+    // --- TRANSLATION HELPERS ---
+    const getRowLabel = (rowId: string, fallback: string) => {
+        const map: Record<string, string> = {
+            section_sales: 'sales_header',
+            projected_sales: 'proj_sales',
+            actual_sales: 'act_sales',
+            diff_sales: 'diff_sales',
+            section_hours: 'hours_header',
+            scheduled_hours: 'sched_hours',
+            actual_hours: 'act_hours',
+            diff_hours: 'diff_hours',
+            overtime_hours: 'ot_hours',
+            section_kpi: 'kpi_header',
+            target_avg_order: 'target_avg',
+            actual_avg_order: 'act_avg',
+            diff_avg_order: 'diff_avg',
+            section_labor: 'labor_header',
+            projected_labor: 'proj_labor',
+            actual_labor: 'act_labor',
+            diff_labor: 'diff_labor',
+            section_ops: 'ops_header',
+            daily_cars: 'daily_cars',
+            sos_time: 'sos_time',
+            morning_leader: 'morning_leader',
+            late_leader: 'late_leader'
+        }
+        const key = map[rowId]
+        return key ? t(`sales.reports_page.structure.${key}`) : fallback
+    }
+
+    const getMonthlyLabel = (colId: string, fallback: string) => {
+        const map: Record<string, string> = {
+            date: 'date',
+            actual_sales: 'sale',
+            open_sales: 'open',
+            close_sales: 'close',
+            actual_avg_order: 'order',
+            uber_post: 'uber',
+            doordash: 'doordash',
+            grubhub: 'grubhub',
+            ebt: 'ebt',
+            daily_cars: 'cars',
+            sos_time: 'time',
+            week_sales: 'week_sales'
+        }
+        const key = map[colId]
+        return key ? t(`sales.reports_page.monthly_cols.${key}`) : fallback
+    }
+
+    const getDayLabel = (key: string) => {
+        return t(`sales.reports_page.days.${key.toLowerCase()}`)
+    }
+
     const calculateWeekTotal = (rowId: string, type: string) => {
         if (type === 'text' || type === 'time' || type === 'header') return ''
         let sum = 0
@@ -1247,7 +1311,7 @@ export default function ReportesPage() {
                             </div>
                             <div>
                                 <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-                                    {activeTab === 'ops' ? 'Weekly Operations Report' : 'Week Labor Log'}
+                                    {activeTab === 'ops' ? t('sales.reports_page.title') : t('sales.reports_page.tabs.labor')}
                                 </h1>
                                 <p className="text-xs text-slate-500">Edición Digital</p>
                             </div>
@@ -1259,19 +1323,19 @@ export default function ReportesPage() {
                                 onClick={() => setActiveTab('ops')}
                                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'ops' ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                Operations
+                                {t('sales.reports_page.tabs.ops')}
                             </button>
                             <button
                                 onClick={() => setActiveTab('labor')}
                                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'labor' ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                Labor Log
+                                {t('sales.reports_page.tabs.labor')}
                             </button>
                             <button
                                 onClick={() => setActiveTab('monthly')}
                                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'monthly' ? 'bg-white dark:bg-slate-800 text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                Monthly
+                                {t('sales.reports_page.tabs.monthly')}
                             </button>
                         </div>
 
@@ -1286,8 +1350,8 @@ export default function ReportesPage() {
                                     : 'bg-slate-100 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200'
                                     }`}
                             >
-                                <option value="" className="text-slate-500 bg-white">Seleccionar Tienda</option>
-                                <option value="all" className="bg-indigo-600 text-white font-black uppercase tracking-wider">🌟 TODAS LAS TIENDAS</option>
+                                <option value="" className="text-slate-500 bg-white">{t('sales.reports_page.controls.select_store')}</option>
+                                <option value="all" className="bg-indigo-600 text-white font-black uppercase tracking-wider">🌟 {t('sales.reports_page.controls.all_stores')}</option>
                                 {stores.map(s => <option key={s.id} value={s.id} className="text-slate-900 bg-white">{formatStoreName(s.name)}</option>)}
                             </select>
 
@@ -1353,13 +1417,13 @@ export default function ReportesPage() {
                                     }}
                                     defaultValue="custom"
                                 >
-                                    <option value="custom" disabled hidden>Select Range</option>
-                                    <option value="this_week">This Week</option>
-                                    <option value="last_7_days">Last 7 Days</option>
-                                    <option value="last_week">Last Week</option>
-                                    <option value="this_month">This Month</option>
-                                    <option value="last_month">Last Month</option>
-                                    <option value="custom">Custom Date</option>
+                                    <option value="custom" disabled hidden>{t('sales.select_dates')}</option>
+                                    <option value="this_week">{t('sales.this_week')}</option>
+                                    <option value="last_7_days">{t('sales.last_7')}</option>
+                                    <option value="last_week">{t('sales.last_week')}</option>
+                                    <option value="this_month">{t('sales.current_month')}</option>
+                                    <option value="last_month">{t('sales.last_month')}</option>
+                                    <option value="custom">{t('sales.custom_date')}</option>
                                 </select>
 
                                 <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1"></div>
@@ -1403,7 +1467,7 @@ export default function ReportesPage() {
                                     disabled={loading || !selectedStore || !weekDate}
                                     className="flex items-center gap-2 px-4 py-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-200 transition-colors disabled:opacity-50"
                                 >
-                                    <Calculator size={16} /> Actualizar Datos
+                                    <Calculator size={16} /> {t('sales.refresh')}
                                 </button>
                             </div>
                         )}
@@ -1422,7 +1486,7 @@ export default function ReportesPage() {
                                     disabled={loading || !selectedStore || !weekDate || selectedStore === 'all'}
                                     className="flex items-center gap-2 px-4 py-2 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-xl text-xs font-bold hover:bg-orange-200 transition-colors disabled:opacity-50"
                                 >
-                                    <Clock size={16} /> Sync Toast Month
+                                    <Clock size={16} /> Sync Toast
                                 </button>
                             </div>
                         )}
@@ -1443,7 +1507,7 @@ export default function ReportesPage() {
                                         <thead>
                                             <tr className="bg-slate-50 dark:bg-slate-800/50">
                                                 <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-wider border-r dark:border-slate-700 sticky left-0 bg-slate-50 dark:bg-slate-800 z-20 border-b border-slate-200 dark:border-slate-700">
-                                                    Concepto
+                                                    {t('sales.reports_page.concept')}
                                                 </th>
                                                 {DAYS.map((day, i) => {
                                                     const [y, m, dayNum] = weekDate.split('-').map(Number);
@@ -1459,7 +1523,7 @@ export default function ReportesPage() {
                                                     return (
                                                         <th key={day.key} className="px-4 py-4 text-center border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700 min-w-[120px]">
                                                             <span className="block text-[13px] font-bold text-slate-900 dark:text-white uppercase leading-tight font-sans">
-                                                                {day.label}
+                                                                {getDayLabel(day.key)}
                                                             </span>
                                                             <span className="text-[10px] text-slate-400 font-normal font-sans">
                                                                 {(`${d.getUTCMonth() + 1}`).padStart(2, '0')}/{(`${d.getUTCDate()}`).padStart(2, '0')}/{d.getUTCFullYear()}
@@ -1478,7 +1542,7 @@ export default function ReportesPage() {
                                                 })}
                                                 <th className="px-4 py-4 text-center bg-indigo-50/50 dark:bg-indigo-900/20 border-b border-slate-200 dark:border-slate-700">
                                                     <span className="block text-[13px] font-black text-indigo-600 dark:text-indigo-400 font-sans uppercase">
-                                                        Week Total
+                                                        {t('sales.reports_page.weekly_summary')}
                                                     </span>
                                                 </th>
                                             </tr>
@@ -1489,7 +1553,7 @@ export default function ReportesPage() {
                                                     return (
                                                         <tr key={row.id} className="bg-slate-100/50 dark:bg-white/5">
                                                             <td colSpan={DAYS.length + 2} className="px-6 py-1.5 text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
-                                                                {row.label}
+                                                                {getRowLabel(row.id, row.label)}
                                                             </td>
                                                         </tr>
                                                     )
@@ -1502,7 +1566,7 @@ export default function ReportesPage() {
                                                 return (
                                                     <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors group">
                                                         <td className="px-6 py-2 font-medium text-slate-700 dark:text-slate-300 border-r dark:border-slate-800 sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800 transition-colors z-10 border-b border-slate-100 dark:border-slate-800">
-                                                            {row.label}
+                                                            {getRowLabel(row.id, row.label)}
                                                         </td>
 
                                                         {DAYS.map(day => {
@@ -1573,7 +1637,7 @@ export default function ReportesPage() {
                                         return (
                                             <div key={day.key} className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
                                                 <div className="bg-slate-100 dark:bg-slate-800/50 px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                                                    <h3 className="font-black text-slate-700 dark:text-white uppercase">{day.label}</h3>
+                                                    <h3 className="font-black text-slate-700 dark:text-white uppercase">{getDayLabel(day.key)}</h3>
                                                     <span className="text-xs font-bold text-slate-400 bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">{dateLabel}</span>
                                                 </div>
                                                 <div className="p-0">
@@ -1581,7 +1645,7 @@ export default function ReportesPage() {
                                                         if (row.type === 'header') {
                                                             return (
                                                                 <div key={row.id} className="bg-indigo-50/50 dark:bg-indigo-900/10 px-4 py-1.5 text-[10px] font-black text-indigo-400 uppercase tracking-widest border-y border-indigo-100 dark:border-indigo-900/20 mt-2 first:mt-0">
-                                                                    {row.label}
+                                                                    {getRowLabel(row.id, row.label)}
                                                                 </div>
                                                             )
                                                         }
@@ -1613,7 +1677,7 @@ export default function ReportesPage() {
 
                                                         return (
                                                             <div key={row.id} className="flex justify-between items-center px-4 py-2 border-b border-slate-50 dark:border-slate-800/50 last:border-0 text-sm">
-                                                                <span className="text-slate-600 dark:text-slate-400 font-medium text-xs">{row.label}</span>
+                                                                <span className="text-slate-600 dark:text-slate-400 font-medium text-xs">{getRowLabel(row.id, row.label)}</span>
                                                                 <div className="font-semibold">{displayValue}</div>
                                                             </div>
                                                         )
@@ -1626,7 +1690,7 @@ export default function ReportesPage() {
                                     {/* WEEK TOTAL CARD */}
                                     <div className="bg-indigo-900 text-white rounded-xl shadow-lg border border-indigo-800 overflow-hidden mt-4">
                                         <div className="px-4 py-3 border-b border-indigo-800 bg-indigo-950/50">
-                                            <h3 className="font-black uppercase tracking-wider text-center">Resumen Semanal</h3>
+                                            <h3 className="font-black uppercase tracking-wider text-center">{t('sales.reports_page.weekly_summary')}</h3>
                                         </div>
                                         <div className="p-4 space-y-2">
                                             {REPORT_STRUCTURE.filter(r => r.type !== 'header').map(row => {
@@ -1634,7 +1698,7 @@ export default function ReportesPage() {
                                                 if (!totalString || totalString === '$0.00' || totalString === '0.00') return null
                                                 return (
                                                     <div key={row.id} className="flex justify-between items-center border-b border-indigo-800/50 last:border-0 pb-1 last:pb-0 text-sm">
-                                                        <span className="text-indigo-300 font-medium">{row.label}</span>
+                                                        <span className="text-indigo-300 font-medium">{getRowLabel(row.id, row.label)}</span>
                                                         <span className="font-bold">{totalString}</span>
                                                     </div>
                                                 )
@@ -1651,16 +1715,16 @@ export default function ReportesPage() {
                                         <thead>
                                             <tr className="bg-slate-50 dark:bg-slate-800/50">
                                                 <th className="px-6 py-6 text-left text-xs font-black text-slate-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
-                                                    Day
+                                                    {t('sales.reports_page.labor_table.day')}
                                                 </th>
                                                 <th className="px-6 py-6 text-center text-[13px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
-                                                    Morning (AM)
+                                                    {t('sales.reports_page.labor_table.morning')}
                                                 </th>
                                                 <th className="px-6 py-6 text-center text-[13px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider border-r dark:border-slate-700 border-b border-slate-200 dark:border-slate-700">
-                                                    Night (PM)
+                                                    {t('sales.reports_page.labor_table.night')}
                                                 </th>
                                                 <th className="px-6 py-6 text-center text-[13px] font-black text-slate-900 dark:text-white uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                                    Day Total
+                                                    {t('sales.reports_page.labor_table.total')}
                                                 </th>
                                             </tr>
                                         </thead>
@@ -1708,15 +1772,27 @@ export default function ReportesPage() {
                                         </tbody>
                                         <tfoot>
                                             {(() => {
-                                                const avgMorning = (laborLogData.reduce((a, b) => a + Number(b.morning), 0) / (laborLogData.length || 1))
-                                                const avgNight = (laborLogData.reduce((a, b) => a + Number(b.night), 0) / (laborLogData.length || 1))
-                                                const avgTotal = (laborLogData.reduce((a, b) => a + Number(b.total), 0) / (laborLogData.length || 1))
+                                                const validMorning = laborLogData.filter(d => Number(d.morning) > 0)
+                                                const validNight = laborLogData.filter(d => Number(d.night) > 0)
+                                                const validTotal = laborLogData.filter(d => Number(d.total) > 0)
+
+                                                const avgMorning = validMorning.length > 0
+                                                    ? (validMorning.reduce((a, b) => a + Number(b.morning), 0) / validMorning.length)
+                                                    : 0
+
+                                                const avgNight = validNight.length > 0
+                                                    ? (validNight.reduce((a, b) => a + Number(b.night), 0) / validNight.length)
+                                                    : 0
+
+                                                const avgTotal = validTotal.length > 0
+                                                    ? (validTotal.reduce((a, b) => a + Number(b.total), 0) / validTotal.length)
+                                                    : 0
                                                 const threshold = 21.5
 
                                                 return (
                                                     <tr className="bg-slate-50 dark:bg-slate-800/80">
                                                         <td className="px-6 py-6 font-black text-indigo-600 dark:text-indigo-400 uppercase text-xs border-r dark:border-slate-700">
-                                                            Week Total
+                                                            {t('sales.reports_page.weekly_summary')}
                                                         </td>
                                                         <td className="px-6 py-6 text-center text-lg font-black border-r dark:border-slate-700">
                                                             <span className={avgMorning > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-400'}>
@@ -1763,13 +1839,13 @@ export default function ReportesPage() {
 
                                                 <div className="grid grid-cols-2 gap-3">
                                                     <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-2 rounded-lg text-center">
-                                                        <span className="text-xs font-bold text-indigo-400 uppercase block mb-1">Morning</span>
+                                                        <span className="text-xs font-bold text-indigo-400 uppercase block mb-1">{t('sales.reports_page.labor_table.morning')}</span>
                                                         <span className={`text-lg font-bold ${mNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-600 dark:text-indigo-300'}`}>
                                                             {day.morning}%
                                                         </span>
                                                     </div>
                                                     <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-2 rounded-lg text-center">
-                                                        <span className="text-xs font-bold text-indigo-400 uppercase block mb-1">Night</span>
+                                                        <span className="text-xs font-bold text-indigo-400 uppercase block mb-1">{t('sales.reports_page.labor_table.night')}</span>
                                                         <span className={`text-lg font-bold ${nNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-indigo-600 dark:text-indigo-300'}`}>
                                                             {day.night}%
                                                         </span>
@@ -1782,25 +1858,37 @@ export default function ReportesPage() {
                                     {/* WEEK SUMMARY CARD */}
                                     <div className="bg-slate-800 text-white rounded-xl shadow-lg border border-slate-700 p-4 mt-2">
                                         {(() => {
-                                            const avgMorning = (laborLogData.reduce((a, b) => a + Number(b.morning), 0) / (laborLogData.length || 1))
-                                            const avgNight = (laborLogData.reduce((a, b) => a + Number(b.night), 0) / (laborLogData.length || 1))
-                                            const avgTotal = (laborLogData.reduce((a, b) => a + Number(b.total), 0) / (laborLogData.length || 1))
+                                            const validMorning = laborLogData.filter(d => Number(d.morning) > 0)
+                                            const validNight = laborLogData.filter(d => Number(d.night) > 0)
+                                            const validTotal = laborLogData.filter(d => Number(d.total) > 0)
+
+                                            const avgMorning = validMorning.length > 0
+                                                ? (validMorning.reduce((a, b) => a + Number(b.morning), 0) / validMorning.length)
+                                                : 0
+
+                                            const avgNight = validNight.length > 0
+                                                ? (validNight.reduce((a, b) => a + Number(b.night), 0) / validNight.length)
+                                                : 0
+
+                                            const avgTotal = validTotal.length > 0
+                                                ? (validTotal.reduce((a, b) => a + Number(b.total), 0) / validTotal.length)
+                                                : 0
                                             const threshold = 21.5
 
                                             return (
                                                 <div className="flex justify-between items-center text-center">
                                                     <div>
-                                                        <span className="text-xs text-slate-400 uppercase font-bold block">Avg Morning</span>
+                                                        <span className="text-xs text-slate-400 uppercase font-bold block">{t('sales.reports_page.labor_table.morning')}</span>
                                                         <span className={`font-bold text-lg ${avgMorning > threshold ? 'text-red-400' : 'text-indigo-200'}`}>{avgMorning.toFixed(2)}%</span>
                                                     </div>
                                                     <div className="w-[1px] h-8 bg-slate-600"></div>
                                                     <div>
-                                                        <span className="text-xs text-slate-400 uppercase font-bold block">Avg Night</span>
+                                                        <span className="text-xs text-slate-400 uppercase font-bold block">{t('sales.reports_page.labor_table.night')}</span>
                                                         <span className={`font-bold text-lg ${avgNight > threshold ? 'text-red-400' : 'text-indigo-200'}`}>{avgNight.toFixed(2)}%</span>
                                                     </div>
                                                     <div className="w-[1px] h-8 bg-slate-600"></div>
                                                     <div>
-                                                        <span className="text-xs text-slate-400 uppercase font-bold block">Week Total</span>
+                                                        <span className="text-xs text-slate-400 uppercase font-bold block">{t('sales.reports_page.weekly_summary')}</span>
                                                         <span className={`font-black text-xl ${avgTotal > threshold ? 'text-red-400' : 'text-white'}`}>{avgTotal.toFixed(2)}%</span>
                                                     </div>
                                                 </div>
@@ -1820,7 +1908,7 @@ export default function ReportesPage() {
                                             <tr className="bg-orange-100 dark:bg-orange-900/30">
                                                 {MONTHLY_STRUCTURE.map(col => (
                                                     <th key={col.id} className="p-3 text-center text-[10px] font-black text-orange-800 dark:text-orange-200 uppercase tracking-wider border border-orange-200 dark:border-orange-800/50" style={{ width: col.width }}>
-                                                        {col.label}
+                                                        {getMonthlyLabel(col.id, col.label)}
                                                     </th>
                                                 ))}
                                             </tr>
@@ -1830,9 +1918,11 @@ export default function ReportesPage() {
                                             {Object.keys(monthlyData).sort().map((dateKey, idx) => {
                                                 const row = monthlyData[dateKey]
                                                 // Format Date for display (MM/DD/YY)
-                                                // Format Date for display (MM/DD/YY)
+                                                // Format Date for display (MM/DD/YY) or (DD/MM/YY)
                                                 const [y, m, d] = dateKey.split('-')
-                                                const dateDisp = `${m}/${d}/${y.substring(2)}`
+                                                const dateDisp = language === 'es'
+                                                    ? `${d}/${m}/${y.substring(2)}`
+                                                    : `${m}/${d}/${y.substring(2)}`
                                                 const dayOfWeek = new Date(dateKey + 'T12:00:00').getDay()
                                                 const isSunday = dayOfWeek === 0 // 0 is Sunday
                                                 const isWeekend = dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0 // Fri, Sat, Sun
@@ -1894,7 +1984,9 @@ export default function ReportesPage() {
                                     {Object.keys(monthlyData).sort().map((dateKey, idx) => {
                                         const row = monthlyData[dateKey]
                                         const [y, m, d] = dateKey.split('-')
-                                        const dateDisp = `${m}/${d}/${y.substring(2)}`
+                                        const dateDisp = language === 'es'
+                                            ? `${d}/${m}/${y.substring(2)}`
+                                            : `${m}/${d}/${y.substring(2)}`
                                         const dateObj = new Date(dateKey + 'T12:00:00')
                                         const dayOfWeek = dateObj.toLocaleDateString('en-US', { weekday: 'short' })
                                         const isSunday = dateObj.getDay() === 0
@@ -1915,7 +2007,7 @@ export default function ReportesPage() {
 
                                                         return (
                                                             <div key={col.id} className="flex flex-col">
-                                                                <label className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 mb-0.5">{col.label}</label>
+                                                                <label className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 mb-0.5">{getMonthlyLabel(col.id, col.label)}</label>
                                                                 <input
                                                                     type="text"
                                                                     value={row[col.id] || ''}
@@ -1933,7 +2025,7 @@ export default function ReportesPage() {
 
                                     {/* MONTHLY SUMMARY CARD */}
                                     <div className="bg-orange-900 text-white rounded-xl shadow-lg border border-orange-800 p-4 mt-4">
-                                        <h3 className="font-black uppercase text-center mb-4 border-b border-orange-800 pb-2">Monthly Totals</h3>
+                                        <h3 className="font-black uppercase text-center mb-4 border-b border-orange-800 pb-2">{t('sales.reports_page.monthly_totals')}</h3>
                                         <div className="grid grid-cols-2 gap-4">
                                             {MONTHLY_STRUCTURE.slice(1).map(col => {
                                                 // Reuse Sum Logic
@@ -1955,7 +2047,7 @@ export default function ReportesPage() {
 
                                                 return (
                                                     <div key={col.id} className="flex justify-between items-center text-sm border-b border-orange-800/50 pb-1">
-                                                        <span className="text-orange-300 font-medium">{col.label}</span>
+                                                        <span className="text-orange-300 font-medium">{getMonthlyLabel(col.id, col.label)}</span>
                                                         <span className="font-bold">{disp}</span>
                                                     </div>
                                                 )
@@ -1968,7 +2060,7 @@ export default function ReportesPage() {
                     ) : (
                         <div className="h-96 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl bg-slate-50/50 dark:bg-slate-900/50">
                             <Store size={48} className="mb-4 text-slate-300" />
-                            <p className="font-medium">Selecciona una Tienda y la Semana para comenzar</p>
+                            <p className="font-medium">{t('sales.reports_page.controls.select_store')}</p>
                         </div>
                     )}
                 </div>

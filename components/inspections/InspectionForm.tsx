@@ -9,6 +9,7 @@ import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import { getSafeLADateISO } from '@/lib/checklistPermissions'
 import { getNumericValue } from '@/lib/scoreCalculator'
+import { useLanguage } from '@/lib/i18n'
 
 interface Store {
   id: string
@@ -20,6 +21,7 @@ interface Store {
 
 export default function InspectionForm({ user, initialData, stores }: { user: any, initialData?: any, stores: Store[] }) {
   const router = useRouter()
+  const { t } = useLanguage()
   const [loading, setLoading] = useState(false)
   const isSubmittingRef = useRef(false)
 
@@ -84,12 +86,47 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
       setAnswers(initialAnswers)
       setQuestionComments(initialComments)
 
+      // Fallback: If no answers found via section mapping, try flat mapping (Rescue Mode)
+      if (Object.keys(initialAnswers).length === 0 && initialData.answers) {
+        const rescueAnswers: { [key: string]: any } = {}
+        const rescueComments: { [key: string]: string } = {}
+
+        allQuestions.forEach((q: any) => {
+          let foundVal = undefined
+          let foundComment = ''
+
+          // Search in all sections of initialData.answers
+          Object.values(initialData.answers).forEach((section: any) => {
+            if (section?.items) {
+              Object.values(section.items).forEach((item: any) => {
+                // Match by Label roughly
+                if (item.label && item.label.includes(q.text.substring(0, 10))) {
+                  foundVal = item.score !== undefined ? item.score : item
+                  if (item.comment) foundComment = item.comment
+                }
+              })
+            }
+          })
+
+          if (foundVal !== undefined) {
+            console.log(`Rescue matched: ${q.text} -> ${foundVal}`)
+            rescueAnswers[q.id] = foundVal
+            if (foundComment) rescueComments[q.id] = foundComment
+          }
+        })
+
+        if (Object.keys(rescueAnswers).length > 0) {
+          setAnswers(rescueAnswers)
+          setQuestionComments(rescueComments)
+        }
+      }
+
       // Load photos from __question_photos if available
       if (initialData.answers['__question_photos']) {
         setQuestionPhotos(initialData.answers['__question_photos'])
       }
     }
-  }, [initialData, sections])
+  }, [initialData, sections, allQuestions])
 
   /* INSPECTOR SELFIE LOGIC */
   const [inspectorPhoto, setInspectorPhoto] = useState<string | null>(initialData?.inspector_photo_url || null)
@@ -134,7 +171,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         setInspectorPhoto(data.publicUrl)
       }
     } catch (error: any) {
-      alert('Error subiendo selfie: ' + error.message)
+      alert(t('inspections.form.evidence.missing'))
     } finally {
       setUploadingSelfie(false)
     }
@@ -191,7 +228,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   const handleBack = () => {
     if (completionStatus.answered > 0) {
-      if (confirm('⚠️ ¿Estás seguro de salir?\n\nPerderás todo el progreso de esta inspección no guardada.')) {
+      if (confirm(t('inspections.form.actions.back_confirm'))) {
         router.back()
       }
     } else {
@@ -232,10 +269,10 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     e.preventDefault()
     if (loading) return // BLOCK DOUBLE SUBMISSIONS
 
-    if (!user) return alert('Sesión expirada')
-    if (!formData.store_id) return alert('Selecciona una sucursal')
+    if (!user) return alert(t('inspections.form.alerts.session_expired'))
+    if (!formData.store_id) return alert(t('inspections.form.alerts.select_store'))
 
-    if (!inspectorPhoto) return alert('📸 Falta evidencia: Debes tomarte una selfie dentro de la tienda.')
+    if (!inspectorPhoto) return alert(t('inspections.form.evidence.missing'))
 
     // Validation
     const missingAnswers = allQuestions.filter(q => {
@@ -249,7 +286,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     })
 
     if (missingAnswers.length > 0) {
-      alert(`❌ Faltan ${missingAnswers.length} puntos por evaluar.`)
+      alert(t('inspections.form.alerts.missing_items').replace('{n}', missingAnswers.length.toString()))
       return
     }
 
@@ -409,7 +446,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     } catch (err: any) {
       clearInterval(progressInterval)
       console.error(err)
-      alert('Error guardando inspección: ' + err.message + '\n\nIntenta de nuevo.')
+      alert(t('inspections.form.alerts.error_saving') + ': ' + err.message)
       setLoading(false)
       setUploadProgress(0)
     }
@@ -432,8 +469,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
           </div>
 
           <div className="space-y-2">
-            <h2 className="text-2xl font-black text-gray-900 tracking-tight">Guardando Inspección...</h2>
-            <p className="text-gray-500 font-medium">Sincronizando fotos y evidencias con la nube.</p>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight">{t('inspections.form.alerts.saving')}</h2>
+            <p className="text-gray-500 font-medium">{t('inspections.form.alerts.syncing')}</p>
           </div>
 
           {/* Progress Bar Container */}
@@ -458,7 +495,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   const scoreBg = overall >= 87 ? 'bg-green-50 border-green-200' : overall >= 70 ? 'bg-orange-50 border-orange-200' : 'bg-red-50 border-red-200'
 
   const validateLocation = () => {
-    if (!formData.store_id) return alert('Primero selecciona una sucursal.')
+    if (!formData.store_id) return alert(t('inspections.form.alerts.select_store'))
 
     // Find selected store coordinates
     const selectedStore = stores.find(s => s.id.toString() === formData.store_id)
@@ -475,7 +512,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
     if (!navigator.geolocation) {
       setValidatingLocation(false)
-      return alert('Tu dispositivo no soporta geolocalización o está desactivada.')
+      return alert(t('inspections.form.alerts.location_error'))
     }
 
     navigator.geolocation.getCurrentPosition(
@@ -500,16 +537,16 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
           setLocationValidated(true)
           // alert(`✅ Ubicación validada! Estás a ${Math.round(distance)}m de la tienda.`)
         } else {
-          alert(`🚫 ESTÁS LEJOS DE LA TIENDA\n\nDistancia detectada: ${Math.round(distance)} metros.\nLímite permitido: 100 metros.\n\nAsegúrate de estar en el restaurante.`)
+          alert(`${t('inspections.form.alerts.location_far')}\n\nDistancia detectada: ${Math.round(distance)} metros.\nLímite permitido: 100 metros.\n\nAsegúrate de estar en el restaurante.`)
         }
       },
       (error) => {
         setValidatingLocation(false)
         console.error(error)
-        let msg = 'Error obteniendo ubicación.'
+        let msg = t('inspections.form.alerts.location_error')
         if (error.code === 1) msg = 'Permiso de ubicación denegado. Actívalo en tu navegador.'
         else if (error.code === 2) msg = 'Ubicación no disponible (GPS débil).'
-        else if (error.code === 3) msg = 'Tiempo de espera agotado obteniendo GPS.'
+        else if (error.code === 3) msg = t('inspections.form.alerts.gps_timeout')
         alert(msg)
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -531,7 +568,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
               <ArrowLeft size={20} />
             </button>
             <div>
-              <h1 className="text-sm font-black text-gray-900 tracking-tight leading-none">Supervisión</h1>
+              <h1 className="text-sm font-black text-gray-900 tracking-tight leading-none">{t('inspections.form.supervision_header')}</h1>
               <div className="text-[11px] items-center gap-1 font-bold text-gray-500 uppercase hidden sm:flex">
                 <Store size={12} /> {formatStoreName(stores.find(s => s.id.toString() === formData.store_id)?.name) || 'Selecciona...'}
               </div>
@@ -541,7 +578,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
           {/* Progress Pill */}
           <div className="flex items-center gap-3 pr-1">
             <div className="text-right hidden sm:block">
-              <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">PUNTAJE</div>
+              <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('inspections.review.score').toUpperCase()}</div>
             </div>
             <div className={`px-4 py-1.5 rounded-full font-black text-lg shadow-sm border ${scoreBg} ${scoreColor}`}>
               {overall}%
@@ -560,39 +597,39 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] text-center relative overflow-hidden group border border-gray-100 ring-1 ring-black/5">
           <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600" />
 
-          <h2 className="text-2xl font-black text-gray-900 mb-6 tracking-tight">Configuración de Visita</h2>
+          <h2 className="text-2xl font-black text-gray-900 mb-6 tracking-tight">{t('inspections.form.title')}</h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-blue-50 group/field text-left border border-gray-200 hover:border-blue-200">
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-blue-700">Sucursal</label>
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-blue-700">{t('inspections.form.fields.store')}</label>
               <select
                 value={formData.store_id} onChange={e => setFormData({ ...formData, store_id: e.target.value })}
                 className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg cursor-pointer"
               >
-                <option value="">Seleccionar...</option>
+                <option value="">{t('inspections.form.fields.select_placeholder')}</option>
                 {stores.map(s => <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>)}
               </select>
             </div>
 
             <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-purple-50 group/field text-left border border-gray-200 hover:border-purple-200">
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-purple-700">Turno</label>
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-purple-700">{t('inspections.form.fields.shift')}</label>
               <select
                 value={formData.shift} onChange={e => setFormData({ ...formData, shift: e.target.value })}
                 className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg cursor-pointer"
               >
-                <option value="AM">Mañana (AM)</option>
-                <option value="PM">Tarde (PM)</option>
+                <option value="AM">{t('inspections.form.fields.morning')}</option>
+                <option value="PM">{t('inspections.form.fields.afternoon')}</option>
               </select>
             </div>
 
             <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-pink-50 group/field text-left border border-gray-200 hover:border-pink-200">
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-pink-700">Fecha</label>
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-pink-700">{t('inspections.form.fields.date')}</label>
               <input type="date" value={formData.inspection_date} onChange={e => setFormData({ ...formData, inspection_date: e.target.value })}
                 className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg" />
             </div>
 
             <div className="bg-gray-50 rounded-2xl p-4 transition-colors hover:bg-orange-50 group/field text-left border border-gray-200 hover:border-orange-200">
-              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-orange-700">Hora</label>
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block group-hover/field:text-orange-700">{t('inspections.form.fields.time')}</label>
               <input type="time" value={formData.inspection_time} onChange={e => setFormData({ ...formData, inspection_time: e.target.value })}
                 className="w-full bg-transparent font-bold text-gray-900 outline-none text-lg" />
             </div>
@@ -605,9 +642,9 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
           <h3 className="text-indigo-900 font-black text-lg mb-2 flex items-center justify-center gap-2 tracking-tight">
             <Camera className="w-5 h-5 text-indigo-500" />
-            EVIDENCIA DE VISITA
+            {t('inspections.form.evidence.title')}
           </h3>
-          <p className="text-xs font-medium text-indigo-400 uppercase tracking-wider mb-6">Firma Digital Visual</p>
+          <p className="text-xs font-medium text-indigo-400 uppercase tracking-wider mb-6">{t('inspections.form.evidence.subtitle')}</p>
 
           <div className="flex justify-center">
             {inspectorPhoto ? (
@@ -628,15 +665,15 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                 {uploadingSelfie ? (
                   <div className="flex flex-col items-center gap-2">
                     <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-xs font-bold text-indigo-400">Subiendo...</span>
+                    <span className="text-xs font-bold text-indigo-400">{t('inspections.form.evidence.uploading')}</span>
                   </div>
                 ) : (
                   <>
                     <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                       <CameraOff size={24} className="text-indigo-400 group-hover:text-indigo-600" />
                     </div>
-                    <span className="text-xs font-black text-indigo-900 group-hover:text-indigo-700 uppercase tracking-wide">Tomar Selfie</span>
-                    <span className="text-[10px] text-indigo-400 mt-1 px-4 text-center leading-tight">Obligatorio dentro de tienda</span>
+                    <span className="text-xs font-black text-indigo-900 group-hover:text-indigo-700 uppercase tracking-wide">{t('inspections.form.evidence.take_selfie')}</span>
+                    <span className="text-[10px] text-indigo-400 mt-1 px-4 text-center leading-tight">{t('inspections.form.evidence.mandatory')}</span>
                   </>
                 )}
 
@@ -690,13 +727,13 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
           {/* Final Observations */}
           <div className="bg-white/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 text-center shadow-sm">
-            <h3 className="font-bold text-yellow-700 uppercase tracking-widest text-sm mb-4">Notas Finales</h3>
+            <h3 className="font-bold text-yellow-700 uppercase tracking-widest text-sm mb-4">{t('inspections.form.final_notes.title')}</h3>
             <textarea
               value={formData.observaciones}
               onChange={e => setFormData({ ...formData, observaciones: e.target.value })}
               rows={4}
               className="w-full bg-gray-50 rounded-2xl p-4 border border-yellow-200 shadow-inner outline-none focus:ring-4 focus:ring-yellow-100 focus:border-yellow-400 transition-all font-medium text-gray-900 resize-none placeholder:text-gray-400"
-              placeholder="Escribe comentarios adicionales..."
+              placeholder={t('inspections.form.final_notes.placeholder')}
             />
           </div>
         </form>
@@ -715,7 +752,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
           >
             {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> :
               <>
-                <span>FINALIZAR INSPECCIÓN</span>
+                <span>{t('inspections.form.actions.finish')}</span>
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
                   <Send size={14} />
                 </div>
@@ -738,8 +775,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             ) : completionStatus.percent < 95 ? (
               <>
                 <div className="flex flex-col items-start leading-tight">
-                  <span className="text-xs font-bold uppercase tracking-wider opacity-70">Completa el 95%</span>
-                  <span className="text-sm font-black text-gray-600">Avance: {completionStatus.percent}%</span>
+                  <span className="text-xs font-bold uppercase tracking-wider opacity-70">{t('inspections.form.actions.complete_requirement')}</span>
+                  <span className="text-sm font-black text-gray-600">{t('inspections.form.actions.progress')}: {completionStatus.percent}%</span>
                 </div>
                 <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-400">
                   <span className="text-[10px] font-bold">{completionStatus.answered}/{completionStatus.total}</span>
@@ -747,7 +784,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
               </>
             ) : (
               <>
-                <span>VALIDAR UBICACIÓN</span>
+                <span>{t('inspections.form.actions.validate_location')}</span>
                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
                   <MapPin size={16} />
                 </div>

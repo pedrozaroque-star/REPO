@@ -9,9 +9,12 @@ import { supabase } from '@/lib/supabase'
 import { canEditChecklist } from '@/lib/checklistPermissions'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
+import { useLanguage } from '@/lib/i18n'
+
 function EditarInspeccionContent() {
   const { id } = useParams()
   const router = useRouter()
+  const { t } = useLanguage()
   const { user } = useAuth()
   const [inspection, setInspection] = useState<any>(null)
   const [stores, setStores] = useState<any[]>([])
@@ -68,13 +71,13 @@ function EditarInspeccionContent() {
     <div className="flex h-screen items-center justify-center flex-col">
       <div className="bg-white p-8 rounded-xl shadow-lg text-center max-w-md">
         <div className="text-5xl mb-4">⛔</div>
-        <h2 className="text-2xl font-bold text-red-600 mb-2">No puedes editar esto</h2>
+        <h2 className="text-2xl font-bold text-red-600 mb-2">{t('inspections.edit.error_title')}</h2>
         <p className="text-gray-600 mb-6">{error}</p>
         <button
           onClick={() => router.push('/inspecciones')}
           className="bg-gray-900 text-white px-6 py-2 rounded-lg hover:bg-black transition-colors"
         >
-          Volver a Inspecciones
+          {t('inspections.edit.error_back')}
         </button>
       </div>
     </div>

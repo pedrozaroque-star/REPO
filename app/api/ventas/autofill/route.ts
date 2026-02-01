@@ -3,6 +3,7 @@ import { fetchToastData } from '@/lib/toast-api'
 import { getSupabaseClient } from '@/lib/supabase'
 
 export async function GET(request: Request) {
+    // FORCE REBUILD 1 
     const { searchParams } = new URL(request.url)
     const storeId = searchParams.get('storeId')
     const start = searchParams.get('start') // YYYY-MM-DD (Monday)
@@ -22,7 +23,8 @@ export async function GET(request: Request) {
             storeIds: storeId,
             startDate: start,
             endDate: end,
-            groupBy: 'day'
+            groupBy: 'day',
+            skipCache: true // Force fresh fetch to get hourly details
         })
 
         if (connectionError && rows.length === 0) {
@@ -59,26 +61,37 @@ export async function GET(request: Request) {
                 // ebt_amount: (row.ebtAmount || 0).toFixed(2), // Available if needed
 
                 open_sales: (() => {
-                    // Find first non-zero hour
-                    const hours = row.hourlySales || {}
-                    for (let h = 0; h < 24; h++) {
-                        if (hours[h] > 0) return hours[h].toFixed(2)
+                    const order = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
+                    for (const h of order) {
+                        const val = row.hourlySales?.[h] || 0
+                        if (val > 0) return val.toFixed(2)
                     }
                     return '0.00'
                 })(),
 
                 close_sales: (() => {
-                    // Find last non-zero hour (search backwards)
-                    const hours = row.hourlySales || {}
-                    for (let h = 23; h >= 0; h--) {
-                        if (hours[h] > 0) return hours[h].toFixed(2)
+                    const order = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
+                    // Search backwards
+                    for (let i = order.length - 1; i >= 0; i--) {
+                        const h = order[i]
+                        const val = row.hourlySales?.[h] || 0
+                        if (val > 0) return val.toFixed(2)
                     }
                     return '0.00'
                 })()
             }
         })
 
-        return NextResponse.json({ data: dailyData })
+        return NextResponse.json({
+            data: dailyData,
+            debug: {
+                receivedStoreId: storeId,
+                period: `${start} to ${end}`,
+                rowsFetched: rows.length,
+                connectionError: connectionError || 'None',
+                sampleRow: rows.length > 0 ? rows[0] : 'N/A'
+            }
+        })
 
     } catch (e: any) {
         console.error("Auto-Fill Error:", e)

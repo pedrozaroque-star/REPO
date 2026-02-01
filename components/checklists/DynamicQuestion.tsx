@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Video, Upload, MessageSquare } from 'lucide-react'
 import { uploadPhotos } from '@/lib/uploadPhotos'
 import { compressImage } from '@/lib/image-compression'
+import { useLanguage } from '@/lib/i18n'
 
 interface QuestionProps {
     question: {
@@ -38,6 +39,7 @@ const isVideo = (url: string) => {
 }
 
 export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType, comment, onCommentChange }: QuestionProps) {
+    const { t } = useLanguage()
     const [uploading, setUploading] = useState(false)
 
     // Separate refs for distinct Android intents
@@ -58,7 +60,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
             onPhotosChange([...photos, ...urls])
         } catch (err) {
             console.error('Upload failed:', err)
-            alert('Error al subir archivo')
+            alert(t('inspections.form.dynamic.upload_error'))
         } finally {
             setUploading(false)
             // Reset all inputs
@@ -89,7 +91,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                                     : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:border-green-200 dark:hover:border-green-900 hover:text-green-600 dark:hover:text-green-400'
                                     }`}
                             >
-                                {opt === 'SI' ? 'SÍ' : opt === 'NO' ? 'NO' : 'N/A'}
+                                {opt === 'SI' ? t('inspections.form.dynamic.yes') : opt === 'NO' ? t('inspections.form.dynamic.no') : t('inspections.form.dynamic.na')}
                             </button>
                         ))}
                     </div>
@@ -135,7 +137,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                     <textarea
                         value={value || ''}
                         onChange={(e) => onChange(e.target.value)}
-                        placeholder="Escribe tus observaciones aquí..."
+                        placeholder={t('inspections.form.dynamic.placeholder_text')}
                         className="w-full p-4 bg-gray-50 dark:bg-slate-800/50 border-2 border-transparent focus:bg-white dark:focus:bg-slate-800/80 focus:border-blue-500 dark:focus:border-blue-600 rounded-xl outline-none text-gray-900 dark:text-white font-medium placeholder:text-gray-400 dark:placeholder:text-slate-500 transition-all min-h-[100px] resize-none text-sm"
                     />
                 )
@@ -157,7 +159,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         />
                         {isOverLimit && (
                             <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-red-600 font-bold text-[10px] animate-pulse">
-                                ⚠️ {'>'} 2 Lbs
+                                {t('inspections.form.dynamic.over_limit')}
                             </div>
                         )}
                     </div>
@@ -169,7 +171,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-2 shadow-sm">
                             <ImageIcon size={18} />
                         </div>
-                        <p className="text-[10px] font-black uppercase tracking-widest">Foto Requerida</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest">{t('inspections.form.dynamic.photo_required').toUpperCase()}</p>
                     </div>
                 )
 
@@ -178,9 +180,9 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                 return (
                     <div className="flex gap-2 w-full">
                         {[
-                            { label: 'SÍ', val: 100, color: 'bg-green-500', text: 'text-green-600 dark:text-green-400', border: 'border-green-200 dark:border-green-900/40', bg: 'bg-green-50 dark:bg-green-900/20' },
+                            { label: t('inspections.form.dynamic.yes'), val: 100, color: 'bg-green-500', text: 'text-green-600 dark:text-green-400', border: 'border-green-200 dark:border-green-900/40', bg: 'bg-green-50 dark:bg-green-900/20' },
                             { label: 'REGULAR', val: 60, color: 'bg-orange-500', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-900/40', bg: 'bg-orange-50 dark:bg-orange-900/20' },
-                            { label: 'NO', val: 0, color: 'bg-red-500', text: 'text-red-600 dark:text-red-400', border: 'border-red-200 dark:border-red-900/40', bg: 'bg-red-50 dark:bg-red-900/20' }
+                            { label: t('inspections.form.dynamic.no'), val: 0, color: 'bg-red-500', text: 'text-red-600 dark:text-red-400', border: 'border-red-200 dark:border-red-900/40', bg: 'bg-red-50 dark:bg-red-900/20' }
                         ].map(opt => {
                             const isSelected = value === opt.val
                             return (
@@ -238,14 +240,14 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                             {question.text}
                             {isNew(question.created_at) && (
                                 <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-100 dark:bg-indigo-900/30 text-blue-700 dark:text-indigo-400 text-[9px] uppercase font-black rounded-full border border-blue-200 dark:border-indigo-900/50 align-middle">
-                                    <Sparkles size={8} /> NEW <span className="text-blue-500 dark:text-indigo-500 font-medium normal-case tracking-normal ml-0.5">({new Date(question.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                    <Sparkles size={8} /> {t('inspections.form.dynamic.new_badge')} <span className="text-blue-500 dark:text-indigo-500 font-medium normal-case tracking-normal ml-0.5">({new Date(question.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
                                 </span>
                             )}
                         </h4>
 
                         {question.required_photo && (
                             <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-[10px] font-bold uppercase tracking-wider border border-red-100 dark:border-red-900/30">
-                                <Camera size={10} strokeWidth={2.5} /> Foto
+                                <Camera size={10} strokeWidth={2.5} /> {t('inspections.form.dynamic.photo_label')}
                             </div>
                         )}
                     </div>
@@ -279,7 +281,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
                     >
                         <Camera size={18} />
-                        <span className="text-[8px] font-black uppercase">Foto</span>
+                        <span className="text-[8px] font-black uppercase">{t('inspections.form.dynamic.photo_label')}</span>
                     </button>
                     <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*" capture="environment" multiple />
 
@@ -289,7 +291,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
                     >
                         <Video size={18} />
-                        <span className="text-[8px] font-black uppercase">Video</span>
+                        <span className="text-[8px] font-black uppercase">{t('inspections.form.dynamic.video_label')}</span>
                     </button>
                     <input type="file" ref={videoInputRef} onChange={handlePhotoUpload} className="hidden" accept="video/*" capture="environment" multiple />
 
@@ -303,7 +305,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                             type="text"
                             value={comment || ''}
                             onChange={(e) => onCommentChange(e.target.value)}
-                            placeholder="Agregar comentario..."
+                            placeholder={t('inspections.form.dynamic.add_comment')}
                             className="w-full pl-9 pr-3 py-2.5 bg-gray-50/50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 rounded-xl text-xs font-medium text-gray-700 dark:text-slate-300 placeholder:text-gray-400 dark:placeholder:text-slate-500 border border-transparent focus:border-blue-300 dark:focus:border-blue-700 outline-none transition-all"
                         />
                         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">

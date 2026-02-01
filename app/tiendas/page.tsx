@@ -5,8 +5,10 @@ import { Store, MapPin, Search, Plus, X, Save, Trash2, Edit } from 'lucide-react
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useLanguage } from '@/lib/i18n'
 
 export default function TiendasPage() {
+  const { t } = useLanguage()
   const [stores, setStores] = useState<any[]>([])
   const [storesWithStats, setStoresWithStats] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -151,7 +153,7 @@ export default function TiendasPage() {
               <div className="w-8 h-8 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600 dark:text-orange-400">
                 <Store size={18} />
               </div>
-              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Sucursales</h1>
+              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">{t('tiendas.title')}</h1>
             </div>
 
             <button
@@ -159,7 +161,7 @@ export default function TiendasPage() {
               className="px-4 py-1.5 rounded-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-gray-200 dark:shadow-none font-bold text-xs uppercase tracking-wide"
             >
               <Plus size={16} strokeWidth={3} />
-              <span className="hidden md:inline">NUEVA TIENDA</span>
+              <span className="hidden md:inline">{t('tiendas.new_store')}</span>
             </button>
           </div>
         </div>
@@ -172,7 +174,7 @@ export default function TiendasPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors" size={18} />
             <input
               type="text"
-              placeholder="Buscar por nombre, código, ciudad..."
+              placeholder={t('tiendas.search_placeholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 rounded-2xl bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm border border-gray-100 dark:border-slate-800 outline-none focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500/50 text-base font-bold text-gray-900 dark:text-white transition-all shadow-sm"
@@ -182,11 +184,11 @@ export default function TiendasPage() {
           {/* Stats Summary */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Total</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">{t('tiendas.total')}</p>
               <p className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white">{stores.length}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-2xl shadow-sm p-4 border border-gray-100 dark:border-slate-800">
-              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Activas</p>
+              <p className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">{t('tiendas.active')}</p>
               <p className="text-2xl md:text-3xl font-black text-green-600 dark:text-green-500">{stores.filter(s => s.is_active).length}</p>
             </div>
           </div>
@@ -229,7 +231,7 @@ export default function TiendasPage() {
                     <div className="mb-6 bg-gray-50/50 dark:bg-slate-800/50 rounded-2xl p-4 flex items-center gap-3 border border-gray-100/50 dark:border-slate-800/50">
                       <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 flex items-center justify-center text-lg shadow-sm border border-gray-100 dark:border-slate-700">👮‍♂️</div>
                       <div className="min-w-0">
-                        <p className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Supervisor</p>
+                        <p className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('tiendas.supervisor_label')}</p>
                         <p className="text-sm font-black text-gray-800 dark:text-slate-200 truncate">{store.supervisor_name}</p>
                       </div>
                     </div>
@@ -242,22 +244,22 @@ export default function TiendasPage() {
                         ? 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400'
                         : 'bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:shadow-lg active:scale-95'}`}
                     >
-                      {selectedStore?.id === store.id ? 'OCULTAR DETALLES' : 'VER DETALLES'}
+                      {selectedStore?.id === store.id ? t('tiendas.hide_details') : t('tiendas.view_details')}
                     </button>
                   </div>
 
                   {selectedStore?.id === store.id && (
                     <div className="mt-4 pt-4 border-t border-dashed border-gray-200 dark:border-slate-800 space-y-3">
                       <div className="flex justify-between items-start">
-                        <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">Dirección</span>
+                        <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wider mt-0.5">{t('tiendas.address')}</span>
                         <span className="text-xs font-bold text-gray-800 dark:text-slate-200 text-right max-w-[70%]">{store.address}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wider">Teléfono</span>
+                        <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('tiendas.phone')}</span>
                         <span className="text-xs font-bold text-gray-800 dark:text-slate-200">{store.phone || 'N/A'}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wider">Horario</span>
+                        <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('tiendas.hours')}</span>
                         <span className="text-xs font-bold text-gray-800 dark:text-slate-200">{store.hours || 'N/A'}</span>
                       </div>
                     </div>
@@ -270,8 +272,8 @@ export default function TiendasPage() {
           {filteredStores.length === 0 && (
             <div className="text-center py-20 opacity-50">
               <Store size={64} className="mx-auto text-gray-300 dark:text-slate-700 mb-4" />
-              <p className="text-gray-900 dark:text-white font-black uppercase tracking-widest leading-none">No se encontraron tiendas</p>
-              <p className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest mt-2 font-mono">Prueba con otro término</p>
+              <p className="text-gray-900 dark:text-white font-black uppercase tracking-widest leading-none">{t('tiendas.empty_title')}</p>
+              <p className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest mt-2 font-mono">{t('tiendas.empty_subtitle')}</p>
             </div>
           )}
         </div>
@@ -297,7 +299,7 @@ export default function TiendasPage() {
               <div className="p-8 overflow-y-auto no-scrollbar">
                 <div className="flex justify-between items-center mb-8">
                   <h2 className="text-2xl font-black text-gray-900 dark:text-white tracking-tighter uppercase">
-                    {editingStore?.id ? 'Editar Sucursal' : 'Nueva Sucursal'}
+                    {editingStore?.id ? t('tiendas.modal.edit_title') : t('tiendas.modal.create_title')}
                   </h2>
                   <button onClick={() => setIsEditing(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors">
                     <X size={24} className="text-gray-400" />
@@ -307,7 +309,7 @@ export default function TiendasPage() {
                 <form onSubmit={handleSave} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Nombre</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.name')}</label>
                       <input
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.name}
@@ -317,7 +319,7 @@ export default function TiendasPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Código</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.code')}</label>
                       <input
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.code}
@@ -327,7 +329,7 @@ export default function TiendasPage() {
                       />
                     </div>
                     <div className="space-y-1.5 md:col-span-2">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Dirección</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.address')}</label>
                       <textarea
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20 resize-none"
                         value={editingStore.address}
@@ -337,7 +339,7 @@ export default function TiendasPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Ciudad</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.city')}</label>
                       <input
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.city}
@@ -346,7 +348,7 @@ export default function TiendasPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Estado</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.state')}</label>
                       <input
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.state}
@@ -355,7 +357,7 @@ export default function TiendasPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Teléfono</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.phone')}</label>
                       <input
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.phone}
@@ -364,7 +366,7 @@ export default function TiendasPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Supervisor</label>
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.supervisor')}</label>
                       <input
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.supervisor_name}
@@ -380,14 +382,14 @@ export default function TiendasPage() {
                       onClick={() => setIsEditing(false)}
                       className="flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 transition-all font-mono"
                     >
-                      Cancelar
+                      {t('tiendas.modal.cancel')}
                     </button>
                     <button
                       type="submit"
                       disabled={saving}
                       className="flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest bg-orange-600 text-white hover:bg-orange-700 shadow-lg shadow-orange-200/50 dark:shadow-none transition-all active:scale-95 disabled:opacity-50"
                     >
-                      {saving ? 'GUARDANDO...' : 'GUARDAR CAMBIOS'}
+                      {saving ? t('tiendas.modal.saving') : t('tiendas.modal.save')}
                     </button>
                   </div>
                 </form>

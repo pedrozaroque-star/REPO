@@ -8,7 +8,10 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 import { formatStoreName } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute' // 🔒 SECURITY IMPORT
 
+import { useLanguage } from '@/lib/i18n'
+
 function HistoryPageContent() {
+    const { t, language } = useLanguage()
     const router = useRouter()
     const currentYear = new Date().getFullYear()
     const [year, setYear] = useState(currentYear)
@@ -18,7 +21,7 @@ function HistoryPageContent() {
     const [monthTotals, setMonthTotals] = useState<number[]>(Array(12).fill(0))
     const [grandTotal, setGrandTotal] = useState(0)
 
-    const months = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC']
+    const months = language === 'es' ? ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'] : ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
     const [years, setYears] = useState<number[]>([new Date().getFullYear()])
 
     useEffect(() => {
@@ -127,10 +130,10 @@ function HistoryPageContent() {
                         <div>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
                                 <Award className="text-yellow-500 fill-yellow-500/20" />
-                                Historial Anual
+                                {t('sales.history_page.title')}
                             </h1>
                             <p className="text-slate-500 dark:text-slate-400 font-medium">
-                                Matriz de rendimiento mensual
+                                {t('sales.history_page.subtitle')}
                             </p>
                         </div>
                     </div>
@@ -165,7 +168,7 @@ function HistoryPageContent() {
                 {loading ? (
                     <div className="h-96 flex flex-col items-center justify-center">
                         <SurpriseLoader />
-                        <p className="mt-4 text-slate-400 animate-pulse">Consultando Archivos Históricos...</p>
+                        <p className="mt-4 text-slate-400 animate-pulse">{t('sales.history_page.loading')}</p>
                     </div>
                 ) : (
                     <>
@@ -173,11 +176,11 @@ function HistoryPageContent() {
                             <div className="flex gap-8 text-lg md:text-xl font-bold text-slate-700 dark:text-slate-300 justify-end items-center mb-4 px-2">
                                 <div className="flex items-center gap-3">
                                     <span className="w-6 h-6 bg-emerald-100 dark:bg-emerald-900/40 border-2 border-emerald-500 rounded-full shadow-sm"></span>
-                                    <span>Mejor Mes</span>
+                                    <span>{t('sales.history_page.best_month')}</span>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <span className="w-6 h-6 bg-rose-100 dark:bg-rose-900/40 border-2 border-rose-500 rounded-full shadow-sm"></span>
-                                    <span>Peor Mes</span>
+                                    <span>{t('sales.history_page.worst_month')}</span>
                                 </div>
                             </div>
                         )}
@@ -186,11 +189,11 @@ function HistoryPageContent() {
                                 <table className="w-full text-xs md:text-sm">
                                     <thead>
                                         <tr className="bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 uppercase text-[10px] md:text-xs tracking-wider font-bold">
-                                            <th className="px-3 py-3 text-left border-b dark:border-slate-800 sticky left-0 bg-slate-100 dark:bg-slate-950 z-20 w-48 md:w-56 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Sucursal</th>
+                                            <th className="px-3 py-3 text-left border-b dark:border-slate-800 sticky left-0 bg-slate-100 dark:bg-slate-950 z-20 w-48 md:w-56 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">{t('sales.history_page.store')}</th>
                                             {months.map(m => (
                                                 <th key={m} className="px-1 py-3 text-center border-b border-r border-slate-100 dark:border-slate-800 dark:border-r-slate-800/50 min-w-[80px] last:border-r-0">{m}</th>
                                             ))}
-                                            <th className="px-3 py-3 text-right border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 font-medium text-slate-900 dark:text-white min-w-[100px]">TOTAL</th>
+                                            <th className="px-3 py-3 text-right border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 font-medium text-slate-900 dark:text-white min-w-[100px]">{t('sales.history_page.total')}</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -215,7 +218,7 @@ function HistoryPageContent() {
                                     </tbody>
                                     <tfoot>
                                         <tr className="bg-slate-900 dark:bg-black text-white font-medium text-[10px] md:text-xs">
-                                            <td className="px-3 py-3 sticky left-0 bg-slate-900 dark:bg-black z-20 border-t border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]">GLOBAL</td>
+                                            <td className="px-3 py-3 sticky left-0 bg-slate-900 dark:bg-black z-20 border-t border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]">{t('sales.history_page.global')}</td>
                                             {monthTotals.map((t, idx) => (
                                                 <td key={idx} className="px-1 py-3 text-right border-t border-slate-700">
                                                     {t > 0 ? (
@@ -275,8 +278,8 @@ function HistoryPageContent() {
                                 <TrendingUp className="text-blue-600 dark:text-blue-400" size={24} />
                             </div>
                             <div>
-                                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Análisis de Crecimiento</h2>
-                                <p className="text-slate-500 dark:text-slate-400">Comparativa vs. Año Anterior ({year - 1})</p>
+                                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{t('sales.history_page.analysis.title')}</h2>
+                                <p className="text-slate-500 dark:text-slate-400">{t('sales.history_page.analysis.subtitle')} ({year - 1})</p>
                             </div>
                         </div>
 
@@ -290,6 +293,7 @@ function HistoryPageContent() {
 
 // COMPONENTE DE ANÁLISIS AISLADO PARA LIMPIEZA
 function AnalysisSection({ currentData, year }: { currentData: any[], year: number }) {
+    const { t } = useLanguage()
     const [prevData, setPrevData] = useState<any[]>([])
     const [loadingPrev, setLoadingPrev] = useState(true)
 
@@ -326,7 +330,7 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
         fetchPrev()
     }, [year])
 
-    if (loadingPrev) return <div className="text-slate-400 animate-pulse py-10">Calculando variaciones anuales...</div>
+    if (loadingPrev) return <div className="text-slate-400 animate-pulse py-10">{t('sales.history_page.loading')}</div>
 
     // LÓGICA DE COMPARACIÓN (Restored)
     const now = new Date()
@@ -373,7 +377,7 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Global Growth */}
                 <div className={`p-6 rounded-3xl border ${globalDiff >= 0 ? 'bg-emerald-50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-500/20' : 'bg-rose-50 border-rose-100 dark:bg-rose-900/10 dark:border-rose-500/20'}`}>
-                    <h3 className="text-slate-500 dark:text-slate-400 font-medium mb-1">Crecimiento Global</h3>
+                    <h3 className="text-slate-500 dark:text-slate-400 font-medium mb-1">{t('sales.history_page.analysis.growth_card')}</h3>
                     <div className="flex items-baseline gap-2">
                         <span className={`text-4xl font-extrabold ${globalDiff >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                             {formatPercent(globalPercent)}
@@ -391,8 +395,8 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                         <TrendingUp size={64} className="text-emerald-500" />
                     </div>
                     <h3 className="text-slate-500 dark:text-slate-400 font-medium mb-1 flex items-center gap-2">
-                        <span className="bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded text-xs font-bold">MVP</span>
-                        Mayor Crecimiento
+                        <span className="bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded text-xs font-bold">{t('sales.history_page.analysis.mvp_card.badge')}</span>
+                        {t('sales.history_page.analysis.mvp_card.label')}
                     </h3>
                     <div className="mt-2">
                         <span className="text-xl font-bold text-slate-900 dark:text-white block">{formatStoreName(bestStore?.name || '-')}</span>
@@ -407,8 +411,8 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                         <AlertCircle size={64} className="text-rose-500" />
                     </div>
                     <h3 className="text-slate-500 dark:text-slate-400 font-medium mb-1 flex items-center gap-2">
-                        <span className="bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 px-2 py-0.5 rounded text-xs font-bold">ALERTA</span>
-                        Mayor Caída
+                        <span className="bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 px-2 py-0.5 rounded text-xs font-bold">{t('sales.history_page.analysis.alert_card.badge')}</span>
+                        {t('sales.history_page.analysis.alert_card.label')}
                     </h3>
                     <div className="mt-2">
                         <span className="text-xl font-bold text-slate-900 dark:text-white block">{formatStoreName(worstStore?.name || '-')}</span>
@@ -421,7 +425,7 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
             {/* 2. TABLA COMPARATIVA DETALLADA VS CARD VIEW */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-black/5 dark:border-slate-800 overflow-hidden shadow-sm">
                 <div className="px-6 py-4 border-b border-black/5 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
-                    <h3 className="font-bold text-slate-800 dark:text-slate-200">Desglose por Sucursal (Año vs Año)</h3>
+                    <h3 className="font-bold text-slate-800 dark:text-slate-200">{t('sales.history_page.analysis.table_title')}</h3>
                 </div>
 
                 {/* DESKTOP TABLE */}
@@ -429,11 +433,11 @@ function AnalysisSection({ currentData, year }: { currentData: any[], year: numb
                     <table className="w-full text-sm">
                         <thead className="bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase text-xs font-bold">
                             <tr>
-                                <th className="px-6 py-3 text-left">Sucursal</th>
-                                <th className="px-6 py-3 text-right">Venta {year - 1}</th>
-                                <th className="px-6 py-3 text-right">Venta {year}</th>
-                                <th className="px-6 py-3 text-right">Diferencia $</th>
-                                <th className="px-6 py-3 text-right">Crecimiento %</th>
+                                <th className="px-6 py-3 text-left">{t('sales.history_page.analysis.columns.store')}</th>
+                                <th className="px-6 py-3 text-right">{t('sales.history_page.analysis.columns.sales_prev')} {year - 1}</th>
+                                <th className="px-6 py-3 text-right">{t('sales.history_page.analysis.columns.sales_curr')} {year}</th>
+                                <th className="px-6 py-3 text-right">{t('sales.history_page.analysis.columns.diff')}</th>
+                                <th className="px-6 py-3 text-right">{t('sales.history_page.analysis.columns.growth')}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

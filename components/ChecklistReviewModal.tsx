@@ -42,6 +42,7 @@ import {
     MoreHorizontal,
     Image as ImageIcon
 } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 import '@/app/checklists/checklists.css'
 import { ScoreGauge } from '@/components/checklists/ScoreGauge'
 
@@ -105,6 +106,7 @@ const isNew = (dateStr?: string) => {
 }
 
 export default function ChecklistReviewModal({ isOpen, onClose, checklist, currentUser, onUpdate }: ChecklistReviewModalProps) {
+    const { t } = useLanguage()
     const [activeTab, setActiveTab] = useState<'answers' | 'photos'>('answers')
     const [reviewComment, setReviewComment] = useState('') // Deprecated for UI but kept for logic compat if needed
     const [saving, setSaving] = useState(false)
@@ -427,8 +429,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
             // Helper for flat answers
             if (checklist.answers?.[q.id] !== undefined) value = checklist.answers[q.id]
             else if (checklist.answers?.[q.text] !== undefined) value = checklist.answers[q.text]
+            else if (q.original_text && checklist.answers?.[q.original_text] !== undefined) value = checklist.answers[q.original_text]
             else {
-                const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+                const textToSearch = q.original_text || q.text
+                const questionWords = textToSearch.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
                 for (const key of Object.keys(checklist.answers || {})) {
                     if (key === '__question_photos') continue
                     const keyLower = key.toLowerCase()
@@ -471,9 +475,11 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
             // Check direct ID or Text match
             if (checklist.answers[q.id] !== undefined) { usedKeys.add(q.id); return }
             if (checklist.answers[q.text] !== undefined) { usedKeys.add(q.text); return }
+            if (q.original_text && checklist.answers[q.original_text] !== undefined) { usedKeys.add(q.original_text); return }
 
             // Check Fuzzy logic (mirroring the render loop)
-            const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+            const textToSearch = q.original_text || q.text
+            const questionWords = textToSearch.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
             for (const key of Object.keys(checklist.answers)) {
                 if (key === '__question_photos') continue
                 const keyLower = key.toLowerCase().replace(/\(lbs\)/g, '').trim()
@@ -689,7 +695,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 {/* Progress Pill */}
                                 <div className="flex items-center gap-3 pr-1">
                                     <div className="text-right hidden sm:block">
-                                        <div className="text-[11px] font-black text-gray-900 dark:text-slate-300 uppercase tracking-widest leading-none mb-1">PUNTAJE</div>
+                                        <div className="text-[11px] font-black text-gray-900 dark:text-slate-300 uppercase tracking-widest leading-none mb-1">{t('inspections.review.score')}</div>
                                     </div>
                                     <div className={`px-6 py-2.5 rounded-full font-black text-2xl shadow-md border-2 flex items-center gap-1 ${finalScore >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
                                         finalScore >= 60 ? 'bg-amber-50 text-amber-600 border-amber-200' :
@@ -705,21 +711,21 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-gray-100 dark:border-slate-800 p-2 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all transform origin-top-right z-50">
                                             {(canApprove || canSupervisorFinalApprove) && status !== 'cerrado' && (
                                                 <button onClick={() => handleStatusChange('aprobado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors">
-                                                    <CheckCircle size={14} /> Aprobar
+                                                    <CheckCircle size={14} /> {t('inspections.review.approve')}
                                                 </button>
                                             )}
                                             {canReject && status !== 'cerrado' && (
                                                 <button onClick={() => handleStatusChange('rechazado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
-                                                    <XCircle size={14} /> Rechazar
+                                                    <XCircle size={14} /> {t('inspections.review.reject')}
                                                 </button>
                                             )}
                                             {canClose && status !== 'cerrado' && (
                                                 <button onClick={() => handleStatusChange('cerrado')} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors">
-                                                    <Send size={14} /> Cerrar Ticket
+                                                    <Send size={14} /> {t('inspections.review.close_ticket')}
                                                 </button>
                                             )}
                                             <button onClick={handlePrint} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 rounded-lg transition-colors border-t border-gray-100 dark:border-slate-800 mt-1">
-                                                <Printer size={14} /> Imprimir
+                                                <Printer size={14} /> {t('inspections.review.print')}
                                             </button>
                                         </div>
                                     </div>
@@ -735,36 +741,36 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm rounded-3xl p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] dark:shadow-none text-center relative overflow-hidden group border border-gray-100 dark:border-slate-800 ring-1 ring-black/5 dark:ring-white/5">
                                     <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${theme.gradient}`} />
 
-                                    <h2 className="text-xl font-black text-gray-900 mb-5 tracking-tight">Detalles de Visita</h2>
+                                    <h2 className="text-xl font-black text-gray-900 mb-5 tracking-tight">{t('inspections.review.details')}</h2>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-blue-300 dark:hover:border-blue-500">
-                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Sucursal</label>
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">{t('inspections.review.store')}</label>
                                             <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{checklist.store_name}</div>
                                         </div>
 
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-purple-300 dark:hover:border-purple-500">
-                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Turno</label>
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">{t('inspections.review.shift')}</label>
                                             <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{checklist.shift || 'N/A'}</div>
                                         </div>
 
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-pink-300 dark:hover:border-pink-500">
-                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Fecha</label>
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">{t('inspections.review.date')}</label>
                                             <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{formatDateLA(checklist.inspection_date)}</div>
                                         </div>
 
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-indigo-300 dark:hover:border-indigo-500">
-                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Hora Inicial</label>
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">{t('inspections.review.start_time')}</label>
                                             <div className="text-base font-black text-indigo-700 dark:text-indigo-400 leading-tight">{checklist.start_time || 'N/A'}</div>
                                         </div>
 
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-emerald-300 dark:hover:border-emerald-500">
-                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Hora Final</label>
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">{t('inspections.review.end_time')}</label>
                                             <div className="text-base font-black text-emerald-700 dark:text-emerald-400 leading-tight">{checklist.end_time || 'N/A'}</div>
                                         </div>
 
                                         <div className="bg-white dark:bg-slate-800/50 rounded-xl p-3 border-2 border-gray-200 dark:border-slate-700 shadow-sm transition-all hover:border-orange-300 dark:hover:border-orange-500">
-                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Duración</label>
+                                            <label className="text-[10px] font-black text-gray-900 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">{t('inspections.review.duration')}</label>
                                             <div className="text-base font-black text-gray-950 dark:text-white leading-tight">{getDuration()}</div>
                                         </div>
                                     </div>
@@ -777,7 +783,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                                         <h3 className="text-indigo-900 font-black text-lg mb-6 flex items-center justify-center gap-2 tracking-tight">
                                             <Camera className="w-5 h-5 text-indigo-500" />
-                                            EVIDENCIA DE VISITA
+                                            {t('inspections.review.inspector_evidence')}
                                         </h3>
 
                                         <div className="flex justify-center flex-col items-center">
@@ -790,7 +796,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                 />
                                                 <div className="absolute inset-0 rounded-full ring-inset ring-2 ring-black/5 pointer-events-none" />
                                             </div>
-                                            <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider mt-4">Firma Digital Visual</p>
+                                            <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider mt-4">{t('inspections.review.digital_signature')}</p>
                                         </div>
                                     </div>
                                 )}
@@ -811,8 +817,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                             let value: any = undefined
                                             if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) value = checklist.answers[q.id]
                                             if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) value = checklist.answers[q.text]
+                                            if ((value === undefined || value === null) && q.original_text && checklist.answers?.[q.original_text] !== undefined) value = checklist.answers[q.original_text]
                                             if ((value === undefined || value === null) && checklist.answers) {
-                                                const questionWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
+                                                const textToSearch = q.original_text || q.text
+                                                const questionWords = textToSearch.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2)
                                                 for (const answerKey of Object.keys(checklist.answers)) {
                                                     if (answerKey === '__question_photos') continue
                                                     let keyText = answerKey
@@ -895,10 +903,14 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                         if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) {
                                                             value = checklist.answers[q.text]
                                                         }
+                                                        if ((value === undefined || value === null) && q.original_text && checklist.answers?.[q.original_text] !== undefined) {
+                                                            value = checklist.answers[q.original_text]
+                                                        }
 
                                                         // Strategy 3: Fuzzy match on old descriptive IDs (e.g. "refrig1_papelitos_mayo")
                                                         if ((value === undefined || value === null) && checklist.answers) {
-                                                            const questionWords = q.text.toLowerCase()
+                                                            const textToSearch = q.original_text || q.text
+                                                            const questionWords = textToSearch.toLowerCase()
                                                                 .replace(/[^a-z0-9\s]/g, '')
                                                                 .split(/\s+/)
                                                                 .filter((w: string) => w.length > 2)
@@ -952,7 +964,8 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                         let qPhotos: string[] = []
 
                                                         // Explicit fallback for known legacy question "Escurre carnes y rota producto (FIFO)"
-                                                        if (q.text && q.text.toLowerCase().includes('escurre carnes')) {
+                                                        const logicText = q.original_text || q.text
+                                                        if (logicText && logicText.toLowerCase().includes('escurre carnes')) {
                                                             if (questionPhotosMap['1585']) {
                                                                 qPhotos = questionPhotosMap['1585']
                                                             }
@@ -960,7 +973,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                                                         // Helper for aggressive text matching
                                                         const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '').trim()
-                                                        const normalizedTarget = normalize(q.text)
+                                                        const normalizedTarget = normalize(logicText)
 
                                                         // Strategy 1: Direct ID match
                                                         if (questionPhotosMap[q.id]) {
@@ -970,9 +983,12 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                         else if (questionPhotosMap[q.text]) {
                                                             qPhotos = questionPhotosMap[q.text]
                                                         }
+                                                        else if (q.original_text && questionPhotosMap[q.original_text]) {
+                                                            qPhotos = questionPhotosMap[q.original_text]
+                                                        }
                                                         // Strategy 2.5: Try __text_photos with lowercase text (NEW for ID drift immunity)
-                                                        else if (answersData['__text_photos'] && answersData['__text_photos'][q.text.toLowerCase().trim()]) {
-                                                            qPhotos = answersData['__text_photos'][q.text.toLowerCase().trim()]
+                                                        else if (answersData['__text_photos'] && answersData['__text_photos'][logicText.toLowerCase().trim()]) {
+                                                            qPhotos = answersData['__text_photos'][logicText.toLowerCase().trim()]
                                                         }
                                                         // Strategy 2.6: Hardcoded Legacy ID Map (Keyword-based for robustness)
                                                         else {
@@ -986,7 +1002,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                 { keywords: ['temperatura', 'agua', 'caliente'], id: '1556' }
                                                             ]
 
-                                                            const qTextLower = q.text.toLowerCase()
+                                                            const qTextLower = logicText.toLowerCase()
                                                             for (const rule of legacyRules) {
                                                                 if (rule.keywords.every(k => qTextLower.includes(k))) {
                                                                     if (questionPhotosMap[rule.id]) {
@@ -1064,7 +1080,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                         if (qPhotos.length === 0) {
                                                             const keywords = ['FIFO', 'NPS', 'TEMP', 'CARNES', 'BAÑOS']
                                                             for (const kw of keywords) {
-                                                                if (q.text.toUpperCase().includes(kw)) {
+                                                                if (logicText.toUpperCase().includes(kw)) {
                                                                     for (const pk of Object.keys(questionPhotosMap)) {
                                                                         if (pk.toUpperCase().includes(kw)) {
                                                                             qPhotos = questionPhotosMap[pk]
@@ -1078,7 +1094,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
                                                         // Strategy 6: Fuzzy match by question text words (Final resort)
                                                         if (qPhotos.length === 0) {
-                                                            const targetWords = q.text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 3)
+                                                            const targetWords = logicText.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 3)
                                                             for (const photoKey of Object.keys(questionPhotosMap)) {
                                                                 const kLower = photoKey.toLowerCase()
                                                                 const matchCount = targetWords.filter((word: string) => kLower.includes(word)).length

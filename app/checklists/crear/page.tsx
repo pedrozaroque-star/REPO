@@ -4,77 +4,84 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
+import { useLanguage } from '@/lib/i18n'
 
 type ChecklistType = 'daily' | 'temperaturas' | 'sobrante' | 'recorrido' | 'cierre' | 'apertura'
 
-const ASSISTANT_CHECKLISTS = [
-  {
-    key: 'daily' as ChecklistType,
-    title: 'Daily Checklist',
-    icon: '📋',
-    description: '34 verificaciones diarias',
-    color: 'from-blue-500 to-blue-600',
-    roles: ['asistente', 'manager', 'admin']
-  },
-  {
-    key: 'temperaturas' as ChecklistType,
-    title: 'Control de Temperaturas',
-    icon: '🌡️',
-    description: '21 lecturas de temperatura',
-    color: 'from-red-500 to-red-600',
-    roles: ['asistente', 'manager', 'admin']
-  },
-  {
-    key: 'sobrante' as ChecklistType,
-    title: 'Producto Sobrante',
-    icon: '📦',
-    description: '11 productos en libras',
-    color: 'from-yellow-500 to-yellow-600',
-    roles: ['asistente', 'manager', 'admin']
-  },
-  {
-    key: 'recorrido' as ChecklistType,
-    title: 'Recorrido de Limpieza',
-    icon: '🚶',
-    description: 'Salón, cocina y parking',
-    color: 'from-green-500 to-green-600',
-    roles: ['asistente', 'manager', 'admin']
-  },
-  {
-    key: 'cierre' as ChecklistType,
-    title: 'Inspección de Cierre',
-    icon: '🌙',
-    description: '51 verificaciones de cierre',
-    color: 'from-purple-500 to-purple-600',
-    roles: ['asistente', 'manager', 'admin']
-  },
-  {
-    key: 'apertura' as ChecklistType,
-    title: 'Inspección de Apertura',
-    icon: '🌅',
-    description: '13 procedimientos de apertura',
-    color: 'from-orange-500 to-orange-600',
-    roles: ['asistente', 'manager', 'admin']
-  }
-]
+// Definitions moved inside component for translation
 
-const MANAGER_CHECKLIST = {
-  key: 'manager',
-  title: 'Manager Checklist',
-  icon: '👔',
-  description: '53 preguntas de gestión',
-  color: 'from-indigo-500 to-indigo-600',
-  roles: ['manager', 'admin']
-}
 
 function CreateChecklistContent() {
   const router = useRouter()
   const { user } = useAuth()
+  const { t } = useLanguage()
   const [selectedType, setSelectedType] = useState<string | null>(null)
 
   if (!user) return null
 
+  if (!user) return null
+
   const userRole = user.role.toLowerCase()
+
+  const ASSISTANT_CHECKLISTS = [
+    {
+      key: 'daily' as ChecklistType,
+      title: t('checklists.descriptions.daily_title'),
+      icon: '📋',
+      description: t('checklists.descriptions.daily'),
+      color: 'from-blue-500 to-blue-600',
+      roles: ['asistente', 'manager', 'admin']
+    },
+    {
+      key: 'temperaturas' as ChecklistType,
+      title: t('checklists.descriptions.temperaturas_title'),
+      icon: '🌡️',
+      description: t('checklists.descriptions.temperaturas'),
+      color: 'from-red-500 to-red-600',
+      roles: ['asistente', 'manager', 'admin']
+    },
+    {
+      key: 'sobrante' as ChecklistType,
+      title: t('checklists.descriptions.sobrante_title'),
+      icon: '📦',
+      description: t('checklists.descriptions.sobrante'),
+      color: 'from-yellow-500 to-yellow-600',
+      roles: ['asistente', 'manager', 'admin']
+    },
+    {
+      key: 'recorrido' as ChecklistType,
+      title: t('checklists.descriptions.recorrido_title'),
+      icon: '🚶',
+      description: t('checklists.descriptions.recorrido'),
+      color: 'from-green-500 to-green-600',
+      roles: ['asistente', 'manager', 'admin']
+    },
+    {
+      key: 'cierre' as ChecklistType,
+      title: t('checklists.descriptions.cierre_title'),
+      icon: '🌙',
+      description: t('checklists.descriptions.cierre'),
+      color: 'from-purple-500 to-purple-600',
+      roles: ['asistente', 'manager', 'admin']
+    },
+    {
+      key: 'apertura' as ChecklistType,
+      title: t('checklists.descriptions.apertura_title'),
+      icon: '🌅',
+      description: t('checklists.descriptions.apertura'),
+      color: 'from-orange-500 to-orange-600',
+      roles: ['asistente', 'manager', 'admin']
+    }
+  ]
+
+  const MANAGER_CHECKLIST = {
+    key: 'manager',
+    title: t('checklists.descriptions.manager_title'),
+    icon: '👔',
+    description: t('checklists.descriptions.manager'),
+    color: 'from-indigo-500 to-indigo-600',
+    roles: ['manager', 'admin']
+  }
 
   // Filtrar checklists según rol
   const availableChecklists = ASSISTANT_CHECKLISTS.filter(checklist =>
@@ -101,16 +108,16 @@ function CreateChecklistContent() {
             className="flex items-center text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white mb-6 transition-colors font-bold text-sm bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm px-4 py-2 rounded-full w-fit"
           >
             <span className="mr-2">←</span>
-            Volver a Checklists
+            {t('checklists.creation.back')}
           </button>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Crear Nuevo Checklist</h1>
-          <p className="text-gray-600 dark:text-slate-400 mt-2">Selecciona el tipo de checklist que deseas crear</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('checklists.creation.title')}</h1>
+          <p className="text-gray-600 dark:text-slate-400 mt-2">{t('checklists.creation.subtitle')}</p>
         </div>
 
         {/* Manager Checklist (si aplica) */}
         {canCreateManager && (
           <div className="mb-8">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Manager</h2>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t('checklists.creation.manager_section')}</h2>
             <button
               onClick={() => handleSelectType('manager')}
               className="group w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-[2rem] shadow-sm dark:shadow-none hover:shadow-xl transition-all duration-300 overflow-hidden transform hover:-translate-y-1 border border-gray-100 dark:border-slate-800"
@@ -131,7 +138,7 @@ function CreateChecklistContent() {
         {/* Assistant Checklists */}
         {availableChecklists.length > 0 && (
           <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Asistente</h2>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t('checklists.creation.assistant_section')}</h2>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {availableChecklists.map(checklist => (
                 <button
@@ -146,7 +153,7 @@ function CreateChecklistContent() {
                     <p className="text-gray-600 dark:text-slate-400 text-sm">{checklist.description}</p>
                     <div className="mt-4 flex items-center justify-between">
                       <span className={`text-sm font-semibold bg-gradient-to-r ${checklist.color} bg-clip-text text-transparent`}>
-                        Comenzar →
+                        {t('checklists.creation.start')} →
                       </span>
                     </div>
                   </div>
@@ -160,8 +167,8 @@ function CreateChecklistContent() {
         {availableChecklists.length === 0 && !canCreateManager && (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🔒</div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Sin permisos</h3>
-            <p className="text-gray-600 dark:text-slate-400">No tienes permisos para crear checklists</p>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{t('checklists.creation.locked_title')}</h3>
+            <p className="text-gray-600 dark:text-slate-400">{t('checklists.creation.no_permission')}</p>
           </div>
         )}
       </div>

@@ -7,8 +7,10 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 
 import UserModal from '@/components/UserModal'
 import { getSupabaseClient, getSupabaseAdminClient, formatStoreName } from '@/lib/supabase'
+import { useLanguage } from '@/lib/i18n'
 
 function UsuariosPage() {
+  const { t } = useLanguage()
   const [users, setUsers] = useState<any[]>([])
   const [stores, setStores] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -112,7 +114,7 @@ function UsuariosPage() {
 
         if (!result.data || result.data.length === 0) {
           console.error('⚠️ El update no afectó ninguna fila.')
-          alert('⚠️ Advertencia: No se pudo actualizar el usuario.')
+          // alert('⚠️ Advertencia: No se pudo actualizar el usuario.') // Using browser alert for now, but UI text should be cleaner
           return
         }
 
@@ -151,7 +153,7 @@ function UsuariosPage() {
           }
         }
 
-        alert('✅ Usuario actualizado correctamente')
+        // alert('✅ Usuario actualizado correctamente')
 
       } else {
         // B. CREAR NUEVO USUARIO
@@ -180,7 +182,7 @@ function UsuariosPage() {
         }
 
         console.log('✅ Usuario creado exitosamente:', result.data)
-        alert('✅ Usuario creado correctamente')
+        // alert('✅ Usuario creado correctamente')
       }
 
       // Recargar tabla y cerrar modal
@@ -219,17 +221,17 @@ function UsuariosPage() {
 
   // Helper para mostrar ubicación (Tienda fija o Alcance múltiple)
   const getLocationLabel = (user: any) => {
-    if (user.role === 'admin') return 'Acceso Total'
+    if (user.role === 'admin') return t('usuarios.modal.admin_access_title')
 
     if (user.role === 'supervisor') {
-      if (!user.store_scope || user.store_scope.length === 0) return 'Sin asignación'
+      if (!user.store_scope || user.store_scope.length === 0) return t('usuarios.table.location') + ': 0'
       if (user.store_scope.length === 1) return formatStoreName(user.store_scope[0])
-      return `${user.store_scope.length} Tiendas` // Ej: "3 Tiendas"
+      return `${user.store_scope.length} ${t('items.stores')}` // Ej: "3 Tiendas"
     }
 
     // Para managers y asistentes
     const store = stores.find(s => s.id === user.store_id)
-    return store ? formatStoreName(store.name) : 'Sin Tienda'
+    return store ? formatStoreName(store.name) : t('usuarios.table.location')
   }
 
   return (
@@ -247,8 +249,8 @@ function UsuariosPage() {
                 <Users size={18} />
               </div>
               <div>
-                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Usuarios</h1>
-                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-black uppercase tracking-widest">Gestión de personal</p>
+                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">{t('usuarios.title')}</h1>
+                <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-black uppercase tracking-widest">{t('usuarios.subtitle')}</p>
               </div>
             </div>
 
@@ -259,7 +261,7 @@ function UsuariosPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={16} />
                 <input
                   type="text"
-                  placeholder="Buscar usuario..."
+                  placeholder={t('usuarios.search_placeholder')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9 pr-4 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border border-transparent dark:border-slate-700 outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-bold text-gray-900 dark:text-white w-64 transition-all"
@@ -273,11 +275,11 @@ function UsuariosPage() {
                   onChange={e => setRoleFilter(e.target.value)}
                   className="pl-3 pr-8 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border-none outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900/50 text-sm font-black text-gray-600 dark:text-slate-400 cursor-pointer"
                 >
-                  <option value="all" className="dark:bg-slate-900">Todos</option>
-                  <option value="admin" className="dark:bg-slate-900">Admin</option>
-                  <option value="supervisor" className="dark:bg-slate-900">Supervisor</option>
-                  <option value="manager" className="dark:bg-slate-900">Manager</option>
-                  <option value="asistente" className="dark:bg-slate-900">Asistente</option>
+                  <option value="all" className="dark:bg-slate-900">{t('usuarios.roles.all')}</option>
+                  <option value="admin" className="dark:bg-slate-900">{t('usuarios.roles.admin')}</option>
+                  <option value="supervisor" className="dark:bg-slate-900">{t('usuarios.roles.supervisor')}</option>
+                  <option value="manager" className="dark:bg-slate-900">{t('usuarios.roles.manager')}</option>
+                  <option value="asistente" className="dark:bg-slate-900">{t('usuarios.roles.asistente')}</option>
                 </select>
               </div>
 
@@ -304,7 +306,7 @@ function UsuariosPage() {
                 className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-all active:scale-[0.98] shadow-lg shadow-gray-200 dark:shadow-none"
               >
                 <Plus size={16} strokeWidth={3} />
-                <span className="hidden md:inline font-black text-[10px] tracking-[0.1em]">NUEVO USUARIO</span>
+                <span className="hidden md:inline font-black text-[10px] tracking-[0.1em]">{t('usuarios.new_user')}</span>
               </button>
             </div>
           </div>
@@ -319,7 +321,7 @@ function UsuariosPage() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
-                placeholder="Buscar por nombre..."
+                placeholder={t('usuarios.search_placeholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-11 pr-4 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 dark:focus:border-indigo-900 text-sm font-bold text-gray-900 dark:text-white placeholder:text-gray-400"
@@ -336,7 +338,7 @@ function UsuariosPage() {
                     : 'bg-white dark:bg-slate-900 text-gray-500 dark:text-slate-500 border-gray-200 dark:border-slate-800'
                     }`}
                 >
-                  {role === 'all' ? 'Todos' : role}
+                  {role === 'all' ? t('usuarios.roles.all') : role}
                 </button>
               ))}
             </div>
@@ -354,10 +356,10 @@ function UsuariosPage() {
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-50/50 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
                       <tr>
-                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">Usuario</th>
-                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">Rol</th>
-                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">Ubicación</th>
-                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest text-center">Estado</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('usuarios.table.user')}</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('usuarios.table.role')}</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('usuarios.table.location')}</th>
+                        <th className="px-6 py-4 font-black text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-widest text-center">{t('usuarios.table.status')}</th>
                         <th className="px-6 py-4 text-right"></th>
                       </tr>
                     </thead>
@@ -397,9 +399,9 @@ function UsuariosPage() {
                           </td>
                           <td className="px-6 py-4 text-center">
                             {user.is_active ? (
-                              <div className="w-2 h-2 rounded-full bg-green-500 mx-auto ring-4 ring-green-100" title="Activo" />
+                              <div className="w-2 h-2 rounded-full bg-green-500 mx-auto ring-4 ring-green-100" title={t('usuarios.table.active')} />
                             ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 mx-auto" title="Inactivo" />
+                              <div className="w-2 h-2 rounded-full bg-gray-300 mx-auto" title={t('usuarios.table.inactive')} />
                             )}
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -421,7 +423,7 @@ function UsuariosPage() {
 
                   {filteredUsers.length === 0 && (
                     <div className="p-12 text-center text-gray-400 dark:text-slate-600">
-                      <p className="font-bold uppercase tracking-widest text-xs">No se encontraron usuarios</p>
+                      <p className="font-bold uppercase tracking-widest text-xs">{t('inspections.list.empty_search')}</p>
                     </div>
                   )}
                 </div>
@@ -448,7 +450,7 @@ function UsuariosPage() {
                           setIsModalOpen(true);
                         }}
                         className="absolute top-4 right-4 text-gray-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-xl transition-colors md:opacity-0 md:group-hover:opacity-100"
-                        title="Editar Usuario"
+                        title={t('usuarios.modal.edit_title')}
                       >
                         <MoreHorizontal size={20} />
                       </button>
@@ -472,7 +474,7 @@ function UsuariosPage() {
                           </p>
                           {!user.is_active && (
                             <span className="inline-block mt-1 text-[9px] font-black text-red-500 bg-red-50 dark:bg-red-900/30 px-2 py-0.5 rounded-lg uppercase tracking-widest">
-                              INACTIVO
+                              {t('usuarios.table.inactive').toUpperCase()}
                             </span>
                           )}
                         </div>
@@ -482,7 +484,7 @@ function UsuariosPage() {
                       <div className="space-y-3 pt-4 border-t border-dashed border-gray-100 dark:border-slate-800">
                         <div className="flex justify-between items-center">
                           <span className="text-[9px] font-black text-gray-400 dark:text-slate-600 uppercase tracking-[0.2em] flex items-center gap-1.5">
-                            <User size={12} /> ROL
+                            <User size={12} /> {t('usuarios.table.role').toUpperCase()}
                           </span>
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${roleColors[user.role] || 'bg-gray-100'}`}>
                             {user.role}
@@ -491,7 +493,7 @@ function UsuariosPage() {
 
                         <div className="flex justify-between items-center">
                           <span className="text-[9px] font-black text-gray-400 dark:text-slate-600 uppercase tracking-[0.2em] flex items-center gap-1.5">
-                            <MapPin size={12} /> UBICACIÓN
+                            <MapPin size={12} /> {t('usuarios.table.location').toUpperCase()}
                           </span>
                           <span className="text-[11px] font-bold text-gray-700 dark:text-slate-400 truncate max-w-[150px] text-right" title={getLocationLabel(user)}>
                             {getLocationLabel(user)}

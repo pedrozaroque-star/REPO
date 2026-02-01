@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, User, Mail, Lock, Phone, Shield, Store, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 interface UserModalProps {
   isOpen: boolean
@@ -12,6 +13,7 @@ interface UserModalProps {
 }
 
 export default function UserModal({ isOpen, onClose, onSave, stores, initialData }: UserModalProps) {
+  const { t } = useLanguage()
   // Estado del formulario
   const [formData, setFormData] = useState({
     full_name: '',
@@ -73,7 +75,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
       const cp = name === 'confirmPassword' ? value : formData.confirmPassword
 
       if (p !== cp && cp !== '') {
-        setPassError('Las contraseñas no coinciden')
+        setPassError(t('usuarios.modal.errors.pass_mismatch'))
       } else {
         setPassError('')
       }
@@ -103,7 +105,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
     // Validaciones
     if (!formData.email || !formData.full_name) {
-      alert('Nombre y Email son obligatorios')
+      alert(t('usuarios.modal.errors.name_email_required'))
       return
     }
 
@@ -111,18 +113,18 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
     if (!initialData) {
       // Nuevo usuario: Password obligatorio
       if (!formData.password) {
-        setPassError('La contraseña es obligatoria')
+        setPassError(t('usuarios.modal.errors.password_required'))
         return
       }
     }
 
     if (formData.password || formData.confirmPassword) {
       if (formData.password !== formData.confirmPassword) {
-        setPassError('Las contraseñas no coinciden')
+        setPassError(t('usuarios.modal.errors.pass_mismatch'))
         return
       }
       if (formData.password.length < 6) {
-        setPassError('La contraseña debe tener al menos 6 caracteres')
+        setPassError(t('usuarios.modal.errors.pass_length'))
         return
       }
     }
@@ -152,11 +154,11 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
           <div className="relative z-10">
             <h2 className="text-3xl font-black text-white tracking-tight leading-none mb-2">
-              {initialData ? 'Editar' : 'Nuevo'} <br />
-              <span className="text-indigo-400">Usuario</span>
+              {initialData ? t('usuarios.modal.edit_title').split(' ')[0] : t('usuarios.modal.create_title').split(' ')[0]} <br />
+              <span className="text-indigo-400">{t('usuarios.modal.table.user') || 'Usuario'}</span>
             </h2>
             <p className="text-slate-400 text-sm">
-              Gestione los accesos y roles del personal de manera segura.
+              {t('usuarios.modal.subtitle')}
             </p>
           </div>
 
@@ -164,16 +166,16 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
             <div className="flex items-start gap-4 text-slate-300">
               <div className="p-2 bg-slate-800 rounded-lg shrink-0"><Shield size={20} className="text-indigo-400" /></div>
               <div>
-                <h4 className="font-bold text-white text-sm">Seguridad Primero</h4>
-                <p className="text-xs text-slate-400 mt-1">Configura roles específicos para limitar el acceso a datos sensibles.</p>
+                <h4 className="font-bold text-white text-sm">{t('usuarios.modal.sidebar.security_title')}</h4>
+                <p className="text-xs text-slate-400 mt-1">{t('usuarios.modal.sidebar.security_description')}</p>
               </div>
             </div>
 
             <div className="flex items-start gap-4 text-slate-300">
               <div className="p-2 bg-slate-800 rounded-lg shrink-0"><Store size={20} className="text-emerald-400" /></div>
               <div>
-                <h4 className="font-bold text-white text-sm">Asignación Inteligente</h4>
-                <p className="text-xs text-slate-400 mt-1">Vincula usuarios a una o múltiples tiendas según su función.</p>
+                <h4 className="font-bold text-white text-sm">{t('usuarios.modal.sidebar.assignment_title')}</h4>
+                <p className="text-xs text-slate-400 mt-1">{t('usuarios.modal.sidebar.assignment_description')}</p>
               </div>
             </div>
           </div>
@@ -188,7 +190,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
           {/* Mobile Header */}
           <div className="md:hidden p-3 bg-slate-900 dark:bg-black text-white flex justify-between items-center transition-colors shrink-0">
-            <h2 className="font-bold text-base">{initialData ? 'Editar Usuario' : 'Nuevo Usuario'}</h2>
+            <h2 className="font-bold text-base">{initialData ? t('usuarios.modal.edit_title') : t('usuarios.modal.create_title')}</h2>
             <button onClick={onClose}><X size={20} /></button>
           </div>
 
@@ -201,12 +203,12 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
               <section className="space-y-3 md:space-y-4">
                 <div className="flex items-center gap-2 mb-3 md:mb-4">
                   <span className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">1</span>
-                  <h3 className="font-black text-gray-900 dark:text-white text-base md:text-lg tracking-tight">Información Personal</h3>
+                  <h3 className="font-black text-gray-900 dark:text-white text-base md:text-lg tracking-tight">{t('usuarios.modal.sections.personal')}</h3>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-5">
                   <div className="group">
-                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 md:mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Nombre Completo</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 md:mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">{t('usuarios.modal.fields.full_name')}</label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={16} />
                       <input
@@ -215,13 +217,13 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         onChange={handleChange}
                         required
                         className="w-full pl-9 md:pl-10 pr-3 md:pr-4 py-2.5 md:py-3.5 text-sm md:text-base bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-indigo-950/40 rounded-xl md:rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-600"
-                        placeholder="Ej. Juan Pérez"
+                        placeholder={t('usuarios.modal.placeholders.name')}
                       />
                     </div>
                   </div>
 
                   <div className="group">
-                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Email Corporativo</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">{t('usuarios.modal.fields.email')}</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={18} />
                       <input
@@ -232,13 +234,13 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         required
                         disabled={!!initialData}
                         className={`w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white ${initialData ? 'opacity-50 cursor-not-allowed dark:bg-slate-900/50' : ''}`}
-                        placeholder="juan@tacosgavilan.com"
+                        placeholder={t('usuarios.modal.placeholders.email')}
                       />
                     </div>
                   </div>
 
                   <div className="group">
-                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">Teléfono</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1 group-focus-within:text-indigo-600 transition-colors">{t('usuarios.modal.fields.phone')}</label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 group-focus-within:text-indigo-500 transition-colors" size={18} />
                       <input
@@ -247,14 +249,14 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         value={formData.phone}
                         onChange={handleChange}
                         className="w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white"
-                        placeholder="(555) 000-0000"
+                        placeholder={t('usuarios.modal.placeholders.phone')}
                       />
                     </div>
                   </div>
 
                   {/* Estado Activo Toggle */}
                   <div className="flex items-center justify-between bg-gray-50/50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 p-3 px-4 rounded-2xl transition-colors">
-                    <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Cuenta Activa</span>
+                    <span className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">{t('usuarios.modal.fields.is_active')}</span>
                     <button
                       type="button"
                       onClick={handleToggleActive}
@@ -270,14 +272,16 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
               <section className="space-y-4 pt-4 border-t border-gray-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">2</span>
-                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">Seguridad</h3>
+                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">{t('usuarios.modal.sections.security')}</h3>
                 </div>
 
                 <div className="p-5 bg-gray-50/50 dark:bg-slate-800/30 rounded-2xl border border-gray-100 dark:border-slate-800 space-y-5 transition-colors">
                   {/* Password Row */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div className="group relative">
-                      <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Nueva Contraseña</label>
+                      <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">
+                        {t('usuarios.modal.fields.password')}
+                      </label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
                         <input
@@ -286,7 +290,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                           value={formData.password}
                           onChange={handleChange}
                           className="w-full pl-10 pr-10 py-3.5 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white"
-                          placeholder={initialData ? "Dejar vacío para mantener" : "••••••••"}
+                          placeholder={initialData ? t('usuarios.modal.placeholders.keep_password') : t('usuarios.modal.placeholders.password')}
                         />
                         <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-500 transition-colors">
                           {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -303,7 +307,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                     </div>
 
                     <div className="group">
-                      <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">Confirmar Contraseña</label>
+                      <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-2 ml-1">{t('usuarios.modal.fields.confirm_password')}</label>
                       <div className="relative">
                         <CheckCircle2 className={`absolute left-3 top-1/2 -translate-y-1/2 transition-colors ${formData.confirmPassword && !passError ? 'text-emerald-500' : 'text-gray-400 dark:text-slate-500'}`} size={18} />
                         <input
@@ -314,7 +318,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                           disabled={!formData.password}
                           className={`w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-800 border focus:ring-4 focus:ring-indigo-500/10 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white 
                               ${passError ? 'border-red-300 dark:border-red-900/50 focus:border-red-500 dark:bg-red-900/10' : 'border-gray-100 dark:border-slate-700 focus:border-indigo-500'}`}
-                          placeholder="Repetir contraseña"
+                          placeholder={t('usuarios.modal.placeholders.confirm_password')}
                         />
                       </div>
                       {passError && (
@@ -331,13 +335,13 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
               <section className="space-y-4 pt-4 border-t border-gray-100 dark:border-slate-800">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">3</span>
-                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">Roles y Permisos</h3>
+                  <h3 className="font-black text-gray-900 dark:text-white text-lg tracking-tight">{t('usuarios.modal.sections.roles_permissions')}</h3>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Selector de Rol */}
                   <div>
-                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-3 ml-1">Rol del Usuario</label>
+                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-3 ml-1">{t('usuarios.modal.fields.user_role')}</label>
                     <div className="grid grid-cols-1 gap-2">
                       {['asistente', 'manager', 'supervisor', 'admin'].map((roleOp) => (
                         <label key={roleOp} className={`flex items-center gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all ${formData.role === roleOp ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-800/50 border-gray-100 dark:border-slate-800 hover:border-gray-200 dark:hover:border-slate-700'}`}>
@@ -350,7 +354,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                             className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-slate-600 dark:bg-slate-900"
                           />
                           <div>
-                            <span className="block text-sm font-black text-gray-900 dark:text-white capitalize tracking-tight">{roleOp}</span>
+                            <span className="block text-sm font-black text-gray-900 dark:text-white capitalize tracking-tight">{t(`usuarios.modal.roles.${roleOp}`)}</span>
                           </div>
                         </label>
                       ))}
@@ -365,32 +369,32 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 flex items-center justify-center mx-auto mb-4">
                           <span className="text-3xl">🌍</span>
                         </div>
-                        <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-tight">Acceso Global</h4>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-500 px-4 mt-2 font-bold leading-relaxed">Los administradores tienen acceso irrestricto a todas las tiendas.</p>
+                        <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-tight">{t('usuarios.modal.admin_scope.title')}</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-500 px-4 mt-2 font-bold leading-relaxed">{t('usuarios.modal.admin_scope.description')}</p>
                       </div>
                     )}
 
                     {isStaff && (
                       <div className="space-y-3">
-                        <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Tienda Asignada</label>
+                        <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('usuarios.modal.fields.assigned_store')}</label>
                         <select
                           name="store_id"
                           value={formData.store_id}
                           onChange={handleChange}
                           className="w-full px-4 py-3.5 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-gray-900 dark:text-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                         >
-                          <option value="" className="dark:bg-slate-900">-- Seleccionar --</option>
+                          <option value="" className="dark:bg-slate-900">-- {t('usuarios.modal.placeholders.select_store')} --</option>
                           {stores.map(s => (
                             <option key={s.id} value={s.id} className="dark:bg-slate-900">{s.name}</option>
                           ))}
                         </select>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-600 leading-tight font-bold italic">La tienda principal donde este usuario registra su actividad.</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-600 leading-tight font-bold italic">{t('usuarios.modal.staff_scope.description')}</p>
                       </div>
                     )}
 
                     {isSupervisor && (
                       <div className="space-y-3 h-full flex flex-col">
-                        <label className="block text-[10px] font-black text-purple-600/70 dark:text-purple-400/70 uppercase tracking-widest ml-1">Supervisión (Múltiple)</label>
+                        <label className="block text-[10px] font-black text-purple-600/70 dark:text-purple-400/70 uppercase tracking-widest ml-1">{t('usuarios.modal.fields.supervision_scope')}</label>
                         <div className="flex-1 bg-white dark:bg-slate-800/50 border border-gray-100 dark:border-slate-700 rounded-2xl p-2 max-h-[200px] overflow-y-auto space-y-1 transition-colors">
                           {stores.map(store => (
                             <label key={store.id} className="flex items-center gap-3 p-2.5 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-xl cursor-pointer transition-colors group">
@@ -420,7 +424,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
               onClick={onClose}
               className="px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
             >
-              Cancelar
+              {t('usuarios.modal.buttons.cancel')}
             </button>
             <button
               type="submit"
@@ -428,7 +432,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
               className="px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white dark:text-slate-900 bg-slate-900 dark:bg-white hover:bg-black dark:hover:bg-slate-100 shadow-xl shadow-gray-200 dark:shadow-none hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!!passError}
             >
-              {initialData ? 'Guardar Cambios' : 'Crear Usuario'}
+              {initialData ? t('usuarios.modal.buttons.save') : t('usuarios.modal.buttons.create')}
             </button>
           </div>
 

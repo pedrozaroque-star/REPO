@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, FileText, Plus, Search, Edit } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { useLanguage } from '@/lib/i18n'
 
 interface Template {
     id: string
@@ -18,6 +19,7 @@ interface Template {
 }
 
 export default function TemplatesPage() {
+    const { t } = useLanguage()
     const [templates, setTemplates] = useState<Template[]>([])
     const [loading, setLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState('')
@@ -77,8 +79,8 @@ export default function TemplatesPage() {
                                 <FileText size={18} />
                             </div>
                             <div>
-                                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Plantillas</h1>
-                                <p className="hidden md:block text-xs text-gray-400 dark:text-slate-500 font-medium">Gestión de formatos</p>
+                                <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">{t('plantillas.title')}</h1>
+                                <p className="hidden md:block text-xs text-gray-400 dark:text-slate-500 font-medium">{t('plantillas.subtitle')}</p>
                             </div>
                         </div>
 
@@ -89,7 +91,7 @@ export default function TemplatesPage() {
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-red-500 transition-colors" size={16} />
                                 <input
                                     type="text"
-                                    placeholder="Buscar plantilla..."
+                                    placeholder={t('plantillas.search_placeholder')}
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="pl-9 pr-4 py-1.5 rounded-full bg-gray-100 dark:bg-slate-800 border-none outline-none focus:ring-2 focus:ring-red-200 dark:focus:ring-red-900/50 text-sm font-medium text-gray-700 dark:text-slate-300 w-64 transition-all"
@@ -101,7 +103,7 @@ export default function TemplatesPage() {
                                 className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-transform active:scale-95 shadow-lg shadow-gray-200 dark:shadow-none"
                             >
                                 <Plus size={16} strokeWidth={3} />
-                                <span className="hidden md:inline font-bold text-xs tracking-wide">NUEVA</span>
+                                <span className="hidden md:inline font-bold text-xs tracking-wide">{t('plantillas.new_template')}</span>
                             </button>
                         </div>
                     </div>
@@ -114,7 +116,7 @@ export default function TemplatesPage() {
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                             <input
                                 type="text"
-                                placeholder="Buscar por título o código..."
+                                placeholder={t('plantillas.search_placeholder')}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="w-full pl-11 pr-4 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-red-300 text-sm font-bold text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-slate-500"
@@ -141,12 +143,12 @@ export default function TemplatesPage() {
                                             {template.active ? (
                                                 <div className="flex items-center gap-1.5 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-full border border-green-100 dark:border-green-900/30">
                                                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                                    <span className="text-[10px] font-bold text-green-700 dark:text-green-400">ACTIVO</span>
+                                                    <span className="text-[10px] font-bold text-green-700 dark:text-green-400">{t('plantillas.active')}</span>
                                                 </div>
                                             ) : (
                                                 <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-slate-800 px-2 py-1 rounded-full border border-gray-200 dark:border-slate-700">
                                                     <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                                                    <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">INACTIVO</span>
+                                                    <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{t('plantillas.inactive')}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -170,7 +172,7 @@ export default function TemplatesPage() {
                                             className="w-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-transform active:scale-95 shadow-md shadow-gray-200 dark:shadow-none"
                                         >
                                             <Edit size={14} />
-                                            EDITAR PREGUNTAS
+                                            {t('plantillas.edit_questions')}
                                         </Link>
                                     </div>
                                 </motion.div>
@@ -179,8 +181,8 @@ export default function TemplatesPage() {
                             {filteredTemplates.length === 0 && (
                                 <div className="col-span-full text-center py-20 opacity-50">
                                     <Search size={48} className="mx-auto text-gray-300 mb-4" />
-                                    <p className="text-gray-900 font-bold">No se encontraron plantillas</p>
-                                    <p className="text-sm text-gray-500">Intenta con otra búsqueda</p>
+                                    <p className="text-gray-900 font-bold">{t('plantillas.empty_title')}</p>
+                                    <p className="text-sm text-gray-500">{t('tiendas.empty_subtitle')}</p>
                                 </div>
                             )}
                         </div>

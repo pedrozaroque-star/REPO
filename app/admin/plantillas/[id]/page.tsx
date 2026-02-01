@@ -7,6 +7,7 @@ import { motion, Reorder } from 'framer-motion'
 import { Trash2, Plus, GripVertical, Save, Edit2, Camera, Star, BarChart3, Type, Hash, CheckSquare, ArrowLeft, Sparkles, ClipboardList } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
+import { useLanguage } from '@/lib/i18n'
 
 // --- Types ---
 interface Question {
@@ -46,16 +47,17 @@ interface Template {
 }
 
 const QUESTION_TYPES = [
-    { value: 'yes_no', label: 'Sí / No', icon: CheckSquare },
-    { value: 'rating_5', label: 'Estrellas (1-5)', icon: Star },
-    { value: 'nps_10', label: 'NPS (0-10)', icon: BarChart3 },
-    { value: 'text', label: 'Texto Libre', icon: Type },
-    { value: 'number', label: 'Número', icon: Hash },
-    { value: 'photo', label: 'Solo Foto', icon: Camera },
-    { value: 'compliance', label: 'Cumple / Parcial / No Cumple', icon: ClipboardList },
+    { value: 'yes_no', icon: CheckSquare },
+    { value: 'rating_5', icon: Star },
+    { value: 'nps_10', icon: BarChart3 },
+    { value: 'text', icon: Type },
+    { value: 'number', icon: Hash },
+    { value: 'photo', icon: Camera },
+    { value: 'compliance', icon: ClipboardList },
 ]
 
 export default function TemplateEditorPage() {
+    const { t, language } = useLanguage()
     const params = useParams()
     const router = useRouter()
     const templateId = params.id as string
@@ -82,7 +84,7 @@ export default function TemplateEditorPage() {
                 headers: { 'apikey': key || '', 'Authorization': `Bearer ${key}` }
             })
             const dataT = await resT.json()
-            if (!dataT || dataT.length === 0) throw new Error('Plantilla no encontrada')
+            if (!dataT || dataT.length === 0) throw new Error(t('plantillas.editor.errors.not_found'))
             setTemplate(dataT[0])
 
             const resDeep = await fetch(`${url}/rest/v1/template_sections?template_id=eq.${templateId}&select=*,questions:template_questions(*)&order=order_index.asc`, {
@@ -98,7 +100,7 @@ export default function TemplateEditorPage() {
             setSections(sortedSections)
         } catch (err) {
             console.error(err)
-            alert('Error cargando datos')
+            alert(t('plantillas.editor.errors.load_error'))
         } finally {
             setLoading(false)
         }
@@ -130,17 +132,17 @@ export default function TemplateEditorPage() {
                 }
             }
 
-            alert('✅ Orden guardado exitosamente')
+            alert(t('plantillas.editor.errors.save_order_success'))
         } catch (err) {
             console.error(err)
-            alert('Error al guardar el orden')
+            alert(t('plantillas.editor.errors.save_order_error'))
         } finally {
             setSavingOrder(false)
         }
     }
 
     const handleAddSection = async () => {
-        const title = prompt('Nombre de la nueva sección:')
+        const title = prompt(t('plantillas.editor.errors.create_section_prompt'))
         if (!title) return
 
         const newOrder = sections.length
@@ -158,7 +160,7 @@ export default function TemplateEditorPage() {
                 setSections([...sections, { ...newSec, questions: [] }])
             }
         } catch (e) {
-            alert('Error de red')
+            alert(t('plantillas.editor.errors.network_error'))
         }
     }
 
@@ -202,16 +204,16 @@ export default function TemplateEditorPage() {
             const { error } = await supabase.from('template_questions').update(updates).eq('id', qId)
             if (error) {
                 console.error(error)
-                alert('Error al actualizar: ' + error.message)
+                alert(t('plantillas.editor.errors.update_error') + error.message)
             }
         } catch (err: any) {
             console.error(err)
-            alert('Error de red: ' + err.message)
+            alert(t('plantillas.editor.errors.network_error') + ': ' + err.message)
         }
     }
 
     const handleDeleteQuestion = async (qId: string) => {
-        if (!confirm('¿Borrar esta pregunta?')) return
+        if (!confirm(t('plantillas.editor.errors.delete_confirm'))) return
 
         setSections(prev => prev.map(sec => ({
             ...sec,
@@ -223,17 +225,17 @@ export default function TemplateEditorPage() {
             const { error } = await supabase.from('template_questions').delete().eq('id', qId)
             if (error) {
                 console.error(error)
-                alert('Error al eliminar: ' + error.message)
+                alert(t('plantillas.editor.errors.delete_error') + error.message)
             }
         } catch (err: any) {
             console.error(err)
-            alert('Error al eliminar: ' + (err.message || 'Desconocido'))
+            alert(t('plantillas.editor.errors.delete_error') + (err.message || 'Desconocido'))
             // Revert state if needed (complex for delete, assume refresh or ignore for now, but ideally we revert)
         }
     }
 
     const handleAddQuestion = async (sectionId: string) => {
-        const text = prompt('Escribe la nueva pregunta:')
+        const text = prompt(t('plantillas.editor.errors.create_question_prompt'))
         if (!text) return
 
         const section = sections.find(s => s.id === sectionId)
@@ -251,9 +253,9 @@ export default function TemplateEditorPage() {
             if (error) {
                 console.error(error)
                 if (error.code === '42501' || error.message?.includes('row-level security')) {
-                    alert('Tu sesión ha expirado. Por favor recarga la página para volver a ingresar.')
+                    alert(t('plantillas.editor.errors.session_expired'))
                 } else {
-                    alert('Error al crear pregunta: ' + error.message)
+                    alert(t('plantillas.editor.errors.create_question_error') + error.message)
                 }
                 return
             }
@@ -267,7 +269,7 @@ export default function TemplateEditorPage() {
             }
         } catch (err: any) {
             console.error('Error adding question:', err)
-            alert('Error al crear pregunta: ' + (err.message || 'Desconocido'))
+            alert(t('plantillas.editor.errors.create_question_error') + (err.message || 'Desconocido'))
         }
     }
 
@@ -306,7 +308,7 @@ export default function TemplateEditorPage() {
                             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-lg shadow-indigo-100 dark:shadow-none disabled:opacity-50 text-sm"
                         >
                             <Save size={16} />
-                            {savingOrder ? 'Guardando...' : 'Guardar Orden'}
+                            {savingOrder ? t('plantillas.editor.saving') : t('plantillas.editor.save_order')}
                         </button>
                     </div>
                 </div>
@@ -339,7 +341,7 @@ export default function TemplateEditorPage() {
                                 <Reorder.Group axis="y" values={section.questions} onReorder={(newQs) => handleReorderQuestions(section.id, newQs)} className="divide-y divide-gray-100 dark:divide-slate-800">
                                     {section.questions.length === 0 && (
                                         <div className="p-8 text-center text-gray-400 dark:text-slate-600 italic text-sm">
-                                            Sin preguntas en esta sección
+                                            {t('plantillas.editor.empty_section')}
                                         </div>
                                     )}
                                     {section.questions.map((q) => (
@@ -353,7 +355,7 @@ export default function TemplateEditorPage() {
                                                     {editingQuestion === q.id ? (
                                                         <div className="space-y-4 bg-indigo-50/50 dark:bg-indigo-900/10 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                                                             <div>
-                                                                <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">Texto de la Pregunta</label>
+                                                                <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">{t('plantillas.editor.labels.question_text')}</label>
                                                                 <input
                                                                     autoFocus
                                                                     defaultValue={q.text}
@@ -364,7 +366,7 @@ export default function TemplateEditorPage() {
 
                                                             <div className="flex flex-wrap gap-4">
                                                                 <div className="min-w-[200px]">
-                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">Sección</label>
+                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">{t('plantillas.editor.labels.section')}</label>
                                                                     <select
                                                                         value={q.section_id}
                                                                         onChange={(e) => handleUpdateQuestion(q.id, { section_id: e.target.value })}
@@ -377,14 +379,14 @@ export default function TemplateEditorPage() {
                                                                 </div>
 
                                                                 <div className="flex-1 min-w-[200px]">
-                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">Tipo de Respuesta</label>
+                                                                    <label className="text-[10px] font-black text-indigo-400 uppercase mb-1 block">{t('plantillas.editor.labels.response_type')}</label>
                                                                     <select
                                                                         value={q.type}
                                                                         onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value })}
                                                                         className="w-full p-2 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900/50 text-gray-900 dark:text-slate-200 rounded-lg text-sm outline-none"
                                                                     >
-                                                                        {QUESTION_TYPES.map(t => (
-                                                                            <option key={t.value} value={t.value}>{t.label}</option>
+                                                                        {QUESTION_TYPES.map(tq => (
+                                                                            <option key={tq.value} value={tq.value}>{t(`plantillas.editor.question_types.${tq.value}`)}</option>
                                                                         ))}
                                                                     </select>
                                                                 </div>
@@ -402,7 +404,7 @@ export default function TemplateEditorPage() {
                                                                             <div className={`absolute top-1 left-1 bg-white w-3 h-3 rounded-full transition-transform ${q.required_photo ? 'translate-x-5' : ''}`}></div>
                                                                         </div>
                                                                         <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
-                                                                            <Camera size={14} /> Foto Obligatoria
+                                                                            <Camera size={14} /> {t('plantillas.editor.labels.photo_required')}
                                                                         </span>
                                                                     </label>
                                                                 </div>
@@ -410,7 +412,7 @@ export default function TemplateEditorPage() {
 
                                                             <div className="flex justify-end pt-2">
                                                                 <button onClick={() => setEditingQuestion(null)} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-sm">
-                                                                    Listo
+                                                                    {t('plantillas.editor.labels.ready')}
                                                                 </button>
                                                             </div>
                                                         </div>
@@ -424,18 +426,18 @@ export default function TemplateEditorPage() {
                                                                 {q.text}
                                                                 {isNew(q.created_at) && (
                                                                     <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 text-[10px] uppercase font-black rounded-full border border-indigo-200 dark:border-indigo-900/50">
-                                                                        <Sparkles size={10} /> NEW <span className="text-indigo-400 dark:text-indigo-500 font-medium normal-case tracking-normal ml-1">({new Date(q.created_at!).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
+                                                                        <Sparkles size={10} /> {t('plantillas.editor.labels.new_badge')} <span className="text-indigo-400 dark:text-indigo-500 font-medium normal-case tracking-normal ml-1">({new Date(q.created_at!).toLocaleDateString(language === 'es' ? 'es-MX' : 'en-US', { day: '2-digit', month: 'short', year: '2-digit' })})</span>
                                                                     </span>
                                                                 )}
                                                             </div>
                                                             <div className="flex items-center gap-3">
                                                                 <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded text-[10px] uppercase font-black text-gray-500 dark:text-slate-400">
-                                                                    {React.createElement(QUESTION_TYPES.find(t => t.value === q.type)?.icon || CheckSquare, { size: 12 })}
-                                                                    {QUESTION_TYPES.find(t => t.value === q.type)?.label}
+                                                                    {React.createElement(QUESTION_TYPES.find(qt => qt.value === q.type)?.icon || CheckSquare, { size: 12 })}
+                                                                    {t(`plantillas.editor.question_types.${q.type}`)}
                                                                 </div>
                                                                 {q.required_photo && (
                                                                     <div className="flex items-center gap-1 px-2 py-0.5 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded text-[10px] uppercase font-black text-red-500 dark:text-red-400">
-                                                                        <Camera size={12} /> Foto Req.
+                                                                        <Camera size={12} /> {t('plantillas.editor.labels.photo_req_badge')}
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -472,7 +474,7 @@ export default function TemplateEditorPage() {
                                 className="w-full py-4 bg-gray-50/50 dark:bg-slate-800/50 hover:bg-indigo-50/30 dark:hover:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all border-t border-gray-100 dark:border-slate-800"
                             >
                                 <Plus size={16} />
-                                Agregar Pregunta
+                                {t('plantillas.editor.labels.add_question')}
                             </button>
                         </Reorder.Item>
                     ))}
@@ -481,13 +483,13 @@ export default function TemplateEditorPage() {
                 {sections.length === 0 && (
                     <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-slate-800 shadow-inner dark:shadow-none">
                         <div className="w-20 h-20 bg-gray-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl">📋</div>
-                        <p className="text-gray-500 dark:text-slate-400 mb-6 font-medium">Esta plantilla está vacía. ¡Comienza agregando una sección!</p>
+                        <p className="text-gray-500 dark:text-slate-400 mb-6 font-medium">{t('plantillas.editor.labels.empty_template')}</p>
                         <button
                             onClick={handleAddSection}
                             className="bg-indigo-600 dark:bg-slate-100 text-white dark:text-slate-900 px-8 py-4 rounded-2xl font-black hover:bg-indigo-700 dark:hover:bg-white transition shadow-xl shadow-indigo-100 dark:shadow-none flex items-center gap-2 mx-auto"
                         >
                             <Plus size={20} />
-                            Crear Primera Sección
+                            {t('plantillas.editor.labels.create_first_section')}
                         </button>
                     </div>
                 )}
@@ -500,7 +502,7 @@ export default function TemplateEditorPage() {
                             className="bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 px-8 py-4 rounded-2xl font-black hover:bg-black dark:hover:bg-white transition shadow-2xl dark:shadow-none flex items-center gap-3 hover:-translate-y-1 transform duration-200"
                         >
                             <Plus size={24} />
-                            NUEVA SECCIÓN
+                            {t('plantillas.editor.labels.new_section')}
                         </button>
                     </div>
                 )}

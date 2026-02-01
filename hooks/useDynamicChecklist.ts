@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
+import { useLanguage } from '@/lib/i18n'
+import { getTranslatedQuestion, getTranslatedSection, getTranslatedTemplate } from '@/lib/checklist-translations'
+import { getTranslatedSupervisor } from '@/lib/supervisor-translations'
 
 export interface Question {
     id: string
     section_id: string
     text: string
+    original_text?: string
     type: string
     order_index: number
     required_photo?: boolean
@@ -31,6 +35,7 @@ export interface Template {
 const CACHE_PREFIX = 'checklist_template_v2_'
 
 export function useDynamicChecklist(templateCode: string) {
+    const { language } = useLanguage()
     const [data, setData] = useState<Template | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -42,9 +47,11 @@ export function useDynamicChecklist(templateCode: string) {
     const fetchTemplate = useCallback(async (isRefresh = false) => {
         if (!templateCode) return
 
+        // Include language in cache key to support bilingual switching
+        const cacheKey = `${CACHE_PREFIX}${templateCode}_${language}`
+
         if (!isRefresh) {
             // 0. Cache-First Strategy (Immediate)
-            const cacheKey = `${CACHE_PREFIX}${templateCode}`
             if (typeof window !== 'undefined') {
                 const cached = localStorage.getItem(cacheKey)
                 if (cached) {
@@ -102,14 +109,32 @@ export function useDynamicChecklist(templateCode: string) {
                 allQuestions = questionsData || []
             }
 
-            // D. Assemble
+            // D. Assemble (WITH TRANSLATION)
             const assembledSections: Section[] = (sectionsData || []).map(section => ({
                 ...section,
-                questions: allQuestions.filter(q => q.section_id === section.id)
-            }))
+                questions: allQuestions.filter(q => q.section_id === section.id).map(q => {
+                    const translatedById = getTranslatedQuestion(q.id, q.text, language as 'es' | 'en')
+                    const finalTranslation = translatedById === q.text ? getTranslatedSupervisor(q.text, language as 'es' | 'en') : translatedById
+
+                    return {
+                        ...q,
+                        original_text: q.text, // Keep original for logic
+                        text: finalTranslation // Translate for Display
+                    }
+                })
+            })).map(s => {
+                const translatedById = getTranslatedSection(s.id, s.title, language as 'es' | 'en')
+                const finalTranslation = translatedById === s.title ? getTranslatedSupervisor(s.title, language as 'es' | 'en') : translatedById
+
+                return {
+                    ...s,
+                    title: finalTranslation
+                }
+            })
 
             const finalData = {
                 ...templateData,
+                title: getTranslatedTemplate(templateCode, templateData.title, language as 'es' | 'en'),
                 sections: assembledSections
             }
 
@@ -118,9 +143,9 @@ export function useDynamicChecklist(templateCode: string) {
             setIsCached(false)
             setError(null)
 
-            // Update Cache
+            // Update Cache (Scoped by Language)
             if (typeof window !== 'undefined') {
-                localStorage.setItem(`${CACHE_PREFIX}${templateCode}`, JSON.stringify(finalData))
+                localStorage.setItem(cacheKey, JSON.stringify(finalData))
                 log('🔄 Updated cache from network')
             }
 
@@ -134,7 +159,10 @@ export function useDynamicChecklist(templateCode: string) {
         } finally {
             setLoading(false)
         }
-    }, [templateCode]) // data removed to avoid identity change loop
+    }, [templateCode, language]) // Added language dependency to re-fetch/re-translate
+
+    // Effect to clear cache if VERSION changes (optional, but good practice) or force refresh logic
+    // But for now, just relying on the new key structure.
 
     useEffect(() => {
         let isMounted = true
@@ -142,7 +170,7 @@ export function useDynamicChecklist(templateCode: string) {
             fetchTemplate()
         }
         return () => { isMounted = false }
-    }, [templateCode]) // fetchTemplate dependency removed to avoid identity-based infinite loops
+    }, [fetchTemplate]) // fetchTemplate changes when language changes due to dependency
 
     const refresh = useCallback(() => fetchTemplate(true), [fetchTemplate])
 
