@@ -62,7 +62,7 @@ function PrintViewContent() {
 
     // --- AM/PM & ROLE LOGIC ---
     const { amEmployees, pmEmployees } = useMemo(() => {
-        const draftShifts = shifts.filter(s => s.status === 'draft')
+        const relevantShifts = shifts.filter(s => s.status === 'draft' || s.status === 'published')
         const am: any[] = []
         const pm: any[] = []
 
@@ -70,7 +70,7 @@ function PrintViewContent() {
 
         // First distribute based on average time
         employees.forEach(emp => {
-            const empShifts = draftShifts.filter(s => s.employee_id === emp.id)
+            const empShifts = relevantShifts.filter(s => s.employee_id === emp.id)
             if (empShifts.length === 0) return
 
             let totalHour = 0
@@ -97,7 +97,7 @@ function PrintViewContent() {
 
         const getEmployeeBestRank = (emp: any) => {
             // 1. Check Scheduled Shifts (Primary Source of Truth for this week)
-            const myShifts = draftShifts.filter(s => s.employee_id === emp.id)
+            const myShifts = relevantShifts.filter(s => s.employee_id === emp.id)
             let bestRank = 99
 
             if (myShifts.length > 0) {
@@ -142,8 +142,8 @@ function PrintViewContent() {
     const renderTable = (team: any[], title: string, forceBreak: boolean) => {
         if (team.length === 0) return null
 
-        // Filter ONLY Drafts for display
-        const visibleShifts = shifts.filter(s => s.status === 'draft')
+        // Filter Drafts AND Published for display
+        const visibleShifts = shifts.filter(s => s.status === 'draft' || s.status === 'published')
 
         return (
             <div className={`mb-8 ${forceBreak ? 'break-after-page' : 'break-inside-avoid'}`}>

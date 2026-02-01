@@ -163,7 +163,7 @@ export function EmployeeRow({
                                             style={{
                                                 borderLeftColor: stringToColor(jobTitle),
                                                 borderColor: !isPublished ? stringToColor(jobTitle) : undefined,
-                                                backgroundColor: !isPublished ? `${stringToColor(jobTitle)}20` : undefined // 20 = 12% opacity hex
+                                                backgroundColor: `${stringToColor(jobTitle)}20` // Always apply tint (Draft & Published)
                                             }}
                                         >
                                             <div className="flex flex-col justify-center gap-0.5">

@@ -60,11 +60,18 @@ export function PlanificadorHeader({
                     <div className="relative">
                         <button
                             onClick={handlePublish}
+                            disabled={draftCount === 0}
                             onMouseEnter={() => setShowPublishInfo(true)}
                             onMouseLeave={() => setShowPublishInfo(false)}
-                            className="px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none"
+                            className={`px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all flex items-center gap-2 
+                                ${draftCount === 0
+                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none dark:bg-slate-700 dark:text-slate-500' // Disabled State
+                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none' // Active State
+                                }
+                            `}
                         >
-                            <Zap size={16} fill="currentColor" /> Publicar
+                            <Zap size={16} fill={draftCount > 0 ? "currentColor" : "none"} />
+                            {draftCount > 0 ? 'Publicar Cambios' : 'Publicado'}
                         </button>
                         <AnimatePresence>
                             {showPublishInfo && (
