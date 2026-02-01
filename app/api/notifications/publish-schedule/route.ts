@@ -151,7 +151,10 @@ export async function POST(req: Request) {
         // CHUNK PROCESSING FUNCTION (Using Nodemailer Stream for Robust Attachments)
         const processChunk = async (chunk: any[]) => {
             const promises = chunk.map(async (emp: any) => {
-                const empShifts = shifts.filter(s => s.employee_id === emp.id)
+                const empShifts = shifts
+                    .filter(s => s.employee_id === emp.id)
+                    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()) // SORT BY DATE
+
                 if (empShifts.length === 0) return
 
                 // Build shift rows for email table
@@ -214,7 +217,7 @@ export async function POST(req: Request) {
                             </tr>
                              <tr>
                                 <td style="padding: 30px; background: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-                                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">Enviado por ${fromEmail} a través de Teg Modernizado.</p>
+                                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">Enviado por ${fromEmail} a través de Sistema de Monitoreo TEG.</p>
                                 </td>
                             </tr>
                         </table>
