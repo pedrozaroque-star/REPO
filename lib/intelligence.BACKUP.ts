@@ -156,8 +156,6 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         const weightedHrS: Record<string, number> = {}
         const weightedHrT: Record<string, number> = {}
 
-
-
         // weights: index 0 (1yr ago) = 3, index 1 (2yrs ago) = 2, index 2 = 1
         historyPoints.forEach(pt => {
             // Determine recency
@@ -193,8 +191,6 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             totalWeight += weight // Denominator keeps full weight
             weightedSales += (pt.net_sales * dayShiftFactor * weight) // Numerator gets adjusted value
 
-
-
             if (pt.hourly_data) {
                 Object.entries(pt.hourly_data).forEach(([h, v]) => {
                     weightedHrS[h] = (weightedHrS[h] || 0) + (Number(v) * dayShiftFactor * weight)
@@ -212,8 +208,6 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         // Normalize hourly
         Object.keys(weightedHrS).forEach(h => hourlySalesDist[h] = weightedHrS[h] / totalWeight)
         Object.keys(weightedHrT).forEach(h => hourlyTicketDist[h] = weightedHrT[h] / totalWeight)
-
-
 
     } else {
         // Strict 0 triggers safety net

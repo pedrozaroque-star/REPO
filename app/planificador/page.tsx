@@ -765,12 +765,45 @@ export default function SchedulePlanner() {
             const notifyData = await notifyRes.json()
 
             // SAVE BUDGET SNAPSHOT
-            console.log('💾 Saving Budget Snapshot...', { storeGuid, startStr, projCount: Object.keys(projections).length })
+            // 🛡️ VALIDATION: Ensure projections have all 7 days before saving
+            const requiredDates: string[] = []
+            for (let i = 0; i < 7; i++) {
+                const d = addDays(weekStart, i)
+                requiredDates.push(formatDateISO(d))
+            }
+
+            const missingDates = requiredDates.filter(d => !projections[d] || Number(projections[d]) <= 0)
+            let finalProjections = { ...projections }
+
+            if (missingDates.length > 0) {
+                console.warn('⚠️ [BUDGET] Missing projections for:', missingDates.join(', '))
+
+                // Attempt to regenerate missing projections
+                try {
+                    const freshProjections = await calculateProjections()
+                    if (freshProjections && Object.keys(freshProjections).length > 0) {
+                        // Merge: existing overwrites fresh (keep user edits)
+                        finalProjections = { ...freshProjections, ...projections }
+                        console.log('🔄 [BUDGET] Regenerated missing projections')
+                    }
+                } catch (regenError) {
+                    console.error('❌ Failed to regenerate projections:', regenError)
+                }
+
+                // Re-check after regeneration
+                const stillMissing = requiredDates.filter(d => !finalProjections[d] || Number(finalProjections[d]) <= 0)
+                if (stillMissing.length > 0) {
+                    console.warn('⚠️ [BUDGET] Still missing after regen:', stillMissing.join(', '))
+                    toast.info(t('planner.toasts.projections_incomplete') || `Warning: Projections incomplete for ${stillMissing.length} day(s)`)
+                }
+            }
+
+            console.log('💾 Saving Budget Snapshot...', { storeGuid, startStr, projCount: Object.keys(finalProjections).length, days: Object.keys(finalProjections) })
 
             const { data: savedBudget, error: budgetError } = await supabase.from('weekly_budgets').upsert({
                 store_id: storeGuid,
                 week_start: startStr,
-                sales_projections: projections,
+                sales_projections: finalProjections,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'store_id,week_start' }).select()
 
@@ -779,6 +812,10 @@ export default function SchedulePlanner() {
                 toast.error(t('planner.toasts.budget_error') + ': ' + budgetError.message)
             } else {
                 console.log('✅ Budget Saved:', savedBudget)
+                // Update local state with the complete projections
+                if (Object.keys(finalProjections).length > Object.keys(projections).length) {
+                    setProjections(finalProjections)
+                }
             }
 
             // FEEDBACK FINAL

@@ -93,6 +93,9 @@ function SalesPageContent() {
         // Fix timezone offset issue manually if needed, or just depend on startDate string format YYYY-MM-DD
         const formatDateLocal = (d: Date) => d.toISOString().split('T')[0]
 
+        // 📊 PROJECTIONS MAP: Will be populated from historical data
+        const projMap = new Map<string, number>()
+
         if (groupByMode === 'hour') {
             // 1. Inicializar todas las horas del rango (7am -> 29 (5am+1))
             const baseDateStr = startDate // Using state directly
@@ -108,7 +111,12 @@ function SalesPageContent() {
                 const dateP = isNextDay ? nextDateStr : baseDateStr
                 const timeKey = `${dateP} ${h.toString().padStart(2, '0')}:00`
                 trendMap.set(timeKey, 0)
+                projMap.set(timeKey, 0) // Initialize projections too
             })
+
+            // Collect hourly projections from historical data (same day of week)
+            // Using rows that have projectedHourly data
+            const hourlyProjCounts: Record<string, { sum: number, count: number }> = {}
 
             rows.forEach((row: any) => {
                 if (row.hourlySales) {
@@ -122,17 +130,47 @@ function SalesPageContent() {
                         }
                     })
                 }
+
+                // Use projected hourly if available from API response
+                if (row.projectedHourly) {
+                    Object.entries(row.projectedHourly).forEach(([h, amount]) => {
+                        const hourInt = parseInt(h)
+                        const isNext = hourInt < 6
+                        const dStr = isNext ? nextDateStr : baseDateStr
+                        const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
+                        if (!hourlyProjCounts[key]) hourlyProjCounts[key] = { sum: 0, count: 0 }
+                        hourlyProjCounts[key].sum += Number(amount) || 0
+                        hourlyProjCounts[key].count += 1
+                    })
+                }
+            })
+
+            // SUM all store projections per hour (not average!)
+            Object.entries(hourlyProjCounts).forEach(([key, data]) => {
+                if (data.sum > 0) {
+                    projMap.set(key, data.sum) // Use sum, not average - we want total across all stores
+                }
             })
         } else {
             rows.forEach((row: any) => {
                 const key = row.periodStart
                 if (!trendMap.has(key)) trendMap.set(key, 0)
                 trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
+
+                // Aggregate projections by day if available
+                if (row.projectedSales) {
+                    const currentProj = projMap.get(key) || 0
+                    projMap.set(key, currentProj + Number(row.projectedSales))
+                }
             })
         }
 
         const trendData = Array.from(trendMap.entries())
-            .map(([time, amount]) => ({ time, amount }))
+            .map(([time, amount]) => ({
+                time,
+                amount,
+                projected: projMap.get(time) || 0 // Add projected field
+            }))
             .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
 
         return { summary, trendData, storeData, rows }
@@ -468,7 +506,7 @@ function SalesPageContent() {
                 ) : (
                     <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                         <SalesSummary data={data.summary} />
-                        <SalesCharts trendData={data.trendData} storeData={data.storeData} />
+                        <SalesCharts trendData={data.trendData} storeData={data.storeData} period={period} />
 
                         {/* Table */}
                         <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl shadow-xl shadow-black/5">

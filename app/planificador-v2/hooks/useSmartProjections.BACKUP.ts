@@ -1,87 +1,21 @@
-/**
- * useSmartProjections - Hybrid Hook
- * 
- * PRIMARY: Calls the Intelligence Engine API (/api/projections/generate)
- * FALLBACK: Uses legacy local calculation if API fails
- * 
- * This provides a safe migration path with A/B comparison logging.
- */
-
 import { useState, useCallback } from 'react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { addDays, formatDateISO } from '../lib/utils'
 import { checkHoliday } from '../lib/holidayEngine'
 
-// Feature flag: Set to false to disable Intelligence and use only Legacy
-const USE_INTELLIGENCE_API = true
-
-export function useSmartProjections(storeGuid: string | undefined, weekStartInput: string | Date) {
+export function useSmartProjections(storeGuid: string | undefined, weekStart: Date) {
     const [projections, setProjections] = useState<Record<string, string>>({})
     const [isGenerating, setIsGenerating] = useState(false)
 
-    // Helper: Parse naive date string "YYYY-MM-DD" to Local Midnight Date
-    const parseNaiveDate = (dateStr: string) => {
-        const [y, m, d] = dateStr.split('-').map(Number)
-        return new Date(y, m - 1, d, 0, 0, 0, 0)
-    }
+    const generateSmartProjections = useCallback(async () => {
+        if (!storeGuid) return
 
-    // ========== INTELLIGENCE ENGINE (PRIMARY) ==========
-    const generateViaIntelligenceAPI = async (weekStartStr: string): Promise<Record<string, string> | null> => {
-        try {
-            console.log('🧠 [Intelligence] Calling API...')
-
-            const response = await fetch('/api/projections/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    storeId: storeGuid,
-                    weekStart: weekStartStr
-                })
-            })
-
-            if (!response.ok) {
-                throw new Error(`API returned ${response.status}`)
-            }
-
-            const data = await response.json()
-
-            if (!data.success || !data.projections) {
-                throw new Error(data.error || 'Invalid API response')
-            }
-
-            // Convert numeric projections to strings (for UI compatibility)
-            const result: Record<string, string> = {}
-            for (const [date, value] of Object.entries(data.projections)) {
-                result[date] = String(Math.round(value as number))
-            }
-
-            console.log('🧠 [Intelligence] Success!', {
-                model: data.meta?.model,
-                days: Object.keys(result).length
-            })
-
-            return result
-
-        } catch (error: any) {
-            console.warn('🧠 [Intelligence] API Failed:', error.message)
-            return null
-        }
-    }
-
-    // ========== LEGACY ENGINE (FALLBACK) ==========
-    const generateViaLegacy = async (): Promise<Record<string, string>> => {
-        console.log('👴 [Legacy] Using local calculation...')
-
+        setIsGenerating(true)
         const supabase = await getSupabaseClient()
 
-        // 1. Normalize Start Date
-        let targetStart: Date
-        if (typeof weekStartInput === 'string') {
-            targetStart = parseNaiveDate(weekStartInput)
-        } else {
-            targetStart = new Date(weekStartInput)
-            targetStart.setHours(0, 0, 0, 0)
-        }
+        // 1. Define Range: 8 Weeks Lookback + 1 Year Seasonal
+        const targetStart = new Date(weekStart)
+        targetStart.setHours(0, 0, 0, 0) // Force Midnight
 
         const targetEndDay = new Date(targetStart)
         targetEndDay.setDate(targetStart.getDate() + 6)
@@ -135,14 +69,16 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
         const newProjections: Record<string, string> = {}
 
         for (let i = 0; i < 7; i++) {
-            const dayDate = addDays(targetStart, i)
+            const dayDate = addDays(weekStart, i)
             const dateStr = formatDateISO(dayDate)
 
+            // Note: getDay() returns 0=Sun, 1=Mon.
             const targetDayIndex = dayDate.getDay()
 
             // --- FACTORS ---
             let weatherFactor = 1.0
 
+            // Find weather for this specific date
             const wParams = weatherData.find((w: any) => {
                 const wDate = new Date(w.dt * 1000).toISOString().split('T')[0]
                 return wDate === dateStr
@@ -165,6 +101,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             })
 
             // --- BASE ALGORITHM ---
+
             const todayStr = formatDateISO(new Date())
             const recentRows = history
                 .filter((h: any) => new Date(h.business_date + 'T00:00:00').getDay() === targetDayIndex)
@@ -204,7 +141,9 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             let trendFactor = 1.0
             if (secondPeriod > 0) {
                 const rawTrend = firstPeriod / secondPeriod
+                // Dampen the trend by 50% (e.g. if trend is 0.8, make it 0.9) to avoid over-pessimism in "Cuesta de Enero"
                 trendFactor = 1.0 + (rawTrend - 1.0) * 0.5
+                // Clamp to reasonable limits (+/- 10%)
                 trendFactor = Math.max(0.90, Math.min(1.10, trendFactor))
             }
 
@@ -213,12 +152,16 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             const isSeasonalValid = sSales > 0 && sSales > (finalRecentSales * 0.5)
 
             if (isSeasonalValid) {
+                // If we have valid seasonal data, mix it (70% Recent, 30% Seasonal)
                 projSales = (finalRecentSales * 0.7 + sSales * 0.3) * (finalRecentSales > 0 ? trendFactor : 1)
             } else {
+                // Otherwise rely on recent trend
                 projSales = finalRecentSales * trendFactor
             }
 
             // --- SAFETY CAP ---
+            // Don't let the projection exceed 120% of the maximum of (Recent Avg OR Seasonal)
+            // This prevents "Record Breaking" projections without strong justification.
             const baselineMax = Math.max(finalRecentSales, sSales)
             if (baselineMax > 0 && projSales > baselineMax * 1.20) {
                 projSales = baselineMax * 1.20
@@ -242,50 +185,23 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             // APPLY FACTORS
             projSales = projSales * weatherFactor * finalEventFactor
 
+            // Apply External Factors (Already applied via finalEventFactor if eventFactor was for that. 
+            // NOTE: The original code multiplied by weatherFactor * finalEventFactor, then AGAIN by weatherFactor * eventFactor? 
+            // Checking original code lines 1353 and 1356...
+            // Line 1353: projSales = projSales * weatherFactor * finalEventFactor
+            // Line 1356: projSales = projSales * weatherFactor * eventFactor
+            // It applied weatherFactor TWICE and eventFactor TWICE (since finalEventFactor includes eventFactor logic).
+            // This seems like a BUG in the original code.
+            // I will correct it here to be logical: One application of factors.
+            // finalEventFactor computed above includes dayEvents impact. 
+            // So we just need:
+            // projSales = projSales * weatherFactor * finalEventFactor
+
             if (projSales > 0) {
                 newProjections[dateStr] = Math.round(projSales).toString()
             }
         }
 
-        console.log('👴 [Legacy] Complete:', Object.keys(newProjections).length, 'days')
-        return newProjections
-    }
-
-    // ========== MAIN GENERATOR (Hybrid Strategy) ==========
-    const generateSmartProjections = useCallback(async () => {
-        if (!storeGuid) return
-
-        setIsGenerating(true)
-
-        // Normalize weekStart to string
-        let weekStartStr: string
-        if (typeof weekStartInput === 'string') {
-            weekStartStr = weekStartInput
-        } else {
-            const d = new Date(weekStartInput)
-            weekStartStr = formatDateISO(d)
-        }
-
-        let newProjections: Record<string, string> = {}
-
-        // TRY INTELLIGENCE FIRST (if enabled)
-        if (USE_INTELLIGENCE_API) {
-            const intelligenceResult = await generateViaIntelligenceAPI(weekStartStr)
-
-            if (intelligenceResult && Object.keys(intelligenceResult).length > 0) {
-                newProjections = intelligenceResult
-                console.log('✅ [Hybrid] Using Intelligence Engine results')
-            } else {
-                // FALLBACK TO LEGACY
-                console.log('⚠️ [Hybrid] Intelligence failed, falling back to Legacy...')
-                newProjections = await generateViaLegacy()
-            }
-        } else {
-            // INTELLIGENCE DISABLED - Use Legacy directly
-            newProjections = await generateViaLegacy()
-        }
-
-        console.log('🧩 [HOOK] Generated Keys:', Object.keys(newProjections))
         if (Object.keys(newProjections).length > 0) {
             setProjections(prev => ({ ...prev, ...newProjections }))
         }
@@ -293,7 +209,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
         setIsGenerating(false)
         return newProjections
 
-    }, [storeGuid, weekStartInput])
+    }, [storeGuid, weekStart])
 
     return { projections, setProjections, calculateProjections: generateSmartProjections, isGenerating }
 }

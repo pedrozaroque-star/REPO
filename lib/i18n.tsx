@@ -121,7 +121,9 @@ const dictionaries: Record<Language, any> = {
             charts: {
                 hour: 'Hora',
                 sales_trend: 'Tendencia de Ventas',
-                top_5_stores: 'Top 5 Ventas por Tienda'
+                top_5_stores: 'Top 5 Ventas por Tienda',
+                actual: 'Real',
+                projected: 'Proyectado'
             },
             // Summary Cards
             summary: {
@@ -928,7 +930,9 @@ const dictionaries: Record<Language, any> = {
             charts: {
                 hour: 'Hour',
                 sales_trend: 'Sales Trend',
-                top_5_stores: 'Top 5 Sales by Store'
+                top_5_stores: 'Top 5 Sales by Store',
+                actual: 'Actual',
+                projected: 'Projected'
             },
             // Summary Cards
             summary: {

@@ -65,6 +65,114 @@ export async function GET(request: NextRequest) {
 
         const { rows, connectionError } = await fetchToastData(options)
 
+        // 📊 PROJECTION ENHANCEMENT: Use LIVE Intelligence Engine
+
+        // CASE 1: Single day with hourly view (Today/Yesterday)
+        if (groupBy === 'hour' && startDate === endDate) {
+            try {
+                const { generateSmartForecast } = await import('@/lib/intelligence')
+
+                // Get unique store IDs and their first row
+                const storeMap = new Map<string, any>()
+                rows.forEach((row: any) => {
+                    if (!storeMap.has(row.storeId)) {
+                        storeMap.set(row.storeId, row)
+                    }
+                })
+
+                // Generate projections for each UNIQUE store in parallel
+                const projectionResults = new Map<string, { projectedHourly: Record<number, number>, projectedSales: number }>()
+
+                const projectionPromises = Array.from(storeMap.entries()).map(async ([storeId, sampleRow]) => {
+                    try {
+                        const forecast = await generateSmartForecast(storeId, startDate)
+
+                        if (forecast && forecast.hours && forecast.hours.length > 0) {
+                            const projHourly: Record<number, number> = {}
+                            forecast.hours.forEach(h => {
+                                projHourly[h.hour] = h.projected_sales || 0
+                            })
+
+                            projectionResults.set(storeId, {
+                                projectedHourly: projHourly,
+                                projectedSales: forecast.total_sales
+                            })
+                        }
+                    } catch (storeError) {
+                        console.warn(`Failed to get projection for store ${storeId}:`, storeError)
+                    }
+                })
+
+                await Promise.all(projectionPromises)
+
+                // Assign projections to first row of each store only
+                const assignedStores = new Set<string>()
+                rows.forEach((row: any) => {
+                    const proj = projectionResults.get(row.storeId)
+                    if (proj && !assignedStores.has(row.storeId)) {
+                        row.projectedHourly = proj.projectedHourly
+                        row.projectedSales = proj.projectedSales
+                        assignedStores.add(row.storeId)
+                    }
+                })
+
+            } catch (projError) {
+                console.warn('Failed to load Intelligence Engine:', projError)
+            }
+        }
+
+        // CASE 2: Multi-day view (This Week, Last Week, This Month, etc.)
+        // Generate daily projections for each date + store combination
+        else if (groupBy === 'day' && dayDiff <= 31) {
+            try {
+                const { generateSmartForecast } = await import('@/lib/intelligence')
+
+                // Get unique store IDs
+                const uniqueStoreIds = new Set<string>()
+                rows.forEach((row: any) => uniqueStoreIds.add(row.storeId))
+
+                // Get all unique dates in the range
+                const uniqueDates = new Set<string>()
+                rows.forEach((row: any) => {
+                    if (row.periodStart) {
+                        uniqueDates.add(row.periodStart)
+                    }
+                })
+
+                // Build projection cache: Map<"storeId|date", total_sales>
+                const projectionCache = new Map<string, number>()
+
+                // Generate projections for each store+date combination in parallel
+                // Batch by store to reduce parallel calls
+                const storePromises = Array.from(uniqueStoreIds).map(async (storeId) => {
+                    for (const dateStr of uniqueDates) {
+                        try {
+                            const forecast = await generateSmartForecast(storeId, dateStr)
+                            if (forecast && forecast.total_sales > 0) {
+                                projectionCache.set(`${storeId}|${dateStr}`, forecast.total_sales)
+                            }
+                        } catch (err) {
+                            // Non-blocking - continue without this projection
+                        }
+                    }
+                })
+
+                await Promise.all(storePromises)
+
+                // Assign projectedSales to each row based on storeId + periodStart
+                rows.forEach((row: any) => {
+                    const key = `${row.storeId}|${row.periodStart}`
+                    const projSales = projectionCache.get(key)
+                    if (projSales) {
+                        row.projectedSales = projSales
+                    }
+                })
+
+            } catch (projError) {
+                console.warn('Failed to generate daily projections:', projError)
+            }
+        }
+
         return NextResponse.json({
             meta: {
                 requestedGroupBy: groupBy,

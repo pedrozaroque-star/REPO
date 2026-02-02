@@ -139,7 +139,8 @@ export default function ReportesPage() {
 
     // --- HOOKS ---
     // Initialize Smart Projections logic (Client Side Fallback)
-    const { calculateProjections } = useSmartProjections(selectedStore ? stores.find(s => String(s.id) === String(selectedStore))?.external_id : undefined, weekDate ? new Date(weekDate) : new Date())
+    // 🛡️ FIX: Append T12:00:00 to avoid timezone shift (UTC midnight -> PST previous day)
+    const { calculateProjections } = useSmartProjections(selectedStore ? stores.find(s => String(s.id) === String(selectedStore))?.external_id : undefined, weekDate ? new Date(weekDate + 'T12:00:00') : new Date())
 
     // --- REPLICATED LOGIC FROM PLANNER (useWeeklyStats) ---
     const bankersRound = (num: number) => {
@@ -446,15 +447,26 @@ export default function ReportesPage() {
                 });
             }
 
-            const missingKeys = requiredKeys.filter(key => !mergedDbProjections[key]);
+            const missingKeys = requiredKeys.filter(key => !mergedDbProjections[key] || Number(mergedDbProjections[key]) <= 0);
             const needsBackfill = missingKeys.length > 0;
             finalProjections = { ...mergedDbProjections };
 
+            // 🛡️ AUTO-GENERATE: Always calculate projections if ANY day is missing
             if (needsBackfill && calculateProjections) {
-                console.log(`⚠️ [REPORT] Missing Projections for: ${missingKeys.join(', ')}. Auto-Calculating full week...`)
-                const calculated = await calculateProjections()
-                if (calculated && Object.keys(calculated).length > 0) {
-                    finalProjections = { ...calculated, ...mergedDbProjections }; // DB overwrites Calc
+                console.log(`⚠️ [REPORT] Missing Projections for: ${missingKeys.join(', ')}. Auto-Calculating...`)
+                try {
+                    const calculated = await calculateProjections()
+                    if (calculated && Object.keys(calculated).length > 0) {
+                        // Only backfill the MISSING keys, preserve DB values for existing keys
+                        missingKeys.forEach(key => {
+                            if (calculated[key] && Number(calculated[key]) > 0) {
+                                finalProjections[key] = calculated[key]
+                            }
+                        })
+                        console.log(`✅ [REPORT] Backfilled ${missingKeys.length} missing projection(s)`)
+                    }
+                } catch (calcError) {
+                    console.error('❌ [REPORT] Failed to calculate projections:', calcError)
                 }
             }
         }
@@ -628,6 +640,9 @@ export default function ReportesPage() {
             // salesProjections is { "2026-01-26": "12500", ... }
             let rawProj = salesProjections[dateStr]
             const projSales = Number(rawProj || 0)
+
+            // 🔍 DIAGNOSTIC: Log projection lookup for each day
+            console.log(`📊 [PROJ] ${day.label} (${dateStr}): rawProj=${rawProj}, projSales=${projSales}, keys=${Object.keys(salesProjections).join(', ')}`)
 
 
             // --- TARGET AVG ORDER CALCULATION ---
