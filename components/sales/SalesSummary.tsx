@@ -3,6 +3,7 @@
 import React from 'react'
 import { DollarSign, ShoppingBag, Tag, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useLanguage } from '@/lib/i18n'
 
 
 interface SummaryProps {
@@ -28,39 +29,41 @@ const formatCurrency = (value: number) => {
 }
 
 export default function SalesSummary({ data }: SummaryProps) {
+    const { t } = useLanguage()
+
     // Calculate derived metrics
     const avgTicket = data.orderCount > 0 ? data.netSales / data.orderCount : 0
 
     const cards = [
         {
-            title: 'Ventas Netas',
+            title: t('sales.summary.net_sales'),
             value: formatCurrency(data.netSales),
-            subValue: `Bruto: ${formatCurrency(data.grossSales)}`,
+            subValue: `${t('sales.summary.gross')}: ${formatCurrency(data.grossSales)}`,
             icon: DollarSign,
             color: 'text-emerald-500',
             bg: 'bg-emerald-500/10',
             border: 'border-emerald-500/20'
         },
         {
-            title: 'Promedio Ticket',
+            title: t('sales.summary.avg_ticket'),
             value: formatCurrency(avgTicket),
-            subValue: `${data.orderCount.toLocaleString('en-US')} Órdenes`,
+            subValue: `${data.orderCount.toLocaleString('en-US')} ${t('sales.summary.orders')}`,
             icon: Tag,
             color: 'text-blue-400',
             bg: 'bg-blue-500/10',
             border: 'border-blue-500/20'
         },
         {
-            title: 'Total Órdenes',
+            title: t('sales.summary.total_orders'),
             value: data.orderCount.toLocaleString('en-US'),
-            subValue: `${data.guestCount.toLocaleString('en-US')} Invitados`,
+            subValue: `${data.guestCount.toLocaleString('en-US')} ${t('sales.summary.guests')}`,
             icon: ShoppingBag,
             color: 'text-purple-400',
             bg: 'bg-purple-500/10',
             border: 'border-purple-500/20'
         },
         {
-            title: 'Labor Cost %',
+            title: t('sales.summary.labor_cost'),
             value: `${data.laborPercentage.toFixed(2)}%`,
             subValue: formatCurrency(data.laborCost),
             icon: Clock,

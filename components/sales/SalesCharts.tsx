@@ -14,22 +14,26 @@ import {
     Cell
 } from 'recharts'
 import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { es, enUS } from 'date-fns/locale'
+import { useLanguage } from '@/lib/i18n'
 
 interface ChartsProps {
     trendData: any[]
     storeData: any[]
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+// CustomTooltip now accepts language props
+const CustomTooltip = ({ active, payload, label, language, t }: any) => {
     if (active && payload && payload.length) {
         let formattedLabel = label
+        const locale = language === 'es' ? es : enUS
         try {
             if (label.includes(' ')) {
                 // Hourly: "2026-01-17 08:00" -> "08:00"
-                formattedLabel = `Hora: ${label.split(' ')[1]}`
+                formattedLabel = `${t('sales.charts.hour')}: ${label.split(' ')[1]}`
             } else {
-                formattedLabel = format(new Date(label), "EEEE dd 'de' MMMM", { locale: es })
+                const dateFormat = language === 'es' ? "EEEE dd 'de' MMMM" : "EEEE, MMMM dd"
+                formattedLabel = format(new Date(label), dateFormat, { locale })
             }
         } catch (e) { }
 
@@ -47,6 +51,9 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 export default function SalesCharts({ trendData, storeData }: ChartsProps) {
+    const { t, language } = useLanguage()
+    const locale = language === 'es' ? es : enUS
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
 
@@ -54,7 +61,7 @@ export default function SalesCharts({ trendData, storeData }: ChartsProps) {
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-lg text-slate-900 dark:text-white font-semibold flex items-center gap-2">
                         <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
-                        Tendencia de Ventas
+                        {t('sales.charts.sales_trend')}
                     </h3>
                 </div>
                 <div className="h-[300px] w-full">
@@ -83,7 +90,7 @@ export default function SalesCharts({ trendData, storeData }: ChartsProps) {
                                             return `${h12} ${ampm}`
                                         }
                                         const d = new Date(val)
-                                        return format(d, 'dd MMM', { locale: es })
+                                        return format(d, 'dd MMM', { locale })
                                     } catch (e) {
                                         return val
                                     }
@@ -96,7 +103,7 @@ export default function SalesCharts({ trendData, storeData }: ChartsProps) {
                                 tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
                             />
                             <Tooltip
-                                content={<CustomTooltip />}
+                                content={<CustomTooltip language={language} t={t} />}
                                 cursor={{ stroke: 'currentColor', strokeOpacity: 0.1, strokeWidth: 2 }}
                             />
                             <Area
@@ -116,7 +123,7 @@ export default function SalesCharts({ trendData, storeData }: ChartsProps) {
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-lg text-slate-900 dark:text-white font-semibold flex items-center gap-2">
                         <span className="w-1.5 h-6 bg-sky-500 rounded-full"></span>
-                        Top 5 Ventas por Tienda
+                        {t('sales.charts.top_5_stores')}
                     </h3>
                 </div>
                 <div className="h-[350px] w-full">
@@ -135,7 +142,7 @@ export default function SalesCharts({ trendData, storeData }: ChartsProps) {
                             <Tooltip
                                 cursor={{ fill: 'currentColor', fillOpacity: 0.05 }}
                                 contentStyle={{ backgroundColor: 'transparent', border: 'none' }}
-                                content={<CustomTooltip />}
+                                content={<CustomTooltip language={language} t={t} />}
                             />
                             <Bar dataKey="amount" radius={[0, 6, 6, 0]} barSize={24}>
                                 {storeData.map((entry, index) => (

@@ -104,6 +104,7 @@ const dictionaries: Record<Language, any> = {
             updated: 'Actualizado',
             history: 'Historial',
             reports: 'Reportes',
+            unknown_store: 'Tienda Desconocida',
             refresh: 'Actualizar',
             export_csv: 'Exportar CSV',
             detail_by_store: 'Detalle por Sucursal',
@@ -116,6 +117,22 @@ const dictionaries: Record<Language, any> = {
             loading_fetching: 'Obteniendo datos de 15 tiendas...',
             loading_processing: 'Procesando información...',
             access_denied: 'Acceso Denegado: Sesión expirada o permisos insuficientes.',
+            // Charts
+            charts: {
+                hour: 'Hora',
+                sales_trend: 'Tendencia de Ventas',
+                top_5_stores: 'Top 5 Ventas por Tienda'
+            },
+            // Summary Cards
+            summary: {
+                net_sales: 'Ventas Netas',
+                gross: 'Bruto',
+                avg_ticket: 'Promedio Ticket',
+                total_orders: 'Total Órdenes',
+                orders: 'Órdenes',
+                guests: 'Invitados',
+                labor_cost: 'Costo Laboral %'
+            },
             // Mobile cards
             sales_label: 'Ventas',
             orders_label: 'Órdenes',
@@ -166,10 +183,19 @@ const dictionaries: Record<Language, any> = {
                         diff: "Diferencia $",
                         growth: "Crecimiento %"
                     }
-                }
+                },
+                values_in_k: 'Valores en miles (k)'
             },
             reports_page: {
                 title: "Reportes Operativos",
+                subtitle: "Edición Digital",
+                pending: "pendiente",
+                alerts: {
+                    sync_confirm: "¿Conectar a Toast y sobrescribir datos reales (Ventas, Labor, etc)?",
+                    sync_success: "Datos sincronizados con Toast exitosamente 🍞✅",
+                    sync_error: "Error al sincronizar",
+                    monthly_updated: "Reporte Mensual actualizado 📊"
+                },
                 concept: "Concepto",
                 weekly_summary: "Resumen Semanal",
                 monthly_totals: "Totales Mensuales",
@@ -674,6 +700,121 @@ const dictionaries: Record<Language, any> = {
                     new_section: "NUEVA SECCIÓN"
                 }
             }
+        },
+        // PLANIFICADOR
+        planner: {
+            title: 'Planificador',
+            loading: 'Cargando Planificador',
+            syncing_toast: 'Sincronizando datos de Toast...',
+            syncing: 'Syncing...',
+            table_header: 'Equipo',
+            days: {
+                sun: 'DOM',
+                mon: 'LUN',
+                tue: 'MAR',
+                wed: 'MIÉ',
+                thu: 'JUE',
+                fri: 'VIE',
+                sat: 'SÁB'
+            },
+            header: {
+                draft_label: 'Borrador',
+                publish_changes: 'Publicar Cambios',
+                published: 'Publicado'
+            },
+            tooltips: {
+                ai_generator: {
+                    title: 'Generador de Horarios Inteligentes',
+                    description: 'El sistema sincroniza datos en tiempo real de Toast, analiza patrones de turnos de los últimos 6 meses y aplica automáticamente reglas de descanso obligatorio para generar el horario más preciso basado en el historial real del equipo.',
+                    status: 'Estado: Listo'
+                },
+                template: {
+                    title: 'Plantilla Ideal',
+                    description: 'Carga o guarda estructuras base para ganar tiempo.'
+                },
+                sync: {
+                    title: 'Sincronizar Empleados',
+                    description: 'Actualiza la lista de empleados y puestos desde Toast en tiempo real.'
+                },
+                print: {
+                    title: 'Imprimir Horario',
+                    description: 'Genera una vista PDF Limpia agrupada por puestos, ideal para imprimir.'
+                },
+                sort: {
+                    title: 'Ordenar Lista',
+                    description: 'Restablece el orden Jerárquico por roles y antigüedad.'
+                },
+                clear: {
+                    title: 'Limpiar Todo',
+                    description: 'Elimina permanentemente TODOS los turnos de la semana (incluyendo publicados).'
+                },
+                publish: {
+                    title: 'Publicación Oficial',
+                    description: 'Publica el horario y activa el envío automático de notificaciones por Email y SMS.'
+                }
+            },
+            modals: {
+                sync_employees: {
+                    title: 'Sincronizar Empleados',
+                    message: '¿Actualizar la lista de empleados y puestos desde Toast?\nEsto traerá nuevos ingresos y actualizará roles.',
+                    success_title: 'Sincronización Exitosa',
+                    success_message: 'Se han actualizado {n} perfiles de empleados.\nRoles y permisos al día.'
+                },
+                smart_gen: {
+                    title: 'Generador Inteligente',
+                    message: '¿Deseas generar horarios automáticos para "{store}"?\nSe eliminarán los borradores actuales.',
+                    success_title: '¡Generación Inteligente Completada!',
+                    success_message: 'Hemos procesado la operación de tu tienda:\n\n✅ Análisis de historial reciente (90 días)\n✅ Detección de patrones de entrada/salida\n✅ Aplicación de reglas de descanso\n✅ Sincronización con plantilla actual\n\nResultado: Se han generado {n} turnos optimizados listos para tu revisión.'
+                },
+                apply_template: {
+                    title: 'Aplicar Plantilla',
+                    message: '¿Reemplazar borradores con esta plantilla?'
+                },
+                delete_template: {
+                    title: 'Eliminar Plantilla',
+                    message: '¿Eliminar permanentemente?'
+                },
+                reset_order: {
+                    title: 'Restablecer Orden',
+                    message: '¿Ordenar la lista jerárquicamente?\n(Managers > Shifts > Staff, luego Alfabético)',
+                    success_title: 'Orden Restablecido',
+                    success_message: 'La lista de empleados ha sido organizada por jerarquía y nombre.'
+                },
+                clear_all: {
+                    title: 'Limpiar Todo el Horario',
+                    message: '¿ESTÁS SEGURO?\nSe eliminarán TODOS los {n} turnos de esta semana (Borradores y Publicados).\nEsta acción no se puede deshacer.',
+                    success_title: 'Horario Limpiado',
+                    success_message: 'Se han eliminado {n} turnos correctamente.\nEl tablero está vacío.'
+                },
+                publish: {
+                    no_drafts: 'No hay turnos "Borrador" para publicar'
+                }
+            },
+            toasts: {
+                shift_saved: 'Turno guardado',
+                shift_deleted: 'Turno eliminado',
+                shift_save_error: 'Error al guardar turno',
+                template_saved: 'Template guardado',
+                template_applied: 'Aplicado',
+                template_empty: 'Plantilla vacía',
+                enter_name: 'Ingresa un nombre',
+                sync_error: 'Error sincronizando',
+                gen_error: 'Error al generar',
+                conn_error: 'Error de conexión',
+                no_store: 'No se ha identificado la tienda (Guid missing)',
+                print_error: 'Error: No se ha identificado la tienda activa.',
+                no_shifts: 'No hay turnos para eliminar',
+                gmail_connected: 'Gmail conectado',
+                access_denied: '⚠️ ACCESO DENEGADO: Debes conectar TU cuenta corporativa ({email}).\nNo se permite usar {other_email}.',
+                no_store_assigned: 'No tienes tienda asignada. Contacta a soporte.',
+                creds_error: 'Error guardando credenciales DB',
+                publish_success: 'Publicado y {n} correos enviados',
+                publish_partial: 'Publicado, pero fallaron {n} correos',
+                publish_no_notify: 'Publicado (Nadie para notificar)',
+                publish_notify_error: 'Publicado, pero error al notificar',
+                budget_error: 'Error guardando presupuesto'
+            },
+            employees_scheduled: 'Empleados Programados'
         }
     },
     en: {
@@ -770,6 +911,7 @@ const dictionaries: Record<Language, any> = {
             updated: 'Updated',
             history: 'History',
             reports: 'Reports',
+            unknown_store: 'Unknown Store',
             refresh: 'Refresh',
             export_csv: 'Export CSV',
             detail_by_store: 'Detail by Location',
@@ -782,6 +924,22 @@ const dictionaries: Record<Language, any> = {
             loading_fetching: 'Fetching data from 15 stores...',
             loading_processing: 'Processing information...',
             access_denied: 'Access Denied: Session expired or insufficient permissions.',
+            // Charts
+            charts: {
+                hour: 'Hour',
+                sales_trend: 'Sales Trend',
+                top_5_stores: 'Top 5 Sales by Store'
+            },
+            // Summary Cards
+            summary: {
+                net_sales: 'Net Sales',
+                gross: 'Gross',
+                avg_ticket: 'Avg Ticket',
+                total_orders: 'Total Orders',
+                orders: 'Orders',
+                guests: 'Guests',
+                labor_cost: 'Labor Cost %'
+            },
             // Mobile cards
             sales_label: 'Sales',
             orders_label: 'Orders',
@@ -832,10 +990,19 @@ const dictionaries: Record<Language, any> = {
                         diff: "Diff $",
                         growth: "Growth %"
                     }
-                }
+                },
+                values_in_k: 'Values in thousands (k)'
             },
             reports_page: {
                 title: "Operational Reports",
+                subtitle: "Digital Edition",
+                pending: "pending",
+                alerts: {
+                    sync_confirm: "Connect to Toast and overwrite real data (Sales, Labor, etc)?",
+                    sync_success: "Data synced with Toast successfully 🍞✅",
+                    sync_error: "Sync error",
+                    monthly_updated: "Monthly Report updated 📊"
+                },
                 concept: "Concept",
                 weekly_summary: "Weekly Summary",
                 monthly_totals: "Monthly Totals",
@@ -1340,6 +1507,121 @@ const dictionaries: Record<Language, any> = {
                     new_section: "NEW SECTION"
                 }
             }
+        },
+        // PLANNER
+        planner: {
+            title: 'Planner',
+            loading: 'Loading Planner',
+            syncing_toast: 'Syncing Toast data...',
+            syncing: 'Syncing...',
+            table_header: 'Team',
+            days: {
+                sun: 'SUN',
+                mon: 'MON',
+                tue: 'TUE',
+                wed: 'WED',
+                thu: 'THU',
+                fri: 'FRI',
+                sat: 'SAT'
+            },
+            header: {
+                draft_label: 'Draft',
+                publish_changes: 'Publish Changes',
+                published: 'Published'
+            },
+            tooltips: {
+                ai_generator: {
+                    title: 'Smart Schedule Generator',
+                    description: 'The system syncs real-time data from Toast, analyzes shift patterns from the last 6 months, and automatically applies mandatory rest rules to generate the most accurate schedule based on your team\'s actual history.',
+                    status: 'Status: Ready'
+                },
+                template: {
+                    title: 'Ideal Template',
+                    description: 'Load or save base structures to save time.'
+                },
+                sync: {
+                    title: 'Sync Employees',
+                    description: 'Updates the employee list and positions from Toast in real-time.'
+                },
+                print: {
+                    title: 'Print Schedule',
+                    description: 'Generates a clean PDF view grouped by positions, ideal for printing.'
+                },
+                sort: {
+                    title: 'Sort List',
+                    description: 'Resets the hierarchical order by roles and seniority.'
+                },
+                clear: {
+                    title: 'Clear All',
+                    description: 'Permanently deletes ALL shifts of the week (including published).'
+                },
+                publish: {
+                    title: 'Official Publish',
+                    description: 'Publishes the schedule and activates automatic Email and SMS notifications.'
+                }
+            },
+            modals: {
+                sync_employees: {
+                    title: 'Sync Employees',
+                    message: 'Update the employee list and positions from Toast?\nThis will bring new hires and update roles.',
+                    success_title: 'Sync Successful',
+                    success_message: '{n} employee profiles updated.\nRoles and permissions up to date.'
+                },
+                smart_gen: {
+                    title: 'Smart Generator',
+                    message: 'Do you want to auto-generate schedules for "{store}"?\nCurrent drafts will be deleted.',
+                    success_title: 'Smart Generation Complete!',
+                    success_message: 'We have processed your store operation:\n\n✅ Analysis of recent history (90 days)\n✅ Entry/exit pattern detection\n✅ Rest rules application\n✅ Sync with current template\n\nResult: {n} optimized shifts generated ready for your review.'
+                },
+                apply_template: {
+                    title: 'Apply Template',
+                    message: 'Replace drafts with this template?'
+                },
+                delete_template: {
+                    title: 'Delete Template',
+                    message: 'Delete permanently?'
+                },
+                reset_order: {
+                    title: 'Reset Order',
+                    message: 'Sort the list hierarchically?\n(Managers > Shifts > Staff, then Alphabetical)',
+                    success_title: 'Order Reset',
+                    success_message: 'The employee list has been organized by hierarchy and name.'
+                },
+                clear_all: {
+                    title: 'Clear All Schedules',
+                    message: 'ARE YOU SURE?\nALL {n} shifts of this week will be deleted (Drafts and Published).\nThis action cannot be undone.',
+                    success_title: 'Schedule Cleared',
+                    success_message: '{n} shifts deleted successfully.\nThe board is empty.'
+                },
+                publish: {
+                    no_drafts: 'No "Draft" shifts to publish'
+                }
+            },
+            toasts: {
+                shift_saved: 'Shift saved',
+                shift_deleted: 'Shift deleted',
+                shift_save_error: 'Error saving shift',
+                template_saved: 'Template saved',
+                template_applied: 'Applied',
+                template_empty: 'Empty template',
+                enter_name: 'Enter a name',
+                sync_error: 'Sync error',
+                gen_error: 'Generation error',
+                conn_error: 'Connection error',
+                no_store: 'Store not identified (Guid missing)',
+                print_error: 'Error: Active store not identified.',
+                no_shifts: 'No shifts to delete',
+                gmail_connected: 'Gmail connected',
+                access_denied: '⚠️ ACCESS DENIED: You must connect YOUR corporate account ({email}).\nUsing {other_email} is not allowed.',
+                no_store_assigned: 'No store assigned. Contact support.',
+                creds_error: 'Error saving credentials to DB',
+                publish_success: 'Published and {n} emails sent',
+                publish_partial: 'Published, but {n} emails failed',
+                publish_no_notify: 'Published (No one to notify)',
+                publish_notify_error: 'Published, but notification error',
+                budget_error: 'Error saving budget'
+            },
+            employees_scheduled: 'Employees Scheduled'
         }
     }
 };

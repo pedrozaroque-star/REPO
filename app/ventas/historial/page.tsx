@@ -259,7 +259,7 @@ function HistoryPageContent() {
                                         ))}
                                     </div>
                                     <div className="mt-3 pt-2 text-right text-xs text-slate-400">
-                                        Valores en miles (k)
+                                        {t('sales.history_page.values_in_k')}
                                     </div>
                                 </div>
                             ))}

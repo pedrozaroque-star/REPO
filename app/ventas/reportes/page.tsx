@@ -678,8 +678,8 @@ export default function ReportesPage() {
                 overtime_hours: actualOT > 0 ? actualOT.toFixed(2) : (totalOT > 0 ? totalOT.toFixed(2) : ''),
                 morning_leader: cellData.morning_leader || morningLeaderName,
                 late_leader: cellData.late_leader || lateLeaderName,
-                daily_cars: cellData.daily_cars || 'pendiente',
-                sos_time: cellData.sos_time || 'pendiente'
+                daily_cars: cellData.daily_cars || t('sales.reports_page.pending'),
+                sos_time: cellData.sos_time || t('sales.reports_page.pending')
             }
 
             // 2. Overlay Actuals (If available)
@@ -969,7 +969,7 @@ export default function ReportesPage() {
 
                 return next
             })
-            alert('Reporte Mensual actualizado 📊')
+            alert(t('sales.reports_page.alerts.monthly_updated'))
 
         } catch (e: any) {
             console.error(e)
@@ -1050,7 +1050,7 @@ export default function ReportesPage() {
             return
         }
 
-        const confirmFill = confirm('¿Conectar a Toast y sobrescribir datos reales (Ventas, Labor, etc)?')
+        const confirmFill = confirm(t('sales.reports_page.alerts.sync_confirm'))
         if (!confirmFill) return
 
         setLoading(true)
@@ -1089,11 +1089,11 @@ export default function ReportesPage() {
                 })
                 return next
             })
-            alert('Datos sincronizados con Toast exitosamente 🍞✅')
+            alert(t('sales.reports_page.alerts.sync_success'))
 
         } catch (e: any) {
             console.error(e)
-            alert('Error al sincronizar: ' + e.message)
+            alert(t('sales.reports_page.alerts.sync_error') + ': ' + e.message)
         } finally {
             setLoading(false)
         }
@@ -1313,7 +1313,7 @@ export default function ReportesPage() {
                                 <h1 className="text-lg font-bold text-slate-900 dark:text-white">
                                     {activeTab === 'ops' ? t('sales.reports_page.title') : t('sales.reports_page.tabs.labor')}
                                 </h1>
-                                <p className="text-xs text-slate-500">Edición Digital</p>
+                                <p className="text-xs text-slate-500">{t('sales.reports_page.subtitle')}</p>
                             </div>
                         </div>
 

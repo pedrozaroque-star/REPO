@@ -53,7 +53,7 @@ function SalesPageContent() {
         // Store Data
         const storeMap = new Map()
         rows.forEach((row: any) => {
-            const storeName = row.storeName || 'Tienda Desconocida'
+            const storeName = row.storeName || t('sales.unknown_store')
             if (!storeMap.has(storeName)) {
                 storeMap.set(storeName, {
                     name: storeName,
@@ -381,7 +381,7 @@ function SalesPageContent() {
                         <div>
                             <div className="flex items-center gap-3 mb-2">
                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 shadow-sm">
-                                    LIVE API CONNECTED
+                                    {t('sales.live_connected')}
                                 </span>
                                 <span className="text-xs text-slate-600 dark:text-slate-500 flex items-center gap-1 font-medium italic opacity-80">
                                     <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
@@ -437,10 +437,10 @@ function SalesPageContent() {
                                 <button
                                     onClick={() => window.location.href = '/ventas/reportes'}
                                     className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 transition-colors border border-black/5 dark:border-slate-700 shrink-0"
-                                    title="Reportes"
+                                    title={t('sales.reports')}
                                 >
                                     <ClipboardList size={18} />
-                                    <span className="hidden sm:inline text-xs font-medium">Reportes</span>
+                                    <span className="hidden sm:inline text-xs font-medium">{t('sales.reports')}</span>
                                 </button>
 
                                 <button

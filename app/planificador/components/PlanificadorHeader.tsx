@@ -3,6 +3,7 @@ import { Calendar, Loader2, Clock, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { WeekSelector } from './WeekSelector'
 import { formatStoreName } from '../lib/utils'
+import { useLanguage } from '@/lib/i18n'
 
 export function PlanificadorHeader({
     selectedStoreId,
@@ -19,12 +20,14 @@ export function PlanificadorHeader({
     googleConnected,
     googleEmail
 }: any) {
+    const { t } = useLanguage()
+
     return (
         <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-6 py-4 flex items-center justify-between shrink-0 shadow-sm z-30">
             <div className="flex items-center gap-6">
                 <h1 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
                     <Calendar className="text-indigo-600" />
-                    Planificador
+                    {t('planner.title')}
                 </h1>
 
                 <div className="relative">
@@ -41,13 +44,13 @@ export function PlanificadorHeader({
 
                 <WeekSelector currentDate={currentDate} onDateChange={setCurrentDate} weekStart={weekStart} />
 
-                {syncing && <div className="flex items-center gap-3 text-xs text-indigo-500 font-bold animate-pulse"><Loader2 size={12} className="animate-spin" /> Syncing...</div>}
+                {syncing && <div className="flex items-center gap-3 text-xs text-indigo-500 font-bold animate-pulse"><Loader2 size={12} className="animate-spin" /> {t('planner.syncing')}</div>}
             </div>
 
             <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold uppercase">
                     <Clock size={14} />
-                    <span>Borrador: {draftCount}</span>
+                    <span>{t('planner.header.draft_label')}: {draftCount}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {googleConnected && (
@@ -71,7 +74,7 @@ export function PlanificadorHeader({
                             `}
                         >
                             <Zap size={16} fill={draftCount > 0 ? "currentColor" : "none"} />
-                            {draftCount > 0 ? 'Publicar Cambios' : 'Publicado'}
+                            {draftCount > 0 ? t('planner.header.publish_changes') : t('planner.header.published')}
                         </button>
                         <AnimatePresence>
                             {showPublishInfo && (
@@ -83,10 +86,10 @@ export function PlanificadorHeader({
                                 >
                                     <div className="flex items-center gap-2 mb-2">
                                         <Zap size={14} className="text-indigo-400" />
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Publicación Oficial</h4>
+                                        <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-400">{t('planner.tooltips.publish.title')}</h4>
                                     </div>
                                     <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                        Publica el horario y activa el envío automático de notificaciones por <span className="text-indigo-300 font-bold">Email y SMS</span>.
+                                        {t('planner.tooltips.publish.description')}
                                     </p>
                                 </motion.div>
                             )}

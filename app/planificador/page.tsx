@@ -6,6 +6,7 @@ import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Tras
 import { getSupabaseClient } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useLanguage } from '@/lib/i18n'
 
 // Libs & Types
 import { Shift, Employee, Job } from './lib/types'
@@ -32,7 +33,7 @@ import { WeatherIcon } from './components/WeatherIcon'
 import { User as UserIcon } from 'lucide-react'
 
 // --- LOADER COMPONENT ---
-function SurpriseLoader() {
+function SurpriseLoader({ loadingText, syncingText }: { loadingText: string, syncingText: string }) {
     return (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white dark:bg-slate-900">
             <motion.div
@@ -50,7 +51,7 @@ function SurpriseLoader() {
                 transition={{ delay: 0.2 }}
                 className="mt-8 text-xl font-black text-gray-800 dark:text-white uppercase tracking-[0.2em]"
             >
-                Cargando Planificador
+                {loadingText}
             </motion.h2>
             <motion.p
                 initial={{ opacity: 0 }}
@@ -58,7 +59,7 @@ function SurpriseLoader() {
                 transition={{ delay: 0.4 }}
                 className="mt-2 text-sm text-gray-500 dark:text-slate-400 font-medium"
             >
-                Sincronizando datos de Toast...
+                {syncingText}
             </motion.p>
         </div>
     )
@@ -66,6 +67,7 @@ function SurpriseLoader() {
 
 export default function SchedulePlanner() {
     const { user } = useAuth()
+    const { t, language } = useLanguage()
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
     const [isGeneratingAPI, setIsGeneratingAPI] = useState(false)
@@ -401,8 +403,8 @@ export default function SchedulePlanner() {
 
         setConfirmModal({
             isOpen: true,
-            title: 'Sincronizar Empleados',
-            message: '¿Actualizar la lista de empleados y puestos desde Toast?\nEsto traerá nuevos ingresos y actualizará roles.',
+            title: t('planner.modals.sync_employees.title'),
+            message: t('planner.modals.sync_employees.message'),
             type: 'primary',
             icon: RefreshCcw,
             onConfirm: async () => {
@@ -420,18 +422,18 @@ export default function SchedulePlanner() {
                         // Success Modal
                         setConfirmModal({
                             isOpen: true,
-                            title: 'Sincronización Exitosa',
-                            message: `Se han actualizado ${count} perfiles de empleados.\nRoles y permisos al día.`,
+                            title: t('planner.modals.sync_employees.success_title'),
+                            message: t('planner.modals.sync_employees.success_message').replace('{n}', String(count)),
                             type: 'success',
                             icon: Users,
                             onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                         })
                     } else {
-                        toast.error('Error sincronizando')
+                        toast.error(t('planner.toasts.sync_error'))
                         setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                     }
                 } catch (e: any) {
-                    toast.error('Error sincronizando: ' + e.message)
+                    toast.error(t('planner.toasts.sync_error') + ': ' + e.message)
                     setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                 } finally {
                     setIsSyncingEmployees(false)
@@ -443,14 +445,14 @@ export default function SchedulePlanner() {
 
     const handleGenerateSmart = async () => {
         console.log('🤖 Smart Gen Triggered. StoreGuid:', storeGuid)
-        if (!storeGuid) return toast.error('No se ha identificado la tienda (Guid missing)')
+        if (!storeGuid) return toast.error(t('planner.toasts.no_store'))
         const startStr = formatDateISO(weekStart)
         const endStr = formatDateISO(addDays(weekStart, 6))
 
         setConfirmModal({
             isOpen: true,
-            title: 'Generador Inteligente',
-            message: `¿Deseas generar horarios automáticos para "${currentStore?.name}"?\nSe eliminarán los borradores actuales.`,
+            title: t('planner.modals.smart_gen.title'),
+            message: t('planner.modals.smart_gen.message').replace('{store}', currentStore?.name || ''),
             type: 'primary',
             icon: Bot,
             onConfirm: async () => {
@@ -467,25 +469,18 @@ export default function SchedulePlanner() {
                         // Celebration Modal!
                         setConfirmModal({
                             isOpen: true,
-                            title: '¡Generación Inteligente Completada!',
-                            message: `Hemos procesado la operación de tu tienda:
-
-✅ Análisis de historial reciente (90 días)
-✅ Detección de patrones de entrada/salida
-✅ Aplicación de reglas de descanso
-✅ Sincronización con plantilla actual
-
-Resultado: Se han generado ${data.count} turnos optimizados listos para tu revisión.`,
+                            title: t('planner.modals.smart_gen.success_title'),
+                            message: t('planner.modals.smart_gen.success_message').replace('{n}', String(data.count)),
                             type: 'success', // Green
                             icon: Bot,
                             onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                         })
                     } else {
-                        toast.error('Error al generar: ' + data.error)
+                        toast.error(t('planner.toasts.gen_error') + ': ' + data.error)
                         setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                     }
                 } catch (e: any) {
-                    toast.error('Error de conexión: ' + e.message)
+                    toast.error(t('planner.toasts.conn_error') + ': ' + e.message)
                     setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
                 } finally {
                     setIsGeneratingAPI(false)
@@ -528,9 +523,9 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
 
         if (result.data) {
             setShifts(prev => prev.map(s => s.id === tempId || s.id === result.data.id ? result.data : s))
-            toast.success('Turno guardado')
+            toast.success(t('planner.toasts.shift_saved'))
         } else {
-            toast.error('Error al guardar turno')
+            toast.error(t('planner.toasts.shift_save_error'))
         }
     }
 
@@ -538,7 +533,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
         const supabase = await getSupabaseClient()
         setShifts(prev => prev.filter(s => s.id !== id))
         await supabase.from('shifts').delete().eq('id', id)
-        toast.success('Turno eliminado')
+        toast.success(t('planner.toasts.shift_deleted'))
     }
 
     // --- TEMPLATE HANDLERS ---
@@ -551,7 +546,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
     useEffect(() => { if (selectedStoreId) fetchTemplates() }, [selectedStoreId])
 
     const handleSaveCurrentAsTemplate = async () => {
-        if (!templateName.trim()) return toast.error('Ingresa un nombre')
+        if (!templateName.trim()) return toast.error(t('planner.toasts.enter_name'))
         setIsSavingTemplate(true)
         try {
             const supabase = await getSupabaseClient()
@@ -578,7 +573,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
             })
             if (items.length > 0) await supabase.from('schedule_template_items').insert(items)
 
-            toast.success('Template guardado')
+            toast.success(t('planner.toasts.template_saved'))
             setTemplateName('')
             setShowTemplateModal(false)
             fetchTemplates()
@@ -589,8 +584,8 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
     const handleApplyTemplate = async (templateId: string) => {
         setConfirmModal({
             isOpen: true,
-            title: 'Aplicar Plantilla',
-            message: '¿Reemplazar borradores con esta plantilla?',
+            title: t('planner.modals.apply_template.title'),
+            message: t('planner.modals.apply_template.message'),
             type: 'warning',
             icon: LayoutTemplate,
             onConfirm: async () => {
@@ -598,7 +593,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                 try {
                     const supabase = await getSupabaseClient()
                     const { data: items } = await supabase.from('schedule_template_items').select('*').eq('template_id', templateId)
-                    if (!items?.length) return toast.error('Plantilla vacía')
+                    if (!items?.length) return toast.error(t('planner.toasts.template_empty'))
 
                     const startStr = formatDateISO(weekStart)
                     const endStr = formatDateISO(addDays(weekStart, 6))
@@ -617,7 +612,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                         }
                     })
                     await supabase.from('shifts').insert(newShifts)
-                    toast.success('Aplicado')
+                    toast.success(t('planner.toasts.template_applied'))
                     setShowTemplateModal(false)
                     loadStoreData()
                 } catch (e: any) { toast.error(e.message) }
@@ -630,8 +625,8 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
         e.stopPropagation()
         setConfirmModal({
             isOpen: true,
-            title: 'Eliminar Plantilla',
-            message: '¿Eliminar permanentemente?',
+            title: t('planner.modals.delete_template.title'),
+            message: t('planner.modals.delete_template.message'),
             type: 'danger',
             icon: Trash2,
             onConfirm: async () => {
@@ -657,8 +652,8 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
     const handleResetOrder = async () => {
         setConfirmModal({
             isOpen: true,
-            title: 'Restablecer Orden',
-            message: '¿Ordenar la lista jerárquicamente?\n(Managers > Shifts > Staff, luego Alfabético)',
+            title: t('planner.modals.reset_order.title'),
+            message: t('planner.modals.reset_order.message'),
             type: 'primary',
             icon: ArrowDownAZ,
             onConfirm: async () => {
@@ -686,8 +681,8 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
 
                 setConfirmModal({
                     isOpen: true,
-                    title: 'Orden Restablecido',
-                    message: 'La lista de empleados ha sido organizada por jerarquía y nombre.',
+                    title: t('planner.modals.reset_order.success_title'),
+                    message: t('planner.modals.reset_order.success_message'),
                     type: 'success',
                     icon: ArrowDownAZ,
                     onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
@@ -698,12 +693,12 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
 
     const handleClearDrafts = async () => {
         const totalShifts = shifts.length
-        if (totalShifts === 0) return toast.info('No hay turnos para eliminar')
+        if (totalShifts === 0) return toast.info(t('planner.toasts.no_shifts'))
 
         setConfirmModal({
             isOpen: true,
-            title: 'Limpiar Todo el Horario', // Updated Title
-            message: `¿ESTÁS SEGURO?\nSe eliminarán TODOS los ${totalShifts} turnos de esta semana (Borradores y Publicados).\nEsta acción no se puede deshacer.`, // Updated Message
+            title: t('planner.modals.clear_all.title'),
+            message: t('planner.modals.clear_all.message').replace('{n}', String(totalShifts)),
             type: 'danger',
             icon: Trash2,
             onConfirm: async () => {
@@ -726,8 +721,8 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
 
                     setConfirmModal({
                         isOpen: true,
-                        title: 'Horario Limpiado',
-                        message: `Se han eliminado ${totalShifts} turnos correctamente.\nEl tablero está vacío.`,
+                        title: t('planner.modals.clear_all.success_title'),
+                        message: t('planner.modals.clear_all.success_message').replace('{n}', String(totalShifts)),
                         type: 'success',
                         icon: Trash2,
                         onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
@@ -781,7 +776,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
 
             if (budgetError) {
                 console.error('❌ Error saving budget snapshot:', budgetError)
-                toast.error('Error guardando presupuesto: ' + budgetError.message)
+                toast.error(t('planner.toasts.budget_error') + ': ' + budgetError.message)
             } else {
                 console.log('✅ Budget Saved:', savedBudget)
             }
@@ -789,13 +784,13 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
             // FEEDBACK FINAL
             if (notifyData.success) {
                 const { email, errors } = notifyData.stats || { email: 0, errors: 0 }
-                if (email > 0) toast.success(`Publicado y ${email} correos enviados`)
-                else if (errors > 0) toast.info(`Publicado, pero fallaron ${errors} correos`)
-                else toast.success('Publicado (Nadie para notificar)')
+                if (email > 0) toast.success(t('planner.toasts.publish_success').replace('{n}', String(email)))
+                else if (errors > 0) toast.info(t('planner.toasts.publish_partial').replace('{n}', String(errors)))
+                else toast.success(t('planner.toasts.publish_no_notify'))
 
                 if (errors > 0) console.error('Email Errors:', notifyData)
             } else {
-                toast.error('Publicado, pero error al notificar: ' + (notifyData.error || notifyData.message))
+                toast.error(t('planner.toasts.publish_notify_error') + ': ' + (notifyData.error || notifyData.message))
             }
         } catch (e: any) {
             console.error('CRITICAL PUBLISH ERROR:', e)
@@ -812,14 +807,14 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
         }
 
         const drafts = shifts.filter(s => s.status === 'draft')
-        if (drafts.length === 0) return toast.error('No hay turnos "Borrador" para publicar')
+        if (drafts.length === 0) return toast.error(t('planner.modals.publish.no_drafts'))
         setShiftsToPublish(drafts)
         setIsConfirmModalOpen(true)
     }
 
     const handlePrint = () => {
         if (!storeGuid) {
-            toast.error('Error: No se ha identificado la tienda activa.')
+            toast.error(t('planner.toasts.print_error'))
             return
         }
         setIsPrintModalOpen(true)
@@ -874,7 +869,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
         return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
     }, [])
 
-    if (loading) return <SurpriseLoader />
+    if (loading) return <SurpriseLoader loadingText={t('planner.loading')} syncingText={t('planner.syncing_toast')} />
 
     return (
         <div className="grid grid-rows-[auto_auto_1fr] h-[calc(97.5vh-95px)] bg-gray-50 dark:bg-slate-950 overflow-hidden">
@@ -980,7 +975,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                         </colgroup>
                         <thead>
                             <tr className="bg-gray-50 dark:bg-slate-900 sticky top-0 z-20 shadow-sm border-b border-gray-200 dark:border-slate-800">
-                                <th className="p-4 text-left font-black text-lg uppercase tracking-widest text-gray-800 dark:text-indigo-400 bg-gray-50 dark:bg-slate-900 z-30">Equipo</th>
+                                <th className="p-4 text-left font-black text-lg uppercase tracking-widest text-gray-800 dark:text-indigo-400 bg-gray-50 dark:bg-slate-900 z-30">{t('planner.table_header')}</th>
                                 {weekDays.map((date, i) => {
                                     const dateStr = formatDateISO(date)
                                     const w = weather[dateStr]
@@ -1002,10 +997,10 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                                                 <div className="flex justify-between items-start mb-2 gap-2">
                                                     <div className="text-left">
                                                         <div className={`text-base font-black leading-tight tracking-tight ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-slate-200'}`}>
-                                                            {['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][date.getDay()]}
+                                                            {[t('planner.days.sun'), t('planner.days.mon'), t('planner.days.tue'), t('planner.days.wed'), t('planner.days.thu'), t('planner.days.fri'), t('planner.days.sat')][date.getDay()]}
                                                         </div>
                                                         <div className={`text-xs font-bold capitalize mt-0.5 ${isToday ? 'text-blue-600/80 dark:text-blue-400/80' : 'text-gray-400 dark:text-slate-500'}`}>
-                                                            {date.toLocaleString('es-US', { month: 'short' }).replace('.', '')} {date.getDate()}
+                                                            {date.toLocaleString(language === 'en' ? 'en-US' : 'es-US', { month: 'short' }).replace('.', '')} {date.getDate()}
                                                         </div>
                                                     </div>
 
@@ -1021,7 +1016,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                                                 </div>
 
                                                 {/* Bottom Row: Staff Count */}
-                                                <div className="flex justify-end items-center gap-1.5 mt-auto pt-2 opacity-60 hover:opacity-100 transition-opacity" title="Empleados Programados">
+                                                <div className="flex justify-end items-center gap-1.5 mt-auto pt-2 opacity-60 hover:opacity-100 transition-opacity" title={t('planner.employees_scheduled')}>
                                                     <UserIcon className="w-3.5 h-3.5 text-gray-400 dark:text-slate-600" />
                                                     <span className="text-[10px] font-bold text-gray-500 dark:text-slate-500">{staffCount}</span>
                                                 </div>

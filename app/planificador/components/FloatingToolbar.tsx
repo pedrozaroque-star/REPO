@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, Loader2, LayoutTemplate, RefreshCcw, ArrowDownAZ, Trash2, Printer } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 export function FloatingToolbar({
     handleGenerateSmart,
@@ -23,6 +24,8 @@ export function FloatingToolbar({
     showPrintInfo, // NEW
     setShowPrintInfo // NEW
 }: any) {
+    const { t } = useLanguage()
+
     return (
         <div className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3 p-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-white/20 dark:border-slate-800 animate-in slide-in-from-right duration-500">
             {/* AI Button - Primary */}
@@ -57,7 +60,7 @@ export function FloatingToolbar({
                                         <Bot size={20} className="text-indigo-400" />
                                     </div>
                                     <div>
-                                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-400">Generador de Horarios Inteligentes</h4>
+                                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.ai_generator.title')}</h4>
                                         <div className="flex gap-1 mt-1">
                                             {[1, 2, 3].map(i => (
                                                 <motion.div
@@ -72,12 +75,12 @@ export function FloatingToolbar({
                                 </div>
 
                                 <p className="text-[13px] text-slate-300 leading-relaxed font-medium">
-                                    El sistema sincroniza datos en tiempo real de <span className="text-indigo-300 font-bold">Toast</span>, analiza patrones de turnos de los últimos 6 meses y aplica automáticamente <span className="text-indigo-300 font-bold">reglas de descanso obligatorio</span> para generar el horario más preciso basado en el historial real del equipo.
+                                    {t('planner.tooltips.ai_generator.description')}
                                 </p>
 
                                 {/* Animated Neural Network-like Waveform */}
                                 <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Estado: Listo</span>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{t('planner.tooltips.ai_generator.status')}</span>
                                     <div className="flex items-end gap-1 h-4">
                                         {[1, 2, 3, 4, 5, 6, 7].map(i => (
                                             <motion.div
@@ -117,9 +120,9 @@ export function FloatingToolbar({
                         >
                             <div className="flex items-center gap-2 mb-2 text-amber-400">
                                 <LayoutTemplate size={14} />
-                                <h4 className="text-[10px] font-black uppercase tracking-widest">Plantilla Ideal</h4>
+                                <h4 className="text-[10px] font-black uppercase tracking-widest">{t('planner.tooltips.template.title')}</h4>
                             </div>
-                            <p className="text-[12px] text-slate-300">Carga o guarda estructuras base para ganar tiempo.</p>
+                            <p className="text-[12px] text-slate-300">{t('planner.tooltips.template.description')}</p>
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -154,10 +157,10 @@ export function FloatingToolbar({
                                     <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
                                         <RefreshCcw size={18} className="text-indigo-400" />
                                     </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Sincronizar Empleados</h4>
+                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.sync.title')}</h4>
                                 </div>
                                 <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    Actualiza la lista de empleados y puestos desde <span className="text-indigo-300 font-bold">Toast</span> en tiempo real.
+                                    {t('planner.tooltips.sync.description')}
                                 </p>
                             </div>
                         </motion.div>
@@ -190,10 +193,10 @@ export function FloatingToolbar({
                                     <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
                                         <Printer size={18} className="text-indigo-400" />
                                     </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Imprimir Horario</h4>
+                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.print.title')}</h4>
                                 </div>
                                 <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    Genera una vista <span className="text-indigo-300 font-bold">PDF Limpia</span> agrupada por puestos, ideal para imprimir.
+                                    {t('planner.tooltips.print.description')}
                                 </p>
                             </div>
                         </motion.div>
@@ -227,10 +230,10 @@ export function FloatingToolbar({
                                     <div className="p-2 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
                                         <ArrowDownAZ size={18} className="text-indigo-400" />
                                     </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Ordenar Lista</h4>
+                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">{t('planner.tooltips.sort.title')}</h4>
                                 </div>
                                 <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    Restablece el orden <span className="text-indigo-300 font-bold">Jerárquico</span> por roles y antigüedad.
+                                    {t('planner.tooltips.sort.description')}
                                 </p>
                             </div>
                         </motion.div>
@@ -266,10 +269,10 @@ export function FloatingToolbar({
                                     <div className="p-2 bg-red-500/20 rounded-xl border border-red-500/30">
                                         <Trash2 size={18} className="text-red-400" />
                                     </div>
-                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400">Limpiar Todo</h4>
+                                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400">{t('planner.tooltips.clear.title')}</h4>
                                 </div>
                                 <p className="text-[12px] text-slate-300 leading-snug font-medium">
-                                    Elimina permanentemente <span className="text-red-300 font-bold">TODOS</span> los turnos de la semana (incluyendo publicados).
+                                    {t('planner.tooltips.clear.description')}
                                 </p>
                             </div>
                         </motion.div>
