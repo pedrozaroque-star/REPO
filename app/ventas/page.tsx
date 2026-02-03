@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Calendar, ChevronDown, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -29,6 +29,8 @@ function SalesPageContent() {
     const [connError, setConnError] = useState<string | null>(null)
     const [verifying, setVerifying] = useState(false)
     const [integrityStatus, setIntegrityStatus] = useState<'idle' | 'verifying' | 'fixed' | 'ok'>('idle')
+    const [selectedStore, setSelectedStore] = useState<string>('all') // Store filter for KPIs and Trend
+    const [storeList, setStoreList] = useState<string[]>([]) // Available stores
     const { user } = useAuth()
     const { t } = useLanguage()
     const isAdmin = user?.role === 'admin'
@@ -195,7 +197,14 @@ function SalesPageContent() {
                 start = s
                 end = e
                 const diff = (e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)
-                groupBy = diff > 31 ? 'week' : 'day'
+                // Single day = hourly view, multi-day = daily or weekly
+                if (diff === 0) {
+                    groupBy = 'hour'
+                } else if (diff > 31) {
+                    groupBy = 'week'
+                } else {
+                    groupBy = 'day'
+                }
             } else if (period === 'today') {
                 start = today
                 end = today
@@ -268,9 +277,13 @@ function SalesPageContent() {
 
             if (json.data) {
                 const processed = processData(json.data, groupBy)
-                setData(processed)
+                setData({ ...processed, rawRows: json.data, groupByMode: groupBy })
+                // Extract unique store names for filter dropdown
+                const uniqueStores = [...new Set(json.data.map((r: any) => r.storeName || t('sales.unknown_store')))] as string[]
+                setStoreList(uniqueStores.sort())
             } else {
                 setData(null)
+                setStoreList([])
             }
 
         } catch (e) {
@@ -335,18 +348,8 @@ function SalesPageContent() {
         }
     }, [data, loading, period, startDate])
 
-    if (!data) return (
-        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-            <SurpriseLoader />
-            {loadingMessage && (
-                <p className="text-slate-500 dark:text-slate-400 text-sm animate-pulse">
-                    {loadingMessage}
-                </p>
-            )}
-        </div>
-    )
-
-    // EXTRACT METRICS FROM DATA OBJECT
+    // 🔍 FILTERED DATA: Compute filtered summary and trend for selected store
+    // This useMemo MUST be before any early returns to maintain hooks order
     const defaultSummary = {
         netSales: 0,
         grossSales: 0,
@@ -359,7 +362,49 @@ function SalesPageContent() {
         laborCost: 0,
         laborPercentage: 0
     }
-    const summary = data?.summary || defaultSummary
+
+    const { filteredSummary, filteredTrendData, storeRanking } = useMemo(() => {
+        if (!data || !data.rawRows) {
+            return { filteredSummary: defaultSummary, filteredTrendData: [], storeRanking: [] }
+        }
+
+        // If 'all' selected, use the already-computed full data
+        if (selectedStore === 'all') {
+            return {
+                filteredSummary: data.summary,
+                filteredTrendData: data.trendData,
+                storeRanking: data.storeData || []
+            }
+        }
+
+        // Filter rows by selected store
+        const filteredRows = data.rawRows.filter((r: any) =>
+            (r.storeName || t('sales.unknown_store')) === selectedStore
+        )
+
+        // Reprocess filtered data
+        const reprocessed = processData(filteredRows, data.groupByMode)
+        return {
+            filteredSummary: reprocessed.summary,
+            filteredTrendData: reprocessed.trendData,
+            storeRanking: data.storeData || [] // Always full data for Top 5 and Detail
+        }
+    }, [data, selectedStore])
+
+    // Early return for loading state
+    if (!data) return (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+            <SurpriseLoader />
+            {loadingMessage && (
+                <p className="text-slate-500 dark:text-slate-400 text-sm animate-pulse">
+                    {loadingMessage}
+                </p>
+            )}
+        </div>
+    )
+
+    // Use filtered data for KPIs
+    const summary = filteredSummary
 
     // We don't really use these consts anymore in the JSX since we pass 'summary' object directly
     // but leaving them for clarity if logic needs them later
@@ -368,9 +413,8 @@ function SalesPageContent() {
     const totalLabor = summary.laborCost || 0
     const laborPercent = summary.laborPercentage || 0
 
-    // Chart Data already prepared
-    const timelineData = data?.trendData || []
-    const storeRanking = data?.storeData || []
+    // Chart Data: Filtered for Trend, Full for Store charts
+    const timelineData = filteredTrendData || []
 
     const getDateLabel = () => {
         if (!startDate || !endDate) return ''
@@ -458,6 +502,26 @@ function SalesPageContent() {
                                 }}
                             />
 
+                            {/* Store Filter */}
+                            {storeList.length > 0 && (
+                                <div className="relative">
+                                    <select
+                                        value={selectedStore}
+                                        onChange={(e) => setSelectedStore(e.target.value)}
+                                        className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                                    >
+                                        <option value="all">{t('sales.all_stores')}</option>
+                                        {storeList.map((store) => (
+                                            <option key={store} value={store}>
+                                                {formatStoreName(store)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <Store size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                </div>
+                            )}
+
                             <div className="hidden sm:block w-[1px] h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
                             <div className="flex items-center gap-2">
@@ -505,8 +569,8 @@ function SalesPageContent() {
                     </div>
                 ) : (
                     <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        <SalesSummary data={data.summary} />
-                        <SalesCharts trendData={data.trendData} storeData={data.storeData} period={period} />
+                        <SalesSummary data={summary} />
+                        <SalesCharts trendData={timelineData} storeData={storeRanking} period={period} />
 
                         {/* Table */}
                         <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl shadow-xl shadow-black/5">

@@ -188,6 +188,28 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                         </ComposedChart>
                     </ResponsiveContainer>
                 </div>
+
+                {/* Daily Totals Summary */}
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center justify-center gap-8">
+                    <div className="text-center">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                            {t('sales.charts.actual')} {language === 'es' ? 'Total' : 'Total'}
+                        </p>
+                        <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                            ${trendData.reduce((sum, d) => sum + (d.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                    </div>
+                    {hasProjections && (
+                        <div className="text-center">
+                            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                                {t('sales.charts.projected')} {language === 'es' ? 'Total' : 'Total'}
+                            </p>
+                            <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                ${trendData.reduce((sum, d) => sum + (d.projected || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* TOP 5 STORES - Unchanged */}

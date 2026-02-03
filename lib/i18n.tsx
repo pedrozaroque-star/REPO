@@ -24,6 +24,7 @@ const dictionaries: Record<Language, any> = {
             management: 'GESTIÓN',
             analysis: 'ANÁLISIS',
             kiosks: 'KIOSKS QR',
+            team: 'EQUIPO',
         },
         // ITEMS
         items: {
@@ -41,6 +42,8 @@ const dictionaries: Record<Language, any> = {
             feedback: 'Feedback Clientes',
             kiosk_feedback: 'Feedback Clientes',
             eval_staff: 'Eval. Staff',
+            my_schedule: 'Mis Horarios',
+            self_scheduling: 'Auto-Programación',
         },
         // LOGIN
         login: {
@@ -108,6 +111,7 @@ const dictionaries: Record<Language, any> = {
             refresh: 'Actualizar',
             export_csv: 'Exportar CSV',
             detail_by_store: 'Detalle por Sucursal',
+            all_stores: 'Todas las Sucursales',
             store: 'Sucursal',
             net_sales: 'Ventas Netas',
             orders: 'Órdenes',
@@ -833,6 +837,7 @@ const dictionaries: Record<Language, any> = {
             management: 'MANAGEMENT',
             analysis: 'ANALYSIS',
             kiosks: 'QR KIOSKS',
+            team: 'TEAM',
         },
         // ITEMS
         items: {
@@ -850,6 +855,8 @@ const dictionaries: Record<Language, any> = {
             feedback: 'Customer Feedback',
             kiosk_feedback: 'Customer Feedback',
             eval_staff: 'Staff Eval',
+            my_schedule: 'My Schedule',
+            self_scheduling: 'Self-Scheduling',
         },
         // LOGIN
         login: {
@@ -917,6 +924,7 @@ const dictionaries: Record<Language, any> = {
             refresh: 'Refresh',
             export_csv: 'Export CSV',
             detail_by_store: 'Detail by Location',
+            all_stores: 'All Locations',
             store: 'Location',
             net_sales: 'Net Sales',
             orders: 'Orders',

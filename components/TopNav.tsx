@@ -6,7 +6,7 @@ import NotificationBell from './NotificationBell'
 import ThemeToggle from './ThemeToggle'
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
-import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare } from 'lucide-react'
+import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 
@@ -93,6 +93,14 @@ export default function TopNav() {
                     icon: <QrCode size={20} />,
                     roles: ['admin', 'manager']
                 },
+            ]
+        },
+        {
+            title: t('sections.team'),
+            id: 'equipo',
+            items: [
+                { name: t('items.my_schedule'), path: '/mis-horarios', icon: <CalendarCheck size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: t('items.self_scheduling'), path: '/gestion/auto-schedule', icon: <UserCog size={20} />, roles: ['supervisor', 'admin'] },
             ]
         }
     ]
@@ -220,6 +228,9 @@ export default function TopNav() {
                                         } else if (group.id === 'kioskos') {
                                             iconColorClass = 'text-pink-600 dark:text-pink-400'
                                             activeContainerClass = 'bg-pink-50 dark:bg-pink-900/20 border-pink-200 dark:border-pink-800'
+                                        } else if (group.id === 'equipo') {
+                                            iconColorClass = 'text-cyan-600 dark:text-cyan-400'
+                                            activeContainerClass = 'bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800'
                                         }
 
                                         return (
@@ -340,6 +351,7 @@ export default function TopNav() {
                                             case 'gestion': return 'text-emerald-600 dark:text-emerald-400'
                                             case 'analisis': return 'text-orange-600 dark:text-orange-400'
                                             case 'kioskos': return 'text-pink-600 dark:text-pink-400'
+                                            case 'equipo': return 'text-cyan-600 dark:text-cyan-400'
                                             default: return 'text-slate-600 dark:text-slate-400'
                                         }
                                     }
