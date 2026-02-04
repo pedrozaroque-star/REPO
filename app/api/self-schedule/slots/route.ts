@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
             .insert({
                 open_shift_id: shiftId,
                 employee_id: user.id,
-                employee_name: employeeName || user.name || user.email || 'Unknown',
+                employee_name: employeeName || user.email || 'Unknown',
                 status: 'active'
             })
             .select()
