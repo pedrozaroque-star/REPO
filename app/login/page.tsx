@@ -45,18 +45,26 @@ export default function LoginPage() {
       localStorage.setItem('teg_token', data.token)
       localStorage.setItem('teg_user', JSON.stringify(data.user))
 
-      // Redirigir según el rol
-      // Redirigir según el rol
+      // Determinar redirección
       const userRole = data.user.role?.toLowerCase()
+      const userType = data.user.user_type
+
       setShowSplash(true)
 
       setTimeout(() => {
+        // Employees go directly to mis-horarios (no splash for faster access)
+        if (userType === 'employee' || data.redirect) {
+          router.push(data.redirect || '/mis-horarios')
+          return
+        }
+
+        // Admin/Manager routing
         if (userRole === 'asistente') {
           router.push('/checklists')
         } else {
           router.push('/dashboard')
         }
-      }, 5500)
+      }, userType === 'employee' ? 1500 : 5500) // Faster for employees
 
     } catch (err) {
       console.error('Error inesperado:', err)

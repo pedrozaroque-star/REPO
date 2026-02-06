@@ -34,8 +34,11 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
                 // Hourly: "2026-01-17 08:00" -> "08:00"
                 formattedLabel = `${t('sales.charts.hour')}: ${label.split(' ')[1]}`
             } else {
+                // Fix timezone issue: Parse YYYY-MM-DD manually to avoid UTC interpretation
+                const [year, month, day] = label.split('-').map(Number)
+                const localDate = new Date(year, month - 1, day) // Local time, not UTC
                 const dateFormat = language === 'es' ? "EEEE dd 'de' MMMM" : "EEEE, MMMM dd"
-                formattedLabel = format(new Date(label), dateFormat, { locale })
+                formattedLabel = format(localDate, dateFormat, { locale })
             }
         } catch (e) { }
 
@@ -148,8 +151,10 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                             const h12 = hour % 12 || 12
                                             return `${h12} ${ampm}`
                                         }
-                                        const d = new Date(val)
-                                        return format(d, 'dd MMM', { locale })
+                                        // Fix timezone issue: Parse YYYY-MM-DD manually
+                                        const [year, month, day] = val.split('-').map(Number)
+                                        const localDate = new Date(year, month - 1, day)
+                                        return format(localDate, 'dd MMM', { locale })
                                     } catch (e) {
                                         return val
                                     }

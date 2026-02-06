@@ -4,16 +4,18 @@ import { addDays, format, subYears } from 'date-fns'
 
 // --- CONSTANTS FROM INTELLIGENCE MINING (2025 Analysis) ---
 export const CAPACITY_RULES = {
-    // Front of House: Throughput limit driven by transaction count (Calibrated from 18.3 to 11.0 based on Jan 2026 Audit)
-    CASHIER_TICKETS_PER_HOUR_MEDIAN: 18.3,
+    // Front of House: Throughput limit driven by transaction count
+    // Changed to 7 tickets/hour (Feb 2026 calibration)
+    CASHIER_TICKETS_PER_HOUR_MEDIAN: 7.0,
 
     // Back of House: Production throughput driven by sales volume
-    // Maintained at $211 (Industry Std). Real audit showed $249 for cooks alone, but $200 w/ manager support.
-    KITCHEN_SALES_PER_HOUR_MEDIAN: 211.0,
+    // Changed from $250 to $280 per cook/hour (Feb 2026 calibration)
+    KITCHEN_SALES_PER_HOUR_MEDIAN: 280.0,
 
-    // Baseline minimums (Never schedule 0 people if open)
+    // Baseline minimums from POOL (SL + Asst are separate)
+    // Only 1 cook + 1 cashier needed from pool to open
     MIN_CASHIERS: 1,
-    MIN_KITCHEN: 2
+    MIN_KITCHEN: 1  // Changed from 2 (Feb 2026) - SL + Asst cover the rest
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -470,13 +472,11 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
     // --- HOLIDAY LOGIC: VALENTINE'S DAY ---
     if (targetMonth === 1 && targetDayOfMonth === 14) {
-        // Feb 14th usually sees a surge in dining.
-        // Audit showed 19% miss, so we apply a 15% boost conservatively.
-        baseSales *= 1.15
-        // Tickets might not grow as much as sales if check average is higher (couples ordering more)
-        // But let's boost tickets too.
-        Object.keys(hourlySalesDist).forEach(h => hourlySalesDist[h] *= 1.15)
-        Object.keys(hourlyTicketDist).forEach(h => hourlyTicketDist[h] *= 1.10)
+        // Feb 14th - Historical analysis shows inconsistent boost (2021-2025 avg ~+7%)
+        // Changed from 15% to 7% (Feb 2026 calibration based on 5-year average)
+        baseSales *= 1.07
+        Object.keys(hourlySalesDist).forEach(h => hourlySalesDist[h] *= 1.07)
+        Object.keys(hourlyTicketDist).forEach(h => hourlyTicketDist[h] *= 1.05)
     }
 
     // APPLY FACTORS SEPARATELY

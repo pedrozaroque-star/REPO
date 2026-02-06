@@ -1,25 +1,40 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
 interface AuthUser {
-  id: number
+  id: number | string
   email: string
   name: string
   role: string
+  user_type?: 'admin' | 'employee'
   store_scope?: string[] | null
   store_id?: string | null
+  store_ids?: string[]
 }
 
 interface ProtectedRouteProps {
   children: React.ReactNode
   allowedRoles?: string[]
+  allowEmployee?: boolean  // New: explicitly allow employees
 }
 
-export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
+// Helper to check if JWT is expired
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    const exp = payload.exp * 1000 // Convert to milliseconds
+    return Date.now() >= exp
+  } catch {
+    return true // If we can't parse, assume expired
+  }
+}
+
+export default function ProtectedRoute({ children, allowedRoles, allowEmployee = false }: ProtectedRouteProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<AuthUser | null>(null)
 
@@ -37,7 +52,16 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
         return
       }
 
-      const userData = JSON.parse(userStr)
+      // Check token expiration
+      if (isTokenExpired(token)) {
+        console.log('Token expired, redirecting to login')
+        localStorage.removeItem('teg_token')
+        localStorage.removeItem('teg_user')
+        router.push('/login')
+        return
+      }
+
+      const userData = JSON.parse(userStr) as AuthUser
 
       if (!userData.id || !userData.email || !userData.role) {
         localStorage.removeItem('teg_token')
@@ -46,6 +70,20 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
         return
       }
 
+      // Handle EMPLOYEE user type - can only access /mis-horarios
+      if (userData.user_type === 'employee') {
+        // If this route allows employees, proceed
+        if (allowEmployee || pathname === '/mis-horarios') {
+          setUser(userData)
+          setLoading(false)
+          return
+        }
+        // Otherwise redirect employee to their only allowed page
+        router.push('/mis-horarios')
+        return
+      }
+
+      // Handle ADMIN/MANAGER users with role-based access
       if (allowedRoles && allowedRoles.length > 0) {
         const userRole = userData.role.toLowerCase()
         const allowed = allowedRoles.map(r => r.toLowerCase())
@@ -83,7 +121,18 @@ export function useAuth() {
 
   const loadUser = () => {
     try {
+      const token = localStorage.getItem('teg_token')
       const userStr = localStorage.getItem('teg_user')
+
+      // Check token expiration
+      if (token && isTokenExpired(token)) {
+        console.log('Token expired in useAuth')
+        localStorage.removeItem('teg_token')
+        localStorage.removeItem('teg_user')
+        setLoading(false)
+        return
+      }
+
       if (userStr) {
         setUser(JSON.parse(userStr))
       }

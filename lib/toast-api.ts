@@ -709,14 +709,32 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
         })
 
         try {
-            // Prepare range dates
+            // Prepare range dates - AVOID UTC CONVERSION ISSUES
+            // Parse dates manually to avoid timezone drift
             const neededDates: string[] = []
-            const cur = new Date(options.startDate)
-            const end = new Date(options.endDate)
+            const [startY, startM, startD] = options.startDate.split('-').map(Number)
+            const [endY, endM, endD] = options.endDate.split('-').map(Number)
+            const cur = new Date(startY, startM - 1, startD) // Local time, not UTC
+            const end = new Date(endY, endM - 1, endD)
             while (cur <= end) {
-                neededDates.push(cur.toISOString().split('T')[0])
+                // Format manually to avoid any timezone conversion
+                const y = cur.getFullYear()
+                const m = String(cur.getMonth() + 1).padStart(2, '0')
+                const d = String(cur.getDate()).padStart(2, '0')
+                neededDates.push(`${y}-${m}-${d}`)
                 cur.setDate(cur.getDate() + 1)
             }
+
+            // DEBUG: Log the date range being processed
+            console.log('🗓️ DATE RANGE DEBUG:', {
+                requestedStart: options.startDate,
+                requestedEnd: options.endDate,
+                parsedStart: `${startY}-${startM}-${startD}`,
+                parsedEnd: `${endY}-${endM}-${endD}`,
+                generatedDates: neededDates.length,
+                firstDate: neededDates[0],
+                lastDate: neededDates[neededDates.length - 1]
+            })
 
             const batchResults: any[] = []
             const CONCURRENCY_LIMIT = 10
@@ -1109,6 +1127,16 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 r.laborPercentage = Number(r.laborPercentage.toFixed(1))
                 r.splh = Number(r.splh.toFixed(2))
             })
+
+            // DEBUG: Log the periodStart values being returned
+            const uniquePeriods = [...new Set(rows.map(r => r.periodStart))].sort()
+            console.log('📊 PERIOD START DEBUG:', {
+                totalRows: rows.length,
+                uniquePeriods: uniquePeriods.length,
+                first: uniquePeriods[0],
+                last: uniquePeriods[uniquePeriods.length - 1]
+            })
+
             return { rows, connectionError: connectionError || undefined }
         } catch (err: any) {
             logDebug("CRASH PROCESSING DATA:", err.message + (err.stack ? err.stack : ''))

@@ -396,6 +396,45 @@ export default function SchedulePlanner() {
         loadStoreData()
     }, [storeGuid, weekStart])
 
+    // --- REALTIME: Auto-refresh when shifts change (e.g., from self-scheduling) ---
+    useEffect(() => {
+        if (!storeGuid) return
+
+        let channel: any = null
+
+        const setupRealtime = async () => {
+            const supabase = await getSupabaseClient()
+
+            // Subscribe to changes on shifts table for this store
+            channel = supabase
+                .channel(`shifts-${storeGuid}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*', // INSERT, UPDATE, DELETE
+                        schema: 'public',
+                        table: 'shifts',
+                        filter: `store_id=eq.${storeGuid}`
+                    },
+                    (payload: any) => {
+                        console.log('🔄 Realtime shift change detected:', payload.eventType)
+                        // Reload data when any shift changes
+                        loadStoreData()
+                    }
+                )
+                .subscribe()
+        }
+
+        setupRealtime()
+
+        // Cleanup on unmount or store change
+        return () => {
+            if (channel) {
+                channel.unsubscribe()
+            }
+        }
+    }, [storeGuid])
+
     // --- HANDLERS ---
 
     const handleSyncEmployees = async () => {

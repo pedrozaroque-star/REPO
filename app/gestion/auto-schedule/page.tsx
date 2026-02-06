@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { supabase } from '@/lib/supabase'
-import { startOfWeek, addWeeks, format } from 'date-fns'
+import { startOfWeek, addWeeks, format, parseISO } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
+import { DemandMap } from '@/components/self-schedule/DemandMap'
 
 interface WeekStats {
     weekStart: string
@@ -24,6 +25,13 @@ export default function AdminAutoSchedulePage() {
     const [isGenerating, setIsGenerating] = useState(false)
     const [selectedWeek, setSelectedWeek] = useState<string | null>(null)
     const [stores, setStores] = useState<{ external_id: string; name: string }[]>([])
+
+    // Demand Map state
+    const [showDemandMap, setShowDemandMap] = useState(false)
+    const [demandMapWeek, setDemandMapWeek] = useState<string | null>(null)
+    const [demandMapStore, setDemandMapStore] = useState<string | null>(null)
+    const [demandData, setDemandData] = useState<any>(null)
+    const [isLoadingDemand, setIsLoadingDemand] = useState(false)
 
     // Generate week start dates for next 4 weeks
     const getWeekStarts = () => {
@@ -104,6 +112,34 @@ export default function AdminAutoSchedulePage() {
         fetchStats()
     }, [fetchStats])
 
+    // Load demand data for visualization
+    const loadDemandMap = async (weekStart: string, storeId: string) => {
+        setIsLoadingDemand(true)
+        setDemandMapWeek(weekStart)
+        setDemandMapStore(storeId)
+        setShowDemandMap(true)
+
+        const token = localStorage.getItem('teg_token')
+
+        try {
+            const res = await fetch(
+                `/api/self-schedule/demand?weekStart=${weekStart}&storeId=${storeId}`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            )
+            const json = await res.json()
+
+            if (json.success) {
+                setDemandData(json)
+            } else {
+                console.error('Failed to load demand:', json.error)
+            }
+        } catch (e) {
+            console.error('Error loading demand:', e)
+        } finally {
+            setIsLoadingDemand(false)
+        }
+    }
+
     // Generate shifts for a week
     const handleGenerate = async (weekStart: string, publish: boolean = false) => {
         setIsGenerating(true)
@@ -130,8 +166,8 @@ export default function AdminAutoSchedulePage() {
             }
 
             alert(language === 'es'
-                ? `✅ ${data.stats.shifts_created} turnos generados para ${data.stats.stores_processed} tiendas`
-                : `✅ ${data.stats.shifts_created} shifts generated for ${data.stats.stores_processed} stores`)
+                ? `✅ ${data.stats.spots_created} spots generados para ${data.stats.stores_processed} tiendas`
+                : `✅ ${data.stats.spots_created} spots generated for ${data.stats.stores_processed} stores`)
 
             fetchStats()
 
@@ -315,14 +351,38 @@ export default function AdminAutoSchedulePage() {
                                     {/* Actions */}
                                     <div className="flex flex-wrap gap-3 mt-6">
                                         {week.status === 'not_generated' && (
-                                            <button
-                                                onClick={() => handleGenerate(week.weekStart, false)}
-                                                disabled={isGenerating}
-                                                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl font-medium hover:from-blue-600 hover:to-indigo-600 transition-all disabled:opacity-50 flex items-center gap-2"
-                                            >
-                                                {isGenerating ? '⏳' : '🔮'}
-                                                {language === 'es' ? 'Generar con Intelligence' : 'Generate with Intelligence'}
-                                            </button>
+                                            <div className="flex flex-wrap gap-3 items-center">
+                                                <button
+                                                    onClick={() => handleGenerate(week.weekStart, false)}
+                                                    disabled={isGenerating}
+                                                    className="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl font-medium hover:from-blue-600 hover:to-indigo-600 transition-all disabled:opacity-50 flex items-center gap-2"
+                                                >
+                                                    {isGenerating ? '⏳' : '🔮'}
+                                                    {language === 'es' ? 'Generar con Intelligence' : 'Generate with Intelligence'}
+                                                </button>
+
+                                                {/* View Demand Map */}
+                                                <div className="flex items-center gap-2">
+                                                    <select
+                                                        className="px-3 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-xl text-sm font-medium border-0 cursor-pointer"
+                                                        onChange={(e) => {
+                                                            if (e.target.value) {
+                                                                loadDemandMap(week.weekStart, e.target.value)
+                                                            }
+                                                        }}
+                                                        defaultValue=""
+                                                    >
+                                                        <option value="" disabled>
+                                                            🗺️ {language === 'es' ? 'Ver Mapa de Demanda...' : 'View Demand Map...'}
+                                                        </option>
+                                                        {stores.map(s => (
+                                                            <option key={s.external_id} value={s.external_id}>
+                                                                📍 {s.name.replace('Tacos El Gordo - ', '')}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
                                         )}
 
                                         {week.status === 'draft' && (
@@ -394,6 +454,51 @@ export default function AdminAutoSchedulePage() {
                     </ul>
                 </div>
             </div>
+
+            {/* Demand Map Modal */}
+            {showDemandMap && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-auto">
+                        {/* Modal Header */}
+                        <div className="sticky top-0 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-4 flex items-center justify-between">
+                            <h2 className="text-xl font-bold text-zinc-800 dark:text-white flex items-center gap-2">
+                                🗺️ {language === 'es' ? 'Mapa de Demanda' : 'Demand Map'}
+                            </h2>
+                            <button
+                                onClick={() => {
+                                    setShowDemandMap(false)
+                                    setDemandData(null)
+                                }}
+                                className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-6">
+                            {isLoadingDemand ? (
+                                <div className="text-center py-20">
+                                    <div className="animate-spin text-4xl mb-4">⏳</div>
+                                    <p className="text-zinc-500">
+                                        {language === 'es' ? 'Cargando proyecciones...' : 'Loading projections...'}
+                                    </p>
+                                </div>
+                            ) : demandData ? (
+                                <DemandMap
+                                    weekStart={parseISO(demandMapWeek!)}
+                                    days={demandData.days}
+                                    storeName={demandData.storeName}
+                                />
+                            ) : (
+                                <div className="text-center py-10 text-zinc-500">
+                                    {language === 'es' ? 'No se pudieron cargar los datos.' : 'Could not load data.'}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

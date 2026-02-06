@@ -1,12 +1,24 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
 import { ShiftPool } from '@/components/self-schedule/ShiftPool'
 import { ClaimModal } from '@/components/self-schedule/ClaimModal'
 import { supabase } from '@/lib/supabase'
 import { startOfWeek, addWeeks, format } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
+
+// Helper to check if JWT is expired
+function isTokenExpired(token: string): boolean {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        const exp = payload.exp * 1000
+        return Date.now() >= exp
+    } catch {
+        return true
+    }
+}
 
 interface OpenShift {
     id: string
@@ -30,8 +42,15 @@ interface MyClaim {
 }
 
 export default function MisHorariosPage() {
+    const router = useRouter()
     const { t, language } = useLanguage()
     const locale = language === 'es' ? es : enUS
+
+    // Auth state
+    const [isAuthed, setIsAuthed] = useState(false)
+    const [userName, setUserName] = useState('')
+    const [userPositionType, setUserPositionType] = useState<'kitchen' | 'cashier' | null>(null)
+    const [userStoreIds, setUserStoreIds] = useState<string[]>([])
 
     // State
     const [shifts, setShifts] = useState<OpenShift[]>([])
@@ -49,6 +68,55 @@ export default function MisHorariosPage() {
     const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null)
     const [isDropping, setIsDropping] = useState(false)
 
+    // Auth check on mount
+    useEffect(() => {
+        const token = localStorage.getItem('teg_token')
+        const userStr = localStorage.getItem('teg_user')
+
+        if (!token || !userStr) {
+            router.push('/login')
+            return
+        }
+
+        // Check token expiration
+        if (isTokenExpired(token)) {
+            console.log('Session expired')
+            localStorage.removeItem('teg_token')
+            localStorage.removeItem('teg_user')
+            router.push('/login')
+            return
+        }
+
+        try {
+            const user = JSON.parse(userStr)
+            setUserName(user.name || '')
+
+            console.log('👤 User loaded:', {
+                name: user.name,
+                position_type: user.position_type,
+                store_ids: user.store_ids,
+                user_type: user.user_type
+            })
+
+            // Set position filter based on employee's job
+            if (user.position_type) {
+                setUserPositionType(user.position_type)
+                setPositionFilter(user.position_type) // Auto-filter to their position
+            }
+
+            // Set store filter based on employee's stores
+            if (user.store_ids && user.store_ids.length > 0) {
+                setUserStoreIds(user.store_ids)
+                // Auto-select first store for employees
+                setStoreFilter(user.store_ids[0])
+            }
+
+            setIsAuthed(true)
+        } catch {
+            router.push('/login')
+        }
+    }, [router])
+
     // Calculate week start dates
     const thisWeekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), [])
     const nextWeekStart = useMemo(() => addWeeks(thisWeekStart, 1), [thisWeekStart])
@@ -56,6 +124,8 @@ export default function MisHorariosPage() {
 
     // Fetch shifts and claims
     const fetchData = useCallback(async () => {
+        if (!isAuthed) return
+
         setIsLoading(true)
         const token = localStorage.getItem('teg_token')
 
@@ -107,7 +177,7 @@ export default function MisHorariosPage() {
         } finally {
             setIsLoading(false)
         }
-    }, [positionFilter, currentWeekStart, storeFilter])
+    }, [positionFilter, currentWeekStart, storeFilter, isAuthed])
 
     useEffect(() => {
         fetchData()
@@ -256,17 +326,31 @@ export default function MisHorariosPage() {
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div>
                             <h1 className="text-2xl font-bold text-zinc-800 dark:text-white flex items-center gap-2">
-                                📅 {language === 'es' ? 'Mis Horarios' : 'My Schedule'}
+                                👋 {language === 'es'
+                                    ? `¡Hola, ${userName.split(' ')[0] || 'Empleado'}!`
+                                    : `Hello, ${userName.split(' ')[0] || 'Employee'}!`}
                             </h1>
-                            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                            <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-md">
                                 {language === 'es'
-                                    ? 'Selecciona los turnos disponibles para tu semana'
-                                    : 'Select available shifts for your week'}
+                                    ? 'Este es tu panel de auto-programación. Aquí puedes ver y tomar turnos disponibles para completar tus horas de la semana.'
+                                    : 'This is your self-scheduling panel. Here you can view and take available shifts to complete your weekly hours.'}
                             </p>
                         </div>
 
                         {/* Stats */}
                         <div className="flex items-center gap-4">
+                            {/* User welcome */}
+                            {userName && (
+                                <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
+                                    <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                                        👋 {language === 'es' ? 'Hola,' : 'Hello,'}
+                                    </span>
+                                    <span className="text-sm font-medium text-zinc-800 dark:text-white">
+                                        {userName.split(' ')[0]}
+                                    </span>
+                                </div>
+                            )}
+
                             <div className="bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-xl">
                                 <p className="text-xs text-emerald-600 dark:text-emerald-400">
                                     {language === 'es' ? 'Mis Turnos' : 'My Shifts'}
@@ -283,6 +367,19 @@ export default function MisHorariosPage() {
                                     {totalHoursThisWeek}h
                                 </p>
                             </div>
+
+                            {/* Logout button */}
+                            <button
+                                onClick={() => {
+                                    localStorage.removeItem('teg_token')
+                                    localStorage.removeItem('teg_user')
+                                    router.push('/login')
+                                }}
+                                className="px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center gap-1"
+                                title={language === 'es' ? 'Cerrar Sesión' : 'Logout'}
+                            >
+                                🚪 <span className="hidden sm:inline">{language === 'es' ? 'Salir' : 'Logout'}</span>
+                            </button>
                         </div>
                     </div>
 
@@ -310,52 +407,76 @@ export default function MisHorariosPage() {
                             </button>
                         </div>
 
-                        {/* Position filter */}
-                        <div className="flex bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1">
-                            <button
-                                onClick={() => setPositionFilter('all')}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'all'
-                                    ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
-                                    : 'text-zinc-500 hover:text-zinc-700'
-                                    }`}
-                            >
-                                📋 {language === 'es' ? 'Todos' : 'All'}
-                            </button>
-                            <button
-                                onClick={() => setPositionFilter('kitchen')}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'kitchen'
-                                    ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
-                                    : 'text-zinc-500 hover:text-zinc-700'
-                                    }`}
-                            >
-                                🍳 {language === 'es' ? 'Cocina' : 'Kitchen'}
-                            </button>
-                            <button
-                                onClick={() => setPositionFilter('cashier')}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'cashier'
-                                    ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
-                                    : 'text-zinc-500 hover:text-zinc-700'
-                                    }`}
-                            >
-                                💵 {language === 'es' ? 'Cajero' : 'Cashier'}
-                            </button>
-                        </div>
+                        {/* Position filter - hidden if employee has assigned position */}
+                        {userPositionType ? (
+                            // Show locked position badge
+                            <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${userPositionType === 'kitchen'
+                                ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                                : 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300'
+                                }`}>
+                                {userPositionType === 'kitchen' ? '🍳' : '💵'}
+                                <span className="font-medium">
+                                    {userPositionType === 'kitchen'
+                                        ? (language === 'es' ? 'Cocina' : 'Kitchen')
+                                        : (language === 'es' ? 'Cajero' : 'Cashier')}
+                                </span>
+                            </div>
+                        ) : (
+                            // Show filter buttons (for managers/admins or employees without position)
+                            <div className="flex bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1">
+                                <button
+                                    onClick={() => setPositionFilter('all')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'all'
+                                        ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
+                                        : 'text-zinc-500 hover:text-zinc-700'
+                                        }`}
+                                >
+                                    📋 {language === 'es' ? 'Todos' : 'All'}
+                                </button>
+                                <button
+                                    onClick={() => setPositionFilter('kitchen')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'kitchen'
+                                        ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
+                                        : 'text-zinc-500 hover:text-zinc-700'
+                                        }`}
+                                >
+                                    🍳 {language === 'es' ? 'Cocina' : 'Kitchen'}
+                                </button>
+                                <button
+                                    onClick={() => setPositionFilter('cashier')}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${positionFilter === 'cashier'
+                                        ? 'bg-white dark:bg-zinc-700 shadow text-zinc-800 dark:text-white'
+                                        : 'text-zinc-500 hover:text-zinc-700'
+                                        }`}
+                                >
+                                    💵 {language === 'es' ? 'Cajero' : 'Cashier'}
+                                </button>
+                            </div>
+                        )}
 
-                        {/* Store filter */}
-                        <select
-                            value={storeFilter}
-                            onChange={(e) => setStoreFilter(e.target.value)}
-                            className="px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-white border-0 text-sm font-medium cursor-pointer"
-                        >
-                            <option value="all">
-                                🏪 {language === 'es' ? 'Todas las Tiendas' : 'All Stores'}
-                            </option>
-                            {storeList.map(store => (
-                                <option key={store.id} value={store.id}>
-                                    📍 {store.name}
+                        {/* Store filter - hidden if employee has assigned stores */}
+                        {userStoreIds.length > 0 ? (
+                            // Show locked store badge
+                            <div className="px-4 py-2 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                                📍 <span className="font-medium">{stores.get(userStoreIds[0]) || 'Mi Tienda'}</span>
+                            </div>
+                        ) : (
+                            // Show store dropdown
+                            <select
+                                value={storeFilter}
+                                onChange={(e) => setStoreFilter(e.target.value)}
+                                className="px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-white border-0 text-sm font-medium cursor-pointer"
+                            >
+                                <option value="all">
+                                    🏪 {language === 'es' ? 'Todas las Tiendas' : 'All Stores'}
                                 </option>
-                            ))}
-                        </select>
+                                {storeList.map(store => (
+                                    <option key={store.id} value={store.id}>
+                                        📍 {store.name}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
 
                         {/* Week dates display */}
                         <div className="text-sm text-zinc-500 dark:text-zinc-400 ml-auto">

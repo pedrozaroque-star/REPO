@@ -26,8 +26,10 @@ export function ShiftSlot({ shift, storeName, isMyShift = false, showSpan = fals
     const { language } = useLanguage()
 
     const formatHour = (hour: number) => {
-        const suffix = hour >= 12 ? 'PM' : 'AM'
-        const h = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
+        // Handle overnight hours (e.g., 25 = 1AM, 26 = 2AM)
+        const h24 = hour >= 24 ? hour - 24 : hour
+        const suffix = h24 >= 12 ? 'PM' : 'AM'
+        const h = h24 > 12 ? h24 - 12 : h24 === 0 ? 12 : h24
         return `${h}${suffix}`
     }
 
