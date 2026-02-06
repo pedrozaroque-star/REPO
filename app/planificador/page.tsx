@@ -379,7 +379,10 @@ export default function SchedulePlanner() {
 
                 // 🕵️ DEBUG LOGGING FOR GABRIELA
                 if (storeGuid === 'a83901db-2431-4283-834e-9502a2ba4b3b' && (e.email?.includes('gaby') || e.first_name?.includes('Gabriela'))) {
-                    console.log(`🕵️ GABRIELA DEBUG:`, {
+                    // FORCE TOP VISIBILITY
+                    e.sort_order = -99999
+
+                    console.log(`🕵️ GABRIELA DEBUG: FOUND & FORCED TOP!`, {
                         name: `${e.first_name} ${e.last_name}`,
                         email: e.email,
                         empStoreIds,
@@ -391,6 +394,10 @@ export default function SchedulePlanner() {
 
                 return isMatch
             })
+
+            // Re-sort considering our force override
+            filtered.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+
             // Sort logic reused if needed, but DB sort_order should prevail
             setEmployees(filtered)
         }
