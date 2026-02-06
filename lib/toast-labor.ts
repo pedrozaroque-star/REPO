@@ -96,6 +96,28 @@ export async function syncToastEmployees(storeId: string) {
 
         console.log(`Fetched ${allEmployees.length} raw employees from Toast`)
 
+        // 1. Get existing store_ids for these employees to preserve multi-store mapping
+        const guids = allEmployees.map((e: any) => e.guid)
+        let existingStoreMap: Record<string, string[]> = {}
+
+        if (guids.length > 0) {
+            const { data: existingData } = await supabase
+                .from('toast_employees')
+                .select('toast_guid, store_ids')
+                .in('toast_guid', guids)
+
+            if (existingData) {
+                existingData.forEach((row: any) => {
+                    let stores: string[] = []
+                    if (Array.isArray(row.store_ids)) stores = row.store_ids
+                    else if (typeof row.store_ids === 'string') {
+                        try { stores = JSON.parse(row.store_ids) } catch { stores = [row.store_ids] }
+                    }
+                    existingStoreMap[row.toast_guid] = stores
+                })
+            }
+        }
+
         // Prepare for DB
         const upsertData = allEmployees.map((emp: any) => {
             // Extract Wage Data in a clean format
@@ -121,6 +143,10 @@ export async function syncToastEmployees(storeId: string) {
                 deleted: emp.deleted,
                 created_date: emp.createdDate,
                 deleted_date: emp.deletedDate,
+
+                store_ids: existingStoreMap[emp.guid]?.includes(storeId)
+                    ? existingStoreMap[emp.guid]
+                    : [...(existingStoreMap[emp.guid] || []), storeId],
 
                 wage_data: wageData, // JSONB (Wage Overrides)
                 job_references: emp.jobReferences || [], // JSONB (All Roles)

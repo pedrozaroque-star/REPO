@@ -27,6 +27,17 @@ export async function POST(req: Request) {
         const { searchParams } = new URL(req.url)
         const type = searchParams.get('type') || 'all' // 'jobs' or 'employees' or 'all'
 
+        // Check for specific store target in body
+        let targetStoreId: string | null = null
+        try {
+            // Clone req because reading body consumes it
+            const clone = req.clone()
+            const body = await clone.json()
+            if (body.storeId) targetStoreId = body.storeId
+        } catch {
+            // Ignore non-JSON body
+        }
+
         let jobStats = { count: 0, errors: [] as string[] }
         let empStats = { count: 0, errors: [] as string[] }
 
@@ -45,12 +56,11 @@ export async function POST(req: Request) {
         // 2. Sync Employees (and their wages)
         if (type === 'employees' || type === 'all') {
             console.log('--- SYNCING EMPLOYEES ---')
-            // Employees definitely need to be fetched per store if they are siloed, 
-            // BUT often in Toast they are enterprise level.
-            // Documentation says: /labor/v1/employees returns "employees of a restaurant".
-            // So we loop.
 
-            for (const storeId of STORE_IDS) {
+            const storesToSync = targetStoreId ? [targetStoreId] : STORE_IDS
+            console.log(`Syncing employees for ${storesToSync.length} stores (Target: ${targetStoreId || 'ALL'})`)
+
+            for (const storeId of storesToSync) {
                 const res = await syncToastEmployees(storeId)
                 empStats.count += res.count
                 if (res.error) empStats.errors.push(`${storeId}: ${res.error}`)
