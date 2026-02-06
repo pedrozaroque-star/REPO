@@ -814,16 +814,24 @@ export async function DELETE(request: NextRequest) {
                 is_read: false
             }))
 
+            console.log(`📢 Notification payload:`, JSON.stringify(notifications, null, 2))
+
             if (notifications.length > 0) {
-                const { error: notifError } = await supabaseAdmin
+                const { data: insertedNotifs, error: notifError } = await supabaseAdmin
                     .from('notifications')
                     .insert(notifications)
+                    .select()
 
                 if (notifError) {
-                    console.warn('Failed to create shift drop notifications:', notifError)
+                    console.error('❌ Failed to create shift drop notifications:', notifError)
+                    console.error('❌ Error code:', notifError.code)
+                    console.error('❌ Error details:', notifError.details)
                 } else {
-                    console.log(`📢 Notified ${notifications.length} employees about dropped shift`)
+                    console.log(`✅ Notified ${notifications.length} employees about dropped shift`)
+                    console.log(`✅ Inserted notifications:`, insertedNotifs)
                 }
+            } else {
+                console.log(`⚠️ No employees to notify (filters removed everyone)`)
             }
         }
 
