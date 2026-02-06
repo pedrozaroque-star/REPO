@@ -662,6 +662,171 @@ export async function DELETE(request: NextRequest) {
             }
         }
 
+        // 5. NOTIFY OTHER EMPLOYEES: Alert others with same position that a shift is available
+        // ONLY if the shift actually has available spots after the drop
+        // First get the full open_shift details including position_type and current counts
+        const { data: fullOpenShift } = await supabaseAdmin
+            .from('open_shifts')
+            .select('store_id, shift_date, start_hour, end_hour, position_type, claimed_count, required_count')
+            .eq('id', claim.open_shift_id)
+            .single()
+
+        // Only notify if there are now available spots
+        if (fullOpenShift && fullOpenShift.claimed_count < fullOpenShift.required_count) {
+            // Format time for notification
+            const formatHour = (hour: number) => {
+                const h24 = hour >= 24 ? hour - 24 : hour
+                const suffix = h24 >= 12 ? 'PM' : 'AM'
+                const h = h24 > 12 ? h24 - 12 : h24 === 0 ? 12 : h24
+                return `${h}:00 ${suffix}`
+            }
+
+            // Get store name
+            const { data: storeData } = await supabaseAdmin
+                .from('stores')
+                .select('name')
+                .eq('external_id', fullOpenShift.store_id)
+                .single()
+            const storeName = storeData?.name?.replace(/^Tacos? Gavilan /i, '') || 'Tienda'
+
+            // Find all employees at this store with the SAME position type
+            const positionType = fullOpenShift.position_type
+            const jobSearchTerms = positionType === 'kitchen'
+                ? ['Cook', 'Cocinero', 'Kitchen', 'Prep', 'Preparador']
+                : ['Cashier', 'Cajero', 'FOH', 'Register']
+
+            // First, get job IDs that match this position type
+            const { data: matchingJobs } = await supabaseAdmin
+                .from('jobs')
+                .select('id, title')
+
+            const relevantJobIds = matchingJobs?.filter(job => {
+                const title = job.title?.toLowerCase() || ''
+                return jobSearchTerms.some(term => title.includes(term.toLowerCase()))
+            }).map(j => j.id) || []
+
+            // Get employees who have these jobs assigned via job_references
+            const { data: jobRefs } = await supabaseAdmin
+                .from('job_references')
+                .select('employee_id')
+                .in('job_id', relevantJobIds)
+
+            const eligibleEmployeeIds = new Set(jobRefs?.map(jr => jr.employee_id) || [])
+
+            // Determine if this is an AM or PM shift (same threshold as login)
+            const AM_PM_THRESHOLD = 15 // 3pm - shifts starting before this are AM
+            const isAMShift = fullOpenShift.start_hour < AM_PM_THRESHOLD
+
+            // Get employees with matching jobs at this store
+            const { data: allEmployees } = await supabaseAdmin
+                .from('toast_employees')
+                .select('id, first_name, email, store_ids')
+
+            // For each eligible employee, we need to determine their shift type from punch history
+            // Get punches for the last 30 days for all potential employees
+            const thirtyDaysAgo = new Date()
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+            const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+
+            const { data: allPunches } = await supabaseAdmin
+                .from('punches')
+                .select('employee_id, clock_in')
+                .gte('business_date', thirtyDaysAgoStr)
+                .not('clock_in', 'is', null)
+
+            // Calculate shift type for each employee
+            const employeeShiftTypes = new Map<string, 'AM' | 'PM'>()
+            if (allPunches) {
+                // Group punches by employee
+                const punchesByEmployee = new Map<string, Date[]>()
+                for (const punch of allPunches) {
+                    if (!punch.clock_in) continue
+                    const clockIn = new Date(punch.clock_in)
+                    if (!punchesByEmployee.has(punch.employee_id)) {
+                        punchesByEmployee.set(punch.employee_id, [])
+                    }
+                    punchesByEmployee.get(punch.employee_id)!.push(clockIn)
+                }
+
+                // Calculate average clock-in hour for each employee
+                for (const [empId, punches] of punchesByEmployee) {
+                    if (punches.length === 0) continue
+
+                    const totalHours = punches.reduce((sum, clockIn) => {
+                        // Convert to LA time
+                        const laTimeStr = clockIn.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+                        const laTime = new Date(laTimeStr)
+                        return sum + laTime.getHours() + (laTime.getMinutes() / 60)
+                    }, 0)
+
+                    const avgHour = totalHours / punches.length
+                    employeeShiftTypes.set(empId, avgHour < AM_PM_THRESHOLD ? 'AM' : 'PM')
+                }
+            }
+
+            // Filter to employees at this store with matching position AND shift type
+            const employeesToNotify = allEmployees?.filter(emp => {
+                // Skip the user who dropped the shift
+                if (emp.email?.toLowerCase() === user.email?.toLowerCase()) return false
+
+                // Must have the same position type (via job_references)
+                if (!eligibleEmployeeIds.has(emp.id)) return false
+
+                // Must have matching shift type (AM shift → AM employees only)
+                const empShiftType = employeeShiftTypes.get(emp.id)
+                if (empShiftType) {
+                    const empIsAM = empShiftType === 'AM'
+                    if (isAMShift !== empIsAM) return false
+                }
+                // If no punch history, skip (can't determine shift type)
+                else {
+                    return false
+                }
+
+                // Check if employee is at this store
+                if (Array.isArray(emp.store_ids)) {
+                    return emp.store_ids.includes(fullOpenShift.store_id)
+                }
+                if (typeof emp.store_ids === 'string') {
+                    return emp.store_ids.includes(fullOpenShift.store_id)
+                }
+                return false
+            }) || []
+
+            const shiftTypeLabel = isAMShift ? 'AM' : 'PM'
+            console.log(`📢 Found ${employeesToNotify.length} ${positionType} ${shiftTypeLabel} employees to notify at ${storeName}`)
+
+            // Create notifications for each eligible employee
+            // Format date for message
+            const shiftDate = new Date(fullOpenShift.shift_date + 'T12:00:00')
+            const dateStr = shiftDate.toLocaleDateString('es-MX', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'short'
+            })
+
+            const notifications = employeesToNotify.map(emp => ({
+                user_id: emp.id,
+                title: '🔔 ¡Turno disponible!',
+                message: `Se liberó un turno de ${positionType === 'kitchen' ? 'Cocina' : 'Cajero'} en ${storeName}: ${dateStr}, ${formatHour(fullOpenShift.start_hour)} - ${formatHour(fullOpenShift.end_hour)}`,
+                type: 'info',
+                link: '/mis-horarios',
+                is_read: false
+            }))
+
+            if (notifications.length > 0) {
+                const { error: notifError } = await supabaseAdmin
+                    .from('notifications')
+                    .insert(notifications)
+
+                if (notifError) {
+                    console.warn('Failed to create shift drop notifications:', notifError)
+                } else {
+                    console.log(`📢 Notified ${notifications.length} employees about dropped shift`)
+                }
+            }
+        }
+
         return NextResponse.json({
             success: true,
             message_es: 'Turno liberado exitosamente',
