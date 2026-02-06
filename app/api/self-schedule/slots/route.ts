@@ -336,7 +336,28 @@ export async function POST(request: NextRequest) {
             }, { status: 409 })
         }
 
-        // 5. Create the claim (trigger will update claimed_count)
+        // 5. ATOMIC CLAIM: Use UPDATE with condition to prevent race condition
+        // This UPDATE will only succeed if claimed_count < required_count
+        // If two users try at the same time, only ONE will succeed
+        const { data: updatedShift, error: updateError } = await supabaseAdmin
+            .from('open_shifts')
+            .update({ claimed_count: shift.claimed_count + 1 })
+            .eq('id', shiftId)
+            .lt('claimed_count', shift.required_count) // CRITICAL: Only if space available
+            .select()
+            .single()
+
+        if (updateError || !updatedShift) {
+            // Race condition - someone else got the last spot
+            console.log(`⚠️ Race condition detected for shift ${shiftId} - update failed`)
+            return NextResponse.json({
+                error: 'Shift is full',
+                message_es: '¡Alguien más tomó el último espacio! Intenta con otro turno.',
+                message_en: 'Someone else claimed the last spot! Try another shift.'
+            }, { status: 409 })
+        }
+
+        // 6. Now insert the claim (the spot is already reserved)
         const { data: claim, error: claimError } = await supabaseAdmin
             .from('shift_claims')
             .insert({
@@ -349,12 +370,17 @@ export async function POST(request: NextRequest) {
             .single()
 
         if (claimError) {
-            // Race condition - someone else got it
-            if (claimError.code === '23505') { // Unique violation
+            // Rollback the claimed_count increment if claim insert fails
+            await supabaseAdmin
+                .from('open_shifts')
+                .update({ claimed_count: updatedShift.claimed_count - 1 })
+                .eq('id', shiftId)
+
+            if (claimError.code === '23505') { // Unique violation - already claimed
                 return NextResponse.json({
-                    error: 'Shift is no longer available',
-                    message_es: 'Este turno ya no está disponible.',
-                    message_en: 'This shift is no longer available.'
+                    error: 'Already claimed',
+                    message_es: 'Ya tienes este turno.',
+                    message_en: 'You already have this shift.'
                 }, { status: 409 })
             }
             console.error('Claim error:', claimError)

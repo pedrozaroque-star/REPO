@@ -102,8 +102,21 @@ export function ClaimModal({ isOpen, onClose, onConfirm, shift, isLoading = fals
                     </div>
 
                     {error && (
-                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-red-700 dark:text-red-400 text-sm">
-                            {error}
+                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 space-y-2">
+                            <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                                <span className="text-xl">⚠️</span>
+                                <span className="font-bold">
+                                    {language === 'es' ? '¡Ups! Algo pasó' : 'Oops! Something happened'}
+                                </span>
+                            </div>
+                            <p className="text-red-600 dark:text-red-300 text-sm pl-7">
+                                {error}
+                            </p>
+                            <p className="text-red-500/70 text-xs pl-7">
+                                {language === 'es'
+                                    ? '💡 Cierra este mensaje y busca otro turno disponible.'
+                                    : '💡 Close this message and look for another available shift.'}
+                            </p>
                         </div>
                     )}
 
