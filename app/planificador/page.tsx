@@ -339,7 +339,17 @@ export default function SchedulePlanner() {
 
     // --- DATA LOADING ---
     async function loadStoreData() {
-        if (!storeGuid) return;
+        if (!storeGuid) {
+            console.error('❌ loadStoreData: storeGuid is UNDEFINED or NULL')
+            return;
+        }
+
+        console.log('🏪 loadStoreData START:', {
+            storeGuid,
+            selectedStoreId,
+            storeName: currentStore?.name
+        })
+
         setSyncing(true)
         const supabase = await getSupabaseClient()
         const startStr = formatDateISO(weekStart)
@@ -351,6 +361,8 @@ export default function SchedulePlanner() {
             .select('*')
             .order('sort_order', { ascending: true })
             .order('first_name', { ascending: true })
+
+        console.log('📊 Total employees fetched from DB:', allEmpData?.length || 0)
 
         if (allEmpData) {
             const filtered = allEmpData.filter((e: any) => {
@@ -377,23 +389,26 @@ export default function SchedulePlanner() {
 
                 const isMatch = empStoreIds.includes(storeGuid)
 
-                // 🕵️ DEBUG LOGGING FOR GABRIELA
-                if (storeGuid === 'a83901db-2431-4283-834e-9502a2ba4b3b' && (e.email?.includes('gaby') || e.first_name?.includes('Gabriela'))) {
+                // 🕵️ DEBUG LOGGING FOR GABRIELA (ALL STORES - NO FILTER)
+                if (e.email?.includes('gaby') || e.first_name?.includes('Gabriela')) {
                     // FORCE TOP VISIBILITY
                     e.sort_order = -99999
 
-                    console.log(`🕵️ GABRIELA DEBUG: FOUND & FORCED TOP!`, {
+                    console.error(`� GABRIELA FOUND IN DATA:`, {
                         name: `${e.first_name} ${e.last_name}`,
                         email: e.email,
                         empStoreIds,
                         targetStoreGuid: storeGuid,
-                        isMatch,
+                        isMatch: isMatch,
+                        willPassFilter: isMatch ? 'YES ✅' : 'NO ❌ - FILTERED OUT',
                         deleted: e.deleted
                     })
                 }
 
                 return isMatch
             })
+
+            console.log(`✅ Filtered employees for store ${storeGuid}:`, filtered.length)
 
             // Re-sort considering our force override
             filtered.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
