@@ -121,8 +121,10 @@ export default function TopNav() {
         return menuGroups.map(group => {
             const validItems = group.items.filter(item => {
                 if (!item.roles || item.roles.length === 0) return true
-                if (!user?.role) return false
-                return item.roles.includes(user.role.toLowerCase())
+                // Check both 'role' and 'user_type' fields (different users store differently)
+                const userRole = (user?.role || user?.user_type || '').toLowerCase()
+                if (!userRole) return false
+                return item.roles.includes(userRole)
             })
             return { ...group, items: validItems }
         }).filter(group => group.items.length > 0)

@@ -81,10 +81,11 @@ export default function MisHorariosPage() {
 
         // Check token expiration
         if (isTokenExpired(token)) {
-            console.log('Session expired')
+            console.log('⏰ Session expired - redirecting to login')
             localStorage.removeItem('teg_token')
             localStorage.removeItem('teg_user')
-            router.push('/login')
+            localStorage.removeItem('teg_user_name')
+            router.replace('/login') // Use replace to prevent back navigation
             return
         }
 
@@ -121,9 +122,32 @@ export default function MisHorariosPage() {
 
             setIsAuthed(true)
         } catch {
-            router.push('/login')
+            router.replace('/login')
         }
     }, [router])
+
+    // 🔒 STRICT SESSION CHECK: Verify token every 30 seconds
+    useEffect(() => {
+        if (!isAuthed) return
+
+        const checkSession = () => {
+            const token = localStorage.getItem('teg_token')
+            if (!token || isTokenExpired(token)) {
+                console.log('⏰ Session expired during use - forcing logout')
+                localStorage.removeItem('teg_token')
+                localStorage.removeItem('teg_user')
+                localStorage.removeItem('teg_user_name')
+                setIsAuthed(false)
+                router.replace('/login')
+            }
+        }
+
+        // Check immediately, then every 30 seconds
+        checkSession()
+        const interval = setInterval(checkSession, 30000)
+
+        return () => clearInterval(interval)
+    }, [isAuthed, router])
 
     // Calculate week start dates
     const thisWeekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), [])
@@ -252,8 +276,17 @@ export default function MisHorariosPage() {
     const handleDropConfirm = async () => {
         if (!selectedClaimId) return
 
-        setIsDropping(true)
+        // 🔒 Verify session before action
         const token = localStorage.getItem('teg_token')
+        if (!token || isTokenExpired(token)) {
+            localStorage.removeItem('teg_token')
+            localStorage.removeItem('teg_user')
+            localStorage.removeItem('teg_user_name')
+            router.replace('/login')
+            return
+        }
+
+        setIsDropping(true)
 
         try {
             const res = await fetch(`/api/self-schedule/slots?claimId=${selectedClaimId}`, {
@@ -284,8 +317,17 @@ export default function MisHorariosPage() {
     const handleClaimConfirm = async () => {
         if (!selectedShift) return
 
-        setIsClaiming(true)
+        // 🔒 Verify session before action
         const token = localStorage.getItem('teg_token')
+        if (!token || isTokenExpired(token)) {
+            localStorage.removeItem('teg_token')
+            localStorage.removeItem('teg_user')
+            localStorage.removeItem('teg_user_name')
+            router.replace('/login')
+            return
+        }
+
+        setIsClaiming(true)
         const userName = localStorage.getItem('teg_user_name') || ''
 
         try {
@@ -329,6 +371,18 @@ export default function MisHorariosPage() {
             return sum
         }, 0)
     }, [myClaims])
+
+    // 🔒 STRICT: Don't render ANYTHING until authenticated
+    if (!isAuthed) {
+        return (
+            <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+                    <p className="text-zinc-400 text-sm">Verificando sesión...</p>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-zinc-50 to-zinc-100 dark:from-zinc-950 dark:to-zinc-900">
@@ -493,8 +547,8 @@ export default function MisHorariosPage() {
                         {/* Shift type badge (AM/PM) */}
                         {userShiftType && (
                             <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${userShiftType === 'AM'
-                                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                                    : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                                 }`}>
                                 {userShiftType === 'AM' ? '🌅' : '🌙'}
                                 <span className="font-medium">

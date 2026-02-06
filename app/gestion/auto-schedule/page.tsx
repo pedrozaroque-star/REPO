@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
 import { supabase } from '@/lib/supabase'
 import { startOfWeek, addWeeks, format, parseISO } from 'date-fns'
@@ -16,9 +17,21 @@ interface WeekStats {
     cashierSlots: number
 }
 
+// Roles allowed to access this page (all lowercase for comparison)
+// ONLY admin and supervisor - NO managers
+const ALLOWED_ROLES = [
+    'admin',
+    'administrador',
+    'supervisor'
+]
+
 export default function AdminAutoSchedulePage() {
+    const router = useRouter()
     const { language } = useLanguage()
     const locale = language === 'es' ? es : enUS
+
+    // Auth state
+    const [isAuthed, setIsAuthed] = useState(false)
 
     const [weekStats, setWeekStats] = useState<WeekStats[]>([])
     const [isLoading, setIsLoading] = useState(true)
@@ -32,6 +45,48 @@ export default function AdminAutoSchedulePage() {
     const [demandMapStore, setDemandMapStore] = useState<string | null>(null)
     const [demandData, setDemandData] = useState<any>(null)
     const [isLoadingDemand, setIsLoadingDemand] = useState(false)
+
+    // 🔒 AUTH CHECK: Only admin, supervisor, manager allowed
+    useEffect(() => {
+        console.log('🔄 AUTO-SCHEDULE PAGE: Starting auth check...')
+
+        const token = localStorage.getItem('teg_token')
+        const userStr = localStorage.getItem('teg_user')
+
+        console.log('🔑 Token exists:', !!token, 'User exists:', !!userStr)
+
+        if (!token || !userStr) {
+            console.log('❌ No token or user, redirecting to login')
+            router.replace('/login')
+            return
+        }
+
+        try {
+            const user = JSON.parse(userStr)
+            // Check both 'role' and 'user_type' fields (different users store differently)
+            const role = (user.role || user.user_type || '').toLowerCase()
+
+            console.log('👤 User loaded for auto-schedule:', {
+                name: user.name,
+                role: user.role,
+                user_type: user.user_type,
+                detected_role: role
+            })
+
+            // Check if role is allowed
+            if (!ALLOWED_ROLES.includes(role)) {
+                console.log('🚫 Access denied: role', role, 'not in', ALLOWED_ROLES)
+                router.replace('/') // Redirect to home for unauthorized users
+                return
+            }
+
+            console.log('✅ AUTO-SCHEDULE: Role', role, 'is ALLOWED!')
+            console.log('✅ AUTO-SCHEDULE: Setting isAuthed to TRUE')
+            setIsAuthed(true)
+        } catch {
+            router.replace('/login')
+        }
+    }, [router])
 
     // Generate week start dates for next 4 weeks
     const getWeekStarts = () => {
@@ -47,6 +102,8 @@ export default function AdminAutoSchedulePage() {
 
     // Fetch week statistics
     const fetchStats = useCallback(async () => {
+        if (!isAuthed) return // Wait for auth
+
         setIsLoading(true)
         try {
             const weeks = getWeekStarts()
@@ -55,9 +112,10 @@ export default function AdminAutoSchedulePage() {
             for (const week of weeks) {
                 const weekStr = format(week, 'yyyy-MM-dd')
 
+                // Build query
                 const { data: shifts, error } = await supabase
                     .from('open_shifts')
-                    .select('id, position_type, status, claimed_count, required_count')
+                    .select('id, position_type, status, claimed_count, required_count, store_id')
                     .eq('week_start', weekStr)
 
                 if (error) {
@@ -94,7 +152,7 @@ export default function AdminAutoSchedulePage() {
 
             setWeekStats(stats)
 
-            // Fetch stores
+            // Fetch all active stores
             const { data: storeData } = await supabase
                 .from('stores')
                 .select('external_id, name')
@@ -106,11 +164,13 @@ export default function AdminAutoSchedulePage() {
         } finally {
             setIsLoading(false)
         }
-    }, [])
+    }, [isAuthed])
 
     useEffect(() => {
-        fetchStats()
-    }, [fetchStats])
+        if (isAuthed) {
+            fetchStats()
+        }
+    }, [isAuthed, fetchStats])
 
     // Load demand data for visualization
     const loadDemandMap = async (weekStart: string, storeId: string) => {
@@ -166,8 +226,8 @@ export default function AdminAutoSchedulePage() {
             }
 
             alert(language === 'es'
-                ? `✅ ${data.stats.spots_created} spots generados para ${data.stats.stores_processed} tiendas`
-                : `✅ ${data.stats.spots_created} spots generated for ${data.stats.stores_processed} stores`)
+                ? `✅ ${data.stats.spots_created} spots generados para ${data.stats.stores_processed} tienda(s)`
+                : `✅ ${data.stats.spots_created} spots generated for ${data.stats.stores_processed} store(s)`)
 
             fetchStats()
 
@@ -263,6 +323,18 @@ export default function AdminAutoSchedulePage() {
                     {language === 'es' ? 'No Generado' : 'Not Generated'}
                 </span>
         }
+    }
+
+    // 🔒 STRICT: Don't render until authorized
+    if (!isAuthed) {
+        return (
+            <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <p className="text-zinc-400 text-sm">Verificando permisos...</p>
+                </div>
+            </div>
+        )
     }
 
     return (

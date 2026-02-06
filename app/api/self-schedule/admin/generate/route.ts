@@ -26,12 +26,16 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid Token' }, { status: 401 })
         }
 
-        if (user.user_role !== 'admin' && user.user_role !== 'supervisor') {
-            return NextResponse.json({ error: 'Forbidden: Admin/Manager only' }, { status: 403 })
+        // Allow ONLY admin and supervisor - NO managers
+        if (!['admin', 'supervisor', 'administrador'].includes(user.user_role?.toLowerCase())) {
+            return NextResponse.json({ error: 'Forbidden: Admin/Supervisor only' }, { status: 403 })
         }
 
         const body = await request.json()
-        const { weekStart, storeIds, publish = false } = body
+        const { weekStart, storeIds, storeId, publish = false } = body
+
+        // Support both storeId (singular) and storeIds (array)
+        const targetStoreIds = storeId ? [storeId] : (storeIds || null)
 
         if (!weekStart) {
             return NextResponse.json({ error: 'Missing weekStart (YYYY-MM-DD)' }, { status: 400 })
@@ -46,11 +50,11 @@ export async function POST(request: NextRequest) {
 
         // Get all stores with their operating hours
         let stores: { external_id: string; name: string; opening_time: string; closing_time: string }[] = []
-        if (storeIds && storeIds.length > 0) {
+        if (targetStoreIds && targetStoreIds.length > 0) {
             const { data } = await supabaseAdmin
                 .from('stores')
                 .select('external_id, name, opening_time, closing_time')
-                .in('external_id', storeIds)
+                .in('external_id', targetStoreIds)
             stores = data || []
         } else {
             const { data } = await supabaseAdmin
@@ -122,7 +126,8 @@ export async function POST(request: NextRequest) {
             storeOpeningHour: number,
             closingHour: number,
             staffingConfig: { kitchen: { am: number; pm: number }; cashier: { am: number; pm: number } },
-            forecastHours?: { hour: number; required_kitchen: number; required_foh: number }[]
+            forecastHours?: { hour: number; required_kitchen: number; required_foh: number }[],
+            dayOfWeek?: number  // 0=Sun, 5=Fri, 6=Sat - for weekend extra staff
         ): {
             startHour: number;
             endHour: number;
@@ -217,11 +222,26 @@ export async function POST(request: NextRequest) {
                 })
             }
 
-            // AM Cashiers: similar pattern
+            // AM Cashiers: Improved stagger for better coverage
+            // 1 cashier opens at 9am, then stagger 10am, 11am for lunch rush
+            // WEEKEND BOOST: +1 extra cashier on Fri/Sat/Sun
+            const isWeekend = dayOfWeek !== undefined && (dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6)
+            const weekendExtraCashier = isWeekend ? 1 : 0
+            const totalAmCashiers = amCashierCount + weekendExtraCashier
+
             let cashierAssigned = 0
-            for (let i = 0; i < amCashierCount; i++) {
-                const isRush = i >= 1 && amRushPeakCashier > 2
-                const start = isRush ? amRushStart : storeOpeningHour + i
+            for (let i = 0; i < totalAmCashiers; i++) {
+                let start: number
+                if (i === 0) {
+                    // First cashier: OPENING at store opening (9am)
+                    start = storeOpeningHour
+                } else if (i === 1) {
+                    // Second cashier: 10am
+                    start = 10
+                } else {
+                    // Rest: 11am for lunch rush (including weekend extra)
+                    start = amRushStart  // 11am
+                }
                 shifts.push({
                     startHour: start,
                     endHour: Math.min(start + MIN_SHIFT_HOURS, amEnd),
@@ -286,30 +306,46 @@ export async function POST(request: NextRequest) {
                 })
             }
 
-            // PM Cashiers: similar hybrid pattern
+            // PM Cashiers: Improved pattern - start at 4pm for better transition coverage
+            const CASHIER_PM_START = PM_EARLY_START  // 4pm instead of 5pm
             let pmCashierAssigned = 0
-            const cashierRushSize = Math.min(2, pmCashierCount)
 
-            // Rush cashiers
-            if (pmCashierAssigned < pmCashierCount) {
+            // Opening cashiers at 4pm (transition coverage)
+            const openingCashierCount = Math.min(2, pmCashierCount)
+            if (openingCashierCount > 0) {
                 shifts.push({
-                    startHour: pmRushStart,
-                    endHour: Math.min(pmRushStart + MAX_SHIFT_HOURS, closingHour),
+                    startHour: CASHIER_PM_START,  // 4pm
+                    endHour: Math.min(CASHIER_PM_START + MAX_SHIFT_HOURS, closingHour),
                     requiredKitchen: 0,
-                    requiredFoh: Math.min(cashierRushSize, pmCashierCount - pmCashierAssigned),
+                    requiredFoh: openingCashierCount,
                     shiftType: 'PM'
                 })
-                pmCashierAssigned += Math.min(cashierRushSize, pmCashierCount - pmCashierAssigned)
+                pmCashierAssigned += openingCashierCount
             }
 
-            // Opening cashiers
-            const remainingCashiers = pmCashierCount - pmCashierAssigned
-            if (remainingCashiers > 0) {
+            // Rush/mid cashiers at 5pm  
+            const midCashierCount = Math.min(2, pmCashierCount - pmCashierAssigned)
+            if (midCashierCount > 0) {
                 shifts.push({
-                    startHour: PM_START,
+                    startHour: PM_START,  // 5pm
                     endHour: Math.min(PM_START + MAX_SHIFT_HOURS, closingHour),
                     requiredKitchen: 0,
-                    requiredFoh: remainingCashiers,
+                    requiredFoh: midCashierCount,
+                    shiftType: 'PM'
+                })
+                pmCashierAssigned += midCashierCount
+            }
+
+            // CLOSING cashiers - late shift that covers until close + 1hr
+            const closingCashierCount = Math.max(1, pmCashierCount - pmCashierAssigned)
+            if (closingCashierCount > 0) {
+                // Start at 6pm or 7pm, end at closing + 1 hour
+                const closingCashierStart = Math.max(pmRushStart, washEndHour - MAX_SHIFT_HOURS)  // 6pm or later
+                shifts.push({
+                    startHour: closingCashierStart,
+                    endHour: washEndHour,  // Same as kitchen wash crew (closing + 1hr)
+                    requiredKitchen: 0,
+                    requiredFoh: closingCashierCount,
                     shiftType: 'PM'
                 })
             }
@@ -703,11 +739,13 @@ export async function POST(request: NextRequest) {
 
                     // HYBRID: Generate shifts with staggered base + extra spots during rush
                     // Uses configured headcount AND demand forecast for intelligent grouping
+                    // NOTE: dayOfWeek passed to add extra cashier on Fri/Sat/Sun
                     const staggeredShifts = generateHybridShifts(
                         storeOpeningHour,
                         closingHour,
                         staffingConfig,
-                        forecast.hours  // Pass forecast for rush hour detection
+                        forecast.hours,  // Pass forecast for rush hour detection
+                        dayOfWeek        // Pass day for weekend extra staff
                     )
 
                     console.log(`📅 ${store.name} ${dateStr}: Hybrid shifts generated (${staggeredShifts.length} blocks, ${staffingConfig.kitchen.am}+${staffingConfig.kitchen.pm} kitchen, ${staffingConfig.cashier.am}+${staffingConfig.cashier.pm} cashier)`)
