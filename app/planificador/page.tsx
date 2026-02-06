@@ -339,16 +339,7 @@ export default function SchedulePlanner() {
 
     // --- DATA LOADING ---
     async function loadStoreData() {
-        if (!storeGuid) {
-            console.error('❌ loadStoreData: storeGuid is UNDEFINED or NULL')
-            return;
-        }
-
-        console.log('🏪 loadStoreData START:', {
-            storeGuid,
-            selectedStoreId,
-            storeName: currentStore?.name
-        })
+        if (!storeGuid) return;
 
         setSyncing(true)
         const supabase = await getSupabaseClient()
@@ -356,13 +347,35 @@ export default function SchedulePlanner() {
         const endStr = formatDateISO(addDays(weekStart, 6))
 
         // Employees
-        const { data: allEmpData } = await supabase
-            .from('toast_employees')
-            .select('*')
-            .order('sort_order', { ascending: true })
-            .order('first_name', { ascending: true })
+        // Employees - Fetch with manual pagination to bypass 1000 row limit
+        let allEmpData: any[] = []
+        let page = 0
+        const PAGE_SIZE = 1000
+        let hasMore = true
 
-        console.log('📊 Total employees fetched from DB:', allEmpData?.length || 0)
+        while (hasMore) {
+            const { data, error } = await supabase
+                .from('toast_employees')
+                .select('*')
+                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+                .order('sort_order', { ascending: true })
+                .order('first_name', { ascending: true })
+
+            if (error) {
+                console.error('Error fetching employees page:', error)
+                break
+            }
+
+            if (data) {
+                allEmpData = [...allEmpData, ...data]
+                if (data.length < PAGE_SIZE) hasMore = false
+                page++
+            } else {
+                hasMore = false
+            }
+        }
+
+
 
         if (allEmpData) {
             const filtered = allEmpData.filter((e: any) => {
@@ -389,26 +402,8 @@ export default function SchedulePlanner() {
 
                 const isMatch = empStoreIds.includes(storeGuid)
 
-                // 🕵️ DEBUG LOGGING FOR GABRIELA (ALL STORES - NO FILTER)
-                if (e.email?.includes('gaby') || e.first_name?.includes('Gabriela')) {
-                    // FORCE TOP VISIBILITY
-                    e.sort_order = -99999
-
-                    console.error(`� GABRIELA FOUND IN DATA:`, {
-                        name: `${e.first_name} ${e.last_name}`,
-                        email: e.email,
-                        empStoreIds,
-                        targetStoreGuid: storeGuid,
-                        isMatch: isMatch,
-                        willPassFilter: isMatch ? 'YES ✅' : 'NO ❌ - FILTERED OUT',
-                        deleted: e.deleted
-                    })
-                }
-
                 return isMatch
             })
-
-            console.log(`✅ Filtered employees for store ${storeGuid}:`, filtered.length)
 
             // Re-sort considering our force override
             filtered.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
@@ -433,7 +428,7 @@ export default function SchedulePlanner() {
             .select('*')
             .eq('store_id', storeGuid)
             .eq('week_start', startStr)
-            .single()
+            .maybeSingle()
 
         if (savedBudget && savedBudget.sales_projections) {
             // Use Saved Snapshot
