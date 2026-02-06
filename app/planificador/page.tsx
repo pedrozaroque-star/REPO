@@ -354,9 +354,42 @@ export default function SchedulePlanner() {
 
         if (allEmpData) {
             const filtered = allEmpData.filter((e: any) => {
-                if (Array.isArray(e.store_ids)) return e.store_ids.includes(storeGuid)
-                if (typeof e.store_ids === 'string') return e.store_ids.includes(storeGuid)
-                return false
+                // Robust Store ID Check
+                let empStoreIds: string[] = []
+
+                if (Array.isArray(e.store_ids)) {
+                    empStoreIds = e.store_ids
+                } else if (typeof e.store_ids === 'string') {
+                    // Handle potential JSON string "[...]"
+                    if (e.store_ids.trim().startsWith('[')) {
+                        try {
+                            const parsed = JSON.parse(e.store_ids)
+                            if (Array.isArray(parsed)) empStoreIds = parsed
+                        } catch {
+                            // If parse fails, treat as single string ID
+                            empStoreIds = [e.store_ids]
+                        }
+                    } else {
+                        // Plain string ID
+                        empStoreIds = [e.store_ids]
+                    }
+                }
+
+                const isMatch = empStoreIds.includes(storeGuid)
+
+                // 🕵️ DEBUG LOGGING FOR GABRIELA
+                if (storeGuid === 'a83901db-2431-4283-834e-9502a2ba4b3b' && (e.email?.includes('gaby') || e.first_name?.includes('Gabriela'))) {
+                    console.log(`🕵️ GABRIELA DEBUG:`, {
+                        name: `${e.first_name} ${e.last_name}`,
+                        email: e.email,
+                        empStoreIds,
+                        targetStoreGuid: storeGuid,
+                        isMatch,
+                        deleted: e.deleted
+                    })
+                }
+
+                return isMatch
             })
             // Sort logic reused if needed, but DB sort_order should prevail
             setEmployees(filtered)
