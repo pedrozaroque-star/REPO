@@ -192,7 +192,7 @@ export async function POST(request: Request) {
           const jobTitle = jobData?.[0]?.title?.toLowerCase() || ''
           console.log(`🔍 Job title found: "${jobTitle}"`)
 
-          if (jobTitle.includes('cook') || jobTitle.includes('cocinero') || jobTitle.includes('kitchen')) {
+          if (jobTitle.includes('cook') || jobTitle.includes('cocinero') || jobTitle.includes('kitchen') || jobTitle.includes('prep') || jobTitle.includes('preparador')) {
             position_type = 'kitchen'
           } else if (jobTitle.includes('cashier') || jobTitle.includes('cajero') || jobTitle.includes('register')) {
             position_type = 'cashier'
@@ -201,6 +201,69 @@ export async function POST(request: Request) {
         }
       } else {
         console.log(`⚠️ No job_references found for employee ${employee.id}`)
+      }
+
+      // Determine shift_type (AM/PM) based on punch history
+      let shift_type: 'AM' | 'PM' | null = null
+
+      // Get punches from last 30 days for this employee
+      const thirtyDaysAgo = new Date()
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+      const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+
+      const punchesResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/punches?employee_toast_guid=eq.${employee.toast_guid}&business_date=gte.${thirtyDaysAgoStr}&clock_in=not.is.null&select=clock_in`,
+        {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+          }
+        }
+      )
+
+      const punches = await punchesResponse.json()
+      console.log(`🕐 Found ${punches?.length || 0} punches in last 30 days for shift_type calculation`)
+
+      if (punches && punches.length >= 3) {
+        // Calculate average clock-in hour (in local time)
+        let totalMinutes = 0
+        let validPunches = 0
+
+        for (const punch of punches) {
+          if (punch.clock_in) {
+            const clockIn = new Date(punch.clock_in)
+            // Convert to LA time
+            const laTimeStr = clockIn.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+            const laTime = new Date(laTimeStr)
+            const hour = laTime.getHours()
+            const minutes = laTime.getMinutes()
+            const totalMins = hour * 60 + minutes
+
+            // Only count punches that are "normal" (6am to 10pm range)
+            if (totalMins >= 360 && totalMins <= 1320) { // 6am to 10pm
+              totalMinutes += totalMins
+              validPunches++
+            }
+          }
+        }
+
+        if (validPunches >= 3) {
+          const avgMinutes = totalMinutes / validPunches
+          const avgHour = avgMinutes / 60
+
+          // Threshold: 3pm (15:00 = 900 minutes)
+          if (avgMinutes < 900) {
+            shift_type = 'AM'
+          } else {
+            shift_type = 'PM'
+          }
+
+          console.log(`🕐 Average clock-in time: ${Math.floor(avgHour)}:${String(Math.round(avgMinutes % 60)).padStart(2, '0')} → shift_type: ${shift_type}`)
+        } else {
+          console.log(`⚠️ Not enough valid punches (${validPunches}) to determine shift_type`)
+        }
+      } else {
+        console.log(`⚠️ Not enough punches (${punches?.length || 0}) to determine shift_type`)
       }
 
       // Generate JWT token (15 MINUTES for employees)
@@ -212,13 +275,15 @@ export async function POST(request: Request) {
           email: employee.email,
           user_role: 'employee',
           user_type: 'employee',
-          position_type: position_type, // Add position type
+          position_type: position_type,
+          shift_type: shift_type, // AM/PM based on punch history
           user_metadata: {
             full_name: `${employee.first_name} ${employee.last_name}`.trim(),
             role: 'employee',
             store_ids: employee.store_ids,
             toast_guid: employee.toast_guid,
-            position_type: position_type
+            position_type: position_type,
+            shift_type: shift_type
           }
         },
         secret,
@@ -237,7 +302,8 @@ export async function POST(request: Request) {
           role: 'employee',
           store_ids: employee.store_ids,
           user_type: 'employee',
-          position_type: position_type // Include position for frontend
+          position_type: position_type,
+          shift_type: shift_type // Include for frontend filtering
         },
         token,
         redirect: '/mis-horarios'

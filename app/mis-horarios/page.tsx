@@ -50,6 +50,7 @@ export default function MisHorariosPage() {
     const [isAuthed, setIsAuthed] = useState(false)
     const [userName, setUserName] = useState('')
     const [userPositionType, setUserPositionType] = useState<'kitchen' | 'cashier' | null>(null)
+    const [userShiftType, setUserShiftType] = useState<'AM' | 'PM' | null>(null)
     const [userStoreIds, setUserStoreIds] = useState<string[]>([])
 
     // State
@@ -94,6 +95,7 @@ export default function MisHorariosPage() {
             console.log('👤 User loaded:', {
                 name: user.name,
                 position_type: user.position_type,
+                shift_type: user.shift_type,
                 store_ids: user.store_ids,
                 user_type: user.user_type
             })
@@ -102,6 +104,12 @@ export default function MisHorariosPage() {
             if (user.position_type) {
                 setUserPositionType(user.position_type)
                 setPositionFilter(user.position_type) // Auto-filter to their position
+            }
+
+            // Set shift type for AM/PM filtering
+            if (user.shift_type) {
+                setUserShiftType(user.shift_type)
+                console.log(`🕐 Employee is ${user.shift_type} shift - will filter accordingly`)
             }
 
             // Set store filter based on employee's stores
@@ -137,6 +145,10 @@ export default function MisHorariosPage() {
             }
             if (storeFilter !== 'all') {
                 url += `&storeId=${storeFilter}`
+            }
+            // Add shift type filter (AM employees see AM shifts, PM employees see PM shifts)
+            if (userShiftType) {
+                url += `&shiftType=${userShiftType}`
             }
 
             // Fetch available shifts
@@ -177,7 +189,7 @@ export default function MisHorariosPage() {
         } finally {
             setIsLoading(false)
         }
-    }, [positionFilter, currentWeekStart, storeFilter, isAuthed])
+    }, [positionFilter, currentWeekStart, storeFilter, isAuthed, userShiftType])
 
     useEffect(() => {
         fetchData()
@@ -476,6 +488,21 @@ export default function MisHorariosPage() {
                                     </option>
                                 ))}
                             </select>
+                        )}
+
+                        {/* Shift type badge (AM/PM) */}
+                        {userShiftType && (
+                            <div className={`px-4 py-2 rounded-xl flex items-center gap-2 ${userShiftType === 'AM'
+                                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                    : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                                }`}>
+                                {userShiftType === 'AM' ? '🌅' : '🌙'}
+                                <span className="font-medium">
+                                    {language === 'es'
+                                        ? `Turno ${userShiftType}`
+                                        : `${userShiftType} Shift`}
+                                </span>
+                            </div>
                         )}
 
                         {/* Week dates display */}

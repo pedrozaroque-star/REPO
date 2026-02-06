@@ -66,18 +66,37 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: error.message }, { status: 500 })
         }
 
-        // Add availability flag
-        const enrichedSlots = slots?.map(slot => ({
+        // Get shiftType filter from query params
+        const shiftType = searchParams.get('shiftType') // 'AM' or 'PM'
+
+        // Add availability flag and filter by shift type
+        let enrichedSlots = slots?.map(slot => ({
             ...slot,
             available_spots: slot.required_count - slot.claimed_count,
             is_available: slot.claimed_count < slot.required_count
         }))
+
+        // Filter by AM/PM if specified
+        // AM = shifts starting before 15:00 (3pm)
+        // PM = shifts starting at 15:00 or later
+        if (shiftType && enrichedSlots) {
+            const AM_PM_THRESHOLD = 15 // 3pm - shifts starting before this are AM
+
+            if (shiftType === 'AM') {
+                enrichedSlots = enrichedSlots.filter(slot => slot.start_hour < AM_PM_THRESHOLD)
+                console.log(`🕐 Filtered to AM shifts (start_hour < ${AM_PM_THRESHOLD}): ${enrichedSlots.length} slots`)
+            } else if (shiftType === 'PM') {
+                enrichedSlots = enrichedSlots.filter(slot => slot.start_hour >= AM_PM_THRESHOLD)
+                console.log(`🕐 Filtered to PM shifts (start_hour >= ${AM_PM_THRESHOLD}): ${enrichedSlots.length} slots`)
+            }
+        }
 
         return NextResponse.json({
             data: enrichedSlots,
             meta: {
                 total: enrichedSlots?.length || 0,
                 positionType,
+                shiftType: shiftType || 'all',
                 dateRange: {
                     from: today.toISOString().split('T')[0],
                     to: twoWeeksLater.toISOString().split('T')[0]
@@ -387,29 +406,55 @@ export async function POST(request: NextRequest) {
 
         if (toastEmployee) {
             // Create the shift record for the planificador
-            // Build datetime like the planner does: new Date() then toISOString()
-            const startHourStr = shift.start_hour.toString().padStart(2, '0')
-            const endHour = shift.end_hour > 24 ? shift.end_hour - 24 : shift.end_hour
-            const endHourStr = endHour.toString().padStart(2, '0')
+            // IMPORTANT: Match the planner's date creation pattern exactly:
+            // new Date(`${dateStr}T${time}:00`) then toISOString()
 
-            // Create Date objects for proper timezone handling
-            const startDate = new Date(`${shift.shift_date}T${startHourStr}:00:00`)
-            const endDate = new Date(`${shift.shift_date}T${endHourStr}:00:00`)
+            const startHour = shift.start_hour
+            let endHour = shift.end_hour
+            let endDateOffset = 0
 
-            // If end hour was > 24 (crosses midnight), add a day
-            if (shift.end_hour > 24) {
-                endDate.setDate(endDate.getDate() + 1)
+            // Handle overnight shifts (e.g., end_hour = 25 means 1am next day)
+            if (endHour > 24) {
+                endHour = endHour - 24
+                endDateOffset = 1
             }
-            // If end is before start (e.g., 8am to 4pm showing as 08:00 < 16:00 is fine, but if end comes out earlier, add day)
+
+            // Format hours for datetime string (HH:MM format like "08:00" or "16:00")
+            const startTimeLocal = `${startHour.toString().padStart(2, '0')}:00`
+            const endTimeLocal = `${endHour.toString().padStart(2, '0')}:00`
+
+            // Create Date objects using LOCAL time (no Z suffix) - same as planner does
+            const startDate = new Date(`${shift.shift_date}T${startTimeLocal}:00`)
+
+            // Calculate end date (might be next day for overnight shifts)
+            let endDateStr = shift.shift_date
+            if (endDateOffset > 0) {
+                const tempDate = new Date(shift.shift_date)
+                tempDate.setDate(tempDate.getDate() + endDateOffset)
+                endDateStr = tempDate.toISOString().split('T')[0]
+            }
+            const endDate = new Date(`${endDateStr}T${endTimeLocal}:00`)
+
+            // If end is before start (edge case), add a day
             if (endDate <= startDate) {
                 endDate.setDate(endDate.getDate() + 1)
             }
 
+            // Convert to ISO strings for storage (same as planner)
+            const startTimeStr = startDate.toISOString()
+            const endTimeStr = endDate.toISOString()
+
+            console.log(`⏰ Time calculation:`)
+            console.log(`   shift.start_hour: ${shift.start_hour}, shift.end_hour: ${shift.end_hour}`)
+            console.log(`   startTimeLocal: ${startTimeLocal}, endTimeLocal: ${endTimeLocal}`)
+            console.log(`   startTimeStr: ${startTimeStr}`)
+            console.log(`   endTimeStr: ${endTimeStr}`)
+
             // Look up the job_id based on position_type
-            // Toast uses English: Kitchen = Cook, Cashier = Cashier
+            // Toast uses English: Kitchen = Cook/Prep, Cashier = Cashier
             // Note: shifts.job_id FK references toast_jobs.id (internal ID, not guid)
             const jobSearchTerms = shift.position_type === 'kitchen'
-                ? ['Cook', 'Cocinero', 'Kitchen']
+                ? ['Cook', 'Cocinero', 'Kitchen', 'Prep', 'Preparador']
                 : ['Cashier', 'Cajero', 'Register']
 
             let job_id: string | null = null
@@ -439,8 +484,8 @@ export async function POST(request: NextRequest) {
                 employee_id: toastEmployee.id,
                 job_id: job_id,  // Add the job/position
                 shift_date: shift.shift_date,
-                start_time: startDate.toISOString(),
-                end_time: endDate.toISOString(),
+                start_time: startTimeStr,
+                end_time: endTimeStr,
                 status: 'draft',  // Draft so manager can review before publishing
                 is_open: false
             }
