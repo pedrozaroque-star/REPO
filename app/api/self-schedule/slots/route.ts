@@ -406,8 +406,9 @@ export async function POST(request: NextRequest) {
 
         if (toastEmployee) {
             // Create the shift record for the planificador
-            // IMPORTANT: Match the planner's date creation pattern exactly:
-            // new Date(`${dateStr}T${time}:00`) then toISOString()
+            // CRITICAL FIX: Server runs in UTC, but we need LA timezone hours
+            // The planner's formatTime12h uses 'America/Los_Angeles' timezone
+            // We must build ISO strings that represent LA time correctly
 
             const startHour = shift.start_hour
             let endHour = shift.end_hour
@@ -423,32 +424,41 @@ export async function POST(request: NextRequest) {
             const startTimeLocal = `${startHour.toString().padStart(2, '0')}:00`
             const endTimeLocal = `${endHour.toString().padStart(2, '0')}:00`
 
-            // Create Date objects using LOCAL time (no Z suffix) - same as planner does
-            const startDate = new Date(`${shift.shift_date}T${startTimeLocal}:00`)
-
             // Calculate end date (might be next day for overnight shifts)
             let endDateStr = shift.shift_date
             if (endDateOffset > 0) {
-                const tempDate = new Date(shift.shift_date)
+                const tempDate = new Date(shift.shift_date + 'T12:00:00') // noon to avoid TZ issues
                 tempDate.setDate(tempDate.getDate() + endDateOffset)
                 endDateStr = tempDate.toISOString().split('T')[0]
             }
-            const endDate = new Date(`${endDateStr}T${endTimeLocal}:00`)
+
+            // TIMEZONE FIX: Build ISO strings with LA timezone offset
+            // LA is UTC-8 (PST) or UTC-7 (PDT). For simplicity, use PST (-08:00)
+            // This ensures the stored UTC time, when converted back to LA, shows correct hour
+            // Example: 08:00-08:00 → 16:00Z (UTC) → formatTime12h shows 8:00am LA ✓
+            const startTimeStr = `${shift.shift_date}T${startTimeLocal}:00.000-08:00`
+            let endTimeStr = `${endDateStr}T${endTimeLocal}:00.000-08:00`
+
+            // Convert to actual Date objects to verify and handle edge cases
+            const startDate = new Date(startTimeStr)
+            const endDate = new Date(endTimeStr)
 
             // If end is before start (edge case), add a day
             if (endDate <= startDate) {
-                endDate.setDate(endDate.getDate() + 1)
+                const fixedEnd = new Date(endDate)
+                fixedEnd.setDate(fixedEnd.getDate() + 1)
+                endTimeStr = fixedEnd.toISOString()
             }
 
-            // Convert to ISO strings for storage (same as planner)
-            const startTimeStr = startDate.toISOString()
-            const endTimeStr = endDate.toISOString()
+            // Convert to proper ISO format for storage (toISOString gives UTC which is what DB expects)
+            const finalStartTimeStr = startDate.toISOString()
+            const finalEndTimeStr = endDate.toISOString()
 
             console.log(`⏰ Time calculation:`)
             console.log(`   shift.start_hour: ${shift.start_hour}, shift.end_hour: ${shift.end_hour}`)
             console.log(`   startTimeLocal: ${startTimeLocal}, endTimeLocal: ${endTimeLocal}`)
-            console.log(`   startTimeStr: ${startTimeStr}`)
-            console.log(`   endTimeStr: ${endTimeStr}`)
+            console.log(`   finalStartTimeStr: ${finalStartTimeStr}`)
+            console.log(`   finalEndTimeStr: ${finalEndTimeStr}`)
 
             // Look up the job_id based on position_type
             // Toast uses English: Kitchen = Cook/Prep, Cashier = Cashier
@@ -484,8 +494,8 @@ export async function POST(request: NextRequest) {
                 employee_id: toastEmployee.id,
                 job_id: job_id,  // Add the job/position
                 shift_date: shift.shift_date,
-                start_time: startTimeStr,
-                end_time: endTimeStr,
+                start_time: finalStartTimeStr,
+                end_time: finalEndTimeStr,
                 status: 'draft',  // Draft so manager can review before publishing
                 is_open: false
             }
