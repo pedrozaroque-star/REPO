@@ -196,24 +196,54 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
 
                 {/* Daily Totals Summary */}
                 <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center justify-center gap-8">
-                    <div className="text-center">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
-                            {t('sales.charts.actual')} {language === 'es' ? 'Total' : 'Total'}
-                        </p>
-                        <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                            ${trendData.reduce((sum, d) => sum + (d.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
-                    </div>
-                    {hasProjections && (
-                        <div className="text-center">
-                            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
-                                {t('sales.charts.projected')} {language === 'es' ? 'Total' : 'Total'}
-                            </p>
-                            <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                ${trendData.reduce((sum, d) => sum + (d.projected || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </p>
-                        </div>
-                    )}
+                    {(() => {
+                        const totalActual = trendData.reduce((sum, d) => sum + (d.amount || 0), 0)
+                        const totalProjected = hasProjections ? trendData.reduce((sum, d) => sum + (d.projected || 0), 0) : 0
+                        const diff = totalActual - totalProjected
+                        const percentDiff = totalProjected > 0 ? (diff / totalProjected) * 100 : 0
+                        const isPositive = diff >= 0
+
+                        return (
+                            <>
+                                <div className="text-center">
+                                    <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                                        {t('sales.charts.actual')} {language === 'es' ? 'Total' : 'Total'}
+                                    </p>
+                                    <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                        ${totalActual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </p>
+                                </div>
+
+                                {hasProjections && (
+                                    <>
+                                        <div className="text-center">
+                                            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                                                {t('sales.charts.projected')} {language === 'es' ? 'Total' : 'Total'}
+                                            </p>
+                                            <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                ${totalProjected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </p>
+                                        </div>
+
+                                        {/* VARIANCE DISPLAY - NEW */}
+                                        <div className="text-center">
+                                            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                                                {language === 'es' ? 'Diferencia' : 'Variance'}
+                                            </p>
+                                            <p className={`text-xl font-bold font-mono flex flex-col items-center leading-none ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                <span>
+                                                    {isPositive ? '+' : ''}${diff.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                                <span className="text-[10px] opacity-80 mt-1">
+                                                    ({isPositive ? '+' : ''}{percentDiff.toFixed(1)}%)
+                                                </span>
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
+                            </>
+                        )
+                    })()}
                 </div>
             </div>
 
