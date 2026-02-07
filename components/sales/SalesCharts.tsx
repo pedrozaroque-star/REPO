@@ -45,8 +45,32 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
         const actual = payload.find((p: any) => p.dataKey === 'amount')
         const projected = payload.find((p: any) => p.dataKey === 'projected')
 
+        // Calculate Variance for Tooltip
+        let varianceElement = null
+        if (actual && projected && projected.value > 0) {
+            const diff = actual.value - projected.value
+            const percentDiff = (diff / projected.value) * 100
+            const isPositive = diff >= 0
+
+            varianceElement = (
+                <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-4">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        {language === 'es' ? 'Dif.' : 'Var.'}
+                    </span>
+                    <div className={`flex items-center gap-2 font-mono font-bold ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        <span>
+                            {isPositive ? '+' : ''}${diff.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-rose-100 dark:bg-rose-900/30'}`}>
+                            {isPositive ? '+' : ''}{percentDiff.toFixed(1)}%
+                        </span>
+                    </div>
+                </div>
+            )
+        }
+
         return (
-            <div className="bg-white/95 dark:bg-slate-950/95 border border-black/10 dark:border-white/10 p-4 rounded-2xl shadow-2xl backdrop-blur-xl min-w-[180px]">
+            <div className="bg-white/95 dark:bg-slate-950/95 border border-black/10 dark:border-white/10 p-4 rounded-2xl shadow-2xl backdrop-blur-xl min-w-[200px]">
                 <p className="text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">
                     {formattedLabel}
                 </p>
@@ -74,6 +98,8 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
                         </span>
                     </div>
                 )}
+
+                {varianceElement}
             </div>
         )
     }
