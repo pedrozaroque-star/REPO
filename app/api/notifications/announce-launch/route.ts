@@ -135,8 +135,9 @@ export async function POST(req: Request) {
                                 <div style="background-color: #fff7ed; border: 2px solid #f97316; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center;">
                                     <h3 style="margin: 0 0 10px 0; color: #c2410c; font-size: 18px;">⚠️ IMPORTANTE: ESTO ES UN SIMULACRO</h3>
                                     <p style="margin: 0; color: #9a3412;">
-                                        Los turnos que verás hoy en el sistema <strong>NO SON REALES</strong>. <br>
-                                        Son pruebas para que aprendas a usar la plataforma sin miedo a equivocarte.
+                                        Los turnos que verás están calculados con nuestra <strong>Proyección de Demanda Real</strong> (así se verán tus horarios futuros).<br><br>
+                                        Sin embargo, por ser hoy el lanzamiento, <strong>ES UNA PRUEBA</strong>.<br>
+                                        El objetivo es que aprendas a usar la plataforma sin miedo a equivocarte.
                                     </p>
                                 </div>
 
