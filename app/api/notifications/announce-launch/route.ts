@@ -82,13 +82,12 @@ export async function POST(req: Request) {
         const lynwoodId = stores[0].external_id
 
         // 3. Fetch ALL Active Employees for Lynwood
-        // We filter by 'is_deleted' is distinct from false or null if exists, checking active status
-        // Assuming all in `toast_employees` linked to this store are valid targets.
-        // We double check store_ids array contains Lynwood ID.
+        // We use explicit filter 'cs' (contains) with JSON string because .contains() method 
+        // sometimes fails with UUID arrays due to auto-formatting issues in the client library.
         const { data: employees, error: empError } = await supabase
             .from('toast_employees')
             .select('id, first_name, email, store_ids')
-            .contains('store_ids', [lynwoodId])
+            .filter('store_ids', 'cs', JSON.stringify([lynwoodId]))
             .not('email', 'is', null) // Must have email
         // .limit(1) // SAFETY: Removing limit for production run
 
