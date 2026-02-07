@@ -264,6 +264,40 @@ export default function AdminAutoSchedulePage() {
 
             fetchStats()
 
+            // 🚀 LYNWOOD LAUNCH TRIGGER
+            // If publishing, trigger the special launch announcement email for Lynwood employees
+            if (newStatus === 'published') {
+                const userStr = localStorage.getItem('teg_user')
+                if (userStr) {
+                    try {
+                        const user = JSON.parse(userStr)
+                        // Toast/Alert that process started
+                        alert(language === 'es'
+                            ? '🚀 Iniciando envío de correos de lanzamiento a Lynwood...'
+                            : '🚀 Starting launch emails to Lynwood...')
+
+                        // Call API (No await to not block UI, but alert on completion via .then if needed or just log)
+                        fetch('/api/notifications/announce-launch', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sender_user_id: user.id })
+                        })
+                            .then(r => r.json())
+                            .then(d => {
+                                console.log('Launch Email Result:', d)
+                                if (d.success) {
+                                    alert(language === 'es'
+                                        ? `✅ Correos enviados a Lynwood: ${d.stats.sent} enviados, ${d.stats.errors} errores.`
+                                        : `✅ Emails sent to Lynwood: ${d.stats.sent} sent, ${d.stats.errors} errors.`)
+                                }
+                            })
+                            .catch(err => console.error('Launch Email Failed:', err))
+                    } catch (e) {
+                        console.error('Error parsing user for email:', e)
+                    }
+                }
+            }
+
         } catch (error) {
             console.error('Publish error:', error)
         }
