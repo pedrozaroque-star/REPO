@@ -225,17 +225,17 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                             </p>
                                         </div>
 
-                                        {/* VARIANCE DISPLAY - NEW */}
+                                        {/* VARIANCE DISPLAY - REFINED */}
                                         <div className="text-center">
                                             <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
                                                 {language === 'es' ? 'Diferencia' : 'Variance'}
                                             </p>
-                                            <p className={`text-xl font-bold font-mono flex flex-col items-center leading-none ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                            <p className={`text-lg font-bold font-mono flex items-center gap-2 leading-none ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
                                                 <span>
                                                     {isPositive ? '+' : ''}${diff.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </span>
-                                                <span className="text-[10px] opacity-80 mt-1">
-                                                    ({isPositive ? '+' : ''}{percentDiff.toFixed(1)}%)
+                                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-rose-100 dark:bg-rose-900/30'}`}>
+                                                    {isPositive ? '+' : ''}{percentDiff.toFixed(1)}%
                                                 </span>
                                             </p>
                                         </div>
