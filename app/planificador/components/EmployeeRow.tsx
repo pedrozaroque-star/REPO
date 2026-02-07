@@ -167,7 +167,7 @@ export function EmployeeRow({
                                             }}
                                         >
                                             <div className="flex flex-col justify-center gap-0.5">
-                                                <div className={`font-bold leading-none text-sm tracking-tight
+                                                <div className={`font-bold leading-none text-xs tracking-tight
                                                     ${isPublished ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-slate-400'}
                                                 `}>
                                                     {formatTime12h(shift.start_time)} - {formatTime12h(shift.end_time)}
