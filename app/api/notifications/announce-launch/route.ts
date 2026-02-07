@@ -88,6 +88,7 @@ export async function POST(req: Request) {
             .from('toast_employees')
             .select('id, first_name, email, store_ids')
             .filter('store_ids', 'cs', JSON.stringify([lynwoodId]))
+            .eq('deleted', false)  // CRITICAL: Only active employees!
             .not('email', 'is', null) // Must have email
         // .limit(1) // SAFETY: Removing limit for production run
 
