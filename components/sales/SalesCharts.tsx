@@ -220,8 +220,8 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                     </ResponsiveContainer>
                 </div>
 
-                {/* Daily Totals Summary */}
-                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center justify-center gap-8">
+                {/* Daily Totals Summary - RESPONSIVE FIX */}
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 grid grid-cols-2 md:flex items-center justify-center gap-4 md:gap-8">
                     {(() => {
                         const totalActual = trendData.reduce((sum, d) => sum + (d.amount || 0), 0)
                         const totalProjected = hasProjections ? trendData.reduce((sum, d) => sum + (d.projected || 0), 0) : 0
@@ -232,10 +232,10 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                         return (
                             <>
                                 <div className="text-center">
-                                    <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
-                                        {t('sales.charts.actual')} {language === 'es' ? 'Total' : 'Total'}
+                                    <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1 truncate">
+                                        {t('sales.charts.actual')}
                                     </p>
-                                    <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                    <p className="text-base md:text-xl font-bold text-emerald-600 dark:text-emerald-400 font-mono">
                                         ${totalActual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </p>
                                 </div>
@@ -243,24 +243,24 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                 {hasProjections && (
                                     <>
                                         <div className="text-center">
-                                            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
-                                                {t('sales.charts.projected')} {language === 'es' ? 'Total' : 'Total'}
+                                            <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1 truncate">
+                                                {t('sales.charts.projected')}
                                             </p>
-                                            <p className="text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                            <p className="text-base md:text-xl font-bold text-indigo-600 dark:text-indigo-400 font-mono">
                                                 ${totalProjected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </p>
                                         </div>
 
-                                        {/* VARIANCE DISPLAY - REFINED */}
-                                        <div className="text-center">
-                                            <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                                        {/* VARIANCE DISPLAY - REFINED: Full width on mobile row 2 */}
+                                        <div className="text-center col-span-2 md:col-span-1 border-t md:border-t-0 border-dashed border-slate-200 dark:border-slate-700 pt-3 md:pt-0 mt-1 md:mt-0">
+                                            <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
                                                 {language === 'es' ? 'Diferencia' : 'Variance'}
                                             </p>
-                                            <p className={`text-lg font-bold font-mono flex items-center gap-2 leading-none ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                            <p className={`text-base md:text-lg font-bold font-mono flex items-center justify-center gap-2 leading-none ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
                                                 <span>
                                                     {isPositive ? '+' : ''}${diff.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </span>
-                                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-rose-100 dark:bg-rose-900/30'}`}>
+                                                <span className={`text-[10px] md:text-xs font-semibold px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-rose-100 dark:bg-rose-900/30'}`}>
                                                     {isPositive ? '+' : ''}{percentDiff.toFixed(1)}%
                                                 </span>
                                             </p>
