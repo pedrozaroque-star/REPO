@@ -336,14 +336,19 @@ export async function POST(request: NextRequest) {
                 pmCashierAssigned += midCashierCount
             }
 
-            // CLOSING cashiers - late shift that covers until close + 1hr
+            // CLOSING cashiers - late shift that ends EXACTLY at closing (No Wash for Cashiers)
             const closingCashierCount = Math.max(1, pmCashierCount - pmCashierAssigned)
             if (closingCashierCount > 0) {
-                // Start at 6pm or 7pm, end at closing + 1 hour
-                const closingCashierStart = Math.max(pmRushStart, washEndHour - MAX_SHIFT_HOURS)  // 6pm or later
+                // FIX: Cashiers leave at closing time. 
+                // We calculate start time backwards from closing to ensure they get enough hours (max 8)
+                // They can start as early as 4pm (PM_EARLY_START) if the store closes early (e.g. 10pm)
+                const cashierEndHour = closingHour
+                const idealStart = cashierEndHour - MAX_SHIFT_HOURS
+                const closingCashierStart = Math.max(PM_EARLY_START, idealStart)
+
                 shifts.push({
                     startHour: closingCashierStart,
-                    endHour: washEndHour,  // Same as kitchen wash crew (closing + 1hr)
+                    endHour: cashierEndHour,  // FIX: End at closing, not washEndHour
                     requiredKitchen: 0,
                     requiredFoh: closingCashierCount,
                     shiftType: 'PM'
