@@ -291,10 +291,16 @@ export default function AdminAutoSchedulePage() {
                                         : `✅ Emails sent to Lynwood: ${d.stats.sent} sent, ${d.stats.errors} errors.`)
                                 }
                             })
-                            .catch(err => console.error('Launch Email Failed:', err))
-                    } catch (e) {
+                            .catch(err => {
+                                console.error('Launch Email Failed:', err)
+                                alert('❌ Error al iniciar envío de correos: ' + err.message)
+                            })
+                    } catch (e: any) {
                         console.error('Error parsing user for email:', e)
+                        alert('❌ Error de usuario local: ' + e.message)
                     }
+                } else {
+                    console.warn('⚠️ No user found in localStorage to send emails as.')
                 }
             }
 
