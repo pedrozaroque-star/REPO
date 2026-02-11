@@ -1,3 +1,5 @@
+'use client'
+
 import React from 'react'
 import { motion } from 'framer-motion'
 import { AlertCircle } from 'lucide-react'
@@ -22,6 +24,15 @@ export function PremiumConfirmModal({ isOpen, onClose, onConfirm, title, message
         success: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' // NEW
     }
 
+    const [isBusy, setIsBusy] = React.useState(false)
+
+    // Reset busy state if modal closes or identifying props change
+    React.useEffect(() => {
+        setIsBusy(false)
+    }, [isOpen, count, title])
+
+    const showLoading = generating || isBusy
+
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <motion.div
@@ -31,7 +42,7 @@ export function PremiumConfirmModal({ isOpen, onClose, onConfirm, title, message
             >
                 <div className="p-8 text-center">
                     <div className={`mx-auto w-16 h-16 rounded-3xl ${iconBg[type] || iconBg.primary} flex items-center justify-center mb-6`}>
-                        {generating ? (
+                        {showLoading ? (
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-current"></div>
                         ) : (
                             Icon ? <Icon size={32} /> : <AlertCircle size={32} />
@@ -39,21 +50,22 @@ export function PremiumConfirmModal({ isOpen, onClose, onConfirm, title, message
                     </div>
 
                     <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2 uppercase tracking-tighter">
-                        {generating ? 'Procesando...' : effectiveTitle}
+                        {showLoading ? 'Analizando...' : effectiveTitle}
                     </h3>
 
                     <p className="text-gray-700 dark:text-slate-300 text-sm leading-relaxed mb-8 px-4 whitespace-pre-line font-medium">
-                        {generating ? 'Estamos contactando a la inteligencia artificial...' : effectiveMessage}
+                        {showLoading ? 'La inteligencia artificial está optimizando los horarios.\nEsto puede tardar unos segundos...' : effectiveMessage}
                     </p>
 
-                    {!generating && (
+                    {!showLoading && (
                         <div className="grid grid-cols-2 gap-3">
                             <button onClick={onClose} className="px-6 py-4 bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 rounded-2xl font-black uppercase text-xs hover:bg-gray-200 dark:hover:bg-slate-700 transition-all tracking-widest">
                                 Cancelar
                             </button>
                             <button
-                                onClick={() => { onConfirm(); /* Don't close immediately if generating depends on parent state, but usually we close or set loading */ }}
-                                className={`px-6 py-4 text-white rounded-2xl font-black uppercase text-xs ${colors[type] || colors.primary} hover:opacity-90 transition-all shadow-lg tracking-widest`}
+                                onClick={() => { setIsBusy(true); onConfirm(); }}
+                                disabled={isBusy}
+                                className={`px-6 py-4 text-white rounded-2xl font-black uppercase text-xs ${colors[type] || colors.primary} hover:opacity-90 transition-all shadow-lg tracking-widest disabled:opacity-50 disabled:cursor-not-allowed`}
                             >
                                 Confirmar {count ? `(${count})` : ''}
                             </button>

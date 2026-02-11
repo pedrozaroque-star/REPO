@@ -678,34 +678,88 @@ export default function SchedulePlanner() {
             type: 'warning',
             icon: LayoutTemplate,
             onConfirm: async () => {
+                setIsProcessing(true) // Use generic processing state
                 setSyncing(true)
                 try {
                     const supabase = await getSupabaseClient()
                     const { data: items } = await supabase.from('schedule_template_items').select('*').eq('template_id', templateId)
-                    if (!items?.length) return toast.error(t('planner.toasts.template_empty'))
+
+                    if (!items || items.length === 0) {
+                        toast.error(t('planner.toasts.template_empty'))
+                        return
+                    }
 
                     const startStr = formatDateISO(weekStart)
                     const endStr = formatDateISO(addDays(weekStart, 6))
-                    await supabase.from('shifts').delete().eq('store_id', storeGuid).eq('status', 'draft').gte('shift_date', startStr).lte('shift_date', endStr)
 
-                    const newShifts = items.map(item => {
-                        const targetDay = addDays(weekStart, item.day_of_week)
-                        const dateStr = formatDateISO(targetDay)
-                        const start = new Date(`${dateStr}T${item.start_time}:00`)
-                        const end = new Date(`${dateStr}T${item.end_time}:00`)
-                        if (end < start) end.setDate(end.getDate() + 1)
-                        return {
-                            employee_id: item.employee_id, job_id: item.job_id, store_id: storeGuid,
-                            start_time: start.toISOString(), end_time: end.toISOString(), shift_date: dateStr,
-                            is_open: item.is_open, status: 'draft'
-                        }
+                    // Nuclear delete for the specific range before applying template
+                    // Similar to clear-week API but we can do it here if we want to trust client id
+                    // Or call the API? Let's stick to client for templates as it's usually smaller than 1000 items
+                    // Actually, let's be safe and use loop if needed, but template application is destructive
+                    // The clear-week API is safer.
+                    const clearRes = await fetch('/api/scheduler/clear-week', {
+                        method: 'POST',
+                        body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
                     })
-                    await supabase.from('shifts').insert(newShifts)
+                    if (!clearRes.ok) throw new Error('Failed to clear existing shifts')
+
+                    // Prepare new shifts
+                    const newShifts: any[] = []
+
+                    for (const item of items) {
+                        // Calculate date based on weekStart + item.day_of_week
+                        // item.day_of_week is 0 (Mon) to 6 (Sun) or similar.
+                        // My formatDateISO uses Monday as start?
+                        // Let's assume weekStart is Monday.
+                        const targetDate = addDays(weekStart, item.day_of_week)
+                        const dateStr = formatDateISO(targetDate)
+
+                        // Construct full ISO strings
+                        const startDateTime = new Date(`${dateStr}T${item.start_time}`)
+                        const endDateTime = new Date(`${dateStr}T${item.end_time}`)
+
+                        // Handle overnight
+                        if (endDateTime < startDateTime) {
+                            endDateTime.setDate(endDateTime.getDate() + 1)
+                        }
+
+                        newShifts.push({
+                            employee_id: item.employee_id,
+                            job_id: item.job_id,
+                            store_id: storeGuid,
+                            start_time: startDateTime.toISOString(),
+                            end_time: endDateTime.toISOString(),
+                            shift_date: dateStr,
+                            is_open: item.is_open,
+                            status: 'draft'
+                        })
+                    }
+
+                    const { error } = await supabase.from('shifts').insert(newShifts)
+                    if (error) throw error
+
                     toast.success(t('planner.toasts.template_applied'))
                     setShowTemplateModal(false)
-                    loadStoreData()
-                } catch (e: any) { toast.error(e.message) }
-                finally { setSyncing(false) }
+                    await loadStoreData()
+
+                    // Success Modal
+                    setConfirmModal({
+                        isOpen: true,
+                        title: t('planner.modals.apply_template.success_title') || 'Plantilla Aplicada',
+                        message: `Se han cargado ${newShifts.length} turnos correctamente.`,
+                        type: 'success',
+                        icon: LayoutTemplate,
+                        onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
+                    })
+                } catch (e: any) {
+                    toast.error(e.message)
+                    setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
+                } finally {
+                    setSyncing(false)
+                    setIsProcessing(false)
+                    // Do NOT auto-close if success, because we replaced the modal content with success message.
+                    // But if error, we closed it.
+                }
             }
         })
     }
