@@ -66,7 +66,7 @@ function SurpriseLoader({ loadingText, syncingText }: { loadingText: string, syn
 }
 
 export default function SchedulePlanner() {
-    const { user } = useAuth()
+    const { user, loading: authLoading } = useAuth()
     const { t, language } = useLanguage()
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
@@ -75,6 +75,14 @@ export default function SchedulePlanner() {
     const [googleEmail, setGoogleEmail] = useState('')
     const router = useRouter()
     const searchParams = useSearchParams()
+
+    // 🔒 FORCE LOGIN: Redirect if no session
+    useEffect(() => {
+        if (!authLoading && !user) {
+            const returnUrl = encodeURIComponent(window.location.pathname + window.location.search)
+            router.replace(`/login?redirect=${returnUrl}`)
+        }
+    }, [authLoading, user, router])
 
     // State
     const [currentDate, setCurrentDate] = useState(new Date())
