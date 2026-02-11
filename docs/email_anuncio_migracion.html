@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migración de Plataforma de Horarios - Tacos Gavilan</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            color: #333;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            background-color: #d32f2f;
+            /* Gavilan Red */
+            color: #ffffff;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .content {
+            padding: 30px;
+            line-height: 1.6;
+        }
+
+        .content h2 {
+            color: #d32f2f;
+            margin-top: 0;
+        }
+
+        .btn {
+            display: inline-block;
+            background-color: #d32f2f;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .btn:hover {
+            background-color: #b71c1c;
+        }
+
+        .warning-box {
+            background-color: #fff3e0;
+            border-left: 5px solid #ff9800;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .footer {
+            background-color: #eeeeee;
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+        }
+
+        .credentials-box {
+            background-color: #f5f5f5;
+            border: 1px dashed #ccc;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>AVISO IMPORTANTE</h1>
+        </div>
+        <div class="content">
+            <h2>Adiós a 7shifts, Hola SM TEG</h2>
+            <p>Estimado equipo de Management y Supervisión,</p>
+
+            <p>Les informamos que a partir de esta semana, <strong>dejaremos de utilizar la plataforma 7shifts</strong>
+                para la gestión de horarios.</p>
+
+            <p>Hemos migrado oficialmente a nuestro nuevo <strong>Sistema de Monitoreo (SM TEG)</strong>, diseñado
+                específicamente para las necesidades operativas de Tacos Gavilan.</p>
+
+            <div class="warning-box">
+                <strong>Acción Requerida:</strong><br>
+                Cada Manager es responsable de ingresar y publicar sus horarios directamente en la nueva plataforma
+                antes de la fecha límite habitual.
+            </div>
+
+            <p>Pueden acceder a la nueva herramienta de planificación en el siguiente enlace:</p>
+
+            <center>
+                <a href="https://tacosgavilan.vercel.app/planificador" class="btn">
+                    Acceder al Nuevo Planificador
+                </a>
+            </center>
+
+            <h3>¿Qué cambia?</h3>
+            <ul>
+                <li><strong>Integración Directa:</strong> Los horarios están sincronizados con nuestras ventas y
+                    proyecciones.</li>
+                <li><strong>Más Fácil:</strong> Interfaz simplificada y rápida.</li>
+                <li><strong>Todo en un solo lugar:</strong> Ventas, Horarios y Auditorías en el mismo sistema.</li>
+            </ul>
+
+            <h3>Credenciales de Acceso Asignadas</h3>
+            <p>A continuación se detalla la lista de usuarios y contraseñas para cada Supervisor y Manager. <strong>Por
+                    favor, busquen su nombre en la lista:</strong></p>
+
+            <style>
+                .cred-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 20px 0;
+                    font-size: 11px;
+                }
+
+                .cred-table th,
+                .cred-table td {
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }
+
+                .cred-table th {
+                    background-color: #f2f2f2;
+                    color: #333;
+                }
+
+                .role-header {
+                    background-color: #e3f2fd;
+                    font-weight: bold;
+                    text-align: center;
+                }
+            </style>
+
+            <table class="cred-table">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Tienda / Zona</th>
+                        <th>Email (Usuario)</th>
+                        <th>Contraseña</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- SUPERVISORS -->
+                    <tr class="role-header">
+                        <td colspan="4" style="text-align:center; background:#e0e0e0; font-weight:bold;">SUPERVISORES
+                            REGIONALES</td>
+                    </tr>
+                    <tr>
+                        <td>Estefani Duran</td>
+                        <td>Azusa, W.Covina, Rialto</td>
+                        <td>estefani@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Javier Pastor</td>
+                        <td>Hollywood, Broadway, Central, Slauson</td>
+                        <td>javier.pastor@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Willian Aguilar</td>
+                        <td>Bell, Downey, Lynwood, South Gate</td>
+                        <td>willian@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Ricardo Velazquez</td>
+                        <td>La Puente, Norwalk, Santa Ana, HPark</td>
+                        <td>ricardo.velazquez@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+
+                    <!-- MANAGERS -->
+                    <tr class="role-header">
+                        <td colspan="4" style="text-align:center; background:#e0e0e0; font-weight:bold;">MANAGERS DE
+                            TIENDA</td>
+                    </tr>
+                    <tr>
+                        <td>Carlos Velazquez</td>
+                        <td>LYNWOOD</td>
+                        <td>carlos@tacosgavilan.com</td>
+                        <td>Manager12345</td>
+                    </tr>
+                    <tr>
+                        <td>Aaron Chay</td>
+                        <td>LA BROADWAY</td>
+                        <td>aaron@tacosgavilan.com</td>
+                        <td>manager123</td>
+                    </tr>
+                    <tr>
+                        <td>Erick Martinez</td>
+                        <td>LA CENTRAL</td>
+                        <td>erik@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Jesus Velazquez</td>
+                        <td>SOUTH GATE</td>
+                        <td>jesus@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Alfonso Carrillo</td>
+                        <td>HOLLYWOOD</td>
+                        <td>alfonso@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Bernabe Ramirez</td>
+                        <td>NORWALK</td>
+                        <td>bernabe@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Julio Valadez</td>
+                        <td>RIALTO</td>
+                        <td>julio@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Marco Salgado</td>
+                        <td>SANTA ANA</td>
+                        <td>marco@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Jesus Ramos</td>
+                        <td>SLAUSON</td>
+                        <td>jesusr@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Benjamin Nunez</td>
+                        <td>LA PUENTE</td>
+                        <td>benjamin@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Jesus Olivares</td>
+                        <td>DOWNEY</td>
+                        <td>jesus3@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Eloy Velazquez</td>
+                        <td>HUNTINGTON PARK</td>
+                        <td>eloy@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Jovana Garcia</td>
+                        <td>WEST COVINA</td>
+                        <td>jovana@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Lucia Reyes</td>
+                        <td>AZUSA</td>
+                        <td>lucia@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                    <tr>
+                        <td>Yesenia Alvarado</td>
+                        <td>(General)</td>
+                        <td>yesenia@tacosgavilan.com</td>
+                        <td>password123</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p>Cualquier duda con su acceso, por favor contacten a Soporte Operativo o Administración.</p>
+
+            <p>Atentamente,<br>
+                <strong>La Administración</strong>
+            </p>
+        </div>
+        <div class="footer">
+            &copy; 2026 Tacos Gavilan. Todos los derechos reservados.<br>
+            Este es un mensaje automático del sistema interno.
+        </div>
+    </div>
+</body>
+
+</html>

@@ -155,7 +155,7 @@ export function EmployeeRow({
                                             onDragStart={(e) => handleDragStart(e, shift)}
                                             onClick={() => setModalConfig({ isOpen: true, data: shift, targetDate: day, targetEmpId: emp.id })}
                                             // PREMIUM CARD STYLE
-                                            className={`relative p-2.5 rounded-lg border-l-[4px] shadow-sm cursor-grab active:cursor-grabbing hover:scale-[1.02] hover:shadow-md transition-all group/card
+                                            className={`relative p-1 rounded-lg border-l-[4px] shadow-sm cursor-grab active:cursor-grabbing hover:scale-[1.02] hover:shadow-md transition-all group/card
                                             ${isPublished
                                                     ? 'bg-white dark:bg-[#1e293b] border-t-0 border-r-0 border-b-0 shadow-sm'
                                                     : 'border-dashed border'}
@@ -167,7 +167,7 @@ export function EmployeeRow({
                                             }}
                                         >
                                             <div className="flex flex-col justify-center gap-0.5">
-                                                <div className={`font-bold leading-none text-xs tracking-tight
+                                                <div className={`font-bold leading-none text-[13px] tracking-tighter whitespace-nowrap text-center
                                                     ${isPublished ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-slate-400'}
                                                 `}>
                                                     {formatTime12h(shift.start_time)} - {formatTime12h(shift.end_time)}

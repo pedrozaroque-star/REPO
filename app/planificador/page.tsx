@@ -793,17 +793,19 @@ export default function SchedulePlanner() {
             onConfirm: async () => {
                 setIsProcessing(true)
                 try {
-                    const supabase = await getSupabaseClient()
-                    // Target ALL shifts in current view (which are filtered by week in loadStoreData)
-                    // But to be safe, let's use the explicit week range again
                     const startStr = formatDateISO(weekStart)
                     const endStr = formatDateISO(addDays(weekStart, 6))
 
-                    // We can match by IDs to be precise based on client view
-                    const ids = shifts.map(s => s.id)
+                    // NUCLEAR OPTION VIA API: Force clear everything
+                    const res = await fetch('/api/scheduler/clear-week', {
+                        method: 'POST',
+                        body: JSON.stringify({ storeId: storeGuid, startDate: startStr, endDate: endStr })
+                    })
 
-                    // Delete ALL, not just drafts
-                    await supabase.from('shifts').delete().in('id', ids)
+                    if (!res.ok) throw new Error('Failed to clear shifts')
+
+                    setShifts([]) // Clear client state completely
+
                     setShifts([]) // Clear client state completely
 
                     setIsProcessing(false)

@@ -1,0 +1,1402 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte de Ventas: Apertura vs Cierre 2025</title>
+    <style>
+        :root {
+            --primary: #D32F2F;
+            --dark: #212121;
+            --light: #F5F5F5;
+            --grey: #9E9E9E;
+            --border: #E0E0E0;
+            --highlight-high: #E8F5E9; /* Green tint */
+            --highlight-low: #FFEBEE; /* Red tint */
+            --text-high: #2E7D32;
+            --text-low: #C62828;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #F9FAFB;
+            color: #333;
+            margin: 0;
+            padding: 40px;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        header {
+            background-color: var(--dark);
+            color: white;
+            padding: 30px 40px;
+            border-bottom: 4px solid var(--primary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        h1 { margin: 0; font-size: 24px; font-weight: 600; }
+        .subtitle { opacity: 0.8; font-size: 14px; margin-top: 5px; }
+        
+        .summary-card {
+            padding: 30px 40px;
+            background-color: white;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .store-section {
+            padding: 0 40px 30px 40px;
+        }
+        
+        .store-header {
+            display: flex;
+            align-items: center;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border);
+        }
+        
+        .store-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--dark);
+            margin: 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        
+        th {
+            text-align: left;
+            padding: 12px 16px;
+            background-color: #f5f5f5;
+            color: #666;
+            font-weight: 600;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        tr:last-child td { border-bottom: none; }
+        
+        .money { font-family: 'Consolas', monospace; font-weight: 600; }
+        .time { color: #555; }
+        
+        /* Intensity Formatting */
+        .high-intensity { color: var(--text-high); background-color: var(--highlight-high); }
+        .medium-intensity { color: #1565C0; background-color: #E3F2FD; }
+        .low-intensity { color: var(--text-low); background-color: var(--highlight-low); } /* Bold red text for low sales */
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        
+        .footer {
+            background-color: #f9f9f9;
+            padding: 20px 40px;
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+            border-top: 1px solid var(--border);
+        }
+        
+        .print-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        
+        @media print {
+            body { padding: 0; background: white; }
+            .container { box-shadow: none; max-width: 100%; }
+            .print-btn { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div>
+            <h1>Análisis de Ventas: Apertura vs Cierre</h1>
+            <div class="subtitle">Promedios Anuales 2025 • Basado en Horarios Oficiales (Matriz Estricta)</div>
+        </div>
+        <button class="print-btn" onclick="window.print()">🖨️ Imprimir PDF</button>
+    </header>
+
+    <div class="summary-card">
+        <p><strong>Metodología:</strong> Este reporte calcula el promedio de ventas ($ Net Sales) para la primera y última hora de operación oficial de cada tienda, basado en datos históricos de todo el año 2025.</p>
+        <p><strong>Interpretación:</strong>
+            <span class="badge" style="background:var(--highlight-high); color:var(--text-high)">Alto (> $800)</span>
+            <span class="badge" style="background:#E3F2FD; color:#1565C0">Medio (> $500)</span>
+            <span class="badge" style="background:var(--highlight-low); color:var(--text-low)">Bajo (< $100)</span>
+        </p>
+    </div>
+
+    <div class="store-section">
+
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Azusa</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$239.58</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$183.42</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$312.69</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$226.81</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$285.44</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$205.00</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$276.79</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$240.92</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$302.24</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$255.34</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$283.03</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$292.10</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$260.60</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$215.95</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Bell</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$241.38</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$178.07</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$225.85</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$186.82</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$228.97</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$195.93</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$221.76</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$234.39</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$265.18</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money ">$164.64</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$276.88</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money ">$225.38</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$246.82</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$248.43</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Downey</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$227.37</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$282.24</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$256.54</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$295.39</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$283.52</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$313.61</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$290.93</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$439.51</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$361.03</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$673.40</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$306.77</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$723.66</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$278.50</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$399.85</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Hollywood</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$289.41</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$399.17</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$307.54</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$469.41</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$305.36</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$454.44</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$305.21</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money medium-intensity">$520.24</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$339.58</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$513.85</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$283.62</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$535.08</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$177.54</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money medium-intensity">$561.52</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Huntington Park</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$424.49</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$324.08</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$378.73</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$321.55</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$374.99</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$335.04</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$397.33</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money low-intensity">$18.25</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$414.44</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$456.50</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$474.61</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$530.95</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$417.83</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$394.07</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan LA Broadway</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$309.17</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$433.08</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$320.80</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$411.30</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$324.88</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$459.12</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$327.92</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money medium-intensity">$510.91</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$369.49</td>
+                    <td></td>
+                    <td class="time">4:00 AM</td>
+                    <td class="money ">$409.61</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$462.64</td>
+                    <td></td>
+                    <td class="time">4:00 AM</td>
+                    <td class="money ">$492.10</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$389.90</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money medium-intensity">$560.16</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan LA Central</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$320.73</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money medium-intensity">$558.85</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$358.60</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money medium-intensity">$562.51</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$350.75</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money medium-intensity">$656.66</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$363.29</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$414.97</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$428.19</td>
+                    <td></td>
+                    <td class="time">4:00 AM</td>
+                    <td class="money ">$369.64</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$375.10</td>
+                    <td></td>
+                    <td class="time">4:00 AM</td>
+                    <td class="money ">$448.43</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">8:00 AM</td>
+                    <td class="money ">$275.79</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money medium-intensity">$504.00</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan La Puente</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$312.31</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$239.99</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$359.55</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$274.01</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$343.50</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$265.23</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$341.79</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$304.76</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$356.97</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money ">$285.18</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$424.95</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money ">$394.21</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$361.59</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$303.67</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Lynwood</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$261.67</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money medium-intensity">$546.57</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$294.28</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money medium-intensity">$596.85</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$273.41</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money medium-intensity">$651.64</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$327.47</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money medium-intensity">$544.48</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$349.49</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$560.13</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$320.15</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$624.37</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$301.49</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money high-intensity">$800.49</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Norwalk</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money low-intensity">$45.29</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$494.03</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money low-intensity">$39.78</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$487.52</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money low-intensity">$34.62</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money medium-intensity">$519.99</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money low-intensity">$35.11</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money medium-intensity">$621.86</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money low-intensity">$38.82</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$501.72</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money low-intensity">$54.43</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money medium-intensity">$640.00</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money low-intensity">$39.06</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$359.74</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Rialto</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$170.05</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$404.00</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$227.09</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$415.74</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$223.83</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$481.65</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$218.96</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$312.27</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$258.95</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$223.51</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$256.73</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$236.76</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$222.04</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money medium-intensity">$562.41</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Santa Ana</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$365.52</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$322.43</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$469.17</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$382.06</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$406.59</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$391.77</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$473.00</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$447.95</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$459.09</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money ">$270.91</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$485.55</td>
+                    <td></td>
+                    <td class="time">2:00 AM</td>
+                    <td class="money ">$307.06</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$448.99</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$444.76</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan Slauson</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$392.60</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$414.87</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$495.35</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$386.04</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$448.91</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$451.23</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$437.19</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$471.00</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$476.31</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$383.14</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$456.73</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$389.47</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$455.08</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$473.09</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan South Gate</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$387.79</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$377.37</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$458.93</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$397.97</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$420.52</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$419.05</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$412.75</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$477.20</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money medium-intensity">$546.37</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$373.76</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money medium-intensity">$510.72</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$428.53</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">10:00 AM</td>
+                    <td class="money ">$470.92</td>
+                    <td></td>
+                    <td class="time">12:00 AM</td>
+                    <td class="money ">$464.00</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+        <div class="store-header">
+            <h2 class="store-title">Tacos Gavilan West Covina</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 15%">Día</th>
+                    <th style="width: 20%">Hora Apertura</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                    <th style="width: 5%"></th> <!-- Spacer -->
+                    <th style="width: 20%">Hora Cierre</th>
+                    <th style="width: 20%">Venta Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td><strong>Lunes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$189.03</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$351.74</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Martes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$207.23</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$368.94</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Miércoles</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$232.41</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$437.56</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Jueves</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$220.19</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$474.46</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Viernes</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$262.93</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$350.36</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Sábado</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$328.04</td>
+                    <td></td>
+                    <td class="time">3:00 AM</td>
+                    <td class="money ">$457.25</td>
+                </tr>
+            
+                <tr>
+                    <td><strong>Domingo</strong></td>
+                    <td class="time">9:00 AM</td>
+                    <td class="money ">$236.19</td>
+                    <td></td>
+                    <td class="time">1:00 AM</td>
+                    <td class="money ">$446.43</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+    </div>
+    
+    <div class="footer">
+        Generado automáticamente por Antigravity • Tacos Gavilán Intelligence System v4.0 • 2/9/2026
+    </div>
+</div>
+
+</body>
+</html>
