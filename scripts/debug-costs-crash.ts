@@ -9,18 +9,17 @@ const inventoryItems: InventoryItem[] = [
     {
         id: '1',
         name: 'Carne Asada',
-        unit_type: '10 lb',
-        purchase_unit_cost: 40, // $40 per 10lb bag = $4/lb
+        unit_type: 'lb',
+        purchase_unit_cost: 40, // $40 per lb (mock)
         yield_percent: 100,
         category_id: '1',
-        sku: '009W',
-        inventory_type: 'ingredient'
+        sku: '009W'
     }
 ]
 
 const recipe: Recipe = {
     id: 'r1',
-    name: 'Taco Asada',
+    toast_menu_item_guid: 'm1',
     ingredients: [
         {
             inventory_item_id: '1',
@@ -29,7 +28,7 @@ const recipe: Recipe = {
             type: 'raw'
         }
     ],
-    menu_item_id: 'm1'
+
 }
 
 try {
