@@ -78,6 +78,15 @@ export default function TopNav() {
             ]
         },
         {
+            title: t('sections.inventory'),
+            id: 'inventario',
+            items: [
+                { name: t('items.inventory_dashboard'), path: '/inventory', icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.ingredients'), path: '/inventory/items', icon: <Store size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.menu_catalog'), path: '/inventory/menu', icon: <ClipboardList size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+            ]
+        },
+        {
             title: t('sections.kiosks'),
             id: 'kioskos',
             items: [
@@ -233,6 +242,9 @@ export default function TopNav() {
                                         } else if (group.id === 'equipo') {
                                             iconColorClass = 'text-cyan-600 dark:text-cyan-400'
                                             activeContainerClass = 'bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800'
+                                        } else if (group.id === 'inventario') {
+                                            iconColorClass = 'text-purple-600 dark:text-purple-400'
+                                            activeContainerClass = 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800'
                                         }
 
                                         return (
@@ -354,6 +366,7 @@ export default function TopNav() {
                                             case 'analisis': return 'text-orange-600 dark:text-orange-400'
                                             case 'kioskos': return 'text-pink-600 dark:text-pink-400'
                                             case 'equipo': return 'text-cyan-600 dark:text-cyan-400'
+                                            case 'inventario': return 'text-purple-600 dark:text-purple-400'
                                             default: return 'text-slate-600 dark:text-slate-400'
                                         }
                                     }

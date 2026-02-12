@@ -25,6 +25,7 @@ const dictionaries: Record<Language, any> = {
             analysis: 'ANÁLISIS',
             kiosks: 'KIOSKS QR',
             team: 'EQUIPO',
+            inventory: 'INVENTARIO',
         },
         // ITEMS
         items: {
@@ -44,6 +45,9 @@ const dictionaries: Record<Language, any> = {
             eval_staff: 'Eval. Staff',
             my_schedule: 'Mis Horarios',
             self_scheduling: 'Auto-Programación',
+            inventory_dashboard: 'Dashboard',
+            menu_catalog: 'Catálogo (Menú)',
+            ingredients: 'Insumos',
         },
         // LOGIN
         login: {
@@ -838,6 +842,7 @@ const dictionaries: Record<Language, any> = {
             analysis: 'ANALYSIS',
             kiosks: 'QR KIOSKS',
             team: 'TEAM',
+            inventory: 'INVENTORY',
         },
         // ITEMS
         items: {
@@ -857,6 +862,9 @@ const dictionaries: Record<Language, any> = {
             eval_staff: 'Staff Eval',
             my_schedule: 'My Schedule',
             self_scheduling: 'Self-Scheduling',
+            inventory_dashboard: 'Dashboard',
+            menu_catalog: 'Menu Catalog',
+            ingredients: 'Ingredients',
         },
         // LOGIN
         login: {
