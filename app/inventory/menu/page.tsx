@@ -21,8 +21,8 @@ export default function MenuCatalogPage() {
         fetchLocalMenu()
     }, [])
 
-    async function fetchLocalMenu() {
-        setLoading(true)
+    async function fetchLocalMenu(silent = false) { // Accept silent flag
+        if (!silent) setLoading(true)
 
         // 1. Fetch Menu Items
         const { data: menuItems, error } = await supabase
@@ -169,8 +169,8 @@ export default function MenuCatalogPage() {
                 onClose={() => setSelectedItem(null)}
                 item={selectedItem}
                 onSaveSuccess={() => {
-                    fetchLocalMenu() // Refresh to update status
-                    alert('Receta guardada exitosamente')
+                    fetchLocalMenu(true) // Silent refresh!
+                    // alert remove
                 }}
             />
         </div >
