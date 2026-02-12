@@ -66,8 +66,7 @@ export async function GET() {
                 // Construct a temporary Recipe object for the calculator
                 const recipeObj: Recipe = {
                     id: menuItem.guid, // Fake ID
-                    name: menuItem.name,
-                    menu_item_id: menuItem.guid,
+                    toast_menu_item_guid: menuItem.guid,
                     ingredients: ingredients
                 }
 
