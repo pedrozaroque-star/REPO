@@ -17,20 +17,30 @@ export async function GET() {
 
         if (menuError) throw menuError
 
-        // 2. Fetch Recipes with Ingredients
-        const { data: recipes, error: recipeError } = await supabase
+        // 2. Fetch ALL Recipe Rows (These ARE the ingredients)
+        // Note: The 'recipes' table structure is essentially (id, toast_menu_item_guid, inventory_item_id, quantity, unit)
+        const { data: recipeRows, error: recipeError } = await supabase
             .from('recipes')
-            .select(`
-                *,
-                ingredients:recipe_ingredients(
-                    inventory_item_id,
-                    quantity,
-                    unit,
-                    type
-                )
-            `)
+            .select('toast_menu_item_guid, inventory_item_id, quantity, unit')
 
         if (recipeError) throw recipeError
+
+        // 3. Group ingredients by Menu Item GUID in memory
+        const recipeMap = new Map<string, any[]>()
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recipeRows?.forEach((row: any) => {
+            const guid = row.toast_menu_item_guid
+            if (!recipeMap.has(guid)) {
+                recipeMap.set(guid, [])
+            }
+            recipeMap.get(guid)?.push({
+                inventory_item_id: row.inventory_item_id,
+                quantity: row.quantity,
+                unit: row.unit,
+                type: 'raw' // Default to raw if missing
+            })
+        })
 
         // 3. Fetch Inventory Items for Price Lookup
         const { data: inventoryItems, error: invError } = await supabase
@@ -40,8 +50,10 @@ export async function GET() {
         if (invError) throw invError
 
         // 4. Process Costs
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const report = (menuItems || []).map((menuItem: any) => {
-            const recipe = (recipes || []).find((r: any) => r.toast_menu_item_guid === menuItem.guid)
+            const ingredients = recipeMap.get(menuItem.guid) || []
+            const hasRecipe = ingredients.length > 0
 
             let theoreticalCost = 0
             let foodCostPercent = 0
@@ -50,8 +62,16 @@ export async function GET() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let breakdown: any[] = []
 
-            if (recipe) {
-                const costResult = calculateRecipeCost(recipe, inventoryItems || [])
+            if (hasRecipe) {
+                // Construct a temporary Recipe object for the calculator
+                const recipeObj: Recipe = {
+                    id: menuItem.guid, // Fake ID
+                    name: menuItem.name,
+                    menu_item_id: menuItem.guid,
+                    ingredients: ingredients
+                }
+
+                const costResult = calculateRecipeCost(recipeObj, inventoryItems || [])
                 theoreticalCost = costResult.totalCost
                 missingPrices = costResult.missingPrices
                 breakdown = costResult.breakdown
@@ -59,19 +79,19 @@ export async function GET() {
 
             // Calculate Metrics
             const price = menuItem.price || 0
-            if (price > 0) {
+            if (price > 0 && theoreticalCost > 0) {
                 foodCostPercent = (theoreticalCost / price) * 100
                 margin = price - theoreticalCost
             }
 
             return {
                 ...menuItem,
-                hasRecipe: !!recipe,
+                hasRecipe,
                 theoreticalCost,
                 foodCostPercent,
                 margin,
                 missingPrices,
-                ingredientsCount: recipe?.ingredients?.length || 0,
+                ingredientsCount: ingredients.length,
                 breakdown // Included for future drill-down
             }
         })

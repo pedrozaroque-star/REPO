@@ -1,5 +1,5 @@
 import { InventoryItem, Recipe, RecipeIngredient } from '@/types/inventory'
-import { calculateRawUsage, normalizeToLbs } from './conversions'
+import { calculateRawUsage, normalizeToLbs, calculateInventoryUsage } from './conversions'
 
 export interface CostBreakdown {
     itemName: string
@@ -25,30 +25,25 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
     const breakdown: CostBreakdown[] = []
 
     // Map for fast lookup
-    const itemMap = new Map(inventoryItems.map(i => [i.id, i]))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const itemMap = new Map<string, InventoryItem>(inventoryItems.map((i: any) => [i.id, i]))
 
     recipe.ingredients.forEach(ing => {
         const item = itemMap.get(ing.inventory_item_id)
-        if (!item) return // Should not happen if DB is consistent
+        if (!item) return
 
         // 1. Calculate Raw Usage (Apply Yield)
         // If yield is 0 or missing, default to 100% to avoid division by zero
         const yieldPct = item.yield_percent ? Number(item.yield_percent) : 100
 
+        // This returns the amount of RAW product needed in the RECIPE'S unit
+        // e.g. Recipe needs 1.5 oz Cooked -> Returns 2.46 oz Raw
         const rawUsage = calculateRawUsage(
             ing.quantity,
             ing.unit,
             yieldPct,
             ing.type // 'raw' or 'cooked'
         )
-
-        // 2. Normalize to Cost Unit
-        // For this phase, we assume Purchase Cost is per comparable unit OR we convert both to Lbs if they are weight
-        // If the item unit is 'box' and we used 'lbs', we perform a naive check or assume the cost is per Unit Type.
-
-        // Strategy:
-        // If Item Unit is Weight (lb, oz, kg, g) AND Recipe Unit is Weight -> Normalize both to LB
-        // Else -> Assume direct proportion (dangerous but MVP) or 1:1 if unit matches.
 
         let cost = 0
         let isMissingPrice = false
@@ -58,39 +53,24 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
             isMissingPrice = true
             missingPrices++
         } else {
-            // TRY WEIGHT CONVERSION FIRST
+            // 2. Calculate Inventory Usage Fraction
+            // How much of the "Purchase Unit" (e.g. "10 lb bag") is used?
+            // e.g. Need 0.5 lb Raw. Inventory Item is "10 lb". Usage is 0.05.
+
             try {
-                const usageInLbs = normalizeToLbs(rawUsage.quantity, rawUsage.unit)
-                const itemUnitInLbs = normalizeToLbs(1, item.unit_type)
+                const inventoryUsage = calculateInventoryUsage(
+                    rawUsage.quantity, // Amount needed (Raw)
+                    rawUsage.unit,     // Unit of amount needed
+                    item.unit_type     // "10 lb", "25 pza", etc.
+                )
 
-                // If both are valid weights (didn't return original quantity implying no conversion)
-                // Actually normalizeToLbs returns same quantity if unknown. 
-                // We need to check if units are weights.
-                const isUsageWeight = ['lb', 'oz', 'kg', 'g'].includes(rawUsage.unit)
-                const isItemWeight = ['lb', 'oz', 'kg', 'g'].includes(item.unit_type)
+                // Cost = Usage * Cost of Inventory Item
+                cost = inventoryUsage * unitCost
 
-                if (isUsageWeight && isItemWeight) {
-                    // Cost per LB = Unit Cost / Item Unit in Lbs
-                    // e.g. $40 per Case(40lb) -> we don't know Case weight here yet without conversion factor.
-                    // BUT if Item Unit is 'lb' and cost is $4, then Cost per lb is $4.
-
-                    const costPerLb = unitCost / itemUnitInLbs
-                    cost = usageInLbs * costPerLb
-
-                } else if (rawUsage.unit === item.unit_type) {
-                    // Direct match (e.g. pza -> pza)
-                    cost = rawUsage.quantity * unitCost
-                } else {
-                    // Mismatched units without weight conversion (e.g. pza vs box)
-                    // Fallback: This requires a "conversion factor" field in InventoryItem (e.g. 1 Box = 50 Pza).
-                    // For now, we flag as 0 cost or log error?
-                    // Let's assume 0 and flag as missing price/config logic
-                    console.warn(`Unit mismatch for item ${item.name}: ${item.unit_type} vs ${rawUsage.unit}`)
-                    isMissingPrice = true // Soft error
-                }
-
-            } catch (e) {
-                console.error("Error calculating cost", e)
+            } catch (e: unknown) {
+                console.error("Error calculating usage fraction", e)
+                // Fallback or explicit failure
+                // For now, if conversion fails (e.g. incompatible units), cost is 0
                 isMissingPrice = true
             }
         }

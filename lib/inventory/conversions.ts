@@ -1,8 +1,5 @@
 import { UnitType } from '@/types/inventory'
 
-// Factores de conversión a unidad base común (ej: onzas para peso, ml para volumen)
-// Peso Base: Onza (oz)
-// Volumen Base: Mililitro (ml)
 const WEIGHT_CONVERSION: Record<string, number> = {
     'oz': 1,
     'lb': 16,
@@ -10,17 +7,6 @@ const WEIGHT_CONVERSION: Record<string, number> = {
     'g': 0.035274,
 }
 
-// TODO: Definir conversiones de volumen si es necesario (gal, l, fl oz)
-
-/**
- * Calcula el consumo REAL de inventario (Raw) basado en una cantidad de receta.
- * Mambo #5 Logic: "A little bit of yield logic makes the inventory right"
- * 
- * @param quantity Cantidad solicitada en la receta
- * @param unit Unidad de la receta
- * @param itemYieldPercent Porcentaje de rendimiento del item (0-100). Ej: 60.83 para Carne Asada.
- * @param recipeType 'raw' o 'cooked'. Si es 'cooked', aplicamos el factor de rendimiento.
- */
 export function calculateRawUsage(
     quantity: number,
     unit: UnitType,
@@ -46,14 +32,9 @@ export function calculateRawUsage(
     }
 }
 
-/**
- * Normaliza cualquier unidad de peso a Libras (lb) para estandarizar cálculos de PAR.
- */
 export function normalizeToLbs(quantity: number, unit: UnitType): number {
     const factor = WEIGHT_CONVERSION[unit]
     if (!factor) {
-        // Si no es unidad de peso conocida (ej: 'pza', 'caja'), retornamos tal cual
-        // asumiendo que el sistema downstream manejan esas unidades enteras.
         return quantity
     }
 
@@ -61,20 +42,115 @@ export function normalizeToLbs(quantity: number, unit: UnitType): number {
     return oz / 16 // Return in lbs
 }
 
+// Helper to normalize unit strings (e.g. "gallons" -> "gal")
+function normalizeUnit(u: string): string {
+    const s = u.toLowerCase().trim().replace(/s$/, '') // simple plural removal first
+
+    const ALIASES: Record<string, string> = {
+        'gallon': 'gal',
+        'liter': 'l',
+        'litre': 'l',
+        'milliliter': 'ml',
+        'pound': 'lb',
+        'ounce': 'oz',
+        'gram': 'g',
+        'kilogram': 'kg',
+        'piece': 'pza',
+        'each': 'pza',
+        'count': 'ct',
+        'unit': 'pza'
+    }
+    return ALIASES[s] || s
+}
+
+// Helper to parse "10 lb", "25 pza", "1 gal", "4.5 oz" strings
+function parseUnitString(unitString: string): { factor: number, baseUnit: string } {
+    if (!unitString) return { factor: 1, baseUnit: 'pza' }
+
+    // Normalize
+    const u = unitString.toLowerCase().trim()
+
+    // Match "Number Unit" pattern (e.g. "10 lb", "2.5 oz", "25 pza")
+    const match = u.match(/^([\d.]+)\s*([a-z]+)$/)
+
+    if (match) {
+        return {
+            factor: parseFloat(match[1]),
+            baseUnit: normalizeUnit(match[2])
+        }
+    }
+
+    // Special handling for known patterns
+    const normalized = normalizeUnit(u)
+    return { factor: 1, baseUnit: normalized }
+}
+
 /**
- * Ejemplo de uso con los datos del usuario:
- * Carne Asada:
- * - Bolsa: 10.11 lbs Raw
- * - Cocinado: 6.15 lbs
- * - Yield: 60.83%
- * 
- * Receta Taco: 1.5 oz Cooked
- * 
- * Usage = calculateRawUsage(1.5, 'oz', 60.83, 'cooked')
- * -> 2.465 oz Raw
- * 
- * Convert to Lbs = normalizeToLbs(2.465, 'oz')
- * -> 0.154 lbs Raw
- * 
- * Check: 66 tacos * 0.154 = 10.16 lbs (Approx 10.11 lbs bag) -> CORRECTO
+ * Calculates HOW MUCH of an Inventory Item is used based on Recipe amount.
  */
+export function calculateInventoryUsage(
+    recipeQuantity: number,
+    recipeUnit: string,
+    inventoryItemUnit: string
+): number {
+    const fromUnitRaw = recipeUnit || 'pza'
+    // Normalize Inputs
+    const { baseUnit: safeFrom, factor: recipeFactor } = parseUnitString(fromUnitRaw) // Usually factor 1 for recipes, but handle "2 oz" string if passed
+    // Actually recipeUnit is usually just the unit string "oz". 
+    // If recipe pass "2 oz" as unit, we treat it as unit "oz".
+    // Let's stick to simple normalization for fromUnit if it's just a word.
+    const normFrom = normalizeUnit(fromUnitRaw)
+
+    const invUnitString = inventoryItemUnit || 'pza'
+
+    // 1. Parse Inventory Unit Configuration (e.g. "10 lb", "25 pza")
+    // This gives us the PACK SIZE.
+    const { factor: invFactor, baseUnit: invBase } = parseUnitString(invUnitString)
+
+    let quantityInBase = recipeQuantity
+
+    // Weight Conversions (Base: lb/oz/kg)
+    if (['lb', 'oz', 'kg', 'g'].includes(invBase)) {
+        // Convert TO LBS as standard middle ground
+        let lbs = 0
+        if (normFrom === 'lb') lbs = recipeQuantity
+        else if (normFrom === 'oz') lbs = recipeQuantity / 16
+        else if (normFrom === 'kg') lbs = recipeQuantity * 2.20462
+        else if (normFrom === 'g') lbs = recipeQuantity * 0.00220462
+        else return recipeQuantity / invFactor // Mismatch
+
+        // Convert LBS to INV BASE
+        if (invBase === 'lb') quantityInBase = lbs
+        else if (invBase === 'oz') quantityInBase = lbs * 16
+        else if (invBase === 'kg') quantityInBase = lbs / 2.20462
+        else if (invBase === 'g') quantityInBase = lbs / 0.00220462
+    }
+    // Volume Conversions (Base: gal/l/oz/ml)
+    else if (['gal', 'l', 'ml', 'fl oz'].includes(invBase)) {
+        // Convert TO GAL as standard
+        let gals = 0
+        if (normFrom === 'gal') gals = recipeQuantity
+        else if (normFrom === 'l') gals = recipeQuantity * 0.264172
+        else if (normFrom === 'ml') gals = recipeQuantity * 0.000264172
+        else if (normFrom === 'oz' || normFrom === 'fl oz') gals = recipeQuantity / 128
+        else return recipeQuantity / invFactor
+
+        if (invBase === 'gal') quantityInBase = gals
+        else if (invBase === 'l') quantityInBase = gals / 0.264172
+        else if (invBase === 'ml') quantityInBase = gals / 0.000264172
+        else if (invBase === 'oz' || invBase === 'fl oz') quantityInBase = gals * 128
+    }
+    // Piece / Count Matches
+    else {
+        // Direct match
+        if (normFrom === invBase) {
+            quantityInBase = recipeQuantity
+        }
+        // Fallback or mismatch -> simple ratio
+    }
+
+    // 3. Apply the Inventory Factor (Pack Size)
+    const usage = quantityInBase / invFactor
+
+    return usage
+}
