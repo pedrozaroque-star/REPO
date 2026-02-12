@@ -196,15 +196,15 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                         const purchaseUnit = ing.unit_type?.toLowerCase() || ''
                                         let unitOptions = [ing.unit_type]
 
-                                        if (purchaseUnit.includes('lb') || purchaseUnit.includes('oz') || purchaseUnit.includes('kg') || purchaseUnit.includes('g') || purchaseUnit.includes('bag') && (purchaseUnit.includes('lb') || purchaseUnit.includes('oz'))) {
-                                            // Detected Weight (even if "Bag of 10 lbs")
-                                            unitOptions = [...new Set([ing.unit_type, 'lb', 'oz', 'g', 'kg'])]
+                                        if (purchaseUnit.includes('lb') || purchaseUnit.includes('oz') || purchaseUnit.includes('kg') || purchaseUnit.includes('g') || (purchaseUnit.includes('bag') && (purchaseUnit.includes('lb') || purchaseUnit.includes('oz')))) {
+                                            // Detected Weight (Restricted to Imperial per user request)
+                                            unitOptions = [...new Set([ing.unit_type, 'lb', 'oz'])]
                                         } else if (purchaseUnit.includes('gal') || purchaseUnit.includes('l') || purchaseUnit.includes('ml')) {
-                                            // Detected Volume
-                                            unitOptions = [...new Set([ing.unit_type, 'gal', 'l', 'ml', 'fl oz'])]
+                                            // Detected Volume (Restricted to Imperial)
+                                            unitOptions = [...new Set([ing.unit_type, 'gal', 'fl oz'])]
                                         } else {
-                                            // Generic
-                                            unitOptions = [...new Set([ing.unit_type, 'Unit', 'Piece'])]
+                                            // Generic / Count
+                                            unitOptions = [...new Set([ing.unit_type, 'pza'])]
                                         }
 
                                         return (

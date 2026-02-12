@@ -58,6 +58,28 @@ async function seedItems() {
     console.log("🌱 Compiling Inventory Items...")
     const supabase = await getSupabaseAdminClient()
 
+    // Helper to normalize units
+    function normalizeUnit(rawUnit: string): string {
+        const u = rawUnit.toLowerCase()
+
+        // 1. Dozens -> pza
+        if (u.includes('dz')) {
+            return 'pza'
+        }
+
+        // 2. Count / Units -> pza
+        if (u.includes('ct') || u.includes('unit') || u.includes('uni')) {
+            return 'pza'
+        }
+
+        // 3. Metric -> lb (Safety default per user request)
+        if (u === 'kg' || u.endsWith(' kg') || u === 'g' || u.endsWith(' g')) {
+            return 'lb'
+        }
+
+        return rawUnit
+    }
+
     // 1. Get Categories
     const { data: categories } = await supabase.from('inventory_categories').select('id, name')
 
@@ -141,7 +163,7 @@ async function seedItems() {
         const { error } = await supabase.from('inventory_items').insert({
             name: item.name,
             sku: item.sku,
-            unit_type: item.unit,
+            unit_type: normalizeUnit(item.unit),
             category_id: finalCatMap[item.category],
         }).select()
 
