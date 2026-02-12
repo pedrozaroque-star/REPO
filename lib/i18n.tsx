@@ -48,6 +48,7 @@ const dictionaries: Record<Language, any> = {
             inventory_dashboard: 'Dashboard',
             menu_catalog: 'Catálogo (Menú)',
             ingredients: 'Insumos',
+            food_costs: 'Costos (Food Cost)',
         },
         // LOGIN
         login: {
@@ -865,6 +866,7 @@ const dictionaries: Record<Language, any> = {
             inventory_dashboard: 'Dashboard',
             menu_catalog: 'Menu Catalog',
             ingredients: 'Ingredients',
+            food_costs: 'Food Costs',
         },
         // LOGIN
         login: {

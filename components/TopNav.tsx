@@ -84,6 +84,7 @@ export default function TopNav() {
                 { name: t('items.inventory_dashboard'), path: '/inventory', icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.ingredients'), path: '/inventory/items', icon: <Store size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.menu_catalog'), path: '/inventory/menu', icon: <ClipboardList size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.food_costs'), path: '/inventory/costs', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
             ]
         },
         {
