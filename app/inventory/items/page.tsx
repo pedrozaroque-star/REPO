@@ -14,10 +14,13 @@ export default function InventoryItemsPage() {
 
     // Form State
     const [newItem, setNewItem] = useState({
+        id: '', // Added ID for editing
         name: '',
         sku: '',
         category_id: '',
-        unit_type: 'pza',
+        unit_type: 'Case', // Default to Case
+        quantity_per_unit: '1',
+        unit_measure: 'pza',
         cost: '',
         yield_percent: '100',
         alert_threshold: ''
@@ -55,8 +58,9 @@ export default function InventoryItemsPage() {
 
         setSaving(true)
         try {
+            const method = newItem.id ? 'PUT' : 'POST' // Update if ID exists
             const res = await fetch('/api/inventory/items', {
-                method: 'POST',
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newItem)
             })
@@ -69,7 +73,7 @@ export default function InventoryItemsPage() {
             // Success
             setIsModalOpen(false)
             setNewItem({
-                name: '', sku: '', category_id: '', unit_type: 'pza', cost: '', yield_percent: '100', alert_threshold: ''
+                id: '', name: '', sku: '', category_id: '', unit_type: 'Case', quantity_per_unit: '1', unit_measure: 'pza', cost: '', yield_percent: '100', alert_threshold: ''
             })
             fetchData() // Refresh list
         } catch (e: any) {
@@ -85,6 +89,30 @@ export default function InventoryItemsPage() {
         i.category?.name?.toLowerCase().includes(filter.toLowerCase())
     )
 
+    // Edit Handler
+    const openEdit = (item: any) => {
+        setNewItem({
+            id: item.id,
+            name: item.name,
+            sku: item.sku || '',
+            category_id: item.category_id,
+            unit_type: item.unit_type || 'Case',
+            quantity_per_unit: item.quantity_per_unit || '1',
+            unit_measure: item.unit_measure || 'pza',
+            cost: item.purchase_unit_cost || '',
+            yield_percent: item.yield_percent || '100',
+            alert_threshold: item.alert_threshold || ''
+        })
+        setIsModalOpen(true)
+    }
+
+    const openCreate = () => {
+        setNewItem({
+            id: '', name: '', sku: '', category_id: '', unit_type: 'Case', quantity_per_unit: '1', unit_measure: 'pza', cost: '', yield_percent: '100', alert_threshold: ''
+        })
+        setIsModalOpen(true)
+    }
+
     return (
         <div className="p-8 max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-8">
@@ -93,7 +121,7 @@ export default function InventoryItemsPage() {
                     <p className="text-slate-500">Define las materias primas que compras (Cajas, Bolsas, Unidades).</p>
                 </div>
                 <button
-                    onClick={() => setIsModalOpen(true)}
+                    onClick={openCreate}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
                 >
                     <Plus size={20} />
@@ -129,8 +157,14 @@ export default function InventoryItemsPage() {
                 ) : (
                     filteredItems.map(item => (
                         <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 hover:shadow-md transition-shadow group relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button className="text-slate-400 hover:text-indigo-500"><Tag size={16} /></button>
+                            <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); openEdit(item) }}
+                                    className="p-1.5 bg-slate-100 hover:bg-indigo-100 text-slate-500 hover:text-indigo-600 rounded-lg transition-colors"
+                                    title="Editar"
+                                >
+                                    <Tag size={16} />
+                                </button>
                             </div>
 
                             <div className="flex items-start justify-between mb-4">
@@ -145,10 +179,10 @@ export default function InventoryItemsPage() {
 
                             <div className="grid grid-cols-2 gap-4 text-sm border-t border-slate-100 dark:border-slate-700/50 pt-4">
                                 <div>
-                                    <p className="text-slate-400 text-xs mb-1">Unidad de Compra</p>
+                                    <p className="text-slate-400 text-xs mb-1">Presentación</p>
                                     <p className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
                                         <Scale size={14} className="text-indigo-500" />
-                                        {item.unit_type}
+                                        {item.quantity_per_unit || 1} {item.unit_measure || 'pza'} ({item.unit_type})
                                     </p>
                                 </div>
                                 <div>
@@ -159,10 +193,15 @@ export default function InventoryItemsPage() {
                                 </div>
                                 <div className="col-span-2">
                                     <p className="text-slate-400 text-xs mb-1">Costo Estimado</p>
-                                    <p className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                        <DollarSign size={14} className="text-emerald-500" />
-                                        ${Number(item.purchase_unit_cost || 0).toFixed(2)} / {item.unit_type}
-                                    </p>
+                                    <div className="flex justify-between items-baseline">
+                                        <p className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                            <DollarSign size={14} className="text-emerald-500" />
+                                            ${Number(item.purchase_unit_cost || 0).toFixed(2)} / {item.unit_type}
+                                        </p>
+                                        <p className="text-xs text-slate-400">
+                                            (${(Number(item.purchase_unit_cost || 0) / (Number(item.quantity_per_unit) || 1)).toFixed(3)} / {item.unit_measure || 'pza'})
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -175,7 +214,7 @@ export default function InventoryItemsPage() {
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden transform transition-all scale-100">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Nuevo Insumo</h2>
+                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{newItem.id ? 'Editar Insumo' : 'Nuevo Insumo'}</h2>
                             <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
                                 <X size={24} />
                             </button>
@@ -223,26 +262,54 @@ export default function InventoryItemsPage() {
                             </div>
 
                             {/* Unit & Yield */}
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-3 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Unidad de Compra *</label>
-                                    <select
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo de Compra</label>
+                                    <input
+                                        type="text"
+                                        list="containers"
                                         value={newItem.unit_type}
                                         onChange={e => setNewItem({ ...newItem, unit_type: e.target.value })}
-                                        className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        placeholder="Ej: Case"
+                                    />
+                                    <datalist id="containers">
+                                        <option value="Case" />
+                                        <option value="Box" />
+                                        <option value="Bag" />
+                                        <option value="Each" />
+                                        <option value="Pack" />
+                                    </datalist>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cantidad</label>
+                                    <input
+                                        type="number"
+                                        value={newItem.quantity_per_unit}
+                                        onChange={e => setNewItem({ ...newItem, quantity_per_unit: e.target.value })}
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        placeholder="1"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Unidad Base</label>
+                                    <select
+                                        value={newItem.unit_measure}
+                                        onChange={e => setNewItem({ ...newItem, unit_measure: e.target.value })}
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     >
-                                        <option value="lb">Libras (lb)</option>
-                                        <option value="oz">Onzas (oz)</option>
-                                        <option value="kg">Kilogramos (kg)</option>
-                                        <option value="g">Gramos (g)</option>
-                                        <option value="gal">Galones (gal)</option>
-                                        <option value="l">Litros (l)</option>
-                                        <option value="pza">Pieza (pza)</option>
-                                        <option value="caja">Caja (box/case)</option>
-                                        <option value="paq">Paquete (pack)</option>
-                                        <option value="bto">Bulto (bag)</option>
+                                        <option value="lb">lb (Libras)</option>
+                                        <option value="oz">oz (Onzas)</option>
+                                        <option value="kg">kg (Kiles)</option>
+                                        <option value="g">g (Gramos)</option>
+                                        <option value="gal">gal (Galones)</option>
+                                        <option value="l">l (Litros)</option>
+                                        <option value="pza">pza (Piezas/Count)</option>
                                     </select>
                                 </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rendimiento (%)</label>
                                     <div className="relative">
@@ -257,21 +324,22 @@ export default function InventoryItemsPage() {
                                     </div>
                                     <p className="text-[10px] text-slate-400 mt-1">Ej: Aguacate limpio = 85.0%</p>
                                 </div>
-                            </div>
-
-                            {/* Cost */}
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Costo Estimado (Última Compra)</label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-2 text-slate-400">$</span>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={newItem.cost}
-                                        onChange={e => setNewItem({ ...newItem, cost: e.target.value })}
-                                        placeholder="0.00"
-                                        className="w-full pl-8 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                    />
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Costo Estimado (Por {newItem.unit_type})</label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-2 text-slate-400">$</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={newItem.cost}
+                                            onChange={e => setNewItem({ ...newItem, cost: e.target.value })}
+                                            placeholder="0.00"
+                                            className="w-full pl-8 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-emerald-600 mt-1 font-bold">
+                                        = ${(Number(newItem.cost || 0) / (Number(newItem.quantity_per_unit) || 1)).toFixed(3)} / {newItem.unit_measure}
+                                    </p>
                                 </div>
                             </div>
                         </div>

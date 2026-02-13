@@ -35,7 +35,7 @@ export async function GET(request: Request) {
             },
         }
     )
-    
+
     // Fetch items with categories
     const { data: items, error } = await supabase
         .from('inventory_items')
@@ -74,11 +74,45 @@ export async function POST(request: Request) {
             name: body.name,
             sku: body.sku || null,
             unit_type: body.unit_type,
+            quantity_per_unit: body.quantity_per_unit || 1,
+            unit_measure: body.unit_measure || 'pza',
             category_id: body.category_id,
             purchase_unit_cost: body.cost || null,
             yield_percent: body.yield_percent || 100,
             alert_threshold: body.alert_threshold || null
         })
+        .select()
+        .single()
+
+    if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json(data)
+}
+
+export async function PUT(request: Request) {
+    const supabase = await getSupabaseAdminClient()
+    const body = await request.json()
+
+    if (!body.id || !body.name || !body.unit_type || !body.category_id) {
+        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    const { data, error } = await supabase
+        .from('inventory_items')
+        .update({
+            name: body.name,
+            sku: body.sku || null,
+            unit_type: body.unit_type,
+            quantity_per_unit: body.quantity_per_unit || 1,
+            unit_measure: body.unit_measure || 'pza',
+            category_id: body.category_id,
+            purchase_unit_cost: body.cost || null,
+            yield_percent: body.yield_percent || 100,
+            alert_threshold: body.alert_threshold || null
+        })
+        .eq('id', body.id)
         .select()
         .single()
 

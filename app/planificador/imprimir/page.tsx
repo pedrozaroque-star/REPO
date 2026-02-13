@@ -137,7 +137,7 @@ function PrintViewContent() {
 
     const totalEmployees = amEmployees.length + pmEmployees.length
     // Lower threshold to be safer (approx 12-14 rows max fit comfortably on one page with headers)
-    const shouldBreak = totalEmployees > 17
+    const shouldBreak = totalEmployees > 20
 
     const renderTable = (team: any[], title: string, forceBreak: boolean) => {
         if (team.length === 0) return null
