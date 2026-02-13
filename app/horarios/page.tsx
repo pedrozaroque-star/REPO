@@ -756,7 +756,7 @@ function ScheduleManager() {
             const currentKey = `${formatDateISO(weekStart)}-${selectedStoreId || selectedSupervisorId}`;
 
             // Chequear contra la referencia actual (siempre viva)
-            if (dismissedReplicationsRef.current.has(currentKey)) return;
+            // if (dismissedReplicationsRef.current.has(currentKey)) return; // BLOQUEO ELIMINADO POR SOLICITUD DE USUARIO
 
             // Definir targetStores basado en la selección actual
             const targetStoresList = selectedSupervisorId
@@ -1952,7 +1952,7 @@ function ScheduleManager() {
 
 export default function HorariosPage() {
     return (
-        <ProtectedRoute>
+        <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
             <Suspense fallback={<SurpriseLoader />}>
                 <ScheduleManager />
             </Suspense>

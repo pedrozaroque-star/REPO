@@ -790,7 +790,7 @@ function FeedbackContent() {
 
 export default function FeedbackPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowedRoles={['admin', 'manager', 'supervisor']}>
       <FeedbackContent />
     </ProtectedRoute>
   )
