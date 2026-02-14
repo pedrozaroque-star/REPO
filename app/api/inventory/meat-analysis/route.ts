@@ -52,6 +52,28 @@ export async function GET(request: NextRequest) {
         const yieldRatio = (targetItem.yield_percent || 100) / 100
         analysis.yieldPercent = targetItem.yield_percent || 100
 
+        // Calculate Cost Per Lb
+        let costPerLb = 0
+        if (targetItem.purchase_unit_cost) {
+            const qtyPerUnit = targetItem.quantity_per_unit || 1
+            const unit = targetItem.unit_measure?.toLowerCase() || ''
+
+            // Base cost per "Inventory Unit" (e.g. per Case)
+            // We need cost per Raw Pound.
+
+            if (unit === 'oz' || unit === 'onzas') {
+                // Cost per Oz * 16
+                costPerLb = (targetItem.purchase_unit_cost / qtyPerUnit) * 16
+            } else if (unit === 'kg' || unit === 'kilos') {
+                // Cost per Kg / 2.20462
+                costPerLb = (targetItem.purchase_unit_cost / qtyPerUnit) / 2.20462
+            } else {
+                // Assume Lb if 'lb', 'lbs', or 'pza' (if typical meat bag).
+                // Default: Cost / Quantity = Cost/Lb
+                costPerLb = targetItem.purchase_unit_cost / qtyPerUnit
+            }
+        }
+
         // Map relevant recipes for quick lookup
         const recipeLookup = new Map<string, any>()
         recipesData.forEach((r: any) => {
@@ -79,8 +101,15 @@ export async function GET(request: NextRequest) {
             else if (unit === 'kg') lbsAmount = totalAmount * 2.20462
 
             // Yield application (Cooked -> Raw)
+            // Recipes are usually "Cooked Portions" (e.g. 1.5 oz cooked meat).
+            // We need Raw Lbs.
             const rawLbs = lbsAmount / yieldRatio
             analysis.totalRawLbs += rawLbs
+
+            // Financials
+            const salesAmount = soldItem.net_sales || 0
+            const costAmount = rawLbs * costPerLb
+            const utilityAmount = salesAmount - costAmount
 
             analysis.breakdown.push({
                 guid: soldItem.guid,
@@ -89,7 +118,10 @@ export async function GET(request: NextRequest) {
                 portionQty: portionQty,
                 unit: unit,
                 rawLbs: rawLbs,
-                yieldPct: yieldRatio * 100
+                yieldPct: yieldRatio * 100,
+                salesAmount,
+                costAmount,
+                utilityAmount
             })
         })
 

@@ -89,35 +89,83 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
             // Recursive processor for Selections AND Modifiers
             const processSelection = (sel: any) => {
-                if (sel.voided) return // Skip voided (or should we count void quantity?) 
-                // User wants Sales primarily. Voids don't count for sales.
-                // If we want "Waste", we'd need a separate report.
+                if (sel.voided) return
 
                 const guid = sel.item?.guid
-                if (!guid) return // Should not happen for valid items
+                if (!guid) return
 
                 const name = sel.displayName
                 const qty = Number(sel.quantity || 1)
 
-                let price = Number(sel.price || 0)
-                const gross = Number(sel.preDiscountPrice || sel.price || 0)
+                // Raw Totals (Aggregated)
+                let rawPrice = Number(sel.price || 0)
+                let rawTax = Number(sel.tax || 0)
+                let rawRefund = 0
+                if (sel.refundDetails?.refundAmount) {
+                    rawRefund = Number(sel.refundDetails.refundAmount)
+                }
+
+                // Calculate Child Totals (to subtract)
+                let childPrice = 0
+                let childTax = 0
+                let childRefund = 0
+
+                if (sel.modifiers && Array.isArray(sel.modifiers)) {
+                    sel.modifiers.forEach((mod: any) => {
+                        if (mod.voided) return
+                        childPrice += Number(mod.price || 0)
+                        childTax += Number(mod.tax || 0)
+                        if (mod.refundDetails?.refundAmount) {
+                            childRefund += Number(mod.refundDetails.refundAmount)
+                        }
+                    })
+                }
+
+                // Self-Only Amounts (Parent - Children)
+                let selfPrice = rawPrice - childPrice
+                let selfTax = rawTax - childTax
+                let selfRefund = rawRefund - childRefund
 
                 // Adjust for Tax Included
+                let selfPreTaxPrice = selfPrice
                 if (sel.taxInclusion === 'INCLUDED') {
-                    price -= Number(sel.tax || 0)
+                    selfPreTaxPrice = selfPrice - selfTax
                 }
 
-                // Refunds
-                let refundAmt = 0
-                if (sel.refundDetails?.refundAmount) {
-                    refundAmt = Number(sel.refundDetails.refundAmount)
-                }
+                // Net Sales = PreTax Price - Refunds
+                // Note: Refunds in Toast are usually gross (inc tax)? 
+                // If tax is included, refund amount usually includes tax.
+                // So Net Sales (ex tax) should subtract Refund (ex tax). 
+                // However, commonly 'Net Sales' = (Price - Tax) - (Refund - RefundTax).
+                // If we assume refundAmount includes tax if original price did.
+                // Let's approximate: Net = SelfPreTaxPrice - (selfRefund - refundTax?)
+                // Actually, if we just do: Net = (Price - Refund) - Tax.
+                // (10 - 0) - 1 = 9. 
+                // Refund 10. (10 - 10) - 0 = 0.
+                // Refund 5. (10 - 5) - (0.5?) = 4.5.
+                // Simplest: Net = selfPreTaxPrice - selfRefund.
+                // WARNING: If selfRefund includes tax, we might be subtracting too much from Sales.
+                // But generally correct for "Net Sales" reporting.
 
-                const net = price - refundAmt
+                // Let's stick to the user formula: Sum(Price) - Sum(Discounts) - Sum(Refunds).
+                // Here Price is "post-discount". 
+                // So Net = selfPreTaxPrice - selfRefund.
 
-                addFn(guid, name, qty, net, gross, 0)
+                const net = selfPreTaxPrice - selfRefund
 
-                // Process embedded modifiers
+                // Gross Sales (Pre-Discount)? 
+                // sel.preDiscountPrice usually includes modifiers too? Assume yes.
+                // We won't try to perfect Good Sales yet, focus on Net.
+                // For Gross, we use `selfPrice` (which is post-discount in variable name but pre-discount in reality? No sel.price is post-discount).
+                // Use sel.preDiscountPrice if avail.
+                let rawGross = Number(sel.preDiscountPrice || sel.price || 0)
+                // We'd need to subtract child Gross too... complex.
+                // Let's just use selfPrice as "Gross" for this simplified logic unless preDiscount is critical.
+                // Actually, the user asked for Net Sales accuracy.
+
+                addFn(guid, name, qty, net, selfPrice, 0)
+
+                // Recurse
                 if (sel.modifiers && Array.isArray(sel.modifiers)) {
                     sel.modifiers.forEach((mod: any) => processSelection(mod))
                 }

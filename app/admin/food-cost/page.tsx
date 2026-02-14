@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Loader2, Download, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Loader2, Download, AlertTriangle, CheckCircle2, Search } from 'lucide-react'
 
 interface FoodCostItem {
     guid: string
@@ -102,6 +102,24 @@ export default function FoodCostPage() {
     const totalCost = data.reduce((acc, item) => acc + item.total_cost, 0)
     const totalFC = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
 
+    const [filterTerm, setFilterTerm] = useState('')
+
+    const filteredData = sortedData.filter(item =>
+        item.name.toLowerCase().includes(filterTerm.toLowerCase()) ||
+        item.guid.toLowerCase().includes(filterTerm.toLowerCase())
+    )
+
+    const filteredTotals = filteredData.reduce((acc, item) => {
+        acc.quantity += item.quantity
+        acc.net_sales += item.net_sales
+        acc.total_cost += item.total_cost
+        return acc
+    }, { quantity: 0, net_sales: 0, total_cost: 0 })
+
+    const filteredFC = filteredTotals.net_sales > 0
+        ? (filteredTotals.total_cost / filteredTotals.net_sales) * 100
+        : 0
+
     return (
         <div className="p-6 max-w-[1600px] mx-auto space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -170,6 +188,28 @@ export default function FoodCostPage() {
 
             {/* Main Table */}
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+
+                {/* Search Bar */}
+                {/* Search Bar & Stats */}
+                <div className="p-4 bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="relative flex-1 max-w-lg">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        <input
+                            type="text"
+                            placeholder="Buscar productos por nombre o ID..."
+                            value={filterTerm}
+                            onChange={(e) => setFilterTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                        <span className="bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-full text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+                            {filteredData.length}
+                        </span>
+                        <span>resultados</span>
+                    </div>
+                </div>
+
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700">
@@ -184,7 +224,7 @@ export default function FoodCostPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {sortedData.map((item) => (
+                            {filteredData.map((item) => (
                                 <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
                                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
                                         <div className="flex flex-col">
@@ -229,16 +269,40 @@ export default function FoodCostPage() {
                                     </td>
                                 </tr>
                             ))}
+                            {/* Filtered Totals Row */}
+                            {filteredData.length > 0 && (
+                                <tr className="bg-slate-50 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700">
+                                    <td className="px-6 py-4 text-slate-900 dark:text-white flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                                        SUBTOTAL FILTRADO
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-mono text-slate-700 dark:text-slate-300">{filteredTotals.quantity.toLocaleString()}</td>
+                                    <td className="px-6 py-4 text-right font-mono text-slate-900 dark:text-white">${filteredTotals.net_sales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    <td className="px-6 py-4 text-right">-</td>
+                                    <td className="px-6 py-4 text-right font-mono text-slate-900 dark:text-white">${filteredTotals.total_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    <td className="px-6 py-4 text-right">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${filteredFC > 35
+                                            ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50'
+                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-900/50'
+                                            }`}>
+                                            {filteredFC.toFixed(1)}%
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4"></td>
+                                </tr>
+                            )}
                         </tbody>
-                    </table>
+                    </table >
 
-                    {data.length === 0 && !loading && (
-                        <div className="p-12 text-center text-slate-500">
-                            No data found for this range. Click "Generar Reporte".
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
+                    {
+                        data.length === 0 && !loading && (
+                            <div className="p-12 text-center text-slate-500">
+                                No data found for this range. Click "Generar Reporte".
+                            </div>
+                        )
+                    }
+                </div >
+            </div >
+        </div >
     )
 }

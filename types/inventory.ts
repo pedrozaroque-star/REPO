@@ -12,6 +12,8 @@ export interface InventoryItem {
     name: string
     sku?: string
     unit_type: UnitType
+    quantity_per_unit?: number
+    unit_measure?: string
     purchase_unit_cost?: number
 
     // YIELD LOGIC
