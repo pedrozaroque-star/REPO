@@ -91,7 +91,7 @@ export default function TopNav() {
             title: t('sections.kiosks'),
             id: 'kioskos',
             items: [
-                { name: t('items.kiosk_feedback'), path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager'] },
+                { name: t('items.kiosk_feedback'), path: '/clientes', icon: <QrCode size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 {
                     name: (
                         <div className="flex items-center gap-2">
@@ -101,7 +101,7 @@ export default function TopNav() {
                     ),
                     path: '/evaluacion',
                     icon: <QrCode size={20} />,
-                    roles: ['admin', 'manager']
+                    roles: ['admin', 'manager', 'supervisor']
                 },
             ]
         },
@@ -117,8 +117,8 @@ export default function TopNav() {
             title: 'FOOD COST',
             id: 'food_cost',
             items: [
-                { name: 'Reporte General', path: '/admin/food-cost', icon: <DollarSign size={20} />, roles: ['admin', 'manager'] },
-                { name: 'Análisis de Carnes', path: '/admin/food-cost/meats', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
+                { name: 'Reporte General', path: '/admin/food-cost', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: 'Análisis de Carnes', path: '/admin/food-cost/meats', icon: <TrendingUp size={20} />, roles: ['admin', 'manager', 'supervisor'] },
             ]
         }
     ]
