@@ -112,6 +112,14 @@ export default function TopNav() {
                 { name: t('items.my_schedule'), path: '/mis-horarios', icon: <CalendarCheck size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
                 { name: t('items.self_scheduling'), path: '/gestion/auto-schedule', icon: <UserCog size={20} />, roles: ['supervisor', 'admin'] },
             ]
+        },
+        {
+            title: 'FOOD COST',
+            id: 'food_cost',
+            items: [
+                { name: 'Reporte General', path: '/admin/food-cost', icon: <DollarSign size={20} />, roles: ['admin', 'manager'] },
+                { name: 'Análisis de Carnes', path: '/admin/food-cost/meats', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
+            ]
         }
     ]
 

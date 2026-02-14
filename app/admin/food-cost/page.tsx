@@ -1,0 +1,244 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Loader2, Download, AlertTriangle, CheckCircle2 } from 'lucide-react'
+
+interface FoodCostItem {
+    guid: string
+    name: string
+    quantity: number
+    net_sales: number
+    gross_sales: number
+    voided_quantity: number
+    unit_cost: number
+    total_cost: number
+    food_cost_percent: number
+    has_recipe: boolean
+    missing_prices: boolean
+}
+
+export default function FoodCostPage() {
+    const [loading, setLoading] = useState(false)
+    const [data, setData] = useState<FoodCostItem[]>([])
+    const [stores, setStores] = useState<{ id: string, name: string, external_id: string }[]>([])
+    // Default West Covina (external_id is likely the GUID)
+    // If we load stores, we can default to the first one or keep this hardcoded default if it matches external_id format.
+    const [storeId, setStoreId] = useState('5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02')
+
+    // Correctly get local date YYYY-MM-DD
+    const getLocalDate = () => {
+        const d = new Date()
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+    }
+
+    const [startDate, setStartDate] = useState(getLocalDate())
+    const [endDate, setEndDate] = useState(getLocalDate())
+    const [sortConfig, setSortConfig] = useState<{ key: keyof FoodCostItem; direction: 'asc' | 'desc' }>({ key: 'quantity', direction: 'desc' })
+
+    useEffect(() => {
+        const fetchStores = async () => {
+            try {
+                const res = await fetch('/api/stores')
+                const json = await res.json()
+                if (Array.isArray(json)) {
+                    setStores(json)
+                }
+            } catch (e) {
+                console.error("Failed to fetch stores", e)
+            }
+        }
+        fetchStores()
+    }, [])
+
+    const fetchData = async () => {
+        setLoading(true)
+        try {
+            const res = await fetch(`/api/inventory/food-cost?storeId=${storeId}&startDate=${startDate}&endDate=${endDate}`)
+            const json = await res.json()
+            if (json.data) {
+                setData(json.data)
+            } else {
+                console.error(json.error)
+            }
+        } catch (e) {
+            console.error(e)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleSort = (key: keyof FoodCostItem) => {
+        let direction: 'asc' | 'desc' = 'desc'
+        if (sortConfig.key === key && sortConfig.direction === 'desc') {
+            direction = 'asc'
+        }
+        setSortConfig({ key, direction })
+    }
+
+    const sortedData = [...data].sort((a, b) => {
+        const aVal = a[sortConfig.key]
+        const bVal = b[sortConfig.key]
+
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+            return sortConfig.direction === 'asc'
+                ? aVal.localeCompare(bVal)
+                : bVal.localeCompare(aVal)
+        }
+
+        // Number comparison
+        // Handle boolean
+        if (typeof aVal === 'boolean') {
+            return sortConfig.direction === 'asc'
+                ? (Number(aVal) - Number(bVal))
+                : (Number(bVal) - Number(aVal))
+        }
+
+        return sortConfig.direction === 'asc'
+            ? (Number(aVal) - Number(bVal))
+            : (Number(bVal) - Number(aVal))
+    })
+
+    const totalSales = data.reduce((acc, item) => acc + item.net_sales, 0)
+    const totalCost = data.reduce((acc, item) => acc + item.total_cost, 0)
+    const totalFC = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
+
+    return (
+        <div className="p-6 max-w-[1600px] mx-auto space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Análisis de Food Cost</h1>
+                    <p className="text-slate-500">Reporte de Ventas vs Costo Teórico (PMIX)</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-slate-800 p-2 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+                    <select
+                        value={storeId}
+                        onChange={(e) => setStoreId(e.target.value)}
+                        className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600"
+                    >
+                        {stores.map(s => <option key={s.id} value={s.external_id || s.id}>{s.name}</option>)}
+                    </select>
+
+                    <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600"
+                    />
+                    <span className="text-slate-400">to</span>
+                    <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600"
+                    />
+
+                    <button
+                        onClick={fetchData}
+                        disabled={loading}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generar Reporte'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-medium text-slate-500 uppercase">Ventas Netas</h3>
+                    <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">
+                        ${totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                </div>
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-medium text-slate-500 uppercase">Costo Teórico Total</h3>
+                    <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">
+                        ${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                </div>
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-medium text-slate-500 uppercase">Food Cost %</h3>
+                    <div className="flex items-center gap-3 mt-2">
+                        <p className={`text-3xl font-bold ${totalFC > 35 ? 'text-red-500' : 'text-emerald-500'}`}>
+                            {totalFC.toFixed(1)}%
+                        </p>
+                        {totalFC > 35 && <AlertTriangle className="w-6 h-6 text-red-500" />}
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Table */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700">
+                            <tr>
+                                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('name')}>Producto</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('quantity')}>Cant. Vendida</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('net_sales')}>Ventas Netas</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_cost')}>Costo Unit.</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('total_cost')}>Costo Total</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('food_cost_percent')}>FC %</th>
+                                <th className="px-6 py-4 text-center">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                            {sortedData.map((item) => (
+                                <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
+                                        <div className="flex flex-col">
+                                            <span>{item.name}</span>
+                                            <span className="text-xs text-slate-400 font-mono">{item.guid.slice(0, 8)}...</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-medium">{item.quantity}</td>
+                                    <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-300">
+                                        ${item.net_sales.toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-300">
+                                        ${item.unit_cost.toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-medium text-slate-900 dark:text-white">
+                                        ${item.total_cost.toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        {item.net_sales > 0 ? (
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${item.food_cost_percent > 40 ? 'bg-red-100 text-red-700' :
+                                                item.food_cost_percent > 30 ? 'bg-yellow-100 text-yellow-700' :
+                                                    'bg-emerald-100 text-emerald-700'
+                                                }`}>
+                                                {item.food_cost_percent.toFixed(1)}%
+                                            </span>
+                                        ) : (
+                                            <span className="text-slate-400">-</span>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        {item.has_recipe ? (
+                                            item.missing_prices ? (
+                                                <span title="Receta incompleta (falta precio costo)" className="text-yellow-500">Inventory Missing $</span>
+                                            ) : (
+                                                <CheckCircle2 className="w-5 h-5 text-emerald-500 mx-auto" />
+                                            )
+                                        ) : (
+                                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400">
+                                                Sin Receta
+                                            </span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    {data.length === 0 && !loading && (
+                        <div className="p-12 text-center text-slate-500">
+                            No data found for this range. Click "Generar Reporte".
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}

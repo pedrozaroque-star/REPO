@@ -182,6 +182,7 @@ export async function syncToastPunches(storeId: string, startDate: string, endDa
     try {
         console.log(`Syncing punches for store ${storeId} [${startDate} to ${endDate}]`)
 
+        // 1. Fetch ALL data first to avoid partial state if fetch fails
         let allPunches: any[] = []
         let page = 1
         let hasMore = true
@@ -209,30 +210,63 @@ export async function syncToastPunches(storeId: string, startDate: string, endDa
             }
         }
 
-        console.log(`Total fetched: ${allPunches.length} punches from Toast`)
+        console.log(`Total fetched: ${allPunches.length} punches from Toast. Cleaning old data...`)
 
-        // Prepare for DB - Include hours from Toast response
+        // SAFETY CHECK: If Toast returns 0 records for a multi-day range, abort to prevent accidental mass deletion.
+        // Single day syncs might legitimately be 0 (closed store), but multi-day usually implies error.
+        const startDateObj = new Date(startDate)
+        const endDateObj = new Date(endDate)
+        const dayDiff = (endDateObj.getTime() - startDateObj.getTime()) / (1000 * 3600 * 24)
+
+        if (allPunches.length === 0 && dayDiff > 1.5) {
+            throw new Error("Safety Stop: Toast returned 0 records for a multi-day range. Aborting sync to protect existing data.")
+        }
+
+        // 2. Delete Existing Data for this Range (Prevent Ghost Shifts/Duplicates)
+        // Extract YYYY-MM-DD from ISO strings provided
+        const startYMD = startDate.split('T')[0]
+        const endYMD = endDate.split('T')[0]
+
+        const { error: deleteError } = await supabase
+            .from('punches')
+            .delete()
+            .eq('store_id', storeId)
+            .gte('business_date', startYMD)
+            .lte('business_date', endYMD)
+
+        if (deleteError) {
+            console.error('Error cleaning old punches:', deleteError)
+            throw new Error(`Failed to clean old punches: ${deleteError.message}`)
+        }
+
+        // 3. Prepare for DB - Include hours from Toast response
         const upsertData = allPunches.map((p: any) => {
             let bDate = p.businessDate ? `${p.businessDate.slice(0, 4)}-${p.businessDate.slice(4, 6)}-${p.businessDate.slice(6, 8)}` : null
 
-            // FALLBACK: If businessDate is null (common for live/open shifts), calculate from Check-In
-            if (!bDate && p.inDate) {
+            // ENFORCE 6 AM RULE:
+            // Toast sometimes assigns 4 AM shifts to "Today", but our rule is 6 AM.
+            // We must check the clock-in time and force the correct business date if it falls in the early morning window.
+            if (p.inDate) {
                 const clockIn = new Date(p.inDate)
-                // Business Day Logic: If shift starts before 4:00 AM, it belongs to previous day? 
-                // Actually standards say 6 AM but let's stick to simple "Day of Clock In in LA Time"
-                // Usually Toast assigns business date based on open time. 
-                // Let's use LA Time Date.
-                const laDate = new Date(clockIn.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                const laTime = new Date(clockIn.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
-                // If hour < 4 (4 AM), assume late night shift belonging to previous business day
-                if (laDate.getHours() < 4) {
-                    laDate.setDate(laDate.getDate() - 1)
+                // If shift starts before 6:00 AM LA Time, it belongs to the previous day.
+                // This overrides whatever Toast says if Toast thinks day starts at 4 AM.
+                if (laTime.getHours() < 6) {
+                    const correctedDate = new Date(laTime)
+                    correctedDate.setDate(correctedDate.getDate() - 1)
+
+                    const y = correctedDate.getFullYear()
+                    const m = String(correctedDate.getMonth() + 1).padStart(2, '0')
+                    const d = String(correctedDate.getDate()).padStart(2, '0')
+                    bDate = `${y}-${m}-${d}`
+                } else if (!bDate) {
+                    // Fallback if no businessDate and >= 6 AM
+                    const y = laTime.getFullYear()
+                    const m = String(laTime.getMonth() + 1).padStart(2, '0')
+                    const d = String(laTime.getDate()).padStart(2, '0')
+                    bDate = `${y}-${m}-${d}`
                 }
-
-                const y = laDate.getFullYear()
-                const m = String(laDate.getMonth() + 1).padStart(2, '0')
-                const d = String(laDate.getDate()).padStart(2, '0')
-                bDate = `${y}-${m}-${d}`
             }
 
             return {

@@ -4,8 +4,11 @@ import { getAuthToken } from '@/lib/toast-api'
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 
 // Interfaces for Toast API Response (Simplified)
+// Basic Interfaces
 interface ToastMenuResponse {
     menus: ToastMenu[]
+    modifierGroupReferences?: Record<string, ToastModifierGroupRef>
+    modifierOptionReferences?: Record<string, ToastModifierOptionRef>
 }
 
 interface ToastMenu {
@@ -28,6 +31,23 @@ interface ToastMenuItem {
     plu?: string
     sku?: string
     outOfStock?: boolean
+    modifierGroupReferences?: number[]
+}
+
+interface ToastModifierGroupRef {
+    referenceId: number
+    name: string
+    guid: string
+    modifierOptionReferences: number[]
+}
+
+interface ToastModifierOptionRef {
+    referenceId: number
+    name: string
+    guid: string
+    price?: number
+    sku?: string
+    plu?: string
 }
 
 // Flattened Item for DB
@@ -41,15 +61,10 @@ interface FlattenedMenuItem {
     active: boolean
 }
 
-/**
- * Fetch Menu from Toast API
- * Documentation: https://doc.toasttab.com/openapi/menus/operation/getMenus/
- */
 async function fetchToastMenuTree(token: string, restaurantGuid: string): Promise<FlattenedMenuItem[]> {
     const url = `${TOAST_API_HOST}/menus/v2/menus`
 
     // We fetch the entire menu tree for a single restaurant.
-    // Assuming the menu is shared or we just need one reference structure.
     const res = await fetch(url, {
         headers: {
             'Authorization': `Bearer ${token}`,
@@ -62,26 +77,52 @@ async function fetchToastMenuTree(token: string, restaurantGuid: string): Promis
         throw new Error(`Toast Menus API Error (${res.status}): ${txt}`)
     }
 
-    const data = await res.json() as any
-    // API might return an object with "menus" property or an array
+    const data = await res.json() as ToastMenuResponse
     const menus = Array.isArray(data) ? data : (data.menus || [])
-    // API returns an Array of Menus (e.g. "Food", "Drinks", "Online Ordering")
 
     // Flatten the tree
     const flatItems: FlattenedMenuItem[] = []
 
-    function processGroup(group: ToastMenuGroup, parentName: string) {
-        // console.log(`Processing Group: ${group.name} (${group.menuItems?.length || 0} items)`)
-        (group.menuItems || []).forEach(item => {
-            flatItems.push({
-                guid: item.guid,
-                name: item.name,
-                sku: item.sku || item.plu || null,
-                price: item.price || 0,
-                group_name: parentName ? `${parentName} > ${group.name}` : group.name,
-                is_modifier: false,
-                active: !item.outOfStock
+    // 1. Process Modifiers (if available at root)
+    if (data.modifierGroupReferences && data.modifierOptionReferences) {
+        console.log(`Processing ${Object.keys(data.modifierGroupReferences).length} Modifier Groups...`)
+
+        Object.values(data.modifierGroupReferences).forEach(group => {
+            const groupName = `[Mod] ${group.name}`
+
+            group.modifierOptionReferences.forEach(optId => {
+                const opt = data.modifierOptionReferences![optId]
+                if (opt) {
+                    flatItems.push({
+                        guid: opt.guid,
+                        name: opt.name,
+                        sku: opt.sku || opt.plu || null,
+                        price: opt.price || 0,
+                        group_name: groupName,
+                        is_modifier: true,
+                        active: true
+                    })
+                }
             })
+        })
+    }
+
+    // 2. Process Regular Menus (Last write wins for Dedupe)
+    function processItem(item: ToastMenuItem, parentName: string) {
+        flatItems.push({
+            guid: item.guid,
+            name: item.name,
+            sku: item.sku || item.plu || null,
+            price: item.price || 0,
+            group_name: parentName,
+            is_modifier: false,
+            active: !item.outOfStock
+        })
+    }
+
+    function processGroup(group: ToastMenuGroup, parentName: string) {
+        (group.menuItems || []).forEach(item => {
+            processItem(item, parentName ? `${parentName} > ${group.name}` : group.name)
         })
 
         if (group.menuGroups) {
@@ -90,7 +131,7 @@ async function fetchToastMenuTree(token: string, restaurantGuid: string): Promis
     }
 
     menus.forEach((menu: any) => {
-        console.log(`Processing Menu: ${menu.name} (Groups: ${menu.menuGroups?.length || 0})`)
+        // console.log(`Processing Menu: ${menu.name}`)
         if (menu.menuGroups) {
             menu.menuGroups.forEach((group: any) => processGroup(group, menu.name))
         }
@@ -98,6 +139,10 @@ async function fetchToastMenuTree(token: string, restaurantGuid: string): Promis
 
     // Deduplicate items by GUID
     // An item can appear in multiple groups/menus. We only need to store it once.
+    // Also modifiers might be shared across groups?
+    // If a modifier is shared, which group name should we keep?
+    // Maybe keep the one that is most descriptive?
+    // For now, map logic keeps the LAST one processed.
     const uniqueItems = Array.from(
         new Map(flatItems.map(item => [item.guid, item])).values()
     )

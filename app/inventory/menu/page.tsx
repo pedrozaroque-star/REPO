@@ -123,8 +123,15 @@ export default function MenuCatalogPage() {
                             ) : (
                                 filteredItems.map(item => (
                                     <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750">
-                                        <td className="px-4 py-3 text-slate-500">{item.group_name}</td>
-                                        <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{item.name}</td>
+                                        <td className="px-4 py-3 text-slate-500 text-xs">{item.group_name}</td>
+                                        <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                            {item.name}
+                                            {item.group_name?.startsWith('[Mod]') && (
+                                                <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded border border-purple-200 uppercase tracking-wide">
+                                                    Modificador
+                                                </span>
+                                            )}
+                                        </td>
                                         <td className="px-4 py-3 text-slate-500">${item.price?.toFixed(2)}</td>
                                         <td className="px-4 py-3 text-slate-500">
                                             {item.ingredientCount > 0 ? (
