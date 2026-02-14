@@ -16,13 +16,26 @@ export async function GET(request: Request) {
             }
         }
 
-        // Calcular AYER (Fecha de cierre)
-        // Usamos tiempo local o UTC? Toast suele trabajar en local store time.
-        // Asumiremos que el servidor corre en una zona compatible o usamos fecha simple.
+        // Calcular AYER (Fecha de cierre) CORRECTAMENTE en LA TIME
+        // 1. Obtener fecha actual en LA
         const now = new Date()
-        const yesterday = new Date(now)
-        yesterday.setDate(now.getDate() - 1)
-        const dateStr = yesterday.toISOString().split('T')[0]
+        const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+
+        // 2. Regla de Negocio: El día "operativo" termina a las 4 AM o 6 AM?
+        // Si son las 2 AM del Miercoles, todavía estamos cerrando Martes.
+        // Pero este CRON corre usualmente a las 6 AM o 7 AM UTC (que es ~11 PM LA anterior o 12 AM).
+        // A las 12 PM UTC (4 AM LA), todavía es "madrugada".
+
+        // SIMPLIFICACIÓN ROBUSTA:
+        // Si el cron corre a las 14:00 UTC (6 AM LA), queremos sincronizar AYER.
+        // Si son las 6 AM del Miercoles 12, queremos sync Martes 11.
+
+        const yesterday = new Date(laNow)
+        yesterday.setDate(yesterday.getDate() - 1)
+        const y = yesterday.getFullYear()
+        const m = String(yesterday.getMonth() + 1).padStart(2, '0')
+        const d = String(yesterday.getDate()).padStart(2, '0')
+        const dateStr = `${y}-${m}-${d}`
 
         console.log(`⏰ [CRON] Iniciando sincronización de ventas para: ${dateStr}`)
 

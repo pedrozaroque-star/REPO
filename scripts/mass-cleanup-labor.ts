@@ -23,12 +23,30 @@ async function main() {
         console.log(`🔄 Syncing: ${store.name}`)
         try {
             // Using the NEW logic which deletes old data first
-            const res = await syncToastPunches(store.external_id!, start, end)
-            if (res.success) {
-                console.log(`✅ Success! Synced ${res.count} shifts.`)
-            } else {
-                console.error(`❌ Failed: ${res.error}`)
+            // Chunk by 30 days to avoid Toast API Range Limit
+            // Jan 1 - Jan 30
+            // Jan 31 - Feb ...
+            const chunkStart = new Date(start)
+            const globalEnd = new Date(end)
+
+            while (chunkStart < globalEnd) {
+                const chunkEnd = new Date(chunkStart)
+                chunkEnd.setDate(chunkEnd.getDate() + 25) // 25 day chunks to be safe
+
+                const s = chunkStart.toISOString().split('T')[0] + 'T00:00:00.000+0000'
+                const e = (chunkEnd > globalEnd ? globalEnd : chunkEnd).toISOString().split('T')[0] + 'T23:59:59.999+0000'
+
+                console.log(`   > Batch [${s.split('T')[0]} to ${e.split('T')[0]}]`)
+
+                const res = await syncToastPunches(store.external_id!, s, e)
+                if (!res.success) {
+                    console.error(`   ❌ Failed Batch: ${res.error}`)
+                }
+
+                // Next Chunk
+                chunkStart.setDate(chunkStart.getDate() + 26)
             }
+            console.log(`✅ Store Sync Complete.`)
         } catch (e: any) {
             console.error(`❌ CRITICAL ERROR for ${store.name}: ${e.message}`)
         }

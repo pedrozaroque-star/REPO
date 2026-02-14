@@ -8,19 +8,27 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
     try {
-        // Logic: Scan last 7 days (Yesterday -> 8 days ago)
-        const today = new Date()
+        // Calcular Fechas en LA Time para evitar errores UTC
+        const now = new Date()
+        const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
         // End Date = Yesterday (Last complete day)
-        const endDate = new Date(today)
+        const endDate = new Date(laNow)
         endDate.setDate(endDate.getDate() - 1)
 
         // Start Date = 8 days ago
-        const startDate = new Date(today)
+        const startDate = new Date(laNow)
         startDate.setDate(startDate.getDate() - 8)
 
-        const startStr = startDate.toISOString().split('T')[0]
-        const endStr = endDate.toISOString().split('T')[0]
+        const y1 = startDate.getFullYear()
+        const m1 = String(startDate.getMonth() + 1).padStart(2, '0')
+        const d1 = String(startDate.getDate()).padStart(2, '0')
+        const startStr = `${y1}-${m1}-${d1}`
+
+        const y2 = endDate.getFullYear()
+        const m2 = String(endDate.getMonth() + 1).padStart(2, '0')
+        const d2 = String(endDate.getDate()).padStart(2, '0')
+        const endStr = `${y2}-${m2}-${d2}`
 
         console.log(`🛡️ [CRON INTEGRITY] Starting Deep Scan: ${startStr} to ${endStr}`)
 

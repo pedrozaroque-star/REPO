@@ -568,6 +568,22 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
 
             const data = await res.json()
             const entries = Array.isArray(data) ? data : (data.timeEntries || [])
+
+            // LOOP PROTECTION: Check for duplicates to prevent infinite loops or double counting
+            // (Same fix as in toast-labor.ts)
+            if (entries.length > 0 && allEntries.length > 0) {
+                const newIds = entries.map((e: any) => e.guid).join(',')
+                // Check last N entries
+                const lastBatchStart = Math.max(0, allEntries.length - entries.length)
+                const lastBatchIds = allEntries.slice(lastBatchStart).map((e: any) => e.guid).join(',')
+
+                if (newIds === lastBatchIds) {
+                    console.warn(`⚠️  Infinite loop detected in Dashboard Labor Fetch (Page ${page}). Stopping.`)
+                    hasMore = false
+                    break
+                }
+            }
+
             allEntries = allEntries.concat(entries)
             if (entries.length < pageSize) hasMore = false
             else page++
@@ -577,7 +593,40 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
         const now = new Date()
 
         allEntries.forEach((entry: any) => {
-            const bDate = entry.businessDate // YYYYMMDD
+            let bDate = entry.businessDate // YYYYMMDD string from Toast
+
+            // 🛠️ ENFORCE 6 AM RULE (Parity with toast-labor.ts) 🛠️
+            // Toast defaults to 4 AM cutoff (usually). We use 6 AM.
+            // If a shift starts between 00:00 and 06:00, it belongs to the PREVIOUS day.
+            if (entry.inDate) {
+                const clockIn = new Date(entry.inDate)
+                const laTime = new Date(clockIn.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+
+                if (laTime.getHours() < 6) {
+                    // Shift belongs to previous day
+                    const prev = new Date(laTime)
+                    prev.setDate(prev.getDate() - 1)
+                    const y = prev.getFullYear()
+                    const m = String(prev.getMonth() + 1).padStart(2, '0')
+                    const d = String(prev.getDate()).padStart(2, '0')
+                    bDate = `${y}${m}${d}` // Update bDate to YYYYMMDD
+                } else {
+                    // Falls back to Toast's date, or recalculate if needed, but Toast is usually right for >6am
+                    // Ensure format matches
+                    if (!bDate) {
+                        const y = laTime.getFullYear()
+                        const m = String(laTime.getMonth() + 1).padStart(2, '0')
+                        const d = String(laTime.getDate()).padStart(2, '0')
+                        bDate = `${y}${m}${d}`
+                    }
+                }
+            }
+
+            // Ensure YYYY-MM-DD format for the key (Toast returns YYYYMMDD usually, but let's normalize)
+            if (bDate && !bDate.includes('-') && bDate.length === 8) {
+                bDate = `${bDate.slice(0, 4)}-${bDate.slice(4, 6)}-${bDate.slice(6, 8)}`
+            }
+
             if (!dailyLabor[bDate]) dailyLabor[bDate] = { hours: 0, laborCost: 0 }
 
             let regHours = entry.regularHours || entry.paidHours || 0

@@ -188,25 +188,70 @@ export async function syncToastPunches(storeId: string, startDate: string, endDa
         let hasMore = true
 
         while (hasMore) {
-            const url = `${TOAST_API_HOST}/labor/v1/timeEntries?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&page=${page}&pageSize=100`
+            let retryCount = 0
+            const maxRetries = 3
+            let success = false
 
-            const res = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Toast-Restaurant-External-ID': storeId
+            while (!success && retryCount < maxRetries) {
+                const url = `${TOAST_API_HOST}/labor/v1/timeEntries?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&page=${page}&pageSize=100`
+                try {
+                    const res = await fetch(url, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Toast-Restaurant-External-ID': storeId
+                        }
+                    })
+
+                    if (!res.ok) {
+                        if (res.status === 429 || res.status >= 500) {
+                            console.warn(`⚠️  Toast API ${res.status} (Page ${page}). Retrying (${retryCount + 1}/${maxRetries})...`)
+                            await new Promise(r => setTimeout(r, 2000 * (retryCount + 1)))
+                            retryCount++
+                            continue
+                        }
+                        throw new Error(`Failed to fetch punches page ${page}: ${res.status} ${await res.text()}`)
+                    }
+
+                    const data = await res.json()
+                    success = true // Proceed
+
+                    if (Array.isArray(data) && data.length > 0) {
+                        // LOOP PROTECTION: Check if API is returning the same page
+                        const newIds = data.map((x: any) => x.guid).join(',')
+                        if (allPunches.length > 0) {
+                            // Check against the last N records (where N is current batch size)
+                            const lastPageStart = Math.max(0, allPunches.length - data.length)
+                            const lastPageIds = allPunches.slice(lastPageStart).map((x: any) => x.guid).join(',')
+
+                            if (newIds === lastPageIds) {
+                                console.warn(`⚠️  Infinite loop detected (API returned same page ${page}). Stopping fetch.`)
+                                hasMore = false
+                                success = true
+                                break
+                            }
+                        }
+
+                        allPunches = [...allPunches, ...data]
+                        console.log(`Fetched page ${page}: ${data.length} punches`)
+
+                        // Strict Stop Condition:
+                        // If we received fewer records than requested, we are surely done.
+                        // Toast API behavior: if data.length < pageSize, it's the last page.
+                        if (data.length < 50) { // Using 50 generally safe if pageSize is 100
+                            hasMore = false
+                        } else {
+                            page++
+                        }
+                    } else {
+                        hasMore = false
+                    }
+
+                } catch (err: any) {
+                    if (retryCount >= maxRetries - 1) throw err
+                    console.warn(`⚠️  Fetch Error: ${err.message}. Retrying...`)
+                    retryCount++
+                    await new Promise(r => setTimeout(r, 2000))
                 }
-            })
-
-            if (!res.ok) throw new Error(`Failed to fetch punches page ${page}: ${res.status} ${await res.text()}`)
-            const data = await res.json()
-
-            if (Array.isArray(data) && data.length > 0) {
-                allPunches = [...allPunches, ...data]
-                console.log(`Fetched page ${page}: ${data.length} punches`)
-                if (data.length < 100) hasMore = false
-                else page++
-            } else {
-                hasMore = false
             }
         }
 
