@@ -47,7 +47,7 @@ async function inspectRaw() {
     if (!data.modifierGroupReferences) return
 
     let targetGroupRefId: string | number | null = null
-    Object.values(data.modifierGroupReferences).forEach(g => {
+    Object.values(data.modifierGroupReferences).forEach((g: any) => {
         if (g.name.includes('Taco Choice')) {
             console.log(`Found Target Mod Group: ${g.name} (RefID: ${g.referenceId})`)
             targetGroupRefId = g.referenceId
