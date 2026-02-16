@@ -123,6 +123,13 @@ async function getRestaurants(token: string) {
     })
 
     if (!res.ok) {
+        console.error(`❌ getRestaurants failed: ${res.status} ${res.statusText}`)
+        // If Unauthorized, clear cache so we retry login next time
+        if (res.status === 401 || res.status === 403) {
+            console.warn('⚠️ Token invalid/expired. Clearing cache.')
+            cachedToken = null
+            tokenExpiry = 0
+        }
         return []
     }
 
@@ -854,11 +861,11 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         const sales = await getSalesForStore(token, store.id, dateStr, dateStr, options.fastMode)
 
                         // Fetch Labor specifically for this day (Lazy Load)
-                        const bKey = dateStr.split('-').join('')
                         let labor = { hours: 0, laborCost: 0 }
                         try {
                             const laborMap = await getLaborForRange(token, store.id, dateStr, dateStr)
-                            if (laborMap[bKey]) labor = laborMap[bKey]
+                            // laborMap keys are normalized to YYYY-MM-DD
+                            if (laborMap[dateStr]) labor = laborMap[dateStr]
                         } catch (e) { /* ignore labor error */ }
 
                         // --- SELF-HEALING CACHE (Write-Back) ---
@@ -1172,6 +1179,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 r.serviceCharges = Number((r.serviceCharges || 0).toFixed(2))
 
                 r.laborCost = Number(r.laborCost.toFixed(2))
+
                 r.totalHours = Number(r.totalHours.toFixed(2))
                 r.laborPercentage = Number(r.laborPercentage.toFixed(1))
                 r.splh = Number(r.splh.toFixed(2))

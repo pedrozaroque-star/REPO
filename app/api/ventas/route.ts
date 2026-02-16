@@ -65,6 +65,17 @@ export async function GET(request: NextRequest) {
 
         const { rows, connectionError } = await fetchToastData(options)
 
+        // DEBUG: Check Labor
+        if (rows.length > 0) {
+            const totalLabor = rows.reduce((acc, r) => acc + (r.laborCost || 0), 0)
+            console.log(`[API DEBUG] /api/ventas returned ${rows.length} rows. Total Labor Cost: ${totalLabor}`)
+            if (totalLabor === 0) {
+                console.warn('[API WARNING] Labor Cost is 0 everywhere!')
+                // Check first row detail
+                console.log('[API DEBUG] Row[0]:', JSON.stringify(rows[0], null, 2))
+            }
+        }
+
         // 📊 PROJECTION ENHANCEMENT: Use LIVE Intelligence Engine
 
         // CASE 1: Single day with hourly view (Today/Yesterday)
