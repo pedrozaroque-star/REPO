@@ -471,13 +471,13 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     }
 
     // --- HOLIDAY LOGIC: VALENTINE'S DAY ---
-    if (targetMonth === 1 && targetDayOfMonth === 14) {
-        // Feb 14th - Historical analysis shows inconsistent boost (2021-2025 avg ~+7%)
-        // Changed from 15% to 7% (Feb 2026 calibration based on 5-year average)
-        baseSales *= 1.07
-        Object.keys(hourlySalesDist).forEach(h => hourlySalesDist[h] *= 1.07)
-        Object.keys(hourlyTicketDist).forEach(h => hourlyTicketDist[h] *= 1.05)
-    }
+    // if (targetMonth === 1 && targetDayOfMonth === 14) {
+    //    // Feb 14th - Historical analysis shows inconsistent boost (2021-2025 avg ~+7%)
+    //    // Changed from 15% to 7% (Feb 2026 calibration based on 5-year average)
+    //    baseSales *= 1.07
+    //    Object.keys(hourlySalesDist).forEach(h => hourlySalesDist[h] *= 1.07)
+    //    Object.keys(hourlyTicketDist).forEach(h => hourlyTicketDist[h] *= 1.05)
+    // }
 
     // APPLY FACTORS SEPARATELY
     const projectedTotal = baseSales * growthFactorSales * weatherFactor
