@@ -12,7 +12,7 @@ async function debug() {
         storeIds: 'all',
         startDate: '2025-02-13',
         endDate: '2025-02-13',
-        groupBy: 'hour', // Force hourly to match "Today" view logic often used
+        groupBy: 'day', // Changed from hour to day to clear build error
         skipCache: false
     })
 
