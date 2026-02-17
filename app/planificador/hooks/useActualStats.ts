@@ -61,12 +61,66 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
         setLoading(false)
     }, [storeGuid, weekStart])
 
+    // Force Live Sync
+    const forceRefresh = useCallback(async () => {
+        if (!storeGuid) return
+        setLoading(true)
+        try {
+            // 1. Fetch Live Data (Overlay Layer) - Read Only Sales, Write Labor
+            const res = await fetch('/api/sync/sales-live', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ storeId: storeGuid })
+            })
+            const json = await res.json()
+
+            // 2. Refresh DB Data (Base Layer) - Get new Punches from DB
+            await fetchRawData()
+
+            if (json.success && json.sales_data) {
+                // Determine Date from API or fallback to JS logic
+                // The API logic for "today" is robust, but let's re-calculate client side to be safe 
+                // or rely on what matches the current view.
+                // Ideally API sends back the date it queried.
+                // Assuming json.message contains date or we compute it.
+
+                // My debug script showed API doesn't return date explicitly in top level, 
+                // but let's re-use the "getBusinessDate" logic roughly or just update "Today".
+
+                const now = new Date()
+                const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                if (laTime.getHours() < 4) laTime.setDate(laTime.getDate() - 1)
+                const y = laTime.getFullYear()
+                const m = String(laTime.getMonth() + 1).padStart(2, '0')
+                const d = String(laTime.getDate()).padStart(2, '0')
+                const todayStr = `${y}-${m}-${d}`
+
+                setSales(prev => {
+                    // Remove existing entry for today (stale DB data)
+                    const others = prev.filter(r => r.business_date !== todayStr)
+                    // Add fresh Live entry
+                    return [...others, {
+                        business_date: todayStr,
+                        net_sales: json.sales_data
+                    }]
+                })
+            }
+
+        } catch (e) {
+            console.error(e)
+        } finally {
+            setLoading(false)
+        }
+    }, [storeGuid, fetchRawData])
+
     // 1. Initial Load & Reset on Change
     useEffect(() => {
         setActuals({}) // Reset immediately to avoid stale data from previous store
         setLoading(true)
-        fetchRawData()
-    }, [fetchRawData])
+        // ⚡ FORCE LIVE REFRESH ON STORE CHANGE ⚡
+        // This ensures "Today's" sales are accurate immediately
+        forceRefresh()
+    }, [forceRefresh])
 
     // 2. Interval Effect: Recalculate 'actuals' every 60s using raw data + NOW
     useEffect(() => {
@@ -170,57 +224,7 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
         return () => clearInterval(interval)
     }, [punches, sales, wages, weekStart])
 
-    // Force Live Sync
-    const forceRefresh = useCallback(async () => {
-        if (!storeGuid) return
-        setLoading(true)
-        try {
-            // 1. Fetch Live Data (Overlay Layer) - Read Only Sales, Write Labor
-            const res = await fetch('/api/sync/sales-live', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ storeId: storeGuid })
-            })
-            const json = await res.json()
 
-            // 2. Refresh DB Data (Base Layer) - Get new Punches from DB
-            await fetchRawData()
-
-            if (json.success && json.sales_data) {
-                // Determine Date from API or fallback to JS logic
-                // The API logic for "today" is robust, but let's re-calculate client side to be safe 
-                // or rely on what matches the current view.
-                // Ideally API sends back the date it queried.
-                // Assuming json.message contains date or we compute it.
-
-                // My debug script showed API doesn't return date explicitly in top level, 
-                // but let's re-use the "getBusinessDate" logic roughly or just update "Today".
-
-                const now = new Date()
-                const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-                if (laTime.getHours() < 4) laTime.setDate(laTime.getDate() - 1)
-                const y = laTime.getFullYear()
-                const m = String(laTime.getMonth() + 1).padStart(2, '0')
-                const d = String(laTime.getDate()).padStart(2, '0')
-                const todayStr = `${y}-${m}-${d}`
-
-                setSales(prev => {
-                    // Remove existing entry for today (stale DB data)
-                    const others = prev.filter(r => r.business_date !== todayStr)
-                    // Add fresh Live entry
-                    return [...others, {
-                        business_date: todayStr,
-                        net_sales: json.sales_data
-                    }]
-                })
-            }
-
-        } catch (e) {
-            console.error(e)
-        } finally {
-            setLoading(false)
-        }
-    }, [storeGuid, fetchRawData])
 
     return { actuals, loading, refetch: forceRefresh }
 }
