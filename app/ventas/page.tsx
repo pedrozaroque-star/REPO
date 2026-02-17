@@ -646,8 +646,8 @@ function SalesPageContent() {
                                     <tr>
                                         <th className="px-6 py-4 w-12 text-center">#</th>
                                         <th className="px-6 py-4">{t('sales.store')}</th>
-                                        <th className="px-6 py-4 text-right">{t('sales.net_sales')}</th>
                                         <th className="px-6 py-4 text-right text-indigo-500">{t('sales.projected').toUpperCase()}</th>
+                                        <th className="px-6 py-4 text-right">{t('sales.net_sales')}</th>
                                         <th className="px-6 py-4 text-right text-emerald-600">{t('sales.difference').toUpperCase()}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.orders')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.avg_ticket')}</th>
@@ -667,11 +667,11 @@ function SalesPageContent() {
                                                 <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-lg">
                                                     {formatStoreName(store.name || store.storeName)}
                                                 </td>
-                                                <td className="px-6 py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-lg">
-                                                    ${store.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </td>
                                                 <td className="px-6 py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-lg">
                                                     ${(store.projectedSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className="px-6 py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-lg">
+                                                    ${store.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (store.projectedSales || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                                     {store.amount - (store.projectedSales || 0) >= 0 ? '+' : ''}
