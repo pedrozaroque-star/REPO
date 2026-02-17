@@ -61,8 +61,10 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
         setLoading(false)
     }, [storeGuid, weekStart])
 
-    // 1. Initial Load
+    // 1. Initial Load & Reset on Change
     useEffect(() => {
+        setActuals({}) // Reset immediately to avoid stale data from previous store
+        setLoading(true)
         fetchRawData()
     }, [fetchRawData])
 
