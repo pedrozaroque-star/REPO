@@ -516,7 +516,10 @@ const dictionaries: Record<Language, any> = {
                     na: 'N/A',
                     new_badge: 'NUEVO',
                     placeholder_text: 'Escribe tus observaciones aquí...',
-                    over_limit: '⚠️ > 2 Lbs'
+                    over_limit: '⚠️ > 2 Lbs',
+                    complies: 'CUMPLE',
+                    partial: 'PARCIAL',
+                    does_not_comply: 'NO CUMPLE'
                 }
             },
             review: {
@@ -1336,7 +1339,10 @@ const dictionaries: Record<Language, any> = {
                     na: 'N/A',
                     new_badge: 'NEW',
                     placeholder_text: 'Write your observations here...',
-                    over_limit: '⚠️ > 2 Lbs'
+                    over_limit: '⚠️ > 2 Lbs',
+                    complies: 'COMPLIES',
+                    partial: 'PARTIAL',
+                    does_not_comply: 'DOES NOT COMPLY'
                 }
             },
             review: {
@@ -1500,7 +1506,7 @@ const dictionaries: Record<Language, any> = {
                     text: "Free Text",
                     number: "Number",
                     photo: "Photo Only",
-                    compliance: "Pass / Partial / Fail"
+                    compliance: "Complies / Partial / Does Not Comply"
                 },
                 errors: {
                     not_found: "Template not found",

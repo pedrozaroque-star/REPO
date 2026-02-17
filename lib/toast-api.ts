@@ -53,6 +53,7 @@ export interface MetricRow {
     ebtAmount?: number
     hourlySales?: Record<number, number>
     hourlyTickets?: Record<number, number>
+    hourlyLabor?: Record<number, number>
 }
 
 // Map store generic ID to Toast restaurantGuid - DEPRECATED
@@ -661,7 +662,7 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
             else page++
         }
 
-        const dailyLabor: Record<string, { hours: number, laborCost: number }> = {}
+        const dailyLabor: Record<string, { hours: number, laborCost: number, hourlyLabor: Record<number, number> }> = {}
         const now = new Date()
 
         allEntries.forEach((entry: any) => {
@@ -699,7 +700,7 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
                 bDate = `${bDate.slice(0, 4)}-${bDate.slice(4, 6)}-${bDate.slice(6, 8)}`
             }
 
-            if (!dailyLabor[bDate]) dailyLabor[bDate] = { hours: 0, laborCost: 0 }
+            if (!dailyLabor[bDate]) dailyLabor[bDate] = { hours: 0, laborCost: 0, hourlyLabor: {} }
 
             let regHours = entry.regularHours || entry.paidHours || 0
             let otHours = entry.overtimeHours || 0
@@ -723,12 +724,55 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
 
             dailyLabor[bDate].laborCost += pay
             dailyLabor[bDate].hours += (regHours + otHours + dtHours)
+
+            // 🕒 DISTRIBUTE PAY HOURLY 🕒
+            if (entry.inDate && pay > 0) {
+                const inTime = new Date(entry.inDate).getTime()
+                const outTime = entry.outDate ? new Date(entry.outDate).getTime() : now.getTime()
+                const durationMs = outTime - inTime
+
+                if (durationMs > 0) {
+                    let current = inTime
+                    while (current < outTime) {
+                        const d = new Date(current)
+                        d.setMinutes(0, 0, 0, 0) // Start of hour
+                        const hourStart = d.getTime()
+                        const hourEnd = hourStart + 3600000
+
+                        // Determine overlap
+                        const overlapStart = Math.max(current, hourStart)
+                        const overlapEnd = Math.min(outTime, hourEnd)
+                        const overlapMs = overlapEnd - overlapStart
+
+                        if (overlapMs > 0) {
+                            const fraction = overlapMs / durationMs
+                            const portionCost = pay * fraction
+
+                            // Get Hour Key 0-23 (LA Time)
+                            const laTime = new Date(overlapStart).toLocaleTimeString('en-US', { hour12: false, hour: 'numeric', timeZone: 'America/Los_Angeles' })
+                            let hourKey = parseInt(laTime)
+                            if (hourKey === 24) hourKey = 0
+
+                            if (!dailyLabor[bDate].hourlyLabor[hourKey]) dailyLabor[bDate].hourlyLabor[hourKey] = 0
+                            dailyLabor[bDate].hourlyLabor[hourKey] += portionCost
+                        }
+                        // Advance
+                        current = overlapEnd
+                        if (current >= outTime) break
+                        if (current === overlapStart) break // Safety (should not happen)
+                    }
+                }
+            }
         })
 
         // Round final daily totals only once
         Object.keys(dailyLabor).forEach(date => {
             dailyLabor[date].laborCost = Number(dailyLabor[date].laborCost.toFixed(2))
             dailyLabor[date].hours = Number(dailyLabor[date].hours.toFixed(2))
+            // Round hourly too
+            Object.keys(dailyLabor[date].hourlyLabor).forEach((h: any) => {
+                dailyLabor[date].hourlyLabor[h] = Number(dailyLabor[date].hourlyLabor[h].toFixed(2))
+            })
         })
 
         return dailyLabor
@@ -926,11 +970,11 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         const sales = await getSalesForStore(token, store.id, dateStr, dateStr, options.fastMode)
 
                         // Fetch Labor specifically for this day (Lazy Load)
-                        let labor = { hours: 0, laborCost: 0 }
+                        let labor = { hours: 0, laborCost: 0, hourlyLabor: {} }
                         try {
                             const laborMap = await getLaborForRange(token, store.id, dateStr, dateStr)
                             // laborMap keys are normalized to YYYY-MM-DD
-                            if (laborMap[dateStr]) labor = laborMap[dateStr]
+                            if (laborMap[dateStr]) labor = laborMap[dateStr] as any
                         } catch (e) { /* ignore labor error */ }
 
                         // --- SELF-HEALING CACHE (Write-Back) ---
@@ -1162,7 +1206,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             grubhubSales: i === 0 ? (salesMetrics.grubhubSales || 0) : 0,
                             ebtCount: i === 0 ? (salesMetrics.ebtCount || 0) : 0,
                             ebtAmount: i === 0 ? (salesMetrics.ebtAmount || 0) : 0,
-                            hourlySales: i === 0 ? (salesMetrics.hourlySales || {}) : {}
+                            hourlySales: i === 0 ? (salesMetrics.hourlySales || {}) : {},
+                            hourlyLabor: i === 0 ? (laborMetrics.hourlyLabor || {}) : {}
                         })
                     }
                 } else {
@@ -1200,7 +1245,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             grubhubSales: 0,
                             ebtCount: 0,
                             ebtAmount: 0,
-                            hourlySales: {}
+                            hourlySales: {},
+                            hourlyLabor: {}
                         }
                         rows.push(existing)
                     }
@@ -1225,6 +1271,12 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                     existing.hourlySales = existing.hourlySales || {}
                     for (let h = 0; h < 24; h++) {
                         existing.hourlySales[h] = (existing.hourlySales[h] || 0) + (hSales[h] || 0)
+                    }
+
+                    const hLabor = laborMetrics.hourlyLabor || {}
+                    existing.hourlyLabor = existing.hourlyLabor || {}
+                    for (let h = 0; h < 24; h++) {
+                        existing.hourlyLabor[h] = (existing.hourlyLabor[h] || 0) + (hLabor[h] || 0)
                     }
 
                 }

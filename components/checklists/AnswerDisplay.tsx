@@ -1,6 +1,7 @@
 import React from 'react'
 import { Star, CheckCircle, AlertCircle } from 'lucide-react'
 import { getTempValidation } from '@/lib/checklistValidators'
+import { useLanguage } from '@/lib/i18n'
 
 interface AnswerDisplayProps {
     question: {
@@ -14,6 +15,7 @@ interface AnswerDisplayProps {
 }
 
 export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }: AnswerDisplayProps) {
+    const { t } = useLanguage()
     let value = rawValue
     // Normalización del objeto valor (para compatibilidad con diferentes versiones de datos)
     if (value && typeof value === 'object') {
@@ -52,7 +54,7 @@ export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }:
                     }
                     return (
                         <div key={opt} className={`flex-1 py-3 px-2 rounded-xl font-bold text-xs text-center transition-all border-2 ${activeClass}`}>
-                            {opt === 'SI' ? 'SÍ' : opt === 'NO' ? 'NO' : 'N/A'}
+                            {opt === 'SI' ? t('inspections.form.dynamic.yes') : opt === 'NO' ? t('inspections.form.dynamic.no') : t('inspections.form.dynamic.na')}
                         </div>
                     )
                 })}
@@ -102,9 +104,9 @@ export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }:
         return (
             <div className="flex gap-1 min-w-[150px]">
                 {[
-                    { label: 'SÍ', val: 100, color: 'bg-green-500', bgOff: 'bg-green-50' },
-                    { label: 'REGULAR', val: 60, color: 'bg-orange-500', bgOff: 'bg-orange-50' },
-                    { label: 'NO', val: 0, color: 'bg-red-500', bgOff: 'bg-red-50' }
+                    { label: t('inspections.form.dynamic.complies'), val: 100, color: 'bg-green-500', bgOff: 'bg-green-50' },
+                    { label: t('inspections.form.dynamic.partial'), val: 60, color: 'bg-orange-500', bgOff: 'bg-orange-50' },
+                    { label: t('inspections.form.dynamic.does_not_comply'), val: 0, color: 'bg-red-500', bgOff: 'bg-red-50' }
                 ].map(opt => {
                     const isSelected = numValue === opt.val
                     return (

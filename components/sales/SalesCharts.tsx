@@ -44,6 +44,7 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
 
         const actual = payload.find((p: any) => p.dataKey === 'amount')
         const projected = payload.find((p: any) => p.dataKey === 'projected')
+        const labor = payload.find((p: any) => p.dataKey === 'laborPercentage')
 
         // Calculate Variance for Tooltip
         let varianceElement = null
@@ -88,13 +89,25 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
                 )}
 
                 {projected && projected.value > 0 && (
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center justify-between gap-4 mb-2">
                         <span className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
                             <span className="w-3 h-3 bg-indigo-500 rounded-full border-2 border-indigo-300"></span>
                             {t('sales.charts.projected')}
                         </span>
                         <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
                             ${projected.value?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                    </div>
+                )}
+
+                {labor && labor.value > 0 && (
+                    <div className="flex items-center justify-between gap-4">
+                        <span className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
+                            <span className="w-3 h-3 bg-amber-500 rounded-full border-2 border-amber-300"></span>
+                            Labor %
+                        </span>
+                        <span className="font-mono font-bold text-amber-500 dark:text-amber-400">
+                            {Number(labor.value).toFixed(1)}%
                         </span>
                     </div>
                 )}
@@ -128,6 +141,8 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
 
     // Check if trend data has projections
     const hasProjections = trendData.some(d => d.projected && d.projected > 0)
+    // Check if trend data has labor percentage (valid numbers > 0)
+    const hasLabor = trendData.some(d => d.laborPercentage && d.laborPercentage > 0)
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -139,18 +154,24 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                         <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
                         {t('sales.charts.sales_trend')}
                     </h3>
-                    {hasProjections && (
-                        <div className="flex items-center gap-4 text-xs">
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-3 h-3 bg-emerald-500 rounded"></span>
-                                <span className="text-slate-600 dark:text-slate-400 font-medium">{t('sales.charts.actual')}</span>
-                            </span>
+                    <div className="flex flex-wrap items-center gap-4 text-xs justify-end">
+                        <span className="flex items-center gap-1.5">
+                            <span className="w-3 h-3 bg-emerald-500 rounded"></span>
+                            <span className="text-slate-600 dark:text-slate-400 font-medium">{t('sales.charts.actual')}</span>
+                        </span>
+                        {hasProjections && (
                             <span className="flex items-center gap-1.5">
                                 <span className="w-3 h-3 bg-indigo-500 rounded-full"></span>
                                 <span className="text-slate-600 dark:text-slate-400 font-medium">{t('sales.charts.projected')}</span>
                             </span>
-                        </div>
-                    )}
+                        )}
+                        {hasLabor && (
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-3 h-3 bg-amber-500 rounded-full"></span>
+                                <span className="text-slate-600 dark:text-slate-400 font-medium">Labor %</span>
+                            </span>
+                        )}
+                    </div>
                 </div>
                 <div className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -186,12 +207,28 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                     }
                                 }}
                             />
+                            {/* Left Y-Axis: Sales Amount */}
                             <YAxis
+                                yAxisId="left"
                                 axisLine={false}
                                 tickLine={false}
                                 tick={{ fill: 'currentColor', fontSize: 12, fontWeight: 600, opacity: 1 }}
                                 tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
                             />
+
+                            {/* Right Y-Axis: Labor % (Only if data exists) */}
+                            {hasLabor && (
+                                <YAxis
+                                    yAxisId="right"
+                                    orientation="right"
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tick={{ fill: '#f59e0b', fontSize: 11, fontWeight: 600, opacity: 0.8 }}
+                                    tickFormatter={(value) => `${value}%`}
+                                    domain={[0, (dataMax: number) => Math.min(100, Math.ceil(dataMax * 1.5))]} // Auto-scale but cap at 100
+                                />
+                            )}
+
                             <Tooltip
                                 content={<CombinedTooltip language={language} t={t} />}
                                 cursor={{ fill: 'currentColor', fillOpacity: 0.05 }}
@@ -199,6 +236,7 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
 
                             {/* BARS for Actual Sales */}
                             <Bar
+                                yAxisId="left"
                                 dataKey="amount"
                                 fill="url(#colorActual)"
                                 radius={[4, 4, 0, 0]}
@@ -208,12 +246,26 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                             {/* LINE for Projections */}
                             {hasProjections && (
                                 <Line
+                                    yAxisId="left"
                                     type="monotone"
                                     dataKey="projected"
                                     stroke="#6366f1"
                                     strokeWidth={3}
                                     dot={{ fill: '#6366f1', strokeWidth: 2, r: 4 }}
                                     activeDot={{ r: 6, stroke: '#6366f1', strokeWidth: 2, fill: '#fff' }}
+                                />
+                            )}
+
+                            {/* LINE for Labor % */}
+                            {hasLabor && (
+                                <Line
+                                    yAxisId="right"
+                                    type="monotone"
+                                    dataKey="laborPercentage"
+                                    stroke="#f59e0b"
+                                    strokeWidth={3}
+                                    dot={{ fill: '#f59e0b', strokeWidth: 2, r: 3 }}
+                                    activeDot={{ r: 5, stroke: '#f59e0b', strokeWidth: 2, fill: '#fff' }}
                                 />
                             )}
                         </ComposedChart>

@@ -88,7 +88,7 @@ function SalesPageContent() {
             .sort((a: any, b: any) => b.amount - a.amount)
 
         // Trend Data
-        const trendMap = new Map()
+        const trendMap = new Map<string, { amount: number, labor: number }>()
 
         // Helper date formatter needed here or assume passed via closure? 
         // We need 'start' date to generate Hourly Ticks.
@@ -114,7 +114,7 @@ function SalesPageContent() {
                 const isNextDay = h < 6
                 const dateP = isNextDay ? nextDateStr : baseDateStr
                 const timeKey = `${dateP} ${h.toString().padStart(2, '0')}:00`
-                trendMap.set(timeKey, 0)
+                trendMap.set(timeKey, { amount: 0, labor: 0 })
                 projMap.set(timeKey, 0) // Initialize projections too
             })
 
@@ -129,8 +129,23 @@ function SalesPageContent() {
                         const isNext = hourInt < 6
                         const dStr = isNext ? nextDateStr : baseDateStr
                         const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-                        if (trendMap.has(key)) {
-                            trendMap.set(key, trendMap.get(key) + (Number(amount) || 0))
+                        const bucket = trendMap.get(key)
+                        if (bucket) {
+                            bucket.amount += (Number(amount) || 0)
+                        }
+                    })
+                }
+
+                // Aggregate Hourly Labor
+                if (row.hourlyLabor) {
+                    Object.entries(row.hourlyLabor).forEach(([h, cost]) => {
+                        const hourInt = parseInt(h)
+                        const isNext = hourInt < 6
+                        const dStr = isNext ? nextDateStr : baseDateStr
+                        const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
+                        const bucket = trendMap.get(key)
+                        if (bucket) {
+                            bucket.labor += (Number(cost) || 0)
                         }
                     })
                 }
@@ -158,8 +173,10 @@ function SalesPageContent() {
         } else {
             rows.forEach((row: any) => {
                 const key = row.periodStart
-                if (!trendMap.has(key)) trendMap.set(key, 0)
-                trendMap.set(key, trendMap.get(key) + (row.netSales || 0))
+                if (!trendMap.has(key)) trendMap.set(key, { amount: 0, labor: 0 })
+                const bucket = trendMap.get(key)!
+                bucket.amount += (row.netSales || 0)
+                bucket.labor += (row.laborCost || 0)
 
                 // Aggregate projections by day if available
                 if (row.projectedSales) {
@@ -170,9 +187,11 @@ function SalesPageContent() {
         }
 
         const trendData = Array.from(trendMap.entries())
-            .map(([time, amount]) => ({
+            .map(([time, val]) => ({
                 time,
-                amount,
+                amount: val.amount,
+                laborCost: val.labor,
+                laborPercentage: val.amount > 0 ? (val.labor / val.amount) * 100 : null, // Null if 0 to avoid drawing line at 0
                 projected: projMap.get(time) || 0 // Add projected field
             }))
             .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
