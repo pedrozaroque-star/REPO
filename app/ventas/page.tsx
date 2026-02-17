@@ -648,6 +648,7 @@ function SalesPageContent() {
                                         <th className="px-6 py-4">{t('sales.store')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.net_sales')}</th>
                                         <th className="px-6 py-4 text-right text-indigo-500">PROJECTED</th>
+                                        <th className="px-6 py-4 text-right text-emerald-600">DIFERENCIA</th>
                                         <th className="px-6 py-4 text-right">{t('sales.orders')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.avg_ticket')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.labor_pct')}</th>
@@ -671,6 +672,10 @@ function SalesPageContent() {
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-lg">
                                                     ${(store.projectedSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (store.projectedSales || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                    {store.amount - (store.projectedSales || 0) >= 0 ? '+' : ''}
+                                                    ${(store.amount - (store.projectedSales || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-700 dark:text-white font-medium">
                                                     {orders.toLocaleString('en-US')}
