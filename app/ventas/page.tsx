@@ -647,8 +647,8 @@ function SalesPageContent() {
                                         <th className="px-6 py-4 w-12 text-center">#</th>
                                         <th className="px-6 py-4">{t('sales.store')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.net_sales')}</th>
-                                        <th className="px-6 py-4 text-right text-indigo-500">PROJECTED</th>
-                                        <th className="px-6 py-4 text-right text-emerald-600">DIFERENCIA</th>
+                                        <th className="px-6 py-4 text-right text-indigo-500">{t('sales.projected').toUpperCase()}</th>
+                                        <th className="px-6 py-4 text-right text-emerald-600">{t('sales.difference').toUpperCase()}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.orders')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.avg_ticket')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.labor_pct')}</th>
