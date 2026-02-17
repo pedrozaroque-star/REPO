@@ -66,16 +66,19 @@ export async function GET(request: NextRequest) {
         /**
          * Get closing hour dynamically from DB config
          */
-        function getStoreClosingHour(storeName: string, dayOfWeek: number): number {
-            if (store.weekly_hours && Array.isArray(store.weekly_hours)) {
+        /**
+         * Get closing hour dynamically from DB config
+         */
+        function getStoreClosingHour(currentStore: any, dayOfWeek: number): number {
+            if (currentStore.weekly_hours && Array.isArray(currentStore.weekly_hours)) {
                 // weekly_hours uses day: 0-6
-                const dayConfig = store.weekly_hours.find((d: any) => d.day === dayOfWeek)
+                const dayConfig = currentStore.weekly_hours.find((d: any) => d.day === dayOfWeek)
                 if (dayConfig && dayConfig.close) {
                     return parseTimeUnbounded(dayConfig.close)
                 }
             }
             // Fallback
-            return parseTimeUnbounded(store.closing_time)
+            return parseTimeUnbounded(currentStore.closing_time)
         }
 
         // Fetch dynamic leadership availability for this store
@@ -101,7 +104,7 @@ export async function GET(request: NextRequest) {
             const date = addDays(weekStartDate, i)
             const dateStr = format(date, 'yyyy-MM-dd')
             const dayOfWeek = date.getDay() // 0=Sun, 1=Mon, etc.
-            const closeHour = getStoreClosingHour(store.name, dayOfWeek)
+            const closeHour = getStoreClosingHour(store, dayOfWeek)
 
             try {
                 const forecast = await generateSmartForecast(store.external_id, dateStr)
