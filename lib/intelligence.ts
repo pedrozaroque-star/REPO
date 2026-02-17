@@ -482,13 +482,70 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // APPLY FACTORS SEPARATELY
     const projectedTotal = baseSales * growthFactorSales * weatherFactor
 
+    // --- FETCH STORE OPERATING HOURS (WEEKLY AWARE) ---
+    // We fetch both standard and weekly_hours to apply specific day logic.
+    let dbOpenHour: number | null = null
+    let dbCloseHour: number | null = null // Optional logic if we want to trim end
+
+    try {
+        const { data: storeInfo } = await supabase
+            .from('stores')
+            .select('opening_time, closing_time, weekly_hours')
+            .eq('external_id', storeId)
+            .single()
+
+        if (storeInfo) {
+            // 1. Default to standard hours
+            if (storeInfo.opening_time) dbOpenHour = parseInt(storeInfo.opening_time.split(':')[0], 10)
+            if (storeInfo.closing_time) dbCloseHour = parseInt(storeInfo.closing_time.split(':')[0], 10)
+
+            // 2. Check for Day-Specific Override in weekly_hours
+            // weekly_hours structure: [{ day: 1, open: '10:00', close: '23:00' }, ...]
+            // Target Date Day (0=Sun, 1=Mon...)
+            const targetDay = new Date(targetDateStr).getDay() // Local time assumption might be risky? Assuming date string is YYYY-MM-DD
+            // Actually, new Date('2026-02-20') is UTC usually.
+            // Let's use getUTCDay() to be safe or parse manually if needed.
+            // Assuming targetDateStr is YYYY-MM-DD, parsing it as local might shift if timezone offset.
+            // Safer: Create date from parts.
+            const [y, m, d] = targetDateStr.split('-').map(Number)
+            const localDate = new Date(y, m - 1, d) // Month is 0-indexed
+            const dayOfWeek = localDate.getDay() // 0-6 Sun-Sat
+
+            if (storeInfo.weekly_hours && Array.isArray(storeInfo.weekly_hours)) {
+                const dayConfig = storeInfo.weekly_hours.find((c: any) => c.day === dayOfWeek)
+                if (dayConfig && dayConfig.open) {
+                    dbOpenHour = parseInt(dayConfig.open.split(':')[0], 10)
+                }
+                if (dayConfig && dayConfig.close) {
+                    dbCloseHour = parseInt(dayConfig.close.split(':')[0], 10)
+                }
+            }
+        }
+    } catch (err) {
+        // Ignore error, fallback to default/history
+    }
+
     // 4. Build Hourly Projection
     const hours: OperatingHour[] = []
 
     // Standard business hours 8am - 12am (allow 24h though)
-    for (let h = 0; h < 24; h++) {
-        const histSales = Number(hourlySalesDist[h] || 0)
-        const histTickets = Number(hourlyTicketDist[h] || 0)
+    // EXTENDED: Iterate up to 30 (6 AM next day) to capture late night sales
+    for (let h = 0; h < 30; h++) {
+        // MAPPING LOGIC:
+        // Hours 0-23 map directly.
+        // Hours 24-29 map to 0-5 of the NEXT day (or same day early morning).
+        // Since historical data is usually stored as 0-23, we check:
+        // If h >= 24, look for sales at h - 24.
+
+        const lookupHour = h >= 24 ? h - 24 : h
+
+        const histSales = Number(hourlySalesDist[lookupHour] || 0)
+        const histTickets = Number(hourlyTicketDist[lookupHour] || 0)
+
+        // FILTER: Only include late night (24+) if there is substantial volume
+        // to avoid projecting morning coffee sales as late night party sales
+        // (Unless it's a 24h store, but here we assume late close).
+        if (h >= 24 && histSales < 10) continue
 
         // Apply distinct growth factors AND weather
         let projSales = histSales * growthFactorSales * weatherFactor
@@ -496,15 +553,20 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
         // --- OPERATING HOURS ENFORCEMENT ---
         // Late Open (e.g. 11am) OR Early Close (e.g. 4pm)
+        // Note: Logic for 24+ might need adjustment if LateOpen applies to next day?
+        // Assuming holiday hours apply to the main business day.
+
         if (
             (lateOpenHour !== null && h < lateOpenHour) ||
-            (earlyCloseHour !== null && h >= earlyCloseHour)
+            (earlyCloseHour !== null && h >= earlyCloseHour) ||
+            // ENFORCE DB OPENING HOURS (Standard Day)
+            // If DB says open at 10 AM, prevent sales at 9 AM (h=9).
+            // Only apply to morning hours (h < 24) to avoid killing late night (h=25).
+            (dbOpenHour !== null && h < 24 && h < dbOpenHour)
         ) {
             projSales = 0
             projTickets = 0
         }
-
-
 
         // FALLBACK: If hourly tickets missing, estimate from Average Ticket Value (ATV)
         // Avg Ticket = Total Sales / Total Tickets (Day level)
@@ -542,8 +604,20 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         })
     }
 
-    // RE-CALCULATE TOTAL FROM HOURS (To account for Early Close / Late Open cuts)
-    const finalTotalSales = hours.reduce((acc, h) => acc + h.projected_sales, 0)
+    // --- SMART TRIM: Remove trailing inactive hours ---
+    // Scan backwards to find the last hour with sales > 0
+    let lastActiveIndex = hours.length - 1
+    while (lastActiveIndex > 0) {
+        if (hours[lastActiveIndex].projected_sales > 0) break
+        lastActiveIndex--
+    }
+
+    // Keep up to lastActiveIndex + 1 (buffer for closing visual)
+    const cutOffIndex = Math.min(lastActiveIndex + 1, hours.length - 1)
+    const trimmedHours = hours.slice(0, cutOffIndex + 1)
+
+    // RE-CALCULATE TOTAL FROM TRIMMED HOURS
+    const finalTotalSales = trimmedHours.reduce((acc, h) => acc + h.projected_sales, 0)
 
     return {
         date: targetDateStr,
@@ -551,6 +625,6 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         total_sales: finalTotalSales,
         growth_factor_applied: growthFactorSales,
         weather_adjustment: weatherFactor < 1.0,
-        hours
+        hours: trimmedHours
     }
 }

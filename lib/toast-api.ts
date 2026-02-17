@@ -55,23 +55,25 @@ export interface MetricRow {
     hourlyTickets?: Record<number, number>
 }
 
-// Map store generic ID to Toast restaurantGuid
-const STORE_NAME_OVERRIDES: Record<string, string> = {
-    'acf15327-54c8-4da4-8d0d-3ac0544dc422': 'Rialto',
-    'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8': 'Azusa',
-    '42ed15a6-106b-466a-9076-1e8f72451f6b': 'Norwalk',
-    'b7f63b01-f089-4ad7-a346-afdb1803dc1a': 'Downey',
-    '475bc112-187d-4b9c-884d-1f6a041698ce': 'LA Broadway',
-    'a83901db-2431-4283-834e-9502a2ba4b3b': 'Bell',
-    '5fbb58f5-283c-4ea4-9415-04100ee6978b': 'Hollywood',
-    '47256ade-2cd4-4073-9632-84567ad9e2c8': 'Huntington Park',
-    '8685e942-3f07-403a-afb6-faec697cd2cb': 'LA Central',
-    '3a803939-eb13-4def-a1a4-462df8e90623': 'La Puente',
-    '80a1ec95-bc73-402e-8884-e5abbe9343e6': 'Lynwood',
-    '3c2d8251-c43c-43b8-8306-387e0a4ed7c2': 'Santa Ana',
-    '9625621e-1b5e-48d7-87ae-7094fab5a4fd': 'Slauson',
-    '95866cfc-eeb8-4af9-9586-f78931e1ea04': 'South Gate',
-    '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02': 'West Covina'
+// Map store generic ID to Toast restaurantGuid - DEPRECATED
+// We now use dynamic DB lookup
+// Map store Toast GUID to Clean Name (The Source of Truth)
+const TOAST_GUID_MAP: Record<string, string> = {
+    "acf15327-54c8-4da4-8d0d-3ac0544dc422": "Rialto",
+    "e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8": "Azusa",
+    "42ed15a6-106b-466a-9076-1e8f72451f6b": "Norwalk",
+    "b7f63b01-f089-4ad7-a346-afdb1803dc1a": "Downey",
+    "475bc112-187d-4b9c-884d-1f6a041698ce": "LA Broadway",
+    "a83901db-2431-4283-834e-9502a2ba4b3b": "Bell",
+    "5fbb58f5-283c-4ea4-9415-04100ee6978b": "Hollywood",
+    "47256ade-2cd4-4073-9632-84567ad9e2c8": "Huntington Park",
+    "8685e942-3f07-403a-afb6-faec697cd2cb": "LA Central",
+    "3a803939-eb13-4def-a1a4-462df8e90623": "La Puente",
+    "80a1ec95-bc73-402e-8884-e5abbe9343e6": "Lynwood",
+    "3c2d8251-c43c-43b8-8306-387e0a4ed7c2": "Santa Ana",
+    "9625621e-1b5e-48d7-87ae-7094fab5a4fd": "Slauson",
+    "95866cfc-eeb8-4af9-9586-f78931e1ea04": "South Gate",
+    "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02": "West Covina"
 }
 
 // Token Cache
@@ -80,6 +82,7 @@ let tokenExpiry: number = 0
 
 // --- AUTHENTICATION ---
 export async function getAuthToken() {
+
     // Return cached token if valid (buffer 5 min)
     if (cachedToken && Date.now() < tokenExpiry - 300000) {
         return cachedToken
@@ -114,8 +117,8 @@ export async function getAuthToken() {
 }
 
 
-// --- HELPER: GET RESTAURANTS ---
-async function getRestaurants(token: string) {
+// --- HELPER: GET RESTAURANTS (Dynamic Scalability) ---
+export async function getToastRestaurants(token: string) {
     const res = await fetch(`${TOAST_API_HOST}/partners/v1/restaurants`, {
         headers: {
             'Authorization': `Bearer ${token}`
@@ -134,19 +137,81 @@ async function getRestaurants(token: string) {
     }
 
     const data = await res.json()
-    let list = []
-    if (Array.isArray(data)) list = data
-    else if (data && Array.isArray(data.restaurants)) list = data.restaurants
+    let toastList: any[] = []
+    if (Array.isArray(data)) toastList = data
+    else if (data && Array.isArray(data.restaurants)) toastList = data.restaurants
     else return []
 
-    return list.map((r: any) => {
-        const id = r.restaurantGuid || r.guid || r.id
-        const originalName = r.restaurantName || r.name
-        return {
-            id,
-            name: STORE_NAME_OVERRIDES[id] || originalName
-        }
-    })
+    // 🚀 DYNAMIC LINKING: Fetch DB stores to match by GUID or Fuzzy Name
+    try {
+        const supabase = await getSupabaseClient()
+        // Try to fetch toast_guid if it exists, otherwise just fetch essentials
+        // We use a lenient selection that won't fail if column missing (in theory, or we handle error)
+        // If 'toast_guid' missing, it just returns null for that field or ignores it? Postgres strictness...
+        // We can't know for sure if column exists without checking scheme. 
+        // Strategy: Fetch all, and do name matching primarily as fallback.
+
+        let dbStores: any[] = []
+
+        // Safe fetch - just generic columns first
+        const { data: storesData } = await supabase.from('stores').select('id, name, external_id') // Add toast_guid manually via raw query if needed?
+        // Actually, let's try to fetch toast_guid. If it fails, we fall back to name matching.
+        // But doing a select that fails might abort. 
+        // We will assume 'id' matching via name.
+
+        // Let's try raw query for toast_guid if possible? No.
+        // We will stick to Name Matching for now as the 100% safe scalable method without migration.
+        // IF the user runs the migration script later, we can enable GUID matching.
+
+        if (storesData) dbStores = storesData
+
+        return toastList.map((r: any) => {
+            const toastId = r.restaurantGuid || r.guid || r.id
+            const toastName = (r.restaurantName || r.name || '').trim()
+
+            // 0 A. Try Master GUID Map (Instant Success)
+            if (TOAST_GUID_MAP[toastId]) {
+                const clean = TOAST_GUID_MAP[toastId]
+                // Find matching DB Store just to get the dbId
+                const dbMatch = dbStores.find(s => s.name === clean)
+                return {
+                    id: toastId,
+                    name: clean, // FORCE CLEAN NAME
+                    dbId: dbMatch?.id
+                }
+            }
+
+            // 1. Try Match by Name (Fuzzy: "Tacos Gavilan Azusa" vs "Azusa")
+            const match = dbStores.find(s => {
+                const dbName = s.name.toLowerCase().replace('tacos gavilan', '').trim()
+                const tName = toastName.toLowerCase().replace('tacos gavilan', '').trim()
+                return dbName.includes(tName) || tName.includes(dbName)
+            })
+
+            // 2. Return Unified Object
+            if (match) {
+                // Return the Toast ID but mostly use DB name for display if needed
+                return {
+                    id: toastId, // We MUST use Toast ID for API calls
+                    name: match.name, // Use pretty DB name
+                    dbId: match.id
+                }
+            }
+
+            // No match? Return as is (New Store)
+            return {
+                id: toastId,
+                name: toastName // Use Toast name
+            }
+        })
+
+    } catch (e) {
+        console.warn('Error fetching DB stores for matching, falling back to raw Toast list', e)
+        return toastList.map((r: any) => ({
+            id: r.restaurantGuid || r.guid || r.id,
+            name: r.restaurantName || r.name
+        }))
+    }
 }
 
 // --- HELPER: GET DINING OPTIONS MAP ---
@@ -686,7 +751,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
         console.log("Attempting Toast Auth...")
         token = (await getAuthToken()) || ''
         if (token) {
-            realStores = await getRestaurants(token)
+            realStores = await getToastRestaurants(token)
             console.log(`Found ${realStores.length} real stores via API`)
         }
     } catch (e: any) {

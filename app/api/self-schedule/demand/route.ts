@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
         // Get store info
         const { data: store } = await supabaseAdmin
             .from('stores')
-            .select('external_id, name, opening_time, closing_time')
+            .select('external_id, name, opening_time, closing_time, weekly_hours')
             .eq('external_id', storeId)
             .single()
 
@@ -47,69 +47,35 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Store not found' }, { status: 404 })
         }
 
-        // Store opening hours (used for prep calculation)
-        const STORE_OPENING_HOURS: Record<string, number> = {
-            'Azusa': 10,        // Opens 10AM
-            'Bell': 10,         // Opens 10AM
-            'Downey': 9,        // Opens 9AM
-            'Hollywood': 9,     // Opens 9AM
-            'Huntington': 10,   // Opens 10AM
-            'LA Broadway': 8,   // Opens 8AM
-            'LA Central': 8,    // Opens 8AM
-            'La Puente': 10,    // Opens 10AM
-            'Lynwood': 9,       // Opens 9AM
-            'Norwalk': 9,       // Opens 9AM
-            'Rialto': 9,        // Opens 9AM
-            'Santa Ana': 10,    // Opens 10AM
-            'Slauson': 10,      // Opens 10AM
-            'South Gate': 10,   // Opens 10AM
-            'West Covina': 9    // Opens 9AM
+        /**
+         * Helper: Parse time string to unbounded hour (e.g. 01:00 -> 25)
+         */
+        function parseTimeUnbounded(timeStr: string | null): number {
+            if (!timeStr) return 24; // Default midnight
+            const [hStr] = timeStr.split(':');
+            let h = parseInt(hStr, 10);
+            if (h >= 0 && h <= 5) h += 24;
+            return h;
         }
 
-        function getStoreOpeningHour(storeName: string): number {
-            for (const [key, hour] of Object.entries(STORE_OPENING_HOURS)) {
-                if (storeName.toLowerCase().includes(key.toLowerCase())) {
-                    return hour
-                }
-            }
-            return 9 // Default 9AM
-        }
+        // Calculate dynamic opening hour
+        const openVal = parseTimeUnbounded(store.opening_time)
+        const openHour = openVal > 24 ? openVal - 24 : openVal
+        const prepHour = openHour - 1
 
-        const openHour = getStoreOpeningHour(store.name)
-        const prepHour = openHour - 1  // Prep starts 1 hour before opening
-
-        // Store-specific closing hours by day of week
-        // dayOfWeek: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
-        // Hours > 24 = next day (25 = 1AM, 26 = 2AM, etc.)
-        const STORE_CLOSING_HOURS: Record<string, Record<number, number>> = {
-            'Azusa': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 25, 6: 25 },
-            'Bell': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },
-            'Downey': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 27, 6: 27 },
-            'Hollywood': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 27, 6: 27 },
-            'Huntington': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 26, 5: 27, 6: 27 },
-            'LA Broadway': { 0: 26, 1: 25, 2: 25, 3: 25, 4: 26, 5: 28, 6: 28 },
-            'LA Central': { 0: 26, 1: 26, 2: 26, 3: 26, 4: 27, 5: 28, 6: 28 },
-            'La Puente': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },
-            'Lynwood': { 0: 25, 1: 25, 2: 25, 3: 25, 4: 26, 5: 27, 6: 27 },
-            'Norwalk': { 0: 25, 1: 25, 2: 25, 3: 25, 4: 25, 5: 27, 6: 27 },
-            'Rialto': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 25, 5: 27, 6: 27 },
-            'Santa Ana': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },
-            'Slauson': { 0: 25, 1: 25, 2: 25, 3: 25, 4: 25, 5: 27, 6: 27 },
-            'South Gate': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 27, 6: 27 },
-            'West Covina': { 0: 25, 1: 25, 2: 25, 3: 25, 4: 25, 5: 27, 6: 27 }
-        }
-
-        const DEFAULT_CLOSING_HOURS: Record<number, number> = {
-            0: 25, 1: 25, 2: 25, 3: 25, 4: 26, 5: 27, 6: 27
-        }
-
+        /**
+         * Get closing hour dynamically from DB config
+         */
         function getStoreClosingHour(storeName: string, dayOfWeek: number): number {
-            for (const [key, hours] of Object.entries(STORE_CLOSING_HOURS)) {
-                if (storeName.toLowerCase().includes(key.toLowerCase())) {
-                    return hours[dayOfWeek] ?? DEFAULT_CLOSING_HOURS[dayOfWeek]
+            if (store.weekly_hours && Array.isArray(store.weekly_hours)) {
+                // weekly_hours uses day: 0-6
+                const dayConfig = store.weekly_hours.find((d: any) => d.day === dayOfWeek)
+                if (dayConfig && dayConfig.close) {
+                    return parseTimeUnbounded(dayConfig.close)
                 }
             }
-            return DEFAULT_CLOSING_HOURS[dayOfWeek]
+            // Fallback
+            return parseTimeUnbounded(store.closing_time)
         }
 
         // Fetch dynamic leadership availability for this store

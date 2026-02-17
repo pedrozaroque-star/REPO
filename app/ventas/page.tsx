@@ -66,7 +66,8 @@ function SalesPageContent() {
                     guestCount: 0,
                     laborCost: 0,
                     laborPercentage: 0,
-                    totalHours: 0
+                    totalHours: 0,
+                    projectedSales: 0
                 })
             }
             const s = storeMap.get(storeName)
@@ -76,6 +77,7 @@ function SalesPageContent() {
             s.guestCount += (row.guestCount || 0)
             s.laborCost += (row.laborCost || 0)
             s.totalHours += (row.totalHours || 0)
+            s.projectedSales += (row.projectedSales || 0)
         })
 
         const storeData = Array.from(storeMap.values())
@@ -645,6 +647,7 @@ function SalesPageContent() {
                                         <th className="px-6 py-4 w-12 text-center">#</th>
                                         <th className="px-6 py-4">{t('sales.store')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.net_sales')}</th>
+                                        <th className="px-6 py-4 text-right text-indigo-500">PROJECTED</th>
                                         <th className="px-6 py-4 text-right">{t('sales.orders')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.avg_ticket')}</th>
                                         <th className="px-6 py-4 text-right">{t('sales.labor_pct')}</th>
@@ -665,6 +668,9 @@ function SalesPageContent() {
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-lg">
                                                     ${store.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className="px-6 py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-lg">
+                                                    ${(store.projectedSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-700 dark:text-white font-medium">
                                                     {orders.toLocaleString('en-US')}

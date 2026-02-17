@@ -49,20 +49,36 @@ export async function POST(request: NextRequest) {
         }
 
         // Get all stores with their operating hours
-        let stores: { external_id: string; name: string; opening_time: string; closing_time: string }[] = []
+        // Create a map for quick store access by ID or Name
+        const storeMap = new Map<string, any>()
+
+        let stores: {
+            external_id: string;
+            name: string;
+            opening_time: string;
+            closing_time: string;
+            weekly_hours: any
+        }[] = []
+
         if (targetStoreIds && targetStoreIds.length > 0) {
             const { data } = await supabaseAdmin
                 .from('stores')
-                .select('external_id, name, opening_time, closing_time')
+                .select('external_id, name, opening_time, closing_time, weekly_hours')
                 .in('external_id', targetStoreIds)
             stores = data || []
         } else {
             const { data } = await supabaseAdmin
                 .from('stores')
-                .select('external_id, name, opening_time, closing_time')
+                .select('external_id, name, opening_time, closing_time, weekly_hours')
                 .eq('is_active', true)
             stores = data || []
         }
+
+        // Index stores for helper functions
+        stores.forEach(s => {
+            storeMap.set(s.external_id, s)
+            storeMap.set(s.name, s) // Fallback for name-based lookups
+        })
 
         if (stores.length === 0) {
             return NextResponse.json({ error: 'No stores found' }, { status: 400 })
@@ -377,8 +393,57 @@ export async function POST(request: NextRequest) {
          * Shift Leaders: Deducted from available spots (wildcards)
          */
 
+        /**
+         * Helper: Parse time string to unbounded hour (e.g. 01:00 -> 25)
+         * Crucial for logic continuity past midnight
+         */
+        function parseTimeUnbounded(timeStr: string | null): number {
+            if (!timeStr) return 24; // Default midnight
+            const [hStr] = timeStr.split(':');
+            let h = parseInt(hStr, 10);
+
+            // Logic: If it's early morning (00:00 - 05:00), treat as next day extension (24 - 29)
+            if (h >= 0 && h <= 5) {
+                return h + 24;
+            }
+            return h;
+        }
+
+        /**
+         * Get closing hour from STORE DATA (DB) instead of hardcoded Map
+         */
+        function getStoreClosingHour(storeName: string, dayOfWeek: number): number {
+            // Retrieve store object from our pre-fetched map
+            // We search by name because the legacy logic passed storeName often
+            const store = Array.from(storeMap.values()).find(s => s.name === storeName)
+            if (!store) return 25; // Default safety 1 AM
+
+            if (store.weekly_hours && Array.isArray(store.weekly_hours)) {
+                const dayConfig = store.weekly_hours.find((d: any) => d.day === dayOfWeek)
+                if (dayConfig && dayConfig.close) {
+                    return parseTimeUnbounded(dayConfig.close)
+                }
+            }
+
+            // Fallback to general closing time
+            return parseTimeUnbounded(store.closing_time)
+        }
+
+        /**
+         * Get opening hour from STORE DATA (DB)
+         */
+        function getStoreOpeningHour(storeName: string): number {
+            const store = Array.from(storeMap.values()).find(s => s.name === storeName)
+            if (!store) return 9; // Default 9 AM
+
+            return parseTimeUnbounded(store.opening_time) > 24
+                ? parseTimeUnbounded(store.opening_time) - 24
+                : parseTimeUnbounded(store.opening_time)
+        }
+
         // Store-specific closing hours: { storeName: { dayOfWeek: closingHour } }
         // dayOfWeek: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+        /* 
         const STORE_CLOSING_HOURS: Record<string, Record<number, number>> = {
             'Azusa': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 25, 6: 25 },  // 10AM → 12AM, Fri-Sat: 1AM
             'Bell': { 0: 24, 1: 24, 2: 24, 3: 24, 4: 24, 5: 26, 6: 26 },  // 10AM → 12AM, Fri-Sat: 2AM
@@ -421,6 +486,7 @@ export async function POST(request: NextRequest) {
         const DEFAULT_CLOSING_HOURS: Record<number, number> = {
             0: 25, 1: 25, 2: 25, 3: 25, 4: 26, 5: 27, 6: 27  // 1AM, Thu:2AM / 3AM
         }
+        */
 
         const SHIFT_CONFIG = {
             PM_START: 17,        // 5:00 PM (PM shift always starts at 5pm)
@@ -444,6 +510,7 @@ export async function POST(request: NextRequest) {
         /**
          * Get closing hour for a specific store and day
          */
+        /*
         function getStoreClosingHour(storeName: string, dayOfWeek: number): number {
             // Find matching store by checking if store name contains any key
             for (const [key, hours] of Object.entries(STORE_CLOSING_HOURS)) {
@@ -453,10 +520,12 @@ export async function POST(request: NextRequest) {
             }
             return DEFAULT_CLOSING_HOURS[dayOfWeek]
         }
+        */
 
         /**
          * Get opening hour for a specific store
          */
+        /*
         function getStoreOpeningHour(storeName: string): number {
             for (const [key, hour] of Object.entries(STORE_OPENING_HOURS)) {
                 if (storeName.includes(key)) {
@@ -465,6 +534,7 @@ export async function POST(request: NextRequest) {
             }
             return DEFAULT_OPENING_HOUR
         }
+        */
 
         /**
          * Get leadership count for a store (now uses dynamic data!)

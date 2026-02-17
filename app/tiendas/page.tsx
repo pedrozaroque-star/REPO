@@ -1,11 +1,35 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Store, MapPin, Search, Plus, X, Save, Trash2, Edit } from 'lucide-react'
+import { Store, MapPin, Search, Plus, X, Save, Trash2, Edit, RefreshCw } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
+import dynamic from 'next/dynamic'
+
+// Carga dinámica del mapa (Leaflet no funciona en SSR)
+const MapPicker = dynamic(() => import('@/components/StoreMapPicker'), {
+  ssr: false,
+  loading: () => <div className="h-[300px] w-full bg-slate-100 dark:bg-slate-800 animate-pulse rounded-xl flex items-center justify-center text-xs text-slate-400">Cargando Mapa...</div>
+})
+
+// Helper to format time values for <input type="time">
+const formatTimeForInput = (val: string | null | undefined): string => {
+  if (!val || val.trim() === '') return ''
+  // Handle HH:MM:SS or HH:MM format
+  const parts = val.split(':')
+  if (parts.length >= 2) {
+    let hh = parts[0].padStart(2, '0')
+    const mm = parts[1].padStart(2, '0')
+
+    // HTML5 time inputs do not support "24:00", strictly 00:00 to 23:59
+    if (hh === '24') hh = '00'
+
+    return `${hh}:${mm}`
+  }
+  return val
+}
 
 export default function TiendasPage() {
   const { t } = useLanguage()
@@ -19,6 +43,32 @@ export default function TiendasPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editingStore, setEditingStore] = useState<any>(null)
   const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
+  const handleSync = async () => {
+    if (!confirm('Esto actualizará direcciones y teléfonos desde Toast. ¿Continuar?')) return
+    setSyncing(true)
+    try {
+      const token = localStorage.getItem('teg_token')
+      const res = await fetch('/api/admin/stores/sync-toast', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert(`Sincronización Exitosa:\n- Creadas: ${data.created}\n- Actualizadas: ${data.updated}\n- Errores: ${data.errors}`)
+        fetchData()
+      } else {
+        alert('Error: ' + (data.error || 'Desconocido'))
+      }
+    } catch (e: any) {
+      alert('Error de conexión: ' + e.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -66,7 +116,12 @@ export default function TiendasPage() {
       phone: '',
       hours: '',
       supervisor_name: '',
-      is_active: true
+      is_active: true,
+      opening_time: '',
+      closing_time: '',
+      weekly_hours: [],
+      latitude: null,
+      longitude: null
     })
     setIsEditing(true)
   }
@@ -82,7 +137,12 @@ export default function TiendasPage() {
       phone: store.phone || '',
       hours: store.hours || '',
       supervisor_name: store.supervisor_name || '',
-      is_active: store.is_active ?? true
+      is_active: store.is_active,
+      opening_time: store.opening_time || '',
+      closing_time: store.closing_time || '',
+      weekly_hours: store.weekly_hours || [],
+      latitude: store.latitude,
+      longitude: store.longitude
     })
     setIsEditing(true)
   }
@@ -94,21 +154,28 @@ export default function TiendasPage() {
     try {
       const supabase = await getSupabaseClient()
 
+      const payload = {
+        name: editingStore.name,
+        code: editingStore.code,
+        city: editingStore.city,
+        state: editingStore.state,
+        address: editingStore.address,
+        phone: editingStore.phone,
+        hours: editingStore.hours,
+        supervisor_name: editingStore.supervisor_name,
+        is_active: editingStore.is_active,
+        opening_time: editingStore.opening_time || null,
+        closing_time: editingStore.closing_time || null,
+        weekly_hours: editingStore.weekly_hours || null,
+        latitude: editingStore.latitude,
+        longitude: editingStore.longitude
+      }
+
       if (editingStore.id) {
         // Update
         const { error } = await supabase
           .from('stores')
-          .update({
-            name: editingStore.name,
-            code: editingStore.code,
-            city: editingStore.city,
-            state: editingStore.state,
-            address: editingStore.address,
-            phone: editingStore.phone,
-            hours: editingStore.hours,
-            supervisor_name: editingStore.supervisor_name,
-            is_active: editingStore.is_active
-          })
+          .update(payload)
           .eq('id', editingStore.id)
 
         if (error) throw error
@@ -116,7 +183,7 @@ export default function TiendasPage() {
         // Create
         const { error } = await supabase
           .from('stores')
-          .insert([editingStore])
+          .insert([payload])
 
         if (error) throw error
       }
@@ -155,6 +222,16 @@ export default function TiendasPage() {
               </div>
               <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">{t('tiendas.title')}</h1>
             </div>
+
+            {/* NEW: Sync Button */}
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="hidden md:flex items-center gap-2 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-4 py-2.5 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all disabled:opacity-50 shadow-sm"
+            >
+              <RefreshCw size={18} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Sincronizando...' : 'Sync Toast'}
+            </button>
 
             <button
               onClick={handleCreate}
@@ -376,6 +453,124 @@ export default function TiendasPage() {
                     </div>
                   </div>
 
+                  {/* ═══ MAPA DE UBICACIÓN ═══ */}
+                  <div className="mt-8 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">
+                        Ubicación Exacta (Mapa Interactive)
+                      </label>
+                      <span className="text-[10px] text-orange-500 font-bold bg-orange-50 dark:bg-orange-900/20 px-2 py-0.5 rounded-full">
+                        {editingStore.latitude ? '📍 Coordenadas OK' : '⚠️ Sin ubicación'}
+                      </span>
+                    </div>
+
+                    <MapPicker
+                      initialLat={editingStore.latitude || 34.0522}
+                      initialLng={editingStore.longitude || -118.2437}
+                      readOnly={false}
+                      onChange={(lat, lng) => setEditingStore((prev: any) => ({ ...prev, latitude: lat, longitude: lng }))}
+                    />
+                    <p className="text-[10px] text-gray-400 text-center">
+                      Arrastra el marcador rojo para afinar la ubicación exacta de la tienda.
+                    </p>
+                  </div>
+
+                  <div className="border-t border-gray-100 dark:border-slate-800 my-8"></div>
+
+                  <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest mb-4">Configuración de Horarios</h3>
+
+                  <div className="grid grid-cols-1 gap-5">
+
+
+                    {/* Apertura / Cierre lógicos */}
+                    <div className="grid grid-cols-2 gap-5">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest ml-1">
+                          ⏱️ Apertura (Público)
+                        </label>
+                        <input
+                          type="time"
+                          className="w-full px-4 py-3 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30 rounded-2xl font-black text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500"
+                          value={formatTimeForInput(editingStore.opening_time)}
+                          onChange={e => setEditingStore({ ...editingStore, opening_time: e.target.value })}
+                        />
+                        <p className="text-[9px] text-gray-400 pl-1">Las ventas antes de esta hora serán 0.</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest ml-1">
+                          ⏱️ Cierre (Público)
+                        </label>
+                        <input
+                          type="time"
+                          className="w-full px-4 py-3 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30 rounded-2xl font-black text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500"
+                          value={formatTimeForInput(editingStore.closing_time)}
+                          onChange={e => setEditingStore({ ...editingStore, closing_time: e.target.value })}
+                        />
+                        <p className="text-[9px] text-gray-400 pl-1">Última hora de venta proyectada.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* HORARIO SEMANAL DETALLADO */}
+                  <div className="mt-4 bg-gray-50 dark:bg-slate-800/50 rounded-2xl p-4 border border-gray-100 dark:border-slate-800">
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="text-xs font-black text-gray-700 dark:text-gray-300 uppercase tracking-widest">Horario Semanal Detallado</h4>
+                      <p className="text-[10px] text-gray-400">Define apertura y cierre por día</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      {['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map((dayName, index) => {
+                        let jsDay = index + 1
+                        if (index === 6) jsDay = 0 // Domingo = 0
+
+                        const currentConfig = (editingStore.weekly_hours || []).find((h: any) => h.day === jsDay)
+
+                        // Helper: returns value if it's a non-empty string, otherwise fallback
+                        const safeVal = (v: any, fallback: string) => (typeof v === 'string' && v.trim() !== '') ? v : fallback
+
+                        const defOpen = safeVal(editingStore.opening_time?.substring(0, 5), '10:00')
+                        const defClose = safeVal(editingStore.closing_time?.substring(0, 5), '23:00')
+
+                        const valOpen = safeVal(currentConfig?.open, defOpen)
+                        const valClose = safeVal(currentConfig?.close, defClose)
+
+                        const updateDay = (field: 'open' | 'close', value: string) => {
+                          const newWeekly = [...(editingStore.weekly_hours || [])]
+                          const dayIndex = newWeekly.findIndex((h: any) => h.day === jsDay)
+
+                          if (dayIndex >= 0) {
+                            newWeekly[dayIndex] = { ...newWeekly[dayIndex], [field]: value }
+                          } else {
+                            newWeekly.push({ day: jsDay, open: valOpen, close: valClose, [field]: value })
+                          }
+                          setEditingStore({ ...editingStore, weekly_hours: newWeekly })
+                        }
+
+                        return (
+                          <div key={dayName} className="flex items-center justify-between gap-4 py-2 border-b border-gray-200 dark:border-slate-700 last:border-0">
+                            <span className="w-20 text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase">{dayName}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="time"
+                                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold w-24 text-center"
+                                value={formatTimeForInput(valOpen)}
+                                onChange={e => updateDay('open', e.target.value)}
+                              />
+                              <span className="text-gray-300">-</span>
+                              <input
+                                type="time"
+                                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold w-24 text-center"
+                                value={formatTimeForInput(valClose)}
+                                onChange={e => updateDay('close', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* BOTONES */}
                   <div className="flex gap-4 mt-8 pt-4 border-t border-gray-100 dark:border-slate-800">
                     <button
                       type="button"
@@ -396,8 +591,9 @@ export default function TiendasPage() {
               </div>
             </motion.div>
           </div>
-        )}
-      </AnimatePresence>
-    </div>
+        )
+        }
+      </AnimatePresence >
+    </div >
   )
 }

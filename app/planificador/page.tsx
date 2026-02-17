@@ -1024,7 +1024,8 @@ export default function SchedulePlanner() {
         const targetDateStr = formatDateISO(targetDate)
 
         const origStart = new Date(draggedShift.start_time)
-        const newStart = new Date(`${targetDateStr}T${origStart.toISOString().split('T')[1]}`)
+        const newStart = new Date(targetDate)
+        newStart.setHours(origStart.getHours(), origStart.getMinutes(), 0, 0)
         const newEnd = new Date(newStart.getTime() + duration)
 
         const payload: any = {
