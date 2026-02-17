@@ -735,7 +735,7 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
                     let current = inTime
                     while (current < outTime) {
                         const d = new Date(current)
-                        d.setMinutes(0, 0, 0, 0) // Start of hour
+                        d.setMinutes(0, 0, 0) // Start of hour
                         const hourStart = d.getTime()
                         const hourEnd = hourStart + 3600000
 
