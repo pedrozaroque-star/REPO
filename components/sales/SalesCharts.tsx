@@ -229,7 +229,8 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                     tick={{ fill: '#f59e0b', fontSize: 11, fontWeight: 600, opacity: 0.8 }}
                                     tickFormatter={(value) => `${value}%`}
                                     // Fix: Set minimum scale to 100% so that 20% looks like 20% (bottom fifth) and not 50% (halfway up)
-                                    domain={[0, (dataMax: number) => Math.max(100, dataMax)]}
+                                    // Added robustness check for potential Infinity
+                                    domain={[0, (dataMax: number) => isFinite(dataMax) ? Math.max(100, dataMax) : 100]}
                                 />
                             )}
 
