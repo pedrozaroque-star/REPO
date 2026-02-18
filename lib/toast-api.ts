@@ -960,7 +960,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         },
                         laborMetrics: {
                             hours: Number(cached.labor_hours),
-                            laborCost: Number(cached.labor_cost)
+                            laborCost: Number(cached.labor_cost),
+                            hourlyLabor: cached.hourly_labor || {}
                         },
                         fromCache: true
                     }
