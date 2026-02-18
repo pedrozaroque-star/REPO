@@ -3,47 +3,40 @@ import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import path from 'path'
 
-dotenv.config({ path: path.resolve(__dirname, '../.env.local') })
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') })
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
-const LYNWOOD_GUID = '80a1ec95-bc73-402e-8884-e5abbe9343e6'
-const TARGET_NAME = 'Enrique'
+async function run() {
+    const storeName = 'Huntington Park'
 
-async function debugIds() {
-    console.log("🕵️ ID MISMATCH DETECTIVE")
+    // Get Store
+    const { data: stores } = await supabase.from('stores').select('*').ilike('name', `%${storeName}%`)
+    const store = stores?.[0]
+    const storeGuid = store.external_id
+    console.log(`Store GUID: ${storeGuid}`)
 
-    // 1. Get Enrique from Employee Table
-    const { data: emps } = await supabase.from('toast_employees').select('*').ilike('first_name', `%${TARGET_NAME}%`)
-    const enrique = emps?.find(e => e.last_name.includes('Navarrete'))
+    // Get 1 Employee
+    const { data: emps } = await supabase.from('toast_employees').select('*').limit(1)
+    console.log('Employee Sample:', { id: emps?.[0].id, toast_guid: emps?.[0].toast_guid })
 
-    if (!enrique) { console.log("Enrique not found in DB"); return }
+    // Get 1 Shift
+    const { data: shifts } = await supabase.from('shifts').select('*').eq('store_id', storeGuid).limit(1)
+    console.log('Shift Sample:', {
+        id: shifts?.[0]?.id,
+        employee_id: shifts?.[0]?.employee_id,
+        guid_col: shifts?.[0]?.employee_toast_guid // Check if this exists
+    })
 
-    console.log(`\nEMPLOYEE TABLE:`)
-    console.log(`Name: ${enrique.first_name} ${enrique.last_name}`)
-    console.log(`Supabase ID:    ${enrique.id}`)
-    console.log(`Toast GUID:     ${enrique.guid}`)
-
-    // 2. Get Shifts for Enrique (Logic: How did we find them before? By Filtering employee_id = ID!)
-    // Wait, debug-enrique.ts worked perfectly using `eq('employee_id', emp.id)`.
-    // So the shifts DO use the Supabase ID.
-
-    const { data: shifts } = await supabase.from('shifts')
-        .select('id, employee_id, start_time')
-        .eq('store_id', LYNWOOD_GUID)
-        .eq('employee_id', enrique.id)
-        .limit(1)
-
-    console.log(`\nSHIFTS TABLE:`)
-    if (shifts && shifts.length > 0) {
-        console.log(`Shift ID:       ${shifts[0].id}`)
-        console.log(`Shift emp_id:   ${shifts[0].employee_id}`)
-        console.log(`Match?          ${shifts[0].employee_id === enrique.id ? '✅ YES' : '❌ NO'}`)
-    } else {
-        console.log("⚠️ No shifts found using Supabase ID.")
-    }
+    // Get 1 Punch
+    const { data: punches } = await supabase.from('punches').select('*').eq('store_id', storeGuid).limit(1)
+    console.log('Punch Sample:', {
+        id: punches?.[0]?.id,
+        employee_toast_guid: punches?.[0]?.employee_toast_guid
+    })
 }
 
-debugIds()
+run()
