@@ -44,7 +44,7 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
 
         const actual = payload.find((p: any) => p.dataKey === 'amount')
         const projected = payload.find((p: any) => p.dataKey === 'projected')
-        const labor = payload.find((p: any) => p.dataKey === 'laborPercentage')
+        const labor = payload.find((p: any) => p.dataKey === 'laborCost')
 
         // Calculate Variance for Tooltip
         let varianceElement = null
@@ -100,16 +100,16 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
                     </div>
                 )}
 
-                {labor && labor.value > 0 && (
+                {labor && (
                     <div className="flex items-center justify-between gap-4">
                         <span className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
                             <span className="w-3 h-3 bg-amber-500 rounded-full border-2 border-amber-300"></span>
-                            Labor %
+                            Labor
                         </span>
                         <span className="font-mono font-bold text-amber-500 dark:text-amber-400 flex items-center">
-                            {Number(labor.value).toFixed(1)}%
+                            ${Number(labor.value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                             <span className="text-[10px] ml-1.5 opacity-80 font-normal">
-                                (${Number(labor.payload.laborCost || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })})
+                                ({Number(labor.payload.laborPercentage || 0).toFixed(1)}%)
                             </span>
                         </span>
                     </div>
@@ -171,7 +171,7 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                         {hasLabor && (
                             <span className="flex items-center gap-1.5">
                                 <span className="w-3 h-3 bg-amber-500 rounded-full"></span>
-                                <span className="text-slate-600 dark:text-slate-400 font-medium">Labor %</span>
+                                <span className="text-slate-600 dark:text-slate-400 font-medium">Labor $</span>
                             </span>
                         )}
                     </div>
@@ -219,20 +219,7 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                 tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
                             />
 
-                            {/* Right Y-Axis: Labor % (Only if data exists) */}
-                            {hasLabor && (
-                                <YAxis
-                                    yAxisId="right"
-                                    orientation="right"
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{ fill: '#f59e0b', fontSize: 11, fontWeight: 600, opacity: 0.8 }}
-                                    tickFormatter={(value) => `${value}%`}
-                                    // Fix: Adjust scale so 20% sits at ~30% height (visible but not dominating)
-                                    // Scale max to at least 60% or 1.5x max value
-                                    domain={[0, (dataMax: number) => isFinite(dataMax) ? Math.max(60, dataMax * 1.5) : 60]}
-                                />
-                            )}
+                            {/* Right Y-Axis Removed - Plotting Labor Cost on Left Axis */}
 
                             <Tooltip
                                 content={<CombinedTooltip language={language} t={t} />}
@@ -264,9 +251,9 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                             {/* LINE for Labor % */}
                             {hasLabor && (
                                 <Line
-                                    yAxisId="right"
+                                    yAxisId="left"
                                     type="monotone"
-                                    dataKey="laborPercentage"
+                                    dataKey="laborCost"
                                     stroke="#f59e0b"
                                     strokeWidth={3}
                                     dot={{ fill: '#f59e0b', strokeWidth: 2, r: 3 }}
