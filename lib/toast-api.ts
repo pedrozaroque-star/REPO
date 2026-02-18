@@ -958,7 +958,23 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         },
                         laborMetrics: {
                             hours: Number(cached.labor_hours),
-                            laborCost: Number(cached.labor_cost)
+                            laborCost: Number(cached.labor_cost),
+                            hourlyLabor: (() => {
+                                // Synthesize Hourly Labor from Total Cost distributed by Hourly Sales
+                                // This ensures the graph draws something even if we didn't cache exact labor punches
+                                const totalLabor = Number(cached.labor_cost || 0)
+                                const totalSales = Number(cached.net_sales || 1) // Avoid div by 0
+                                const hSales = cached.hourly_data || {}
+                                const dist: Record<number, number> = {}
+
+                                if (totalLabor > 0) {
+                                    Object.entries(hSales).forEach(([h, salesVal]) => {
+                                        const ratio = Number(salesVal) / totalSales
+                                        dist[Number(h)] = totalLabor * ratio
+                                    })
+                                }
+                                return dist
+                            })()
                         },
                         fromCache: true
                     }
