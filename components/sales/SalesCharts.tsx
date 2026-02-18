@@ -106,8 +106,11 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
                             <span className="w-3 h-3 bg-amber-500 rounded-full border-2 border-amber-300"></span>
                             Labor %
                         </span>
-                        <span className="font-mono font-bold text-amber-500 dark:text-amber-400">
+                        <span className="font-mono font-bold text-amber-500 dark:text-amber-400 flex items-center">
                             {Number(labor.value).toFixed(1)}%
+                            <span className="text-[10px] ml-1.5 opacity-80 font-normal">
+                                (${Number(labor.payload.laborCost || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })})
+                            </span>
                         </span>
                     </div>
                 )}
@@ -225,7 +228,8 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                     tickLine={false}
                                     tick={{ fill: '#f59e0b', fontSize: 11, fontWeight: 600, opacity: 0.8 }}
                                     tickFormatter={(value) => `${value}%`}
-                                    domain={[0, (dataMax: number) => Math.min(100, Math.ceil(dataMax * 1.5))]} // Auto-scale but cap at 100
+                                    // Make the line appear visually lower by extending the domain range
+                                    domain={[0, (dataMax: number) => Math.max(50, Math.ceil(dataMax * 4))]}
                                 />
                             )}
 
