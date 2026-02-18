@@ -73,6 +73,7 @@ async function run() {
                 labor_hours: r.totalHours,
                 hourly_data: r.hourlySales, // JSONB
                 hourly_tickets: r.hourlyTickets, // JSONB
+                hourly_labor: r.hourlyLabor,
                 uber_sales: r.uberSales || 0,
                 doordash_sales: r.doordashSales || 0,
                 grubhub_sales: r.grubhubSales || 0,

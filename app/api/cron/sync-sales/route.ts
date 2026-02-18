@@ -77,6 +77,7 @@ export async function GET(request: Request) {
                 labor_hours: r.totalHours,
                 hourly_data: r.hourlySales,
                 hourly_tickets: r.hourlyTickets,
+                hourly_labor: r.hourlyLabor,
                 uber_sales: r.uberSales || 0,
                 doordash_sales: r.doordashSales || 0,
                 grubhub_sales: r.grubhubSales || 0,
