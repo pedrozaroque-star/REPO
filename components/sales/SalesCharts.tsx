@@ -228,8 +228,8 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                     tickLine={false}
                                     tick={{ fill: '#f59e0b', fontSize: 11, fontWeight: 600, opacity: 0.8 }}
                                     tickFormatter={(value) => `${value}%`}
-                                    // Make the line appear visually lower by extending the domain range
-                                    domain={[0, (dataMax: number) => Math.max(50, Math.ceil(dataMax * 4))]}
+                                    // Cap strict visual range to avoid outliers (e.g. hours with low sales but high labor) flattening the useful data
+                                    domain={[0, (dataMax: number) => Math.min(100, Math.max(40, dataMax * 1.2))]}
                                 />
                             )}
 
