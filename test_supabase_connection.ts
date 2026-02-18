@@ -3,7 +3,7 @@ import { supabase } from './lib/supabase';
 async function testConnection() {
     console.log('Testing Supabase Connection...');
     try {
-        const { data, error } = await supabase.from('users').select('count').limit(1).single();
+        const { data, error } = await supabase.from('sales_daily_cache').select('*').limit(1);
 
         if (error) {
             console.error('❌ Connection Failed:', error.message);
