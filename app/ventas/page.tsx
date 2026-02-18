@@ -36,7 +36,7 @@ function SalesPageContent() {
     const isAdmin = user?.role === 'admin'
 
     // Helper to process raw rows into UI Data Structure
-    const processData = (rows: any[], groupByMode: string) => {
+    const processData = (rows: any[], groupByMode: string, referenceDate: string) => {
         // Calculate Summary Totals
         const summary = rows.reduce((acc: any, row: any) => ({
             netSales: acc.netSales + (row.netSales || 0),
@@ -89,21 +89,13 @@ function SalesPageContent() {
 
         // Trend Data
         const trendMap = new Map<string, { amount: number, labor: number }>()
-
-        // Helper date formatter needed here or assume passed via closure? 
-        // We need 'start' date to generate Hourly Ticks.
-        // Let's assume start = startDate state because this function is inside component.
-        const sDate = new Date(startDate + 'T00:00:00')
-        // Fix timezone offset issue manually if needed, or just depend on startDate string format YYYY-MM-DD
-        const formatDateLocal = (d: Date) => d.toISOString().split('T')[0]
-
-        // 📊 PROJECTIONS MAP: Will be populated from historical data
         const projMap = new Map<string, number>()
 
         if (groupByMode === 'hour') {
-            // 1. Inicializar todas las horas del rango (7am -> 29 (5am+1))
-            const baseDateStr = startDate // Using state directly
-            const nextDate = new Date(startDate)
+            // 1. Initialize hours using the reference date
+            // Use the passed referenceDate instead of potentially stale startDate state
+            const baseDateStr = referenceDate
+            const nextDate = new Date(baseDateStr + 'T00:00:00')
             nextDate.setDate(nextDate.getDate() + 1)
             const nextDateStr = nextDate.toISOString().split('T')[0]
 
@@ -297,7 +289,7 @@ function SalesPageContent() {
             }
 
             if (json.data) {
-                const processed = processData(json.data, groupBy)
+                const processed = processData(json.data, groupBy, formatDate(start))
                 setData({ ...processed, rawRows: json.data, groupByMode: groupBy })
                 // Extract unique store names for filter dropdown
                 const uniqueStores = [...new Set(json.data.map((r: any) => r.storeName || t('sales.unknown_store')))] as string[]
@@ -348,7 +340,7 @@ function SalesPageContent() {
                             setIntegrityStatus('fixed')
                             // SILENT UPDATE: Update data directly without full reload/spinner
                             // FIX: Process data to generate storeData/trendData needed by UI
-                            const freshProcessed = processData(json.freshData.data, 'hour') // integrity check forces hour/day view
+                            const freshProcessed = processData(json.freshData.data, 'hour', startDate) // integrity check forces hour/day view
                             setData(freshProcessed)
                             setLastUpdated(new Date())
                         } else {
@@ -389,28 +381,21 @@ function SalesPageContent() {
             return { filteredSummary: defaultSummary, filteredTrendData: [], storeRanking: [] }
         }
 
-        // If 'all' selected, use the already-computed full data
-        if (selectedStore === 'all') {
-            return {
-                filteredSummary: data.summary,
-                filteredTrendData: data.trendData,
-                storeRanking: data.storeData || []
-            }
-        }
+        // Filter rows by selected store - if 'all', use all rows
+        const filteredRows = selectedStore === 'all'
+            ? data.rawRows
+            : data.rawRows.filter((r: any) => (r.storeName || t('sales.unknown_store')) === selectedStore)
 
-        // Filter rows by selected store
-        const filteredRows = data.rawRows.filter((r: any) =>
-            (r.storeName || t('sales.unknown_store')) === selectedStore
-        )
+        // ALWAYS Reprocess data to ensure correct Date Reference in trendMap
+        // (Even if 'all', we must regenerate trendData if startDate changed but data didn't re-fetch yet, though typically they update together)
+        const reprocessed = processData(filteredRows, data.groupByMode, startDate)
 
-        // Reprocess filtered data
-        const reprocessed = processData(filteredRows, data.groupByMode)
         return {
             filteredSummary: reprocessed.summary,
             filteredTrendData: reprocessed.trendData,
             storeRanking: data.storeData || [] // Always full data for Top 5 and Detail
         }
-    }, [data, selectedStore])
+    }, [data, selectedStore, startDate]) // Include startDate in dependency array
 
     // Early return for loading state
     if (!data) return (

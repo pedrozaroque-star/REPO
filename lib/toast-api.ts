@@ -925,7 +925,9 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
 
                 // Use cache ONLY for past dates that are outside the dirty window
                 // SAFETY: Also ignore cache if it reports $0 sales (likely failed sync), ensuring we retry fetching live.
-                if (cached && !isDirty && Number(cached.net_sales) > 0) {
+                // CRITICAL FIX: If requesting Hourly Breakdown (isHourly), we require cached.hourly_labor to exist.
+                // Since the column might be missing in DB schema, this forces a live fetch for "Yesterday" until migration is run.
+                if (cached && !isDirty && Number(cached.net_sales) > 0 && (!isHourly || cached.hourly_labor)) {
                     return {
                         store,
                         date: dateStr,
