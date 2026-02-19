@@ -22,7 +22,8 @@ export async function GET(request: Request) {
         }
     )
 
-    const { data, error } = await supabase
+    // 1. Fetch Recipes
+    const { data: recipes, error } = await supabase
         .from('recipes')
         .select(`
             id,
@@ -44,21 +45,45 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json(data)
+    // 2. Fetch Item Metadata (recipe_na)
+    const { data: itemData } = await supabase
+        .from('toast_menu_items')
+        .select('recipe_na')
+        .eq('guid', guid)
+        .single()
+
+    return NextResponse.json({
+        recipes: recipes || [],
+        meta: {
+            recipe_na: itemData?.recipe_na || false
+        }
+    })
 }
 
 export async function POST(request: Request) {
     const body = await request.json()
-    const { toast_guid, ingredients } = body
+    const { toast_guid, ingredients, recipe_na } = body
 
-    if (!toast_guid || !Array.isArray(ingredients)) {
+    if (!toast_guid || (!Array.isArray(ingredients) && !recipe_na)) {
         return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
     }
 
-    // Use Admin Client for writes (bypassing RLS for now to ensure consistency)
+    // Use Admin Client for writes (bypassing RLS per user request for consistency)
     const supabase = await getSupabaseAdminClient()
 
-    // 1. Delete existing recipe ingredients for this item
+    // 1. Update flag on toast_menu_items
+    const { error: updateError } = await supabase
+        .from('toast_menu_items')
+        .update({ recipe_na: !!recipe_na })
+        .eq('guid', toast_guid)
+
+    if (updateError) {
+        console.error('Error updating recipe_na flag:', updateError)
+        return NextResponse.json({ error: `Update Failed: ${updateError.message}. (Database column 'recipe_na' likely missing)` }, { status: 500 })
+    }
+
+    // 2. Delete existing recipe ingredients for this item
+    // (Even if N/A, we want to clear ingredients so double-entry doesn't happen)
     const { error: deleteError } = await supabase
         .from('recipes')
         .delete()
@@ -68,8 +93,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: deleteError.message }, { status: 500 })
     }
 
-    // 2. Insert new ingredients (if any)
-    if (ingredients.length > 0) {
+    // 3. Insert new ingredients (if any AND not N/A)
+    // If recipe_na is true, we should probably ignore ingredients or ensure they are empty.
+    // User might want to save N/A and clear ingredients.
+    if (!recipe_na && ingredients && ingredients.length > 0) {
         const payload = ingredients.map((ing: any) => ({
             toast_menu_item_guid: toast_guid,
             inventory_item_id: ing.inventory_item_id,

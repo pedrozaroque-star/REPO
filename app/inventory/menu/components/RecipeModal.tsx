@@ -40,6 +40,8 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
     const [ingredients, setIngredients] = useState<any[]>([]) // Current recipe ingredients
     const [availableItems, setAvailableItems] = useState<any[]>([]) // All inventory items for dropdown
 
+    const [isNa, setIsNa] = useState(false)
+
     // For search/add
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -59,10 +61,16 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
 
             // 2. Load existing recipe
             const resRecipe = await fetch(`/api/inventory/recipes?guid=${item?.guid}`)
-            const dataRecipe = await resRecipe.json()
+            const data = await resRecipe.json()
+
+            // Handle new response format vs old format for backward compat
+            const recipeList = Array.isArray(data) ? data : (data.recipes || [])
+            const meta = Array.isArray(data) ? { recipe_na: false } : (data.meta || {})
+
+            setIsNa(!!meta.recipe_na)
 
             // Map to local state
-            const loadedIngredients = (dataRecipe || []).map((r: any) => ({
+            const loadedIngredients = (recipeList || []).map((r: any) => ({
                 inventory_item_id: r.inventory_item.id,
                 name: r.inventory_item.name,
                 unit_type: r.inventory_item.unit_type,
@@ -86,6 +94,8 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
     }
 
     function addIngredient(invItem: any) {
+        if (isNa) return // Prevent adding if N/A
+
         // Check if already exists
         if (ingredients.find(i => i.inventory_item_id === invItem.id)) {
             alert('Este ingrediente ya está en la receta.')
@@ -128,7 +138,8 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                     inventory_item_id: i.inventory_item_id,
                     quantity: Number(i.quantity),
                     unit: i.unit
-                }))
+                })),
+                recipe_na: isNa
             }
 
             const res = await fetch('/api/inventory/recipes', {
@@ -137,12 +148,16 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                 body: JSON.stringify(payload)
             })
 
-            if (!res.ok) throw new Error('Failed to save')
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}))
+                throw new Error(errData.error || 'Failed to save')
+            }
 
             onSaveSuccess()
             onClose()
-        } catch (e) {
-            alert('Error guardando receta')
+        } catch (e: any) {
+            console.error(e)
+            alert(`Error guardando receta: ${e.message}`)
         } finally {
             setSaving(false)
         }
@@ -181,45 +196,68 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                         <div className="flex justify-center py-10"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
                     ) : (
                         <>
-                            {/* Search Box */}
-                            <div className="relative">
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Agregar Insumo</label>
-                                <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                    <input
-                                        type="text"
-                                        placeholder="Buscar insumo (ej: Carne, Tomate)..."
-                                        value={searchTerm}
-                                        onChange={e => setSearchTerm(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                    />
-                                </div>
-
-                                {/* Autocomplete Results */}
-                                {searchResults.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/50">
-                                        {searchResults.map(res => (
-                                            <button
-                                                key={res.id}
-                                                onClick={() => addIngredient(res)}
-                                                className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 flex justify-between items-center group"
-                                            >
-                                                <span className="font-medium text-slate-700 dark:text-slate-200">{res.name}</span>
-                                                <span className="text-xs text-slate-400 group-hover:text-slate-500">{res.unit_type}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                            {/* N/A Toggle */}
+                            <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                                <input
+                                    type="checkbox"
+                                    id="recipe_na"
+                                    checked={isNa}
+                                    onChange={e => setIsNa(e.target.checked)}
+                                    className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
+                                />
+                                <label htmlFor="recipe_na" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    No aplica costo de receta (N/A)
+                                </label>
+                                <span className="text-xs text-slate-500 ml-auto">
+                                    Marcar para excluir de cálculos de costo.
+                                </span>
                             </div>
+
+                            {/* Search Box (Conditionall hidden if NA) */}
+                            {!isNa && (
+                                <div className="relative">
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Agregar Insumo</label>
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type="text"
+                                            placeholder="Buscar insumo (ej: Carne, Tomate)..."
+                                            value={searchTerm}
+                                            onChange={e => setSearchTerm(e.target.value)}
+                                            className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                    </div>
+
+                                    {/* Autocomplete Results */}
+                                    {searchResults.length > 0 && (
+                                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/50">
+                                            {searchResults.map(res => (
+                                                <button
+                                                    key={res.id}
+                                                    onClick={() => addIngredient(res)}
+                                                    className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 flex justify-between items-center group"
+                                                >
+                                                    <span className="font-medium text-slate-700 dark:text-slate-200">{res.name}</span>
+                                                    <span className="text-xs text-slate-400 group-hover:text-slate-500">{res.unit_type}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Ingredient List */}
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-700/50">
                                     <h3 className="font-bold text-slate-700 dark:text-slate-300 text-sm">Ingredientes Seleccionados ({ingredients.length})</h3>
-                                    {ingredients.length === 0 && <span className="text-xs text-amber-500 flex items-center gap-1"><AlertCircle size={12} /> Receta vacía</span>}
+                                    {ingredients.length === 0 && !isNa && <span className="text-xs text-amber-500 flex items-center gap-1"><AlertCircle size={12} /> Receta vacía</span>}
                                 </div>
 
-                                {ingredients.length === 0 ? (
+                                {isNa ? (
+                                    <div className="bg-slate-50 border border-slate-200 dark:bg-slate-900/50 dark:border-slate-700 rounded-lg p-6 text-center">
+                                        <p className="text-slate-500 text-sm italic">Receta marcada como N/A. No se calculará costo.</p>
+                                    </div>
+                                ) : ingredients.length === 0 ? (
                                     <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center text-slate-400">
                                         <p>Usa el buscador para agregar ingredientes.</p>
                                     </div>

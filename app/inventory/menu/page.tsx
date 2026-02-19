@@ -26,7 +26,7 @@ export default function MenuCatalogPage() {
     async function fetchLocalMenu(silent = false) { // Accept silent flag
         if (!silent) setLoading(true)
 
-        // 1. Fetch Menu Items
+        // 1. Fetch Menu Items (include recipe_na)
         const { data: menuItems, error } = await supabase
             .from('toast_menu_items')
             .select('*')
@@ -121,15 +121,17 @@ export default function MenuCatalogPage() {
             const items = menuItems.map(i => {
                 const cost = itemCosts[i.guid] || 0
                 const price = i.price || 0
+                const isNa = !!i.recipe_na
 
-                // Only calculate metrics if we have a valid cost (recipe exists)
-                const margin = (price > 0 && cost > 0) ? ((price - cost) / price) * 100 : null
-                const foodCostPercent = (price > 0 && cost > 0) ? (cost / price) * 100 : null
-                const netProfit = (price > 0 && cost > 0) ? (price - cost) : null
+                // Only calculate metrics if we have a valid cost (recipe exists) AND not N/A
+                const margin = (price > 0 && cost > 0 && !isNa) ? ((price - cost) / price) * 100 : null
+                const foodCostPercent = (price > 0 && cost > 0 && !isNa) ? (cost / price) * 100 : null
+                const netProfit = (price > 0 && cost > 0 && !isNa) ? (price - cost) : null
 
                 return {
                     ...i,
-                    hasRecipe: !!ingredientCounts[i.guid],
+                    hasRecipe: !!ingredientCounts[i.guid] || isNa, // Complete if has recipe OR marked N/A
+                    isNa,
                     ingredientCount: ingredientCounts[i.guid] || 0,
                     recipeCost: cost,
                     marginPercent: margin, // can be null
@@ -320,12 +322,18 @@ export default function MenuCatalogPage() {
 
                                         {/* Costo Receta */}
                                         <td className="px-4 py-3 text-right text-slate-500">
-                                            {item.recipeCost > 0 ? `$${item.recipeCost.toFixed(2)}` : '-'}
+                                            {item.isNa ? (
+                                                <span className="text-xs text-slate-400 italic">N/A</span>
+                                            ) : item.recipeCost > 0 ? (
+                                                `$${item.recipeCost.toFixed(2)}`
+                                            ) : '-'}
                                         </td>
 
                                         {/* Costo % */}
                                         <td className="px-4 py-3 text-right">
-                                            {item.recipeCost > 0 && item.price > 0 ? (
+                                            {item.isNa ? (
+                                                <span className="text-xs text-slate-400 italic">N/A</span>
+                                            ) : item.recipeCost > 0 && item.price > 0 ? (
                                                 <span className={`font-mono text-xs ${item.foodCostPercent > 35 ? 'text-red-500 font-bold' : 'text-slate-600'}`}>
                                                     {item.foodCostPercent.toFixed(1)}%
                                                 </span>
@@ -334,7 +342,9 @@ export default function MenuCatalogPage() {
 
                                         {/* Utilidad % (Margen) */}
                                         <td className="px-4 py-3 text-right">
-                                            {item.recipeCost > 0 && item.price > 0 && item.marginPercent !== null ? (
+                                            {item.isNa ? (
+                                                <span className="text-xs text-slate-400 italic">N/A</span>
+                                            ) : item.recipeCost > 0 && item.price > 0 && item.marginPercent !== null ? (
                                                 <span className={`font-bold text-xs ${item.marginPercent < 65 ? 'text-red-500' : 'text-emerald-600'}`}>
                                                     {item.marginPercent.toFixed(1)}%
                                                 </span>
@@ -343,7 +353,9 @@ export default function MenuCatalogPage() {
 
                                         {/* Utilidad ($) */}
                                         <td className="px-4 py-3 text-right">
-                                            {item.recipeCost > 0 && item.price > 0 ? (
+                                            {item.isNa ? (
+                                                <span className="text-xs text-slate-400 italic">N/A</span>
+                                            ) : item.recipeCost > 0 && item.price > 0 ? (
                                                 <span className={`font-mono font-bold ${item.netProfit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                                                     ${item.netProfit.toFixed(2)}
                                                 </span>
@@ -351,14 +363,20 @@ export default function MenuCatalogPage() {
                                         </td>
 
                                         <td className="px-4 py-3 text-center text-slate-500">
-                                            {item.ingredientCount > 0 ? (
+                                            {item.isNa ? (
+                                                <span className="text-xs text-slate-400 italic">N/A</span>
+                                            ) : item.ingredientCount > 0 ? (
                                                 <span className="font-semibold text-slate-700 dark:text-slate-300">{item.ingredientCount}</span>
                                             ) : (
                                                 <span className="text-slate-300">-</span>
                                             )}
                                         </td>
                                         <td className="px-4 py-3">
-                                            {item.hasRecipe ? (
+                                            {item.isNa ? (
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                                    N/A
+                                                </span>
+                                            ) : item.hasRecipe ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
                                                     ✅
                                                 </span>
