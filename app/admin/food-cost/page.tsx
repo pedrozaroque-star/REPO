@@ -6,10 +6,12 @@ import { Loader2, Download, AlertTriangle, CheckCircle2, Search } from 'lucide-r
 interface FoodCostItem {
     guid: string
     name: string
+    group_name?: string
     quantity: number
     net_sales: number
     gross_sales: number
     voided_quantity: number
+    unit_price: number // Real List Price
     unit_cost: number
     total_cost: number
     food_cost_percent: number
@@ -210,12 +212,14 @@ export default function FoodCostPage() {
                     </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700">
+                <div className="overflow-x-auto max-h-[600px] overflow-y-auto relative">
+                    <table className="w-full text-sm text-left relative border-collapse">
+                        <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700">
                             <tr>
+                                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('group_name')}>Grupo</th>
                                 <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('name')}>Producto</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('quantity')}>Cant. Vendida</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_price')}>Precio Venta</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('net_sales')}>Ventas Netas</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_cost')}>Costo Unit.</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('total_cost')}>Costo Total</th>
@@ -224,8 +228,11 @@ export default function FoodCostPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {filteredData.map((item) => (
-                                <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                            {filteredData.map((item, idx) => (
+                                <tr key={`${item.guid}_${item.group_name || idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                    <td className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                        {item.group_name || 'N/A'}
+                                    </td>
                                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
                                         <div className="flex flex-col">
                                             <span>{item.name}</span>
@@ -233,6 +240,9 @@ export default function FoodCostPage() {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right font-medium">{item.quantity}</td>
+                                    <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-300">
+                                        ${item.unit_price.toFixed(2)}
+                                    </td>
                                     <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-300">
                                         ${item.net_sales.toFixed(2)}
                                     </td>
@@ -269,14 +279,22 @@ export default function FoodCostPage() {
                                     </td>
                                 </tr>
                             ))}
-                            {/* Filtered Totals Row */}
-                            {filteredData.length > 0 && (
-                                <tr className="bg-slate-50 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700">
-                                    <td className="px-6 py-4 text-slate-900 dark:text-white flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                                        SUBTOTAL FILTRADO
+
+                        </tbody>
+                        {filteredData.length > 0 && (
+                            <tfoot className="sticky bottom-0 z-20 bg-slate-50 dark:bg-slate-900 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] border-t-2 border-slate-200 dark:border-slate-700">
+                                <tr className="font-bold">
+                                    <td className="px-6 py-4 text-slate-900 dark:text-white align-middle">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                                            <span>SUBTOTAL</span>
+                                        </div>
                                     </td>
+                                    <td className="px-6 py-4 text-slate-900 dark:text-white align-middle"></td>
                                     <td className="px-6 py-4 text-right font-mono text-slate-700 dark:text-slate-300">{filteredTotals.quantity.toLocaleString()}</td>
+                                    <td className="px-6 py-4 text-right font-mono text-slate-500 dark:text-slate-400">
+                                        -
+                                    </td>
                                     <td className="px-6 py-4 text-right font-mono text-slate-900 dark:text-white">${filteredTotals.net_sales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td className="px-6 py-4 text-right">-</td>
                                     <td className="px-6 py-4 text-right font-mono text-slate-900 dark:text-white">${filteredTotals.total_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -290,9 +308,9 @@ export default function FoodCostPage() {
                                     </td>
                                     <td className="px-6 py-4"></td>
                                 </tr>
-                            )}
-                        </tbody>
-                    </table >
+                            </tfoot>
+                        )}
+                    </table>
 
                     {
                         data.length === 0 && !loading && (

@@ -231,19 +231,39 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
 
                                         if (purchaseUnit.includes('lb') || purchaseUnit.includes('oz') || purchaseUnit.includes('kg') || purchaseUnit.includes('g') || (purchaseUnit.includes('bag') && (purchaseUnit.includes('lb') || purchaseUnit.includes('oz')))) {
                                             // Detected Weight (Restricted to Imperial per user request)
-                                            unitOptions = [...new Set([ing.unit_type, 'lb', 'oz'])]
+                                            unitOptions = [...new Set([ing.unit_type, 'lb', 'oz', 'pza'])]
                                         } else if (purchaseUnit.includes('gal') || purchaseUnit.includes('l') || purchaseUnit.includes('ml')) {
                                             // Detected Volume (Restricted to Imperial)
-                                            unitOptions = [...new Set([ing.unit_type, 'gal', 'fl oz'])]
+                                            unitOptions = [...new Set([ing.unit_type, 'gal', 'fl oz', 'pza'])]
                                         } else {
                                             // Generic / Count
                                             unitOptions = [...new Set([ing.unit_type, 'pza'])]
                                         }
 
                                         // Cost Calculation
+                                        let iUnit = ing.unit_measure?.toLowerCase()?.trim() || ''
+
+                                        // Smart Fallback: If inventory unit is 'pza' or 'unit', try to detect real unit from the description string (unit_type)
+                                        if (iUnit === 'pza' || iUnit === 'unit') {
+                                            if (purchaseUnit.includes('gallon') || purchaseUnit.includes('gal')) iUnit = 'gal'
+                                            else if (purchaseUnit.includes('lb')) iUnit = 'lb'
+                                            else if (purchaseUnit.includes('oz')) iUnit = 'oz'
+                                            else if (purchaseUnit.includes('kg')) iUnit = 'kg'
+                                            else if (purchaseUnit.includes('l') && !purchaseUnit.includes('gal')) iUnit = 'l'
+                                            else if (purchaseUnit.includes('ml')) iUnit = 'ml'
+                                        }
+
                                         const costPerUnit = (ing.purchase_unit_cost || 0) / (ing.quantity_per_unit || 1)
                                         const yieldFactor = (ing.yield_percent || 100) / 100
-                                        const conversion = getConversionFactor(ing.unit, ing.unit_measure)
+
+                                        let conversion = getConversionFactor(ing.unit, iUnit)
+
+                                        // SPECIAL CASE: If calling for 'pza'/'unit' on a Weight/Volume item,
+                                        // assume '1 pza' = '1 Whole Purchase Unit' (e.g. 1 bag of 3.9oz)
+                                        if ((ing.unit === 'pza' || ing.unit === 'unit') && iUnit !== 'pza' && iUnit !== 'unit') {
+                                            conversion = ing.quantity_per_unit || 1
+                                        }
+
                                         const recipeCost = (costPerUnit * (Number(ing.quantity) || 0) * conversion) / yieldFactor
 
                                         // Total Calc Helper
@@ -307,9 +327,27 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                     <span className="font-semibold text-indigo-900 dark:text-indigo-200">Costo Total Receta:</span>
                                     <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">
                                         ${ingredients.reduce((sum, ing) => {
+                                            const purchaseUnit = ing.unit_type?.toLowerCase() || ''
+                                            let iUnit = ing.unit_measure?.toLowerCase()?.trim() || ''
+
+                                            if (iUnit === 'pza' || iUnit === 'unit') {
+                                                if (purchaseUnit.includes('gallon') || purchaseUnit.includes('gal')) iUnit = 'gal'
+                                                else if (purchaseUnit.includes('lb')) iUnit = 'lb'
+                                                else if (purchaseUnit.includes('oz')) iUnit = 'oz'
+                                                else if (purchaseUnit.includes('kg')) iUnit = 'kg'
+                                                else if (purchaseUnit.includes('l') && !purchaseUnit.includes('gal')) iUnit = 'l'
+                                                else if (purchaseUnit.includes('ml')) iUnit = 'ml'
+                                            }
+
                                             const costPerUnit = (ing.purchase_unit_cost || 0) / (ing.quantity_per_unit || 1)
                                             const yieldFactor = (ing.yield_percent || 100) / 100
-                                            const conversion = getConversionFactor(ing.unit, ing.unit_measure)
+
+                                            let conversion = getConversionFactor(ing.unit, iUnit)
+                                            // SPECIAL CASE: 1 pza = 1 Whole Purchase Unit (e.g. 1 bag of 3.9oz)
+                                            if ((ing.unit === 'pza' || ing.unit === 'unit') && iUnit !== 'pza' && iUnit !== 'unit') {
+                                                conversion = ing.quantity_per_unit || 1
+                                            }
+
                                             const cost = (costPerUnit * (Number(ing.quantity) || 0) * conversion) / yieldFactor
                                             return sum + cost
                                         }, 0).toFixed(3)}

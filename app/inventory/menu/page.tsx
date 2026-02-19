@@ -11,7 +11,7 @@ export default function MenuCatalogPage() {
     const [syncing, setSyncing] = useState(false)
     const [filter, setFilter] = useState('')
     const [selectedItem, setSelectedItem] = useState<any>(null)
-    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null)
+    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'foodCostPercent', direction: 'desc' })
 
     const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,7 +46,8 @@ export default function MenuCatalogPage() {
                     purchase_unit_cost,
                     quantity_per_unit,
                     yield_percent,
-                    unit_measure
+                    unit_measure,
+                    unit_type
                 )
             `)
             .limit(20000)
@@ -120,14 +121,20 @@ export default function MenuCatalogPage() {
             const items = menuItems.map(i => {
                 const cost = itemCosts[i.guid] || 0
                 const price = i.price || 0
-                const margin = price > 0 ? ((price - cost) / price) * 100 : 0
+
+                // Only calculate metrics if we have a valid cost (recipe exists)
+                const margin = (price > 0 && cost > 0) ? ((price - cost) / price) * 100 : null
+                const foodCostPercent = (price > 0 && cost > 0) ? (cost / price) * 100 : null
+                const netProfit = (price > 0 && cost > 0) ? (price - cost) : null
 
                 return {
                     ...i,
                     hasRecipe: !!ingredientCounts[i.guid],
                     ingredientCount: ingredientCounts[i.guid] || 0,
                     recipeCost: cost,
-                    marginPercent: margin
+                    marginPercent: margin, // can be null
+                    foodCostPercent,      // can be null
+                    netProfit             // can be null
                 }
             })
             setItems(items)
@@ -151,8 +158,7 @@ export default function MenuCatalogPage() {
     }
 
     const filteredItems = items.filter(i =>
-        (i.name.toLowerCase().includes(filter.toLowerCase()) || i.group_name?.toLowerCase().includes(filter.toLowerCase())) &&
-        (i.price && i.price > 0)
+        (i.name.toLowerCase().includes(filter.toLowerCase()) || i.group_name?.toLowerCase().includes(filter.toLowerCase()))
     )
 
     // Sorting Logic
@@ -162,6 +168,22 @@ export default function MenuCatalogPage() {
 
         let valA = a[key]
         let valB = b[key]
+
+        // Handle null/undefined (Always push to bottom/end regardless of direction)
+        if (valA === null || valA === undefined) {
+            if (valB === null || valB === undefined) return 0
+            // valA is null, valB is not. We want A AFTER B.
+            return 1
+        }
+        if (valB === null || valB === undefined) {
+            // valB is null, valA is not. We want B AFTER A.
+            return -1
+        }
+
+        // Handle numeric values
+        if (typeof valA === 'number' && typeof valB === 'number') {
+            return direction === 'asc' ? valA - valB : valB - valA
+        }
 
         // Handle string comparison (case insensitive)
         if (typeof valA === 'string') valA = valA.toLowerCase()
@@ -216,9 +238,9 @@ export default function MenuCatalogPage() {
                     />
                 </div>
 
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 uppercase text-xs font-semibold">
+                <div className="overflow-x-auto max-h-[75vh] overflow-y-auto relative">
+                    <table className="w-full text-left text-sm relative border-collapse">
+                        <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 uppercase text-xs font-semibold shadow-md ring-1 ring-slate-200 dark:ring-slate-700">
                             <tr>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group"
@@ -242,13 +264,25 @@ export default function MenuCatalogPage() {
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('recipeCost')}
                                 >
-                                    <div className="flex items-center justify-end">Costo Receta <SortIcon columnKey="recipeCost" /></div>
+                                    <div className="flex items-center justify-end">Costo <SortIcon columnKey="recipeCost" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
+                                    onClick={() => requestSort('foodCostPercent')}
+                                >
+                                    <div className="flex items-center justify-end">Costo % <SortIcon columnKey="foodCostPercent" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('marginPercent')}
                                 >
-                                    <div className="flex items-center justify-end">Margen <SortIcon columnKey="marginPercent" /></div>
+                                    <div className="flex items-center justify-end">Utilidad % <SortIcon columnKey="marginPercent" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
+                                    onClick={() => requestSort('netProfit')}
+                                >
+                                    <div className="flex items-center justify-end">Utilidad ($) <SortIcon columnKey="netProfit" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-center"
@@ -267,9 +301,9 @@ export default function MenuCatalogPage() {
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                             {loading ? (
-                                <tr><td colSpan={8} className="p-8 text-center text-slate-500">Cargando catálogo...</td></tr>
+                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">Cargando catálogo...</td></tr>
                             ) : sortedItems.length === 0 ? (
-                                <tr><td colSpan={8} className="p-8 text-center text-slate-500">No hay items sincronizados. Pulsa "Sincronizar Ahora".</td></tr>
+                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">No hay items sincronizados. Pulsa "Sincronizar Ahora".</td></tr>
                             ) : (
                                 sortedItems.map(item => (
                                     <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750">
@@ -278,7 +312,7 @@ export default function MenuCatalogPage() {
                                             {item.name}
                                             {item.group_name?.startsWith('[Mod]') && (
                                                 <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded border border-purple-200 uppercase tracking-wide">
-                                                    Modificador
+                                                    Mod
                                                 </span>
                                             )}
                                         </td>
@@ -289,11 +323,29 @@ export default function MenuCatalogPage() {
                                             {item.recipeCost > 0 ? `$${item.recipeCost.toFixed(2)}` : '-'}
                                         </td>
 
-                                        {/* Margen */}
+                                        {/* Costo % */}
                                         <td className="px-4 py-3 text-right">
-                                            {item.recipeCost > 0 ? (
-                                                <span className={`font-bold ${item.marginPercent < 65 ? 'text-red-500' : 'text-emerald-600'}`}>
+                                            {item.recipeCost > 0 && item.price > 0 ? (
+                                                <span className={`font-mono text-xs ${item.foodCostPercent > 35 ? 'text-red-500 font-bold' : 'text-slate-600'}`}>
+                                                    {item.foodCostPercent.toFixed(1)}%
+                                                </span>
+                                            ) : '-'}
+                                        </td>
+
+                                        {/* Utilidad % (Margen) */}
+                                        <td className="px-4 py-3 text-right">
+                                            {item.recipeCost > 0 && item.price > 0 && item.marginPercent !== null ? (
+                                                <span className={`font-bold text-xs ${item.marginPercent < 65 ? 'text-red-500' : 'text-emerald-600'}`}>
                                                     {item.marginPercent.toFixed(1)}%
+                                                </span>
+                                            ) : '-'}
+                                        </td>
+
+                                        {/* Utilidad ($) */}
+                                        <td className="px-4 py-3 text-right">
+                                            {item.recipeCost > 0 && item.price > 0 ? (
+                                                <span className={`font-mono font-bold ${item.netProfit < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                    ${item.netProfit.toFixed(2)}
                                                 </span>
                                             ) : '-'}
                                         </td>
@@ -308,11 +360,11 @@ export default function MenuCatalogPage() {
                                         <td className="px-4 py-3">
                                             {item.hasRecipe ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                                    ✅ Mapeado
+                                                    ✅
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-500">
-                                                    Sin Receta
+                                                    -
                                                 </span>
                                             )}
                                         </td>

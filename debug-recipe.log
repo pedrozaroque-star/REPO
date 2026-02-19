@@ -1,0 +1,32 @@
+[
+  {
+    "inventory_item_id": "983a3a9a-446a-4b98-b26b-3c3e642508a0",
+    "quantity": 1,
+    "unit": "pza",
+    "type": "cooked"
+  },
+  {
+    "inventory_item_id": "557d9414-c769-4399-a6cc-15bb81cba85f",
+    "quantity": 1.5,
+    "unit": "oz",
+    "type": "cooked"
+  },
+  {
+    "inventory_item_id": "4ea7ef9c-986e-4fc1-a363-7200ca558aab",
+    "quantity": 1.5,
+    "unit": "oz",
+    "type": "cooked"
+  },
+  {
+    "inventory_item_id": "0166aec7-160a-4c9c-82d4-9ecbb251cb9d",
+    "quantity": 0.45,
+    "unit": "oz",
+    "type": "cooked"
+  },
+  {
+    "inventory_item_id": "6549dc7d-7657-4bbd-851e-153707b4556b",
+    "quantity": 0.5,
+    "unit": "oz",
+    "type": "cooked"
+  }
+]

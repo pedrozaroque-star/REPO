@@ -244,27 +244,7 @@ try {
         .badge {
             display: inline-block;
             padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 700;
-        }
-        
-        .footer {
-            background-color: #f9f9f9;
-            padding: 20px 40px;
-            text-align: center;
-            font-size: 12px;
-            color: #888;
-            border-top: 1px solid var(--border);
-        }
-        
-        .print-btn {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
+ññ            cursor: pointer;
             font-weight: 600;
         }
 

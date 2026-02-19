@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
                 inventory_item_id: row.inventory_item_id,
                 quantity: row.quantity,
                 unit: row.unit,
-                type: 'raw' // Default to raw? recipe table doesn't have type column yet? Assuming Raw.
+                type: row.type || 'cooked' // Default to COOKED to apply yield logic (most recipes are plated)
             })
         })
 

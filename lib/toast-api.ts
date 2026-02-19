@@ -1368,3 +1368,75 @@ export const TOAST_STORES_MOCK = [
     { id: '14', name: "Azusa (Mock)" },
     { id: '15', name: "Bell (Mock)" },
 ]
+// --- CONFIGURATION ---
+export async function getSalesCategories(storeGuid: string): Promise<Map<string, string>> {
+    const token = await getAuthToken()
+    if (!token) return new Map()
+
+    try {
+        const url = `${TOAST_API_HOST}/config/v2/salesCategories?pageSize=1000` // Assuming < 1000 categories
+        const res = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeGuid
+            }
+        })
+
+        if (!res.ok) {
+            console.error(`Failed to fetch sales categories: ${res.status} ${res.statusText}`)
+            return new Map()
+        }
+
+        const data = await res.json()
+        const map = new Map<string, string>()
+
+        if (Array.isArray(data)) {
+            data.forEach((cat: any) => {
+                if (cat.guid && cat.name) {
+                    map.set(cat.guid, cat.name)
+                }
+            })
+        }
+        return map
+
+    } catch (e) {
+        console.error("Error fetching sales categories:", e)
+        return new Map()
+    }
+}
+
+export async function getDiningOptions(storeGuid: string): Promise<Map<string, string>> {
+    const token = await getAuthToken()
+    if (!token) return new Map()
+
+    try {
+        const url = `${TOAST_API_HOST}/config/v2/diningOptions`
+        const res = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeGuid
+            }
+        })
+
+        if (!res.ok) {
+            console.error(`Failed to fetch dining options: ${res.status} ${res.statusText}`)
+            return new Map()
+        }
+
+        const data = await res.json()
+        const map = new Map<string, string>()
+
+        if (Array.isArray(data)) {
+            data.forEach((do_opt: any) => {
+                if (do_opt.guid && do_opt.name) {
+                    map.set(do_opt.guid, do_opt.name)
+                }
+            })
+        }
+        return map
+
+    } catch (e) {
+        console.error("Error fetching dining options:", e)
+        return new Map()
+    }
+}

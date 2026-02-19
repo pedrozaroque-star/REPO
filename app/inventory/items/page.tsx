@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Plus, Search, Tag, DollarSign, Scale, Box, Save, X } from 'lucide-react'
+import { Plus, Search, Tag, DollarSign, Scale, Box, Save, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 export default function InventoryItemsPage() {
     const [items, setItems] = useState<any[]>([])
@@ -11,6 +11,7 @@ export default function InventoryItemsPage() {
     const [filter, setFilter] = useState('')
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'purchase_unit_cost', direction: 'desc' })
 
     // Form State
     const [newItem, setNewItem] = useState({
@@ -89,6 +90,56 @@ export default function InventoryItemsPage() {
         i.category?.name?.toLowerCase().includes(filter.toLowerCase())
     )
 
+    // Sorting Logic
+    const sortedItems = [...filteredItems].sort((a, b) => {
+        if (!sortConfig) return 0
+        const { key, direction } = sortConfig
+
+        let valA: any
+        let valB: any
+
+        // Mapeo de columnas especiales
+        if (key === 'category') {
+            valA = a.category?.name
+            valB = b.category?.name
+        } else if (key === 'unitCost') {
+            valA = (Number(a.purchase_unit_cost || 0) / (Number(a.quantity_per_unit) || 1))
+            valB = (Number(b.purchase_unit_cost || 0) / (Number(b.quantity_per_unit) || 1))
+        } else {
+            valA = a[key]
+            valB = b[key]
+        }
+
+        // Handle numeric strings (force number comparison if looks like number)
+        if (!isNaN(Number(valA)) && !isNaN(Number(valB)) && valA !== '' && valB !== '') {
+            valA = Number(valA)
+            valB = Number(valB)
+        }
+
+        // Handle string comparison (case insensitive)
+        if (typeof valA === 'string') valA = valA.toLowerCase()
+        if (typeof valB === 'string') valB = valB.toLowerCase()
+
+        if (valA < valB) return direction === 'asc' ? -1 : 1
+        if (valA > valB) return direction === 'asc' ? 1 : -1
+        return 0
+    })
+
+    const requestSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc'
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc'
+        }
+        setSortConfig({ key, direction })
+    }
+
+    const SortIcon = ({ columnKey }: { columnKey: string }) => {
+        if (sortConfig?.key !== columnKey) return <ArrowUpDown size={14} className="ml-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+        return sortConfig.direction === 'asc'
+            ? <ArrowUp size={14} className="ml-1 text-indigo-500" />
+            : <ArrowDown size={14} className="ml-1 text-indigo-500" />
+    }
+
     // Edit Handler
     const openEdit = (item: any) => {
         setNewItem({
@@ -143,70 +194,112 @@ export default function InventoryItemsPage() {
                 </div>
             </div>
 
-            {/* Grid of Items (Card View for Modern Look) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {loading ? (
-                    Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="h-40 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse"></div>
-                    ))
-                ) : filteredItems.length === 0 ? (
-                    <div className="col-span-full py-12 text-center text-slate-500">
-                        <Box size={48} className="mx-auto mb-4 opacity-20" />
-                        <p>No se encontraron insumos. ¡Crea el primero!</p>
-                    </div>
-                ) : (
-                    filteredItems.map(item => (
-                        <div key={item.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 hover:shadow-md transition-shadow group relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); openEdit(item) }}
-                                    className="p-1.5 bg-slate-100 hover:bg-indigo-100 text-slate-500 hover:text-indigo-600 rounded-lg transition-colors"
-                                    title="Editar"
+            {/* Table View */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase tracking-wider text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-700 select-none">
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
+                                    onClick={() => requestSort('name')}
                                 >
-                                    <Tag size={16} />
-                                </button>
-                            </div>
-
-                            <div className="flex items-start justify-between mb-4">
-                                <div>
-                                    <span className="inline-block px-2 py-1 rounded text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 mb-2">
-                                        {item.category?.name || 'Sin Categoría'}
-                                    </span>
-                                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-tight mb-1">{item.name}</h3>
-                                    {item.sku && <p className="text-xs font-mono text-slate-400">SKU: {item.sku}</p>}
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 text-sm border-t border-slate-100 dark:border-slate-700/50 pt-4">
-                                <div>
-                                    <p className="text-slate-400 text-xs mb-1">Presentación</p>
-                                    <p className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                        <Scale size={14} className="text-indigo-500" />
-                                        {item.quantity_per_unit || 1} {item.unit_measure || 'pza'} ({item.unit_type})
-                                    </p>
-                                </div>
-                                <div>
-                                    <p className="text-slate-400 text-xs mb-1">Rendimiento</p>
-                                    <p className={`font-medium flex items-center gap-1 ${Number(item.yield_percent) < 100 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                                        {Number(item.yield_percent)}%
-                                    </p>
-                                </div>
-                                <div className="col-span-2">
-                                    <p className="text-slate-400 text-xs mb-1">Costo Estimado</p>
-                                    <div className="flex justify-between items-baseline">
-                                        <p className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                            <DollarSign size={14} className="text-emerald-500" />
-                                            ${Number(item.purchase_unit_cost || 0).toFixed(2)} / {item.unit_type}
-                                        </p>
-                                        <p className="text-xs text-slate-400">
-                                            (${(Number(item.purchase_unit_cost || 0) / (Number(item.quantity_per_unit) || 1)).toFixed(3)} / {item.unit_measure || 'pza'})
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    ))
-                )}
+                                    <div className="flex items-center">Insumo <SortIcon columnKey="name" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
+                                    onClick={() => requestSort('category')}
+                                >
+                                    <div className="flex items-center">Categoría <SortIcon columnKey="category" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
+                                    onClick={() => requestSort('unit_type')}
+                                >
+                                    <div className="flex items-center">Presentación <SortIcon columnKey="unit_type" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-right"
+                                    onClick={() => requestSort('purchase_unit_cost')}
+                                >
+                                    <div className="flex items-center justify-end">Costo Compra <SortIcon columnKey="purchase_unit_cost" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-right"
+                                    onClick={() => requestSort('unitCost')}
+                                >
+                                    <div className="flex items-center justify-end">Costo Unitario <SortIcon columnKey="unitCost" /></div>
+                                </th>
+                                <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-center"
+                                    onClick={() => requestSort('yield_percent')}
+                                >
+                                    <div className="flex items-center justify-center">Rendimiento <SortIcon columnKey="yield_percent" /></div>
+                                </th>
+                                <th className="px-4 py-3 text-center">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                                        <div className="flex flex-col items-center justify-center gap-2">
+                                            <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-600 rounded-full animate-spin" />
+                                            <span>Cargando insumos...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ) : sortedItems.length === 0 ? (
+                                <tr>
+                                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                                        <Box size={48} className="mx-auto mb-2 opacity-20" />
+                                        <p>No se encontraron insumos.</p>
+                                    </td>
+                                </tr>
+                            ) : (
+                                sortedItems.map(item => (
+                                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors group">
+                                        <td className="px-4 py-3">
+                                            <div className="font-medium text-slate-900 dark:text-slate-100">{item.name}</div>
+                                            {item.sku && <div className="text-xs text-slate-400 font-mono">SKU: {item.sku}</div>}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                                            {item.category?.name || '-'}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                                            {item.quantity_per_unit || 1} {item.unit_measure || 'pza'} <span className="text-slate-400">({item.unit_type})</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-medium text-slate-700 dark:text-slate-200">
+                                            ${Number(item.purchase_unit_cost || 0).toFixed(2)}
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                            <span className="font-mono text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                                                ${(Number(item.purchase_unit_cost || 0) / (Number(item.quantity_per_unit) || 1)).toFixed(3)} / {item.unit_measure || 'pza'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${Number(item.yield_percent) < 100
+                                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                                }`}>
+                                                {Number(item.yield_percent)}%
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            <button
+                                                onClick={() => openEdit(item)}
+                                                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors"
+                                                title="Editar"
+                                            >
+                                                <Tag size={16} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* Modal */}
