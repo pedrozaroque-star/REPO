@@ -129,89 +129,67 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
             const newStats: Record<string, { sales: number, labor: { cost: number, hours: number } }> = {}
 
             // Init
-            for (let i = 0; i < 7; i++) {
-                newStats[formatDateISO(addDays(weekStart, i))] = { sales: 0, labor: { cost: 0, hours: 0 } }
-            }
+            const days = Array.from({ length: 7 }, (_, i) => formatDateISO(addDays(weekStart, i)))
 
-            // Sales & Labor (Cache Priority)
+            days.forEach(dStr => {
+                newStats[dStr] = { sales: 0, labor: { cost: 0, hours: 0 } }
+            })
+
+            // 1. Fill Sales from Cache
             sales.forEach((row: any) => {
-                const date = row.business_date
-                if (newStats[date]) {
-                    newStats[date].sales = Number(row.net_sales)
-
-                    // Use Cached Labor if available (PERFECT MATCH with Sales Page)
-                    // But ONLY if it's NOT today (Today is calculated live below)
-                    // Determine "Today" in LA Time
-                    const nowObj = new Date()
-                    const laTimeStr = nowObj.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-                    const laTime = new Date(laTimeStr)
-
-                    if (laTime.getHours() < 4) laTime.setDate(laTime.getDate() - 1)
-                    const y = laTime.getFullYear()
-                    const m = String(laTime.getMonth() + 1).padStart(2, '0')
-                    const d = String(laTime.getDate()).padStart(2, '0')
-                    const todayStr = `${y}-${m}-${d}`
-
-                    if (date !== todayStr) {
-                        newStats[date].labor.cost = Number(row.labor_cost) || 0
-                        newStats[date].labor.hours = Number(row.labor_hours) || 0
-                    }
+                if (newStats[row.business_date]) {
+                    newStats[row.business_date].sales = Number(row.net_sales)
+                    // Default labor to cache, will override with punches if available
+                    newStats[row.business_date].labor.cost = Number(row.labor_cost) || 0
+                    newStats[row.business_date].labor.hours = Number(row.labor_hours) || 0
                 }
             })
 
-            // Labor Live Calculation (ONLY FOR TODAY)
-            // We calculate punches ONLY for the current business day to get real-time stats
-            const nowObj2 = new Date()
-            const laTimeStr2 = nowObj2.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-            const laTime2 = new Date(laTimeStr2)
+            // 2. Calculate Labor from Punches (Preferred Source for ALL days)
+            // This fixes discrepancies where cache is stale but punches are correct (e.g. after sync-labor)
 
-            if (laTime2.getHours() < 4) laTime2.setDate(laTime2.getDate() - 1)
-            const y2 = laTime2.getFullYear()
-            const m2 = String(laTime2.getMonth() + 1).padStart(2, '0')
-            const d2 = String(laTime2.getDate()).padStart(2, '0')
-            const todayStr2 = `${y2}-${m2}-${d2}`
+            days.forEach(dayStr => {
+                const dayPunches = punches.filter(p => p.business_date === dayStr)
 
-            // Filter punches for TODAY only
-            const todayPunches = punches.filter(p => p.business_date === todayStr2)
+                if (dayPunches.length > 0) {
+                    let dayCost = 0
+                    let dayHours = 0
 
-            if (todayPunches.length > 0) {
-                // ... (Manual Calc Logic for TODAY only) ...
-                // Reuse existing logic but scoped only to today's punches
-                // Note: We don't need complex weekly OT calc for just "today's snapshot",
-                // simple daily estimate is enough for live dashboard.
+                    dayPunches.forEach(p => {
+                        let totalHours = 0
+                        // Use calculated fields if available, otherwise calc from timestamps (live punches)
+                        if (p.regular_hours !== null || p.overtime_hours !== null) {
+                            totalHours = (Number(p.regular_hours) || 0) + (Number(p.overtime_hours) || 0)
+                        } else if (p.clock_in) {
+                            const start = new Date(p.clock_in).getTime()
+                            const end = p.clock_out ? new Date(p.clock_out).getTime() : now
+                            if (end > start) totalHours = (end - start) / (1000 * 60 * 60)
+                        }
 
-                let todayCost = 0
-                let todayHours = 0
+                        if (totalHours > 0) {
+                            dayHours += totalHours
 
-                todayPunches.forEach(p => {
-                    let totalHours = 0
-                    if (p.regular_hours || p.overtime_hours) {
-                        totalHours = (Number(p.regular_hours) || 0) + (Number(p.overtime_hours) || 0)
-                    } else if (p.clock_in) {
-                        const start = new Date(p.clock_in).getTime()
-                        const end = p.clock_out ? new Date(p.clock_out).getTime() : nowObj2.getTime()
-                        if (end > start) totalHours = (end - start) / (1000 * 60 * 60)
-                    }
+                            // Cost Calc
+                            const wage = wages[p.employee_toast_guid] || 16.00 // Default if missing
 
-                    if (totalHours > 0) {
-                        todayHours += totalHours
+                            // Simple OT Logic for estimation
+                            // If we have precise breakdown from DB, use it
+                            if (p.regular_hours !== null || p.overtime_hours !== null) {
+                                dayCost += (Number(p.regular_hours || 0) * wage) + (Number(p.overtime_hours || 0) * wage * 1.5)
+                            } else {
+                                // Live estimation (8h rule)
+                                const reg = Math.min(8, totalHours)
+                                const ot = Math.max(0, totalHours - 8)
+                                dayCost += (reg * wage) + (ot * wage * 1.5)
+                            }
+                        }
+                    })
 
-                        // Simple 8h OT Rule for Live View
-                        const regular = Math.min(8, totalHours)
-                        const overtime = Math.max(0, totalHours - 8)
-
-                        const rate = wages[p.employee_toast_guid] || 16.00
-                        const otRate = rate * 1.5
-
-                        todayCost += (regular * rate) + (overtime * otRate)
-                    }
-                })
-
-                if (newStats[todayStr2]) {
-                    newStats[todayStr2].labor.cost = todayCost
-                    newStats[todayStr2].labor.hours = todayHours
+                    // OVERWRITE sales cache if we have punches
+                    newStats[dayStr].labor.hours = dayHours
+                    newStats[dayStr].labor.cost = dayCost
                 }
-            }
+            })
 
             setActuals(newStats)
         }

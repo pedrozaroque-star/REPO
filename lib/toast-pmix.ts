@@ -9,6 +9,7 @@ export interface ProductMixItem {
     quantity: number
     net_sales: number
     gross_sales: number
+    discounts: number
     voided_quantity: number
     unit_price: number // REAL Toast List Price (Pre-Discount)
 }
@@ -30,7 +31,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
     const itemMap = new Map<string, ProductMixItem>()
 
     // Helper to update map
-    const addFn = (guid: string, name: string, groupName: string, qty: number, net: number, gross: number, voided: number, unitPrice: number) => {
+    const addFn = (guid: string, name: string, groupName: string, qty: number, net: number, gross: number, discount: number, voided: number, unitPrice: number) => {
         const key = `${guid}_${groupName}` // Create unique entry per Item+Group
 
         const existing = itemMap.get(key) || {
@@ -40,12 +41,14 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             quantity: 0,
             net_sales: 0,
             gross_sales: 0,
+            discounts: 0,
             voided_quantity: 0,
             unit_price: unitPrice
         }
         existing.quantity += qty
         existing.net_sales += net
         existing.gross_sales += gross
+        existing.discounts += discount
         existing.voided_quantity += voided
 
         // If we found a non-zero price and currently have 0, update it (e.g. first item was a void/comp)
@@ -161,6 +164,11 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                 // Subtract child gross so we don't double count modifiers
                 let selfGross = totalGross - childGross
 
+                // Discount Logic
+                // Gross (List) - Price (Actual) = Discount
+                // Ensure no negative (floating point safety)
+                const selfDiscount = Math.max(0, selfGross - selfPrice)
+
                 let selfPreTaxPrice = selfPrice
                 if (sel.taxInclusion === 'INCLUDED') {
                     selfPreTaxPrice = selfPrice - selfTax
@@ -195,7 +203,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                     // console.warn(`[Suspicious $0.00] ${name} (Check: ${checkId}) Group: ${groupName}`)
                 }
 
-                addFn(guid, name, groupName, qty, net, selfGross, 0, unitPrice)
+                addFn(guid, name, groupName, qty, net, selfGross, selfDiscount, 0, unitPrice)
 
                 // Recurse, passing down current groupName as parent context
                 if (sel.modifiers && Array.isArray(sel.modifiers)) {
