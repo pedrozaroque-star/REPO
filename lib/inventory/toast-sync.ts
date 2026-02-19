@@ -143,6 +143,13 @@ async function fetchToastMenuTree(token: string, restaurantGuid: string): Promis
     // If a modifier is shared, which group name should we keep?
     // Maybe keep the one that is most descriptive?
     // For now, map logic keeps the LAST one processed.
+    // FIX: Sort so that "In Store" items come LAST, ensuring they overwrite "3rd Party" items.
+    flatItems.sort((a, b) => {
+        const aScore = a.group_name.toLowerCase().includes('in store') ? 1 : 0
+        const bScore = b.group_name.toLowerCase().includes('in store') ? 1 : 0
+        return aScore - bScore // 0 vs 1 -> -1 (0 comes first). 1 vs 0 -> 1 (1 comes last).
+    })
+
     const uniqueItems = Array.from(
         new Map(flatItems.map(item => [item.guid, item])).values()
     )

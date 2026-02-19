@@ -11,6 +11,29 @@ interface RecipeModalProps {
     onSaveSuccess: () => void
 }
 
+// Helper for unit conversion (duplicated from page.tsx for safety)
+function getConversionFactor(rUnit: string, iUnit: string): number {
+    rUnit = rUnit?.toLowerCase()?.trim() || ''
+    iUnit = iUnit?.toLowerCase()?.trim() || ''
+    if (rUnit === iUnit) return 1
+
+    // Weight
+    if (rUnit === 'oz' && iUnit === 'lb') return 1 / 16
+    if (rUnit === 'lb' && iUnit === 'oz') return 16
+    if (rUnit === 'g' && iUnit === 'kg') return 1 / 1000
+    if (rUnit === 'kg' && iUnit === 'g') return 1000
+    // Volume
+    if (rUnit === 'ml' && iUnit === 'l') return 1 / 1000
+    if (rUnit === 'l' && iUnit === 'ml') return 1000
+    if ((rUnit === 'gal' || rUnit === 'gallon') && (iUnit === 'oz' || iUnit === 'fl oz')) return 128
+    if ((rUnit === 'oz' || rUnit === 'fl oz') && (iUnit === 'gal' || iUnit === 'gallon')) return 1 / 128
+
+    // Count
+    if (rUnit === 'dz' && (iUnit === 'pza' || iUnit === 'unit')) return 12
+
+    return 1
+}
+
 export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModalProps) {
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
@@ -44,7 +67,12 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                 name: r.inventory_item.name,
                 unit_type: r.inventory_item.unit_type,
                 quantity: r.quantity,
-                unit: r.unit
+                unit: r.unit,
+                // Cost Data
+                purchase_unit_cost: r.inventory_item.purchase_unit_cost,
+                quantity_per_unit: r.inventory_item.quantity_per_unit,
+                unit_measure: r.inventory_item.unit_measure,
+                yield_percent: r.inventory_item.yield_percent
             }))
 
             setIngredients(loadedIngredients)
@@ -69,7 +97,12 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             name: invItem.name,
             unit_type: invItem.unit_type,
             quantity: 1, // default
-            unit: invItem.unit_type // default to buy unit
+            unit: invItem.unit_type, // default to buy unit
+            // Cost Data
+            purchase_unit_cost: invItem.purchase_unit_cost,
+            quantity_per_unit: invItem.quantity_per_unit,
+            unit_measure: invItem.unit_measure,
+            yield_percent: invItem.yield_percent
         }])
         setSearchTerm('')
     }
@@ -207,34 +240,58 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                             unitOptions = [...new Set([ing.unit_type, 'pza'])]
                                         }
 
+                                        // Cost Calculation
+                                        const costPerUnit = (ing.purchase_unit_cost || 0) / (ing.quantity_per_unit || 1)
+                                        const yieldFactor = (ing.yield_percent || 100) / 100
+                                        const conversion = getConversionFactor(ing.unit, ing.unit_measure)
+                                        const recipeCost = (costPerUnit * (Number(ing.quantity) || 0) * conversion) / yieldFactor
+
+                                        // Total Calc Helper
+                                        // We can't update a variable here easily for the total, so we'll do it separately or inline.
+                                        // Better to calculate total before mapping.
+
                                         return (
                                             <div key={idx} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
                                                 <div className="flex-1">
                                                     <p className="font-bold text-slate-800 dark:text-white text-sm">{ing.name}</p>
-                                                    <p className="text-xs text-slate-500">Ud. Compra: {ing.unit_type}</p>
+                                                    <div className="flex gap-4 mt-1">
+                                                        <p className="text-xs text-slate-500">
+                                                            Costo Insumo: <span className="font-mono text-slate-700 dark:text-slate-300 font-medium">${ing.purchase_unit_cost?.toFixed(2)}</span> / {ing.unit_type}
+                                                        </p>
+                                                        {ing.yield_percent < 100 && (
+                                                            <p className="text-xs text-amber-600 dark:text-amber-500">
+                                                                Merma: {100 - ing.yield_percent}%
+                                                            </p>
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        type="number"
-                                                        value={ing.quantity}
-                                                        onChange={e => updateIngredient(idx, 'quantity', e.target.value)}
-                                                        className="w-20 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-right font-mono text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                                    />
-                                                    <select
-                                                        value={ing.unit}
-                                                        onChange={e => updateIngredient(idx, 'unit', e.target.value)}
-                                                        className="max-w-[120px] px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                                    >
-                                                        {unitOptions.map(u => (
-                                                            <option key={u} value={u}>{u}</option>
-                                                        ))}
-                                                    </select>
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="number"
+                                                            value={ing.quantity}
+                                                            onChange={e => updateIngredient(idx, 'quantity', e.target.value)}
+                                                            className="w-20 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-right font-mono text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                                        />
+                                                        <select
+                                                            value={ing.unit}
+                                                            onChange={e => updateIngredient(idx, 'unit', e.target.value)}
+                                                            className="max-w-[120px] px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                                        >
+                                                            {unitOptions.map(u => (
+                                                                <option key={u} value={u}>{u}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <p className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                        = ${recipeCost.toFixed(3)}
+                                                    </p>
                                                 </div>
 
                                                 <button
                                                     onClick={() => removeIngredient(idx)}
-                                                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors ml-2"
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
@@ -243,6 +300,23 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                     })
                                 )}
                             </div>
+
+                            {/* Total Footer */}
+                            {ingredients.length > 0 && (
+                                <div className="mt-4 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800/50 flex justify-between items-center">
+                                    <span className="font-semibold text-indigo-900 dark:text-indigo-200">Costo Total Receta:</span>
+                                    <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                                        ${ingredients.reduce((sum, ing) => {
+                                            const costPerUnit = (ing.purchase_unit_cost || 0) / (ing.quantity_per_unit || 1)
+                                            const yieldFactor = (ing.yield_percent || 100) / 100
+                                            const conversion = getConversionFactor(ing.unit, ing.unit_measure)
+                                            const cost = (costPerUnit * (Number(ing.quantity) || 0) * conversion) / yieldFactor
+                                            return sum + cost
+                                        }, 0).toFixed(3)}
+                                    </span>
+                                </div>
+                            )}
+
                         </>
                     )}
                 </div>

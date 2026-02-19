@@ -32,7 +32,10 @@ export async function GET(request: Request) {
                 id,
                 name,
                 unit_type,
-                yield_percent
+                yield_percent,
+                purchase_unit_cost,
+                quantity_per_unit,
+                unit_measure
             )
         `)
         .eq('toast_menu_item_guid', guid)
