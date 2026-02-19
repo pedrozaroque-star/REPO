@@ -16,7 +16,45 @@ export async function GET(request: NextRequest) {
         }
 
         // 1. Fetch Sales (PMIX)
-        const pmixItems = await getProductMix({ storeId, startDate, endDate })
+        let pmixItems: any[] = []
+
+        if (storeId === 'all') {
+            const supabase = await getSupabaseAdminClient()
+            const { data: stores } = await supabase
+                .from('stores')
+                .select('external_id')
+                .eq('is_active', true)
+
+            if (!stores || stores.length === 0) {
+                throw new Error("No active stores found")
+            }
+
+            // Fetch concurrently
+            const results = await Promise.all(
+                stores.map((s: any) => getProductMix({ storeId: s.external_id, startDate, endDate }))
+            )
+
+            // Aggregate by GUID + Group Name
+            const aggMap = new Map<string, any>()
+
+            results.flat().forEach(item => {
+                const key = `${item.guid}_${item.group_name || 'Uncategorized'}`
+                if (!aggMap.has(key)) {
+                    aggMap.set(key, { ...item })
+                } else {
+                    const existing = aggMap.get(key)
+                    existing.quantity += item.quantity
+                    existing.net_sales += item.net_sales
+                    existing.gross_sales += item.gross_sales
+                    existing.discounts += item.discounts
+                    existing.voided_quantity += item.voided_quantity
+                }
+            })
+
+            pmixItems = Array.from(aggMap.values())
+        } else {
+            pmixItems = await getProductMix({ storeId, startDate, endDate })
+        }
 
         // 2. Fetch Data
         const supabase = await getSupabaseAdminClient()

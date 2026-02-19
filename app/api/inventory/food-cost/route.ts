@@ -17,7 +17,50 @@ export async function GET(request: NextRequest) {
 
         // 1. Fetch Product Mix (Sales) from Toast
         // This gives us: guid, name, quantity, net_sales
-        const pmixItems = await getProductMix({ storeId, startDate, endDate })
+        let pmixItems: any[] = []
+
+        if (storeId === 'all') {
+            const supabase = await getSupabaseAdminClient()
+            const { data: stores } = await supabase
+                .from('stores')
+                .select('external_id')
+                .eq('is_active', true)
+
+            if (!stores || stores.length === 0) {
+                throw new Error("No active stores found")
+            }
+
+            // Fetch concurrently
+            const results = await Promise.all(
+                stores.map(s => getProductMix({ storeId: s.external_id, startDate, endDate }))
+            )
+
+            // Aggregate by GUID + Group Name
+            const aggMap = new Map<string, any>()
+
+            results.flat().forEach(item => {
+                const key = `${item.guid}_${item.group_name || 'Uncategorized'}`
+                if (!aggMap.has(key)) {
+                    aggMap.set(key, { ...item })
+                } else {
+                    const existing = aggMap.get(key)
+                    existing.quantity += item.quantity
+                    existing.net_sales += item.net_sales
+                    existing.gross_sales += item.gross_sales
+                    existing.discounts += item.discounts
+                    existing.voided_quantity += item.voided_quantity
+                    // Unit price is recalculated later
+                }
+            })
+
+            pmixItems = Array.from(aggMap.values()).map(item => ({
+                ...item,
+                unit_price: item.quantity > 0 ? item.gross_sales / item.quantity : 0
+            }))
+
+        } else {
+            pmixItems = await getProductMix({ storeId, startDate, endDate })
+        }
 
         // 2. Fetch ALL Recipes and Inventory Items from DB
         const supabase = await getSupabaseAdminClient()

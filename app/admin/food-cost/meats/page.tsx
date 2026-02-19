@@ -134,6 +134,7 @@ export default function MeatAnalysisPage() {
                         onChange={(e) => setStoreId(e.target.value)}
                         className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
+                        <option value="all">Todas las Sucursales</option>
                         {stores.map(s => <option key={s.id} value={s.external_id || s.id}>{s.name}</option>)}
                     </select>
 

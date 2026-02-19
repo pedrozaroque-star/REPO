@@ -140,6 +140,7 @@ export default function FoodCostPage() {
                         onChange={(e) => setStoreId(e.target.value)}
                         className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600"
                     >
+                        <option value="all">Todas las Sucursales</option>
                         {stores.map(s => <option key={s.id} value={s.external_id || s.id}>{s.name}</option>)}
                     </select>
 
