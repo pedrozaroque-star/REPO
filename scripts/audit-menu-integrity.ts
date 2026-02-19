@@ -49,12 +49,14 @@ async function auditMenu() {
     // --- ANÁLISIS 1: EL MITO DE LA MERMA (YIELD) ---
     console.log("🍖 [ALERTA] CARNES CON 100% RENDIMIENTO (IMPOSIBLE EN COCINA REAL):")
     const meatsChecked = new Set()
-    recipes.forEach(r => {
-        const name = r.inventory_item.name.toLowerCase()
-        const yieldPct = r.inventory_item.yield_percent
+    recipes.forEach((r: any) => {
+        const item = Array.isArray(r.inventory_item) ? r.inventory_item[0] : r.inventory_item
+        const name = item?.name?.toLowerCase() || ''
+        const yieldPct = item?.yield_percent || 0
+
         if ((name.includes('asada') || name.includes('pastor') || name.includes('carnitas') || name.includes('lengua') || name.includes('birria')) && yieldPct >= 100) {
             if (!meatsChecked.has(name)) {
-                console.log(`   ❌ ${r.inventory_item.name}: Está al ${yieldPct}%. (La carne cocida merma 25-35%. Tu costo real es más alto).`)
+                console.log(`   ❌ ${item.name}: Está al ${yieldPct}%. (La carne cocida merma 25-35%. Tu costo real es más alto).`)
                 meatsChecked.add(name)
             }
         }
@@ -62,14 +64,17 @@ async function auditMenu() {
 
     // --- ANÁLISIS 2: RECETAS INCOMPLETAS ("ESQUELÉTICAS") ---
     console.log("\n🌮 [ALERTA] PLATOS COMPLEJOS CON POCOS INGREDIENTES (FALTAN EMPAQUES/SALSAS):")
-    menuItems.forEach(item => {
+    menuItems.forEach((item: any) => {
         const itemRecipes = recipeMap.get(item.guid) || []
         const name = item.name.toLowerCase()
 
         // Ignorar bebidas, sides simples, o modificadores
         if (!item.plu && item.price > 3 && itemRecipes.length > 0 && itemRecipes.length < 3) {
             if (name.includes('burrito') || name.includes('taco') || name.includes('torta') || name.includes('nachos')) {
-                const ingredients = itemRecipes.map((ir: any) => ir.inventory_item.name).join(', ')
+                const ingredients = itemRecipes.map((ir: any) => {
+                    const inv = Array.isArray(ir.inventory_item) ? ir.inventory_item[0] : ir.inventory_item
+                    return inv?.name
+                }).join(', ')
                 console.log(`   ⚠️ ${item.name} ($${item.price}): Solo tiene ${itemRecipes.length} insumos: [${ingredients}]. ¿Y el papel? ¿Salsa? ¿Cebolla?`)
             }
         }
@@ -77,17 +82,20 @@ async function auditMenu() {
 
     // --- ANÁLISIS 3: COSTO SOSPECHOSAMENTE BAJO ---
     console.log("\n📉 [ALERTA] COSTO DE ALIMENTOS DEMASIADO BAJO (BAJO INVESTIGACIÓN):")
-    menuItems.forEach(item => {
+    menuItems.forEach((item: any) => {
         const itemRecipes = recipeMap.get(item.guid) || []
         if (itemRecipes.length === 0) return
 
         let totalCost = 0
         itemRecipes.forEach((r: any) => {
+            const inv = Array.isArray(r.inventory_item) ? r.inventory_item[0] : r.inventory_item
+            if (!inv) return
+
             // Replicate simple cost logic
-            const costPerUnit = (r.inventory_item.purchase_unit_cost || 0) / (r.inventory_item.quantity_per_unit || 1)
+            const costPerUnit = (inv.purchase_unit_cost || 0) / (inv.quantity_per_unit || 1)
             // Simple version check
             let conversion = 1 // Simplified for audit
-            if (r.unit !== r.inventory_item.unit_measure) conversion = 1 // Assuming massive error if units mismatch
+            if (r.unit !== inv.unit_measure) conversion = 1 // Assuming massive error if units mismatch
 
             totalCost += (costPerUnit * r.quantity * conversion)
         })
