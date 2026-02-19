@@ -93,6 +93,7 @@ export default function MeatAnalysisPage() {
 
     const runAnalysis = async () => {
         if (!selectedIngredient) return
+        console.log("Running Analysis with:", { storeId, startDate, endDate, selectedIngredient })
         setLoading(true)
         try {
             const res = await fetch(`/api/inventory/meat-analysis?storeId=${storeId}&startDate=${startDate}&endDate=${endDate}&ingredientId=${selectedIngredient}`)
@@ -151,6 +152,7 @@ export default function MeatAnalysisPage() {
                         startDate={startDate}
                         endDate={endDate}
                         onChange={(p, start, end) => {
+                            console.log("Filter Changed:", { p, start, end })
                             setPeriod(p as any) // Safe cast for simple string match
                             setStartDate(start)
                             setEndDate(end)
