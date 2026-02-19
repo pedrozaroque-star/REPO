@@ -27,9 +27,11 @@ async function analyzePortions() {
     }
 
     // Filter for meat ingredients
+    // Filter for meat ingredients
     const meatKeywords = ['asada', 'pastor', 'pollo', 'carnitas', 'cabeza', 'buche', 'tripa', 'lengua', 'carne']
-    const meatRecipes = recipes.filter(r => {
-        const invName = r.inventory_item?.name.toLowerCase() || ''
+    const meatRecipes = (recipes || []).filter((r: any) => {
+        const item = Array.isArray(r.inventory_item) ? r.inventory_item[0] : r.inventory_item
+        const invName = item?.name?.toLowerCase() || ''
         return meatKeywords.some(k => invName.includes(k))
     })
 
@@ -38,12 +40,16 @@ async function analyzePortions() {
     const standards: Record<string, any> = {}
 
     productTypes.forEach(type => {
-        const relevant = meatRecipes.filter(r => r.toast_menu_item?.name.includes(type))
+        const relevant = meatRecipes.filter((r: any) => {
+            const item = Array.isArray(r.toast_menu_item) ? r.toast_menu_item[0] : r.toast_menu_item
+            return item?.name?.includes(type)
+        })
         if (relevant.length > 0) {
             // Calculate average or pick first
             const sample = relevant[0]
+            const invItem = Array.isArray(sample.inventory_item) ? sample.inventory_item[0] : sample.inventory_item
             standards[type] = {
-                meat: sample.inventory_item?.name,
+                meat: invItem?.name,
                 quantity: sample.quantity,
                 unit: sample.unit
             }
