@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Scale, Loader2, AlertTriangle } from 'lucide-react'
+import DateRangeFilter from '@/components/sales/DateRangeFilter'
 
 interface BreakdownItem {
     guid: string
@@ -39,6 +40,7 @@ export default function MeatAnalysisPage() {
 
     const [startDate, setStartDate] = useState(getLocalDate())
     const [endDate, setEndDate] = useState(getLocalDate())
+    const [period, setPeriod] = useState('today')
 
     // Default to Carne Asada if we know the ID, otherwise user selects
     const [ingredients, setIngredients] = useState<any[]>([])
@@ -144,21 +146,16 @@ export default function MeatAnalysisPage() {
                         {ingredients.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                     </select>
 
-                    <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 rounded p-1 border border-slate-200 dark:border-slate-700">
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            className="p-1 bg-transparent dark:text-white focus:outline-none text-sm"
-                        />
-                        <span className="text-slate-400 text-xs">to</span>
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="p-1 bg-transparent dark:text-white focus:outline-none text-sm"
-                        />
-                    </div>
+                    <DateRangeFilter
+                        period={period}
+                        startDate={startDate}
+                        endDate={endDate}
+                        onChange={(p, start, end) => {
+                            setPeriod(p as any) // Safe cast for simple string match
+                            setStartDate(start)
+                            setEndDate(end)
+                        }}
+                    />
 
                     <button
                         onClick={runAnalysis}
