@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Loader2, Download, AlertTriangle, CheckCircle2, Search } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
+import { useLanguage } from '@/lib/i18n'
 
 interface FoodCostItem {
     guid: string
@@ -22,6 +23,7 @@ interface FoodCostItem {
 }
 
 export default function FoodCostPage() {
+    const { t } = useLanguage()
     const [loading, setLoading] = useState(false)
     const [data, setData] = useState<FoodCostItem[]>([])
     const [stores, setStores] = useState<{ id: string, name: string, external_id: string }[]>([])
@@ -130,8 +132,8 @@ export default function FoodCostPage() {
         <div className="p-6 max-w-[1600px] mx-auto space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Análisis de Food Cost</h1>
-                    <p className="text-slate-500">Reporte de Ventas vs Costo Teórico (PMIX)</p>
+                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white">{t('food_cost.title')}</h1>
+                    <p className="text-slate-500">{t('food_cost.subtitle')}</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-slate-800 p-2 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
@@ -140,7 +142,7 @@ export default function FoodCostPage() {
                         onChange={(e) => setStoreId(e.target.value)}
                         className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600"
                     >
-                        <option value="all">Todas las Sucursales</option>
+                        <option value="all">{t('sales.all_stores')}</option>
                         {stores.map(s => <option key={s.id} value={s.external_id || s.id}>{s.name}</option>)}
                     </select>
 
@@ -160,7 +162,7 @@ export default function FoodCostPage() {
                         disabled={loading}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium flex items-center gap-2 disabled:opacity-50"
                     >
-                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generar Reporte'}
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : t('food_cost.generate')}
                     </button>
                 </div>
             </div>
@@ -168,19 +170,19 @@ export default function FoodCostPage() {
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    <h3 className="text-sm font-medium text-slate-500 uppercase">Ventas Netas</h3>
+                    <h3 className="text-sm font-medium text-slate-500 uppercase">{t('food_cost.table.net_sales')}</h3>
                     <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">
                         ${totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                 </div>
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    <h3 className="text-sm font-medium text-slate-500 uppercase">Costo Teórico Total</h3>
+                    <h3 className="text-sm font-medium text-slate-500 uppercase">{t('food_cost.table.theo_cost')} Total</h3>
                     <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">
                         ${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                 </div>
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    <h3 className="text-sm font-medium text-slate-500 uppercase">Food Cost %</h3>
+                    <h3 className="text-sm font-medium text-slate-500 uppercase">{t('food_cost.table.cost_pct')}</h3>
                     <div className="flex items-center gap-3 mt-2">
                         <p className={`text-3xl font-bold ${totalFC > 35 ? 'text-red-500' : 'text-emerald-500'}`}>
                             {totalFC.toFixed(1)}%
@@ -200,7 +202,7 @@ export default function FoodCostPage() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                         <input
                             type="text"
-                            placeholder="Buscar productos por nombre o ID..."
+                            placeholder={t('food_cost.search')}
                             value={filterTerm}
                             onChange={(e) => setFilterTerm(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
@@ -210,7 +212,7 @@ export default function FoodCostPage() {
                         <span className="bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-full text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
                             {filteredData.length}
                         </span>
-                        <span>resultados</span>
+                        <span>results</span>
                     </div>
                 </div>
 
@@ -218,16 +220,16 @@ export default function FoodCostPage() {
                     <table className="w-full text-sm text-left relative border-collapse">
                         <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700">
                             <tr>
-                                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('group_name')}>Grupo</th>
-                                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('name')}>Producto</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('quantity')}>Cant. Vendida</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_price')}>Precio Venta</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('discounts')}>Descuentos ($)</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('net_sales')}>Ventas Netas</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_cost')}>Costo Unit.</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('total_cost')}>Costo Total</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('food_cost_percent')}>FC %</th>
-                                <th className="px-6 py-4 text-center">Estado</th>
+                                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('group_name')}>Group</th>
+                                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('name')}>{t('food_cost.table.product')}</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('quantity')}>{t('food_cost.table.quantity')}</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_price')}>Price</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('discounts')}>Disc ($)</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('net_sales')}>{t('food_cost.table.net_sales')}</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_cost')}>Unit Cost</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('total_cost')}>Total Cost</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('food_cost_percent')}>{t('food_cost.table.cost_pct')}</th>
+                                <th className="px-6 py-4 text-center">Status</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -328,7 +330,7 @@ export default function FoodCostPage() {
                     {
                         data.length === 0 && !loading && (
                             <div className="p-12 text-center text-slate-500">
-                                No data found for this range. Click "Generar Reporte".
+                                {t('food_cost.no_data')}
                             </div>
                         )
                     }

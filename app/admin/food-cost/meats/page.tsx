@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Scale, Loader2, AlertTriangle } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
+import { useLanguage } from '@/lib/i18n'
 
 interface BreakdownItem {
     guid: string
@@ -27,6 +28,7 @@ interface MeatAnalysis {
 }
 
 export default function MeatAnalysisPage() {
+    const { t } = useLanguage()
     const [loading, setLoading] = useState(false)
     const [data, setData] = useState<MeatAnalysis | null>(null)
     const [stores, setStores] = useState<{ id: string, name: string, external_id: string }[]>([])
@@ -122,9 +124,9 @@ export default function MeatAnalysisPage() {
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
                         <Scale className="w-8 h-8 text-red-600" />
-                        Análisis de Consumo de Carnes
+                        {t('food_cost.meat_analysis')}
                     </h1>
-                    <p className="text-slate-500 mt-1">Reporte de rendimiento y proyección de ventas por ingrediente</p>
+                    <p className="text-slate-500 mt-1">{t('food_cost.meat_subtitle')}</p>
                 </div>
 
                 {/* Controls */}
@@ -134,7 +136,7 @@ export default function MeatAnalysisPage() {
                         onChange={(e) => setStoreId(e.target.value)}
                         className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                        <option value="all">Todas las Sucursales</option>
+                        <option value="all">{t('sales.all_stores')}</option>
                         {stores.map(s => <option key={s.id} value={s.external_id || s.id}>{s.name}</option>)}
                     </select>
 
@@ -143,7 +145,7 @@ export default function MeatAnalysisPage() {
                         onChange={(e) => setSelectedIngredient(e.target.value)}
                         className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600 max-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                        {ingredients.length === 0 && <option>Cargando carnes...</option>}
+                        {ingredients.length === 0 && <option>{t('food_cost.loading')}</option>}
                         {ingredients.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                     </select>
 
@@ -163,7 +165,7 @@ export default function MeatAnalysisPage() {
                         disabled={loading || !selectedIngredient}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium flex items-center gap-2 disabled:opacity-50 transition-colors"
                     >
-                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analizar Consumo'}
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : t('food_cost.analyze')}
                     </button>
                 </div>
             </div>
@@ -174,18 +176,18 @@ export default function MeatAnalysisPage() {
                     {/* Key Metrics */}
                     <div className="lg:col-span-1 space-y-4">
                         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                            <h3 className="text-sm font-medium text-slate-500 uppercase">Consumo Total (Crudo)</h3>
+                            <h3 className="text-sm font-medium text-slate-500 uppercase">{t('food_cost.table.usage')}</h3>
                             <p className="text-4xl font-bold text-slate-900 dark:text-white mt-2">
                                 {data.totalRawLbs.toLocaleString('en-US', { maximumFractionDigits: 1 })} <span className="text-lg text-slate-400 font-normal">lbs</span>
                             </p>
                             <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center text-sm">
-                                <span className="text-slate-500">Rendimiento (Yield)</span>
+                                <span className="text-slate-500">{t('food_cost.table.yield')}</span>
                                 <span className="font-mono font-bold text-emerald-600">{data.yieldPercent}%</span>
                             </div>
                         </div>
 
                         <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-900/10 p-6 rounded-xl border border-orange-200 dark:border-orange-800">
-                            <h3 className="text-sm font-bold text-orange-800 dark:text-orange-400 uppercase tracking-widest mb-1">Equivalencia en Bolsas</h3>
+                            <h3 className="text-sm font-bold text-orange-800 dark:text-orange-400 uppercase tracking-widest mb-1">{t('food_cost.meat_table.bags_10')}</h3>
                             <p className="text-5xl font-black text-orange-900 dark:text-orange-100">
                                 {bagsUsed.toFixed(1)} <span className="text-xl font-medium opacity-70">bolsas</span>
                             </p>
@@ -302,21 +304,21 @@ export default function MeatAnalysisPage() {
                     {/* Breakdown Table */}
                     <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
                         <div className="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
-                            <h3 className="font-semibold text-slate-700 dark:text-slate-200">Desglose por Producto</h3>
-                            <span className="text-xs text-slate-400">Ordenado por consumo</span>
+                            <h3 className="font-semibold text-slate-700 dark:text-slate-200">Product Breakdown</h3>
+                            <span className="text-xs text-slate-400">Sorted by usage</span>
                         </div>
                         <div className="overflow-auto flex-1">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700 sticky top-0">
                                     <tr>
-                                        <th className="px-6 py-3">Producto</th>
-                                        <th className="px-6 py-3 text-right">Cant. Vendida</th>
-                                        <th className="px-6 py-3 text-right">Tu Receta</th>
-                                        <th className="px-6 py-3 text-right">Consumo (Lbs)</th>
-                                        <th className="px-6 py-3 text-right">Costo Carne</th>
-                                        <th className="px-6 py-3 text-right">Venta Total</th>
-                                        <th className="px-6 py-3 text-right">Utilidad</th>
-                                        <th className="px-6 py-3 text-right">% del Total</th>
+                                        <th className="px-6 py-3">{t('food_cost.table.product')}</th>
+                                        <th className="px-6 py-3 text-right">{t('food_cost.table.quantity')}</th>
+                                        <th className="px-6 py-3 text-right">Recipe</th>
+                                        <th className="px-6 py-3 text-right">{t('food_cost.table.usage')}</th>
+                                        <th className="px-6 py-3 text-right">{t('food_cost.meat_table.meat')} Cost</th>
+                                        <th className="px-6 py-3 text-right">Total Sales</th>
+                                        <th className="px-6 py-3 text-right">{t('food_cost.table.profit')}</th>
+                                        <th className="px-6 py-3 text-right">% of Total</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -351,7 +353,7 @@ export default function MeatAnalysisPage() {
                                 </tbody>
                                 <tfoot className="bg-slate-50 dark:bg-slate-900 border-t-2 border-slate-200 dark:border-slate-700 font-bold text-sm sticky bottom-0 shadow-lg">
                                     <tr>
-                                        <td className="px-6 py-4 text-slate-900 dark:text-white">TOTALES</td>
+                                        <td className="px-6 py-4 text-slate-900 dark:text-white">{t('food_cost.table.total')}</td>
                                         <td className="px-6 py-4 text-right font-mono">{data.breakdown.reduce((sum, i) => sum + i.soldQty, 0).toLocaleString()}</td>
                                         <td className="px-6 py-4"></td>
                                         <td className="px-6 py-4 text-right text-slate-900 dark:text-white">{data.totalRawLbs.toLocaleString('en-US', { maximumFractionDigits: 2 })}</td>

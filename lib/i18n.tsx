@@ -831,7 +831,45 @@ const dictionaries: Record<Language, any> = {
                 budget_error: 'Error guardando presupuesto'
             },
             employees_scheduled: 'Empleados Programados'
-        }
+        },
+        food_cost: {
+            title: 'Reporte de Costos (Food Cost)',
+            subtitle: 'Análisis de Costos Teóricos vs Reales',
+            meat_analysis: 'Análisis de Carnes',
+            meat_subtitle: 'Consumo Teórico vs Ventas',
+            search: 'Buscar productos por nombre o ID...',
+            generate: 'Generar Reporte',
+            analyze: 'Analizar Consumo',
+            loading: 'Cargando datos...',
+            no_data: 'No hay datos para este rango',
+            table: {
+                product: 'Producto',
+                quantity: 'Cantidad',
+                net_sales: 'Venta Neta',
+                theo_cost: 'Costo Teórico',
+                cost_pct: '% Costo',
+                profit: 'Ganancia',
+                total: 'Totales',
+                unit: 'Unidad',
+                yield: 'Rendimiento',
+                usage: 'Consumo (Lbs)',
+                bags: 'Equivalente (Bolsas)',
+                diff: 'Diferencia',
+            },
+            filters: {
+                store: 'Sucursal',
+                period: 'Periodo',
+                start: 'Inicio',
+                end: 'Fin'
+            },
+            meat_table: {
+                meat: 'Carne',
+                sold_qty: 'Cant. Vendida',
+                theo_usage: 'Uso Teórico',
+                bags_40: 'Bolsas (40lb)',
+                bags_10: 'Bolsas (10lb)'
+            }
+        },
     },
     en: {
         // TOP NAV
@@ -1654,6 +1692,44 @@ const dictionaries: Record<Language, any> = {
                 budget_error: 'Error saving budget'
             },
             employees_scheduled: 'Employees Scheduled'
+        },
+        food_cost: {
+            title: 'Food Cost Report',
+            subtitle: 'Theoretical vs Actual Cost Analysis',
+            meat_analysis: 'Meat Analysis',
+            meat_subtitle: 'Theoretical Usage vs Sales',
+            generate: 'Generate Report',
+            analyze: 'Analyze Consumption',
+            loading: 'Loading data...',
+            no_data: 'No data for this range',
+            search: 'Search products by name or ID...',
+            table: {
+                product: 'Product',
+                quantity: 'Quantity',
+                net_sales: 'Net Sales',
+                theo_cost: 'Theo Cost',
+                cost_pct: 'Cost %',
+                profit: 'Profit',
+                total: 'Totals',
+                unit: 'Unit',
+                yield: 'Yield',
+                usage: 'Usage (Lbs)',
+                bags: 'Equivalent (Bags)',
+                diff: 'Difference',
+            },
+            filters: {
+                store: 'Store',
+                period: 'Period',
+                start: 'Start',
+                end: 'End'
+            },
+            meat_table: {
+                meat: 'Meat',
+                sold_qty: 'Sold Qty',
+                theo_usage: 'Theo Usage',
+                bags_40: 'Bags (40lb)',
+                bags_10: 'Bags (10lb)'
+            }
         }
     }
 };
