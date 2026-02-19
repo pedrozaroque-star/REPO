@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Loader2, Download, AlertTriangle, CheckCircle2, Search } from 'lucide-react'
+import DateRangeFilter from '@/components/sales/DateRangeFilter'
 
 interface FoodCostItem {
     guid: string
@@ -36,6 +37,7 @@ export default function FoodCostPage() {
 
     const [startDate, setStartDate] = useState(getLocalDate())
     const [endDate, setEndDate] = useState(getLocalDate())
+    const [period, setPeriod] = useState('today')
     const [sortConfig, setSortConfig] = useState<{ key: keyof FoodCostItem; direction: 'asc' | 'desc' }>({ key: 'quantity', direction: 'desc' })
 
     useEffect(() => {
@@ -141,18 +143,15 @@ export default function FoodCostPage() {
                         {stores.map(s => <option key={s.id} value={s.external_id || s.id}>{s.name}</option>)}
                     </select>
 
-                    <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600"
-                    />
-                    <span className="text-slate-400">to</span>
-                    <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="p-2 border rounded bg-transparent dark:text-white dark:border-slate-600"
+                    <DateRangeFilter
+                        period={period}
+                        startDate={startDate}
+                        endDate={endDate}
+                        onChange={(p, start, end) => {
+                            setPeriod(p as any) // Assuming 'Period' type might differ slightly, casting for safety
+                            setStartDate(start)
+                            setEndDate(end)
+                        }}
                     />
 
                     <button
