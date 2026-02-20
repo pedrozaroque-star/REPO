@@ -20,6 +20,7 @@ export interface ProductMixOptions {
     startDate: string
     endDate: string
     bundleModifiers?: boolean // New flag for bundling modifiers into parent
+    mergeDiningOptions?: boolean // New flag for merging all dining options (e.g. food cost reports)
 }
 
 export async function getProductMix(options: ProductMixOptions): Promise<ProductMixItem[]> {
@@ -211,6 +212,11 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                 }
                 if (groupName === 'Uncategorized' && parentGroupName) {
                     groupName = parentGroupName
+                }
+
+                // Override if merging dining options
+                if (options.mergeDiningOptions) {
+                    groupName = 'All Channels'
                 }
                 // End Group Logic
 

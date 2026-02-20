@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
             const results = await Promise.all(
                 validStores.map(async (s) => {
                     try {
-                        return await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true })
+                        return await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true, mergeDiningOptions: true })
                     } catch (err) {
                         console.error(`[FoodCostAPI] Failed to fetch store ${s.external_id}:`, err)
                         return [] // Return empty array on failure to avoid breaking entire report
@@ -86,7 +86,8 @@ export async function GET(request: NextRequest) {
 
         } else {
             // Bundle modifiers to capture full plate costs (e.g. Taco Plate + 3 Tacos)
-            pmixItems = await getProductMix({ storeId, startDate, endDate, bundleModifiers: true })
+            // Merge Dining Options for consolidated food cost
+            pmixItems = await getProductMix({ storeId, startDate, endDate, bundleModifiers: true, mergeDiningOptions: true })
         }
 
         // 2. Fetch ALL Recipes and Inventory Items from DB
