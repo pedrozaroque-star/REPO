@@ -24,28 +24,28 @@ async function auditTacoPlateCosts() {
     if (guidMap.has(asadaGuid)) {
         const cost = calculateRecipeCost({ ingredients: guidMap.get(asadaGuid) } as any, invItems as any);
         console.log(`\nCOSTO TACO ASADA: $${cost.totalCost.toFixed(4)}`);
-        cost.breakdown.forEach(b => console.log(` - ${b.itemName}: ${b.quantity} ${b.unit} ($${b.cost.toFixed(4)})`));
+        cost.breakdown.forEach((b: any) => console.log(` - ${b.itemName}: ${b.quantity} ${b.unit} ($${b.cost.toFixed(4)})`));
     }
 
     // 2. EL TACO POLLO
     const polloGuid = '4ea7ef9c-986e-4fc1-a363-7200ca558aab'; // Item ID, need to find recipe guid
     for (const [guid, ingredients] of guidMap.entries()) {
         const costResult = calculateRecipeCost({ ingredients } as any, invItems as any);
-        const hasPollo = costResult.breakdown.some(b => b.itemName === 'Pollo');
+        const hasPollo = costResult.breakdown.some((b: any) => b.itemName === 'Pollo');
         const isSmall = costResult.totalCost > 0.10 && costResult.totalCost < 1.00;
         if (hasPollo && isSmall && ingredients.length < 5) {
             console.log(`\nPOSIBLE TACO POLLO (GUID: ${guid}): $${costResult.totalCost.toFixed(4)}`);
-            costResult.breakdown.forEach(b => console.log(` - ${b.itemName}: ${b.quantity} ${b.unit} ($${b.cost.toFixed(4)})`));
+            costResult.breakdown.forEach((b: any) => console.log(` - ${b.itemName}: ${b.quantity} ${b.unit} ($${b.cost.toFixed(4)})`));
         }
     }
 
     // 3. EL CLÁSICO TACO PASTOR
     for (const [guid, ingredients] of guidMap.entries()) {
         const costResult = calculateRecipeCost({ ingredients } as any, invItems as any);
-        const hasPastor = costResult.breakdown.some(b => b.itemName.includes('Pastor'));
+        const hasPastor = costResult.breakdown.some((b: any) => b.itemName.includes('Pastor'));
         if (hasPastor && costResult.totalCost < 2) {
             console.log(`\nPOSIBLE TACO PASTOR (GUID: ${guid}): $${costResult.totalCost.toFixed(4)}`);
-            costResult.breakdown.forEach(b => console.log(` - ${b.itemName}: ${b.quantity} ${b.unit} ($${b.cost.toFixed(4)})`));
+            costResult.breakdown.forEach((b: any) => console.log(` - ${b.itemName}: ${b.quantity} ${b.unit} ($${b.cost.toFixed(4)})`));
         }
     }
 }
