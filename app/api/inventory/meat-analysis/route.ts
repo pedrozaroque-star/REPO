@@ -29,9 +29,23 @@ export async function GET(request: NextRequest) {
                 throw new Error("No active stores found")
             }
 
-            // Fetch concurrently
+            // Filter valid stores
+            const validStores = stores.filter(s => s.external_id)
+
+            if (validStores.length === 0) {
+                throw new Error("No valid stores found")
+            }
+
+            // Fetch concurrently with error handling
             const results = await Promise.all(
-                stores.map((s: any) => getProductMix({ storeId: s.external_id, startDate, endDate }))
+                validStores.map(async (s: any) => {
+                    try {
+                        return await getProductMix({ storeId: s.external_id, startDate, endDate })
+                    } catch (err) {
+                        console.error(`[MeatAnalysisAPI] Failed to fetch store ${s.external_id}:`, err)
+                        return [] // Return empty array on failure
+                    }
+                })
             )
 
             // Aggregate by GUID + Group Name

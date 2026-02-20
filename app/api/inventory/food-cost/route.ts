@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
         // This gives us: guid, name, quantity, net_sales
         let pmixItems: any[] = []
 
+        console.log(`[FoodCostAPI] Request storeId=${storeId}, start=${startDate}, end=${endDate}`)
+
         if (storeId === 'all') {
             const supabase = await getSupabaseAdminClient()
             const { data: stores } = await supabase
@@ -26,13 +28,26 @@ export async function GET(request: NextRequest) {
                 .select('external_id')
                 .eq('is_active', true)
 
-            if (!stores || stores.length === 0) {
-                throw new Error("No active stores found")
+            // Filter valid stores
+            const validStores = stores?.filter(s => s.external_id) || []
+
+            if (validStores.length === 0) {
+                console.error("[FoodCostAPI] No valid stores found with external_id")
+                throw new Error("No valid stores found")
             }
 
-            // Fetch concurrently
+            console.log(`[FoodCostAPI] Fetching for ${validStores.length} stores...`)
+
+            // Fetch concurrently with error handling
             const results = await Promise.all(
-                stores.map(s => getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true }))
+                validStores.map(async (s) => {
+                    try {
+                        return await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true })
+                    } catch (err) {
+                        console.error(`[FoodCostAPI] Failed to fetch store ${s.external_id}:`, err)
+                        return [] // Return empty array on failure to avoid breaking entire report
+                    }
+                })
             )
 
             // Aggregate by GUID + Group Name + Name (Variation)
