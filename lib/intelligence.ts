@@ -18,9 +18,11 @@ export const CAPACITY_RULES = {
     MIN_KITCHEN: 1  // Changed from 2 (Feb 2026) - SL + Asst cover the rest
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+import { supabase } from '@/lib/supabase'
+
+function getSupabase() {
+    return supabase // Use anon client (Has proven read access)
+}
 
 export interface OperatingHour {
     hour: number
@@ -48,6 +50,7 @@ export interface DayForecast {
  * 3. Granularity: Reconstructs hourly curve from historical hourly percents.
  */
 export async function generateSmartForecast(storeId: string, targetDateStr: string): Promise<DayForecast> {
+    const supabase = getSupabase()
     // FORCE NOON to avoid Timezone Shift (e.g. UTC midnight -> Previous Day 4pm PST)
     const targetDate = new Date(targetDateStr + 'T12:00:00')
 
@@ -545,7 +548,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         // FILTER: Only include late night (24+) if there is substantial volume
         // to avoid projecting morning coffee sales as late night party sales
         // (Unless it's a 24h store, but here we assume late close).
-        if (h >= 24 && histSales < 10) continue
+        // No filter for low sales - let them flow to Gap Filling or project small amounts
 
         // Apply distinct growth factors AND weather
         let projSales = histSales * growthFactorSales * weatherFactor
@@ -594,6 +597,39 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         if (reqKitchen < CAPACITY_RULES.MIN_KITCHEN && projSales > 0) reqKitchen = CAPACITY_RULES.MIN_KITCHEN
         if (projSales === 0) reqKitchen = 0 // Closed
 
+        // GAP FILLING: If sales are 0 but store is OPEN (based on DB hours), extrapolate!
+        // This handles cases where hours were recently extended (so history is 0)
+        let effectiveClose = dbCloseHour
+        if (dbCloseHour !== null && dbOpenHour !== null) {
+            if (dbCloseHour < dbOpenHour) effectiveClose = dbCloseHour + 24
+        }
+
+        // Only trigger if we are in the "active" window (after open, before close)
+        // And we have a valid previous hour to extrapolate from
+        if (projSales === 0
+            && dbOpenHour !== null
+            && effectiveClose !== null
+            && h >= dbOpenHour
+            && h < effectiveClose
+            && hours.length > 0
+            && hours[hours.length - 1].projected_sales > 0) {
+
+            // Extrapolate: Decay last hour by 15% to be conservative
+            const lastSales = hours[hours.length - 1].projected_sales
+            // Don't carry over huge spikes, cap decay
+            projSales = lastSales * 0.85
+
+            // Also extrapolate tickets
+            const lastTickets = hours[hours.length - 1].projected_tickets
+            projTickets = lastTickets * 0.85
+            // Ensure capacity is recalculated for gap-filled hours
+            reqCashiers = Math.ceil(projTickets / CAPACITY_RULES.CASHIER_TICKETS_PER_HOUR_MEDIAN)
+            if (reqCashiers < CAPACITY_RULES.MIN_CASHIERS) reqCashiers = CAPACITY_RULES.MIN_CASHIERS
+
+            reqKitchen = Math.ceil(projSales / CAPACITY_RULES.KITCHEN_SALES_PER_HOUR_MEDIAN)
+            if (reqKitchen < CAPACITY_RULES.MIN_KITCHEN) reqKitchen = CAPACITY_RULES.MIN_KITCHEN
+        }
+
         hours.push({
             hour: h,
             projected_sales: projSales,
@@ -605,11 +641,29 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     }
 
     // --- SMART TRIM: Remove trailing inactive hours ---
-    // Scan backwards to find the last hour with sales > 0
+    // But keep open until Closing Time if known
     let lastActiveIndex = hours.length - 1
+
+    // 1. Find last actual sale
     while (lastActiveIndex > 0) {
         if (hours[lastActiveIndex].projected_sales > 0) break
         lastActiveIndex--
+    }
+
+    // 2. Enforce minimum visual duration based on DB Closing Time
+    if (dbCloseHour !== null) {
+        let closeH = dbCloseHour
+        // If close < open, assume next day (e.g. Open 10, Close 2 -> Close 26)
+        // If close > open (Open 10, Close 23), use 23.
+        // We need dbOpenHour to be sure.
+        const openH = dbOpenHour || 9
+        if (closeH < openH) closeH += 24
+
+        // If store closes at 2am (26), we want to show up to hour 26
+        // But only if it's within our 30h window
+        if (closeH < 30) {
+            lastActiveIndex = Math.max(lastActiveIndex, closeH)
+        }
     }
 
     // Keep up to lastActiveIndex + 1 (buffer for closing visual)

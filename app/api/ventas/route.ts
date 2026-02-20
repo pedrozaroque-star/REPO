@@ -150,8 +150,8 @@ export async function GET(request: NextRequest) {
                     }
                 })
 
-                // Build projection cache: Map<"storeId|date", total_sales>
-                const projectionCache = new Map<string, number>()
+                // Build projection cache: Map<"storeId|date", { total: number, hourly: Record<number, number> }>
+                const projectionCache = new Map<string, { total: number, hourly: Record<number, number> }>()
 
                 // Generate projections for each store+date combination in parallel
                 // Batch by store to reduce parallel calls
@@ -160,7 +160,14 @@ export async function GET(request: NextRequest) {
                         try {
                             const forecast = await generateSmartForecast(storeId, dateStr)
                             if (forecast && forecast.total_sales > 0) {
-                                projectionCache.set(`${storeId}|${dateStr}`, forecast.total_sales)
+                                // Convert hours array to Record<hour, sales>
+                                const hourlyMap: Record<number, number> = {}
+                                forecast.hours.forEach(h => hourlyMap[h.hour] = h.projected_sales)
+
+                                projectionCache.set(`${storeId}|${dateStr}`, {
+                                    total: forecast.total_sales,
+                                    hourly: hourlyMap
+                                })
                             }
                         } catch (err) {
                             // Non-blocking - continue without this projection
@@ -170,12 +177,13 @@ export async function GET(request: NextRequest) {
 
                 await Promise.all(storePromises)
 
-                // Assign projectedSales to each row based on storeId + periodStart
+                // Assign projectedSales AND projectedHourly to each row based on storeId + periodStart
                 rows.forEach((row: any) => {
                     const key = `${row.storeId}|${row.periodStart}`
-                    const projSales = projectionCache.get(key)
-                    if (projSales) {
-                        row.projectedSales = projSales
+                    const projData = projectionCache.get(key)
+                    if (projData) {
+                        row.projectedSales = projData.total
+                        row.projectedHourly = projData.hourly
                     }
                 })
 

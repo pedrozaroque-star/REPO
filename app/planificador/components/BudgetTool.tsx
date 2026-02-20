@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { addDays, formatDateISO } from '../lib/utils'
 
-export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, projections, setProjections, actuals, storeId, onRefresh }: any) {
+export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, projections, setProjections, actuals, storeId, onRefresh, isExternalLoading }: any) {
     const [isOpen, setIsOpen] = useState(true)
     const [isSyncing, setIsSyncing] = useState(false)
     const [liveSalesOverride, setLiveSalesOverride] = useState<number | null>(null)
@@ -140,7 +140,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                         <div className="h-11 flex items-center justify-between px-4 border-b border-gray-200 dark:border-slate-800">
                             <div className="flex items-center gap-2">
                                 <span className="font-bold text-gray-700 uppercase tracking-wide text-sm">Sales</span>
-                                <button onClick={() => handleSync(true)} disabled={isSyncing} className={`p-1 rounded hover:bg-gray-200 ${isSyncing ? 'animate-spin text-indigo-500' : 'text-gray-400'}`}>
+                                <button onClick={() => handleSync(true)} disabled={isSyncing || isExternalLoading} className={`p-1 rounded hover:bg-gray-200 ${(isSyncing || isExternalLoading) ? 'animate-spin text-indigo-500' : 'text-gray-400'}`}>
                                     <RefreshCw size={14} />
                                 </button>
                             </div>

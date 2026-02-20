@@ -20,7 +20,6 @@ import { useLanguage } from '@/lib/i18n'
 
 interface ChartsProps {
     trendData: any[]
-    storeData: any[]
     period?: string // 'today' | 'yesterday' | 'week' | 'month' | etc.
 }
 
@@ -122,33 +121,17 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
     return null
 }
 
-// Original Tooltip for Store Ranking
-const StoreTooltip = ({ active, payload, label, language, t }: any) => {
-    if (active && payload && payload.length) {
-        return (
-            <div className="bg-white/90 dark:bg-slate-950 border border-black/10 dark:border-white/10 p-4 rounded-2xl shadow-2xl backdrop-blur-xl">
-                <p className="text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
-                <div className="text-slate-900 dark:text-white font-mono font-bold text-xl flex items-center gap-2">
-                    <span className="w-2 h-2 bg-sky-500 rounded-full animate-pulse"></span>
-                    ${payload[0].value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-            </div>
-        )
-    }
-    return null
-}
-
-export default function SalesCharts({ trendData, storeData, period }: ChartsProps) {
+export default function SalesCharts({ trendData, period }: ChartsProps) {
     const { t, language } = useLanguage()
     const locale = language === 'es' ? es : enUS
 
     // Check if trend data has projections
     const hasProjections = trendData.some(d => d.projected && d.projected > 0)
-    // Check if trend data has labor percentage (valid numbers > 0)
-    const hasLabor = trendData.some(d => d.laborPercentage && d.laborPercentage > 0)
+    // Check if trend data has labor COST (not just percentage, which is 0 if sales are 0)
+    const hasLabor = trendData.some(d => d.laborCost && d.laborCost > 0)
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="w-full mb-8">
 
             {/* SALES TREND CHART - Now with Bars + Line */}
             <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl p-6 backdrop-blur-xl shadow-xl shadow-black/5">
@@ -234,7 +217,7 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                                 dataKey="amount"
                                 fill="url(#colorActual)"
                                 radius={[4, 4, 0, 0]}
-                                barSize={period === 'today' || period === 'yesterday' ? 20 : 30}
+                                barSize={period === 'today' || period === 'yesterday' ? 36 : 48}
                             />
 
                             {/* LINE for Projections */}
@@ -316,46 +299,6 @@ export default function SalesCharts({ trendData, storeData, period }: ChartsProp
                             </>
                         )
                     })()}
-                </div>
-            </div>
-
-            {/* TOP 5 STORES - Unchanged */}
-            <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl p-6 backdrop-blur-xl shadow-xl shadow-black/5">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-lg text-slate-900 dark:text-white font-semibold flex items-center gap-2">
-                        <span className="w-1.5 h-6 bg-sky-500 rounded-full"></span>
-                        {t('sales.charts.top_5_stores')}
-                    </h3>
-                </div>
-                <div className="h-[350px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={storeData.slice(0, 5)} layout="vertical" margin={{ left: 40 }}>
-                            <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="currentColor" strokeOpacity={0.1} />
-                            <XAxis type="number" hide />
-                            <YAxis
-                                dataKey="name"
-                                type="category"
-                                axisLine={false}
-                                tickLine={false}
-                                width={120}
-                                tick={{ fill: 'currentColor', fontSize: 13, fontWeight: 600, opacity: 1 }}
-                            />
-                            <Tooltip
-                                cursor={{ fill: 'currentColor', fillOpacity: 0.05 }}
-                                contentStyle={{ backgroundColor: 'transparent', border: 'none' }}
-                                content={<StoreTooltip language={language} t={t} />}
-                            />
-                            <Bar dataKey="amount" radius={[0, 6, 6, 0]} barSize={24}>
-                                {storeData.map((entry, index) => (
-                                    <Cell
-                                        key={`cell-${index}`}
-                                        fill={index < 3 ? '#3b82f6' : '#94a3b8'}
-                                        fillOpacity={index < 3 ? 1 : 0.3}
-                                    />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
                 </div>
             </div>
         </div>

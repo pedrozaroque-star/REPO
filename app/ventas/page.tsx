@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { Calendar, ChevronDown, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle } from 'lucide-react'
+import { Calendar, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
@@ -34,6 +34,52 @@ function SalesPageContent() {
     const { user } = useAuth()
     const { t } = useLanguage()
     const isAdmin = user?.role === 'admin'
+
+    // Sort Config
+    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'amount', direction: 'desc' })
+
+    const requestSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc'
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc'
+        }
+        setSortConfig({ key, direction })
+    }
+
+    const sortedStoreData = useMemo(() => {
+        if (!data?.storeData) return []
+        let sortableItems = [...data.storeData]
+        if (sortConfig !== null) {
+            sortableItems.sort((a: any, b: any) => {
+                let aValue: any = a[sortConfig.key]
+                let bValue: any = b[sortConfig.key]
+
+                // Handle derived columns
+                if (sortConfig.key === 'diff') {
+                    aValue = a.amount - (a.projectedSales || 0)
+                    bValue = b.amount - (b.projectedSales || 0)
+                } else if (sortConfig.key === 'avgTicket') {
+                    aValue = a.amount / (a.orderCount || 1)
+                    bValue = b.amount / (b.orderCount || 1)
+                } else if (sortConfig.key === 'name') {
+                    aValue = (a.name || a.storeName || '').toLowerCase()
+                    bValue = (b.name || b.storeName || '').toLowerCase()
+                } else if (sortConfig.key === 'laborPercentage') {
+                    aValue = Number(a.laborPercentage)
+                    bValue = Number(b.laborPercentage)
+                }
+
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'asc' ? -1 : 1
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'asc' ? 1 : -1
+                }
+                return 0
+            })
+        }
+        return sortableItems
+    }, [data, sortConfig])
 
     // Helper to process raw rows into UI Data Structure
     const processData = (rows: any[], groupByMode: string, referenceDate: string) => {
@@ -145,8 +191,15 @@ function SalesPageContent() {
                 // Use projected hourly if available from API response
                 if (row.projectedHourly) {
                     Object.entries(row.projectedHourly).forEach(([h, amount]) => {
-                        const hourInt = parseInt(h)
-                        const isNext = hourInt < 6
+                        let hourInt = parseInt(h)
+                        let isNext = hourInt < 6
+
+                        // Handle extended hours (24, 25, 26, etc)
+                        if (hourInt >= 24) {
+                            hourInt -= 24
+                            isNext = true
+                        }
+
                         const dStr = isNext ? nextDateStr : baseDateStr
                         const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
                         if (!hourlyProjCounts[key]) hourlyProjCounts[key] = { sum: 0, count: 0 }
@@ -576,7 +629,7 @@ function SalesPageContent() {
                 ) : (
                     <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                         <SalesSummary data={summary} />
-                        <SalesCharts trendData={timelineData} storeData={storeRanking} period={period} />
+                        <SalesCharts trendData={timelineData} period={period} />
 
                         {/* Table */}
                         <div className="bg-white/60 dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 rounded-3xl overflow-hidden backdrop-blur-xl shadow-xl shadow-black/5">
@@ -649,17 +702,66 @@ function SalesPageContent() {
                                 <thead className="bg-slate-100 dark:bg-slate-950/50 text-slate-700 dark:text-slate-400 text-xs uppercase font-semibold tracking-widest border-b border-black/5 dark:border-slate-800">
                                     <tr>
                                         <th className="px-6 py-4 w-12 text-center">#</th>
-                                        <th className="px-6 py-4">{t('sales.store')}</th>
-                                        <th className="px-6 py-4 text-right text-indigo-500">{t('sales.projected').toUpperCase()}</th>
-                                        <th className="px-6 py-4 text-right">{t('sales.net_sales')}</th>
-                                        <th className="px-6 py-4 text-right text-emerald-600">{t('sales.difference').toUpperCase()}</th>
-                                        <th className="px-6 py-4 text-right">{t('sales.orders')}</th>
-                                        <th className="px-6 py-4 text-right">{t('sales.avg_ticket')}</th>
-                                        <th className="px-6 py-4 text-right">{t('sales.labor_pct')}</th>
+                                        <th className="px-6 py-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('name')}>
+                                            <div className="flex items-center gap-1">
+                                                {t('sales.store')}
+                                                {sortConfig?.key === 'name' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-indigo-500" /> : <ChevronDown size={14} className="text-indigo-500" />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                            </div>
+                                        </th>
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedSales')}>
+                                            <div className="flex items-center justify-end gap-1 text-indigo-500">
+                                                {t('sales.projected').toUpperCase()}
+                                                {sortConfig?.key === 'projectedSales' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
+                                            </div>
+                                        </th>
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('amount')}>
+                                            <div className="flex items-center justify-end gap-1">
+                                                {t('sales.net_sales')}
+                                                {sortConfig?.key === 'amount' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-emerald-500" /> : <ChevronDown size={14} className="text-emerald-500" />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                            </div>
+                                        </th>
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('diff')}>
+                                            <div className="flex items-center justify-end gap-1 text-emerald-600 dark:text-emerald-400">
+                                                {t('sales.difference').toUpperCase()}
+                                                {sortConfig?.key === 'diff' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
+                                            </div>
+                                        </th>
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('orderCount')}>
+                                            <div className="flex items-center justify-end gap-1">
+                                                {t('sales.orders')}
+                                                {sortConfig?.key === 'orderCount' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-indigo-500" /> : <ChevronDown size={14} className="text-indigo-500" />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                            </div>
+                                        </th>
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('avgTicket')}>
+                                            <div className="flex items-center justify-end gap-1">
+                                                {t('sales.avg_ticket')}
+                                                {sortConfig?.key === 'avgTicket' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-indigo-500" /> : <ChevronDown size={14} className="text-indigo-500" />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                            </div>
+                                        </th>
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('laborPercentage')}>
+                                            <div className="flex items-center justify-end gap-1">
+                                                {t('sales.labor_pct')}
+                                                {sortConfig?.key === 'laborPercentage' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-indigo-500" /> : <ChevronDown size={14} className="text-indigo-500" />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                            </div>
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-black/5 dark:divide-slate-800">
-                                    {data.storeData.map((store: any, idx: number) => {
+                                    {sortedStoreData.map((store: any, idx: number) => {
                                         const orders = store.orderCount || 1
                                         const laborPct = store.laborPercentage.toFixed(2)
 

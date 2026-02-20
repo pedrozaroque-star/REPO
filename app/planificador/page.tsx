@@ -1246,6 +1246,7 @@ export default function SchedulePlanner() {
                         actuals={actuals}
                         storeId={storeGuid}
                         onRefresh={refetchActuals}
+                        isExternalLoading={loadingActuals}
                     />
                 </div>
             </div>

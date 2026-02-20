@@ -120,6 +120,14 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
         // ⚡ FORCE LIVE REFRESH ON STORE CHANGE ⚡
         // This ensures "Today's" sales are accurate immediately
         forceRefresh()
+
+        // 🔄 Poll for Live Data every 2 minutes
+        const pollInterval = setInterval(() => {
+            console.log('🔄 Auto-Refreshing Live Stats (2m Timer)...')
+            forceRefresh()
+        }, 2 * 60 * 1000)
+
+        return () => clearInterval(pollInterval)
     }, [forceRefresh])
 
     // 2. Interval Effect: Recalculate 'actuals' every 60s using raw data + NOW
@@ -158,9 +166,20 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
                     dayPunches.forEach(p => {
                         let totalHours = 0
                         // Use calculated fields if available, otherwise calc from timestamps (live punches)
-                        if (p.regular_hours !== null || p.overtime_hours !== null) {
+                        // FORCE LIVE CALC FOR OPEN PUNCHES
+                        // If clock_out is missing, it's an active shift. Ignore stored hours (which might be 0 or stale) and calc from NOW.
+                        if (!p.clock_out && p.clock_in) {
+                            const start = new Date(p.clock_in).getTime()
+                            // Ensure we don't calc negative if system time is off, but generally NOW > Start
+                            if (now > start) {
+                                totalHours = (now - start) / (1000 * 60 * 60)
+                            }
+                        }
+                        // For CLOSED punches, prefer the official precise calculations from Toast/DB
+                        else if (p.regular_hours !== null || p.overtime_hours !== null) {
                             totalHours = (Number(p.regular_hours) || 0) + (Number(p.overtime_hours) || 0)
                         } else if (p.clock_in) {
+                            // Fallback for closed shifts without DB hours
                             const start = new Date(p.clock_in).getTime()
                             const end = p.clock_out ? new Date(p.clock_out).getTime() : now
                             if (end > start) totalHours = (end - start) / (1000 * 60 * 60)
@@ -173,11 +192,20 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
                             const wage = wages[p.employee_toast_guid] || 16.00 // Default if missing
 
                             // Simple OT Logic for estimation
-                            // If we have precise breakdown from DB, use it
-                            if (p.regular_hours !== null || p.overtime_hours !== null) {
+
+                            // Case 1: Open Punch (Live Calculation)
+                            if (!p.clock_out && p.clock_in) {
+                                // Apply California OT Rules (simplistic: >8h daily)
+                                const reg = Math.min(8, totalHours)
+                                const ot = Math.max(0, totalHours - 8)
+                                dayCost += (reg * wage) + (ot * wage * 1.5)
+                            }
+                            // Case 2: Closed Punch with DB Hours (Official)
+                            else if ((Number(p.regular_hours) || 0) > 0 || (Number(p.overtime_hours) || 0) > 0) {
                                 dayCost += (Number(p.regular_hours || 0) * wage) + (Number(p.overtime_hours || 0) * wage * 1.5)
-                            } else {
-                                // Live estimation (8h rule)
+                            }
+                            // Case 3: Fallback (Closed but no DB hours yet? Calc from totalHours)
+                            else {
                                 const reg = Math.min(8, totalHours)
                                 const ot = Math.max(0, totalHours - 8)
                                 dayCost += (reg * wage) + (ot * wage * 1.5)
