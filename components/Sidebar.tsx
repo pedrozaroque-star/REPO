@@ -105,8 +105,20 @@ export default function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
 
   // Filtrar grupos y sus items según el rol del usuario
   const filteredGroups = useMemo(() => {
+    const isVikesh = user?.email === 'vikesh@tacosgavilan.com'
+
     return menuGroups.map(group => {
+      // Si es Vikesh, ocultamos grupos enteros de Inventario y Food Cost (si existieran)
+      if (isVikesh && (group.id === 'inventario' || group.id === 'food_cost')) {
+        return { ...group, items: [] }
+      }
+
       const validItems = group.items.filter(item => {
+        // Si es Vikesh, ocultamos Ventas y Reportes específicamente
+        if (isVikesh && (item.path === '/ventas' || item.path === '/ventas/reportes')) {
+          return false
+        }
+
         if (!item.roles || item.roles.length === 0) return true
         if (!user?.role) return false
         return item.roles.includes(user.role.toLowerCase())

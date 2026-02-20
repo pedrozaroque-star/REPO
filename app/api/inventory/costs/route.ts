@@ -1,11 +1,11 @@
-import { supabaseAdmin } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { InventoryItem, Recipe, ToastMenuItemCache } from '@/types/inventory'
 
 export async function GET() {
-    // Use Admin client to bypass RLS for internal reporting
-    const supabase = supabaseAdmin
+    // Use working Anon client instead of invalid Admin client
+    const supabase = await getSupabaseClient()
 
     try {
         // 1. Fetch Menu Items (Active only? Maybe all for audit)

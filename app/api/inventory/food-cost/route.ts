@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
-import { getSupabaseAdminClient } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { Recipe, InventoryItem } from '@/types/inventory'
 
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
         console.log(`[FoodCostAPI] Request storeId=${storeId}, start=${startDate}, end=${endDate}`)
 
         if (storeId === 'all') {
-            const supabase = await getSupabaseAdminClient()
+            const supabase = await getSupabaseClient()
             const { data: stores } = await supabase
                 .from('stores')
                 .select('external_id')
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 2. Fetch ALL Recipes and Inventory Items from DB
-        const supabase = await getSupabaseAdminClient()
+        const supabase = await getSupabaseClient()
 
         const { data: recipesData, error: recipeError } = await supabase
             .from('recipes')
