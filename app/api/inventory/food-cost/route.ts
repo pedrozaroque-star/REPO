@@ -32,16 +32,22 @@ export async function GET(request: NextRequest) {
 
             // Fetch concurrently
             const results = await Promise.all(
-                stores.map(s => getProductMix({ storeId: s.external_id, startDate, endDate }))
+                stores.map(s => getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true }))
             )
 
-            // Aggregate by GUID + Group Name
+            // Aggregate by GUID + Group Name + Name (Variation)
             const aggMap = new Map<string, any>()
 
             results.flat().forEach(item => {
-                const key = `${item.guid}_${item.group_name || 'Uncategorized'}`
+                const key = `${item.guid}_${item.group_name || 'Uncategorized'}_${item.name}`
+
                 if (!aggMap.has(key)) {
-                    aggMap.set(key, { ...item })
+                    // Create deep copy for array
+                    const newItem = { ...item }
+                    if (item.modifier_guids) {
+                        newItem.modifier_guids = [...item.modifier_guids]
+                    }
+                    aggMap.set(key, newItem)
                 } else {
                     const existing = aggMap.get(key)
                     existing.quantity += item.quantity
@@ -49,7 +55,12 @@ export async function GET(request: NextRequest) {
                     existing.gross_sales += item.gross_sales
                     existing.discounts += item.discounts
                     existing.voided_quantity += item.voided_quantity
-                    // Unit price is recalculated later
+
+                    // Merge modifiers
+                    if (item.modifier_guids && item.modifier_guids.length > 0) {
+                        if (!existing.modifier_guids) existing.modifier_guids = []
+                        existing.modifier_guids.push(...item.modifier_guids)
+                    }
                 }
             })
 
@@ -59,7 +70,8 @@ export async function GET(request: NextRequest) {
             }))
 
         } else {
-            pmixItems = await getProductMix({ storeId, startDate, endDate })
+            // Bundle modifiers to capture full plate costs (e.g. Taco Plate + 3 Tacos)
+            pmixItems = await getProductMix({ storeId, startDate, endDate, bundleModifiers: true })
         }
 
         // 2. Fetch ALL Recipes and Inventory Items from DB
@@ -109,10 +121,33 @@ export async function GET(request: NextRequest) {
             if (recipe) {
                 const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[])
                 unitCost = costResult.totalCost
-                missingPrices = costResult.missingPrices
+                missingPrices += costResult.missingPrices
             }
 
-            const totalCost = item.quantity * unitCost
+            let totalBaseCost = unitCost * item.quantity
+            let totalModCost = 0
+
+            // Calculate Modifiers Cost (if any)
+            if (item.modifier_guids && item.modifier_guids.length > 0) {
+                item.modifier_guids.forEach((modGuid: string) => {
+                    // Try to find recipe for modifier
+                    const modRecipe = recipeMap.get(modGuid)
+                    if (modRecipe) {
+                        const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
+                        totalModCost += modRes.totalCost
+                        missingPrices += modRes.missingPrices
+                    }
+                    // If no recipe for modifier, we assume cost 0 (common for text mods)
+                })
+            }
+
+            const totalCost = totalBaseCost + totalModCost
+
+            // Recalculate Unit Cost (Weighted Average)
+            // If we have varied modifiers, the unit cost is the average of all plates sold
+            if (item.quantity > 0) {
+                unitCost = totalCost / item.quantity
+            }
             // Food Cost % = Total Cost / Net Sales
             // If Net Sales is 0, FC% is 0 (or undefined/infinite)
             const fcPercent = item.net_sales > 0 ? (totalCost / item.net_sales) * 100 : 0

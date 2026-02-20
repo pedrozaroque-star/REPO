@@ -41,6 +41,7 @@ export default function FoodCostPage() {
     const [endDate, setEndDate] = useState(getLocalDate())
     const [period, setPeriod] = useState('today')
     const [sortConfig, setSortConfig] = useState<{ key: keyof FoodCostItem; direction: 'asc' | 'desc' }>({ key: 'quantity', direction: 'desc' })
+    const [filterTerm, setFilterTerm] = useState('')
 
     useEffect(() => {
         const fetchStores = async () => {
@@ -109,11 +110,10 @@ export default function FoodCostPage() {
     const totalCost = data.reduce((acc, item) => acc + item.total_cost, 0)
     const totalFC = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
 
-    const [filterTerm, setFilterTerm] = useState('')
-
     const filteredData = sortedData.filter(item =>
-        item.name.toLowerCase().includes(filterTerm.toLowerCase()) ||
-        item.guid.toLowerCase().includes(filterTerm.toLowerCase())
+        (item.name && item.name.toLowerCase().includes(filterTerm.toLowerCase())) ||
+        (item.guid && item.guid.toLowerCase().includes(filterTerm.toLowerCase())) ||
+        (item.group_name && item.group_name.toLowerCase().includes(filterTerm.toLowerCase()))
     )
 
     const filteredTotals = filteredData.reduce((acc, item) => {
@@ -234,7 +234,7 @@ export default function FoodCostPage() {
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                             {filteredData.map((item, idx) => (
-                                <tr key={`${item.guid}_${item.group_name || idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                <tr key={`${item.guid}_${item.group_name || 'Uncategorized'}_${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
                                     <td className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                                         {item.group_name || 'N/A'}
                                     </td>

@@ -12,27 +12,35 @@ export interface ProductMixItem {
     discounts: number
     voided_quantity: number
     unit_price: number // REAL Toast List Price (Pre-Discount)
+    modifier_guids?: string[]
 }
 
 export interface ProductMixOptions {
     storeId: string
     startDate: string
     endDate: string
+    bundleModifiers?: boolean // New flag for bundling modifiers into parent
 }
 
 export async function getProductMix(options: ProductMixOptions): Promise<ProductMixItem[]> {
-    const { storeId, startDate, endDate } = options
+    const { storeId, startDate, endDate, bundleModifiers = false } = options
     const token = await getAuthToken()
     if (!token) throw new Error("Auth Token Failed")
 
     // Fetch Dining Options Map (GROUP BY DINING OPTION for 3rd Party Split)
     const diningOptionMap = await getDiningOptions(storeId)
 
+    // Add modifier_guids to map value type (using extended interface internally if needed, or just casting)
+    // We updated the interface above, so it's fine.
     const itemMap = new Map<string, ProductMixItem>()
 
     // Helper to update map
-    const addFn = (guid: string, name: string, groupName: string, qty: number, net: number, gross: number, discount: number, voided: number, unitPrice: number) => {
-        const key = `${guid}_${groupName}` // Create unique entry per Item+Group
+    const addFn = (guid: string, name: string, groupName: string, qty: number, net: number, gross: number, discount: number, voided: number, unitPrice: number, modGuids?: string[]) => {
+        // If bundling, we group by Name (variation) to preserve cost accuracy
+        // Otherwise, group by GUID+Group (standard PMIX)
+        const key = bundleModifiers
+            ? `${guid}_${groupName}_${name}`
+            : `${guid}_${groupName}`
 
         const existing = itemMap.get(key) || {
             guid,
@@ -43,7 +51,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             gross_sales: 0,
             discounts: 0,
             voided_quantity: 0,
-            unit_price: unitPrice
+            unit_price: unitPrice,
+            modifier_guids: []
         }
         existing.quantity += qty
         existing.net_sales += net
@@ -51,9 +60,17 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
         existing.discounts += discount
         existing.voided_quantity += voided
 
-        // If we found a non-zero price and currently have 0, update it (e.g. first item was a void/comp)
+        // If we found a non-zero price and currently have 0, update it
         if (existing.unit_price === 0 && unitPrice > 0) {
             existing.unit_price = unitPrice
+        }
+
+        // Collect modifier guids if provided
+        if (modGuids && modGuids.length > 0) {
+            // We just append. If multiple items are merged, we append all their modifiers.
+            // This allows calculating total constituent cost for the group.
+            if (!existing.modifier_guids) existing.modifier_guids = []
+            existing.modifier_guids.push(...modGuids)
         }
 
         itemMap.set(key, existing)
@@ -98,7 +115,6 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             }
 
             // Recursive processor for Selections AND Modifiers
-            // Now accepts parentGroupName to inherit context (e.g. Uber Eats)
             const processSelection = (sel: any, parentGroupName?: string, checkId?: string) => {
                 if (sel.voided) return
 
@@ -107,12 +123,13 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
                 const nameRaw = sel.displayName
 
-                // Append modifiers to name to distinguish variations (e.g. Gallon (Horchata))
+                // Append modifiers to name
                 let name = nameRaw
+                let significantMods = ''
                 if (sel.modifiers && Array.isArray(sel.modifiers) && sel.modifiers.length > 0) {
-                    const significantMods = sel.modifiers
+                    significantMods = sel.modifiers
                         .map((m: any) => m.displayName)
-                        .filter((n: string) => !n.startsWith('NO ') && !n.startsWith('No ') && !n.startsWith('Sin ')) // Filter basic exclusions
+                        .filter((n: string) => !n.startsWith('NO ') && !n.startsWith('No ') && !n.startsWith('Sin '))
                         .join(', ')
 
                     if (significantMods) {
@@ -129,44 +146,52 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                     rawRefund = Number(sel.refundDetails.refundAmount)
                 }
 
-                // Calculate Child Totals (to subtract from parent)
+                // If NOT bundling, we subtract child prices to isolate Parent
+                // If bundling, we want the Aggregate (Parent + Children) values for this row
                 let childPrice = 0
                 let childTax = 0
                 let childRefund = 0
                 let childGross = 0
 
+                const modGuids: string[] = []
+
                 if (sel.modifiers && Array.isArray(sel.modifiers)) {
                     sel.modifiers.forEach((mod: any) => {
                         if (mod.voided) return
 
-                        const modPrice = Number(mod.price || 0)
-                        // Handle null preDiscountPrice properly (treat null/undefined as missing -> fallback to normal price)
-                        const rawModPre = mod.preDiscountPrice
-                        const modPreDiscount = Number((rawModPre !== undefined && rawModPre !== null) ? rawModPre : modPrice)
+                        // Collect GUIDs if bundling
+                        if (bundleModifiers && mod.item?.guid) {
+                            modGuids.push(mod.item.guid)
+                        }
 
-                        childPrice += modPrice
-                        childGross += modPreDiscount
-                        childTax += Number(mod.tax || 0)
-                        if (mod.refundDetails?.refundAmount) {
-                            childRefund += Number(mod.refundDetails.refundAmount)
+                        if (!bundleModifiers) {
+                            // Only calculate child subtraction if we are recursing/splitting
+                            const modPrice = Number(mod.price || 0)
+                            const rawModPre = mod.preDiscountPrice
+                            const modPreDiscount = Number((rawModPre !== undefined && rawModPre !== null) ? rawModPre : modPrice)
+
+                            childPrice += modPrice
+                            childGross += modPreDiscount
+                            childTax += Number(mod.tax || 0)
+                            if (mod.refundDetails?.refundAmount) {
+                                childRefund += Number(mod.refundDetails.refundAmount)
+                            }
                         }
                     })
                 }
 
+                // If bundling, self metrics are the RAW metrics (don't subtract children)
+                // If not bundling, self metrics are (Raw - Children)
                 let selfPrice = rawPrice - childPrice
                 let selfTax = rawTax - childTax
                 let selfRefund = rawRefund - childRefund
 
-                // GROSS SALES = Pre-Discount Price (List Price)
+                // GROSS SALES
                 const rawSelPre = sel.preDiscountPrice
                 const totalGross = Number((rawSelPre !== undefined && rawSelPre !== null) ? rawSelPre : (sel.price || 0))
-
-                // Subtract child gross so we don't double count modifiers
                 let selfGross = totalGross - childGross
 
                 // Discount Logic
-                // Gross (List) - Price (Actual) = Discount
-                // Ensure no negative (floating point safety)
                 const selfDiscount = Math.max(0, selfGross - selfPrice)
 
                 let selfPreTaxPrice = selfPrice
@@ -176,45 +201,32 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
                 const net = selfPreTaxPrice - selfRefund
 
-                // GROUPS: Resolve Dining Option
+                // Start Group Logic
                 let groupName = 'Uncategorized'
-
-                // 1. Try explicit diningOption on self
                 const doGuid = sel.diningOption?.guid
                 if (doGuid && diningOptionMap.has(doGuid)) {
                     groupName = diningOptionMap.get(doGuid)!
                 } else if (sel.diningOption?.name) {
                     groupName = sel.diningOption.name
                 }
-
-                // 2. If uncategorized, inherit from parent (e.g. Modifier inheriting from Taco)
                 if (groupName === 'Uncategorized' && parentGroupName) {
                     groupName = parentGroupName
                 }
+                // End Group Logic
 
-                // UNIT PRICE is simply selfGross (List Price per item)
                 const unitPrice = qty > 0 ? (selfGross / qty) : 0
 
-                // DEBUG: Warn about 0 price items if they look like main items
-                // (e.g. Tacos, Burritos) and are not just free add-ons.
-                // We'll log it once per unique item to avoid spam.
-                if (unitPrice === 0 && selfGross === 0 && qty > 0) {
-                    // Log potentially suspicious 0-price items to help diagnose
-                    // console.warn(`[Suspicious $0.00] ${name} (Check: ${checkId}) Group: ${groupName}`)
-                }
+                // Add to Map
+                addFn(guid, name, groupName, qty, net, selfGross, selfDiscount, 0, unitPrice, bundleModifiers ? modGuids : undefined)
 
-                addFn(guid, name, groupName, qty, net, selfGross, selfDiscount, 0, unitPrice)
-
-                // Recurse, passing down current groupName as parent context
-                if (sel.modifiers && Array.isArray(sel.modifiers)) {
+                // Recurse ONLY if NOT bundling
+                if (!bundleModifiers && sel.modifiers && Array.isArray(sel.modifiers)) {
                     sel.modifiers.forEach((mod: any) => processSelection(mod, groupName, checkId))
                 }
             }
 
             entries.forEach((order: any) => {
                 if (order.voided) return
-
-                // Resolve Order-Level Dining Option first
                 let orderDO = 'Uncategorized'
                 const oGuid = order.diningOption?.guid
                 if (oGuid && diningOptionMap.has(oGuid)) {
@@ -223,12 +235,10 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                     orderDO = order.diningOption.name
                 }
 
-                // Pass checkId down for debugging context
                 if (order.checks) {
                     order.checks.forEach((check: any) => {
                         if (check.voided) return
                         if (check.selections) {
-                            // Use orderDO as default parent group
                             check.selections.forEach((sel: any) => processSelection(sel, orderDO, check.guid))
                         }
                     })
