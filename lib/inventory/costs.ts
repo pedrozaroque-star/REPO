@@ -61,7 +61,8 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
                 const inventoryUsage = calculateInventoryUsage(
                     rawUsage.quantity, // Amount needed (Raw)
                     rawUsage.unit,     // Unit of amount needed
-                    item.unit_type     // "10 lb", "25 pza", etc.
+                    item.unit_type,    // "10 lb", "25 pza", etc.
+                    item.quantity_per_unit
                 )
 
                 // Cost = Usage * Cost of Inventory Item

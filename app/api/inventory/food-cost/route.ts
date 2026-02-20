@@ -130,45 +130,58 @@ export async function GET(request: NextRequest) {
         // 4. Combine Data
         const report = pmixItems.map(item => {
             const recipe = recipeMap.get(item.guid)
-            let unitCost = 0
+            let baseUnitCost = 0
+            let unitCost = 0 // Weight average for final report
             let missingPrices = 0
 
             if (recipe) {
                 const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[])
-                unitCost = costResult.totalCost
+                baseUnitCost = costResult.totalCost
                 missingPrices += costResult.missingPrices
             }
 
-            let totalBaseCost = unitCost * item.quantity
+            let totalBaseCost = baseUnitCost * item.quantity
             let totalModCost = 0
 
             // Calculate Modifiers Cost (if any)
+            // Each entry in modifier_guids represents one instance of a modifier sold
             if (item.modifier_guids && item.modifier_guids.length > 0) {
                 item.modifier_guids.forEach((modGuid: string) => {
-                    // Try to find recipe for modifier
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
                         const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
+
+                        if (item.name.includes('Pastor') || modRecipe.ingredients.some(ing => ing.inventory_item_id === 'ad7e3703-2701-4a05-aa97-77866c8c717e')) {
+                            console.log(`[DEBUG-PASTOR] GUID: ${modGuid} | Cost: $${modRes.totalCost.toFixed(4)}`)
+                            modRes.breakdown.forEach(b => console.log(`   - ${b.itemName}: ${b.quantity} ${b.unit} | Yield: ${b.yieldPercent}% | Cost: $${b.cost.toFixed(4)}`))
+                        }
+
                         totalModCost += modRes.totalCost
                         missingPrices += modRes.missingPrices
                     }
-                    // If no recipe for modifier, we assume cost 0 (common for text mods)
                 })
             }
 
+            // totalBaseCost = baseUnitCost * item.quantity (Calculated for the whole batch)
+            // totalModCost = sum of all recipes for modifiers found in the batch
             const totalCost = totalBaseCost + totalModCost
 
-            // Recalculate Unit Cost (Weighted Average)
-            // If we have varied modifiers, the unit cost is the average of all plates sold
+
+
+            // Calculate final per-unit averages
             if (item.quantity > 0) {
                 unitCost = totalCost / item.quantity
             }
-            // Food Cost % = Total Cost / Net Sales
-            // If Net Sales is 0, FC% is 0 (or undefined/infinite)
-            const fcPercent = item.net_sales > 0 ? (totalCost / item.net_sales) * 100 : 0
+
+            const fcPercent = (item.net_sales > 0) ? (totalCost / item.net_sales) * 100 : 0
+
+            const modRevenuePerUnit = item.quantity > 0 ? (item.modifier_gross_sales / item.quantity) : 0
+            const basePricePerUnit = item.quantity > 0 ? (item.gross_sales / item.quantity) : 0
 
             return {
                 ...item,
+                unit_price: basePricePerUnit, // Fixed: Already base gross
+                total_modifier_cost: modRevenuePerUnit,
                 unit_cost: unitCost,
                 total_cost: totalCost,
                 food_cost_percent: fcPercent,

@@ -104,7 +104,8 @@ function parseUnitString(unitString: string): { factor: number, baseUnit: string
 export function calculateInventoryUsage(
     recipeQuantity: number,
     recipeUnit: string,
-    inventoryItemUnit: string
+    inventoryItemUnit: string,
+    manualInvFactor?: number
 ): number {
     const fromUnitRaw = recipeUnit || 'pza'
     // Normalize Inputs
@@ -112,7 +113,10 @@ export function calculateInventoryUsage(
     const normFrom = normalizeUnit(fromUnitRaw)
 
     const invUnitString = inventoryItemUnit || 'pza'
-    const { factor: invFactor, baseUnit: invBase } = parseUnitString(invUnitString)
+    const { factor: parsedInvFactor, baseUnit: invBase } = parseUnitString(invUnitString)
+
+    // Si tenemos un factor manual (de la columna quantity_per_unit), lo preferimos
+    const invFactor = (manualInvFactor && manualInvFactor > 0) ? manualInvFactor : parsedInvFactor
 
     let quantityInBase = recipeQuantity * recipeFactor // Adjust if recipe unit input was complex like "2 oz"
 

@@ -14,7 +14,9 @@ interface FoodCostItem {
     gross_sales: number
     discounts: number // Added
     voided_quantity: number
-    unit_price: number // Real List Price
+    unit_price: number // Original Menu Price
+    base_unit_cost: number // Cost of the base product (No extras)
+    total_modifier_cost: number // Average sum of extras
     unit_cost: number
     total_cost: number
     food_cost_percent: number
@@ -223,13 +225,14 @@ export default function FoodCostPage() {
                                 <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('group_name')}>Group</th>
                                 <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('name')}>{t('food_cost.table.product')}</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('quantity')}>{t('food_cost.table.quantity')}</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_price')}>Price</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('discounts')}>Disc ($)</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_price')}>{t('food_cost.table.price')}</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('total_modifier_cost')}>{t('food_cost.table.extras')}</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('discounts')}>{t('food_cost.table.discounts')}</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('net_sales')}>{t('food_cost.table.net_sales')}</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_cost')}>Unit Cost</th>
-                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('total_cost')}>Total Cost</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('unit_cost')}>{t('food_cost.table.unit_cost')}</th>
+                                <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('total_cost')}>{t('food_cost.table.total_cost')}</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('food_cost_percent')}>{t('food_cost.table.cost_pct')}</th>
-                                <th className="px-6 py-4 text-center">Status</th>
+                                <th className="px-6 py-4 text-center">{t('food_cost.table.status')}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -247,6 +250,9 @@ export default function FoodCostPage() {
                                     <td className="px-6 py-4 text-right font-medium">{item.quantity}</td>
                                     <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-300">
                                         ${item.unit_price.toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-300 font-medium">
+                                        {item.total_modifier_cost > 0 ? `+$${item.total_modifier_cost.toFixed(2)}` : '-'}
                                     </td>
                                     <td className="px-6 py-4 text-right text-amber-600 dark:text-amber-500 font-mono">
                                         {item.discounts > 0 ? `-$${item.discounts.toFixed(2)}` : '-'}
@@ -299,22 +305,21 @@ export default function FoodCostPage() {
                                     <td className="px-6 py-4 text-slate-900 dark:text-white align-middle">
                                         <div className="flex items-center gap-2">
                                             <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                                            <span>SUBTOTAL</span>
+                                            <span>{t('food_cost.table.total').toUpperCase()}</span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 text-slate-900 dark:text-white align-middle"></td>
+                                    <td className="px-6 py-4"></td>
                                     <td className="px-6 py-4 text-right font-mono text-slate-700 dark:text-slate-300">{filteredTotals.quantity.toLocaleString()}</td>
-                                    <td className="px-6 py-4 text-right font-mono text-slate-500 dark:text-slate-400">
-                                        -
-                                    </td>
+                                    <td className="px-6 py-4 text-right text-slate-400 font-mono">-</td>
+                                    <td className="px-6 py-4 text-right text-slate-400 font-mono">-</td>
                                     <td className="px-6 py-4 text-right font-mono text-amber-600 dark:text-amber-500 font-bold">
                                         -${filteredTotals.discounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
                                     <td className="px-6 py-4 text-right font-mono text-slate-900 dark:text-white">${filteredTotals.net_sales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td className="px-6 py-4 text-right">-</td>
+                                    <td className="px-6 py-4 text-right text-slate-400 font-mono">-</td>
                                     <td className="px-6 py-4 text-right font-mono text-slate-900 dark:text-white">${filteredTotals.total_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td className="px-6 py-4 text-right">
-                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${filteredFC > 35
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${filteredFC > 35
                                             ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50'
                                             : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-900/50'
                                             }`}>

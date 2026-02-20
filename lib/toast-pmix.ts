@@ -13,6 +13,7 @@ export interface ProductMixItem {
     voided_quantity: number
     unit_price: number // REAL Toast List Price (Pre-Discount)
     modifier_guids?: string[]
+    modifier_gross_sales: number
 }
 
 export interface ProductMixOptions {
@@ -36,7 +37,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
     const itemMap = new Map<string, ProductMixItem>()
 
     // Helper to update map
-    const addFn = (guid: string, name: string, groupName: string, qty: number, net: number, gross: number, discount: number, voided: number, unitPrice: number, modGuids?: string[]) => {
+    const addFn = (guid: string, name: string, groupName: string, qty: number, net: number, gross: number, discount: number, voided: number, unitPrice: number, modGuids?: string[], modGross?: number) => {
         // If bundling, we group by Name (variation) to preserve cost accuracy
         // Otherwise, group by GUID+Group (standard PMIX)
         const key = bundleModifiers
@@ -53,13 +54,15 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             discounts: 0,
             voided_quantity: 0,
             unit_price: unitPrice,
-            modifier_guids: []
+            modifier_guids: [],
+            modifier_gross_sales: 0
         }
         existing.quantity += qty
         existing.net_sales += net
         existing.gross_sales += gross
         existing.discounts += discount
         existing.voided_quantity += voided
+        existing.modifier_gross_sales += (modGross || 0)
 
         // If we found a non-zero price and currently have 0, update it
         if (existing.unit_price === 0 && unitPrice > 0) {
@@ -165,14 +168,15 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                             modGuids.push(mod.item.guid)
                         }
 
+                        // Always track child gross for separation logic
+                        const modPrice = Number(mod.price || 0)
+                        const rawModPre = mod.preDiscountPrice
+                        const modPreDiscount = Number((rawModPre !== undefined && rawModPre !== null) ? rawModPre : modPrice)
+                        childGross += modPreDiscount
+
                         if (!bundleModifiers) {
                             // Only calculate child subtraction if we are recursing/splitting
-                            const modPrice = Number(mod.price || 0)
-                            const rawModPre = mod.preDiscountPrice
-                            const modPreDiscount = Number((rawModPre !== undefined && rawModPre !== null) ? rawModPre : modPrice)
-
                             childPrice += modPrice
-                            childGross += modPreDiscount
                             childTax += Number(mod.tax || 0)
                             if (mod.refundDetails?.refundAmount) {
                                 childRefund += Number(mod.refundDetails.refundAmount)
@@ -220,10 +224,10 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                 }
                 // End Group Logic
 
-                const unitPrice = qty > 0 ? (selfGross / qty) : 0
+                const unitPrice = qty > 0 ? ((selfGross - (bundleModifiers ? childGross : 0)) / qty) : 0
 
                 // Add to Map
-                addFn(guid, name, groupName, qty, net, selfGross, selfDiscount, 0, unitPrice, bundleModifiers ? modGuids : undefined)
+                addFn(guid, name, groupName, qty, net, selfGross, selfDiscount, 0, unitPrice, bundleModifiers ? modGuids : undefined, childGross)
 
                 // Recurse ONLY if NOT bundling
                 if (!bundleModifiers && sel.modifiers && Array.isArray(sel.modifiers)) {
