@@ -35,6 +35,12 @@ function SalesPageContent() {
     const { t } = useLanguage()
     const isAdmin = user?.role === 'admin'
 
+    const handleStoreClick = (storeId: string) => {
+        if (!storeId) return
+        const url = `/planificador?store=${storeId}&date=${startDate}`
+        window.open(url, '_blank')
+    }
+
     // Sort Config
     const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'amount', direction: 'desc' })
 
@@ -106,6 +112,7 @@ function SalesPageContent() {
                 storeMap.set(storeName, {
                     name: storeName,
                     storeName: storeName,
+                    storeId: row.storeId, // Toast GUID
                     amount: 0,
                     netSales: 0,
                     orderCount: 0,
@@ -653,7 +660,11 @@ function SalesPageContent() {
                                 const avgTicket = store.amount / orders
 
                                 return (
-                                    <div key={idx} className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
+                                    <div
+                                        key={idx}
+                                        onClick={() => handleStoreClick(store.storeId)}
+                                        className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col gap-3 cursor-pointer hover:ring-2 hover:ring-emerald-500/30 transition-all active:scale-[0.98]"
+                                    >
                                         <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-700 pb-2">
                                             <div className="flex items-center gap-3">
                                                 <span className="text-slate-400 font-mono text-xs font-bold">#{idx + 1}</span>
@@ -766,7 +777,11 @@ function SalesPageContent() {
                                         const laborPct = store.laborPercentage.toFixed(2)
 
                                         return (
-                                            <tr key={idx} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors group">
+                                            <tr
+                                                key={idx}
+                                                onClick={() => handleStoreClick(store.storeId)}
+                                                className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors group cursor-pointer"
+                                            >
                                                 <td className="px-6 py-4 text-center text-slate-400 font-mono text-sm">
                                                     {idx + 1}
                                                 </td>

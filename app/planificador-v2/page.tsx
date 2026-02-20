@@ -260,11 +260,17 @@ export default function SchedulePlanner() {
             if (storesData) {
                 setStores(storesData)
                 if (storesData.length > 0) {
-                    // If restricts to 1 store, select it automatically
+                    // PERSISTENCE LOGIC: Prefer URL -> LocalStorage -> Default
+                    const searchParams = new URLSearchParams(window.location.search)
+                    const savedStore = searchParams.get('store') || localStorage.getItem('planner_store')
+                    const matchedStore = savedStore ? storesData.find((s: any) => String(s.id) === savedStore || String(s.external_id) === savedStore) : null
+
                     if (storesData.length === 1) {
                         setSelectedStoreId(String(storesData[0].id))
+                    } else if (matchedStore) {
+                        setSelectedStoreId(String(matchedStore.id))
                     } else {
-                        // Admin logic: Default to Lynwood or first
+                        // Default to Lynwood or first
                         const lynwood = storesData.find((s: any) => s.name.toLowerCase().includes('lynwood'));
                         setSelectedStoreId(String(lynwood ? lynwood.id : storesData[0].id));
                     }

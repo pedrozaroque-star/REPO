@@ -294,7 +294,7 @@ export default function SchedulePlanner() {
                 if (storesData.length > 0) {
                     // PERSISTENCE LOGIC: Prefer URL -> LocalStorage -> Default
                     const savedStore = searchParams?.get('store') || localStorage.getItem('planner_store')
-                    const matchedStore = savedStore ? storesData.find((s: any) => String(s.id) === savedStore) : null
+                    const matchedStore = savedStore ? storesData.find((s: any) => String(s.id) === savedStore || String(s.external_id) === savedStore) : null
 
                     if (storesData.length === 1) {
                         setSelectedStoreId(String(storesData[0].id))
