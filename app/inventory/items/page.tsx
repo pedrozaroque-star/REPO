@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
-import { Plus, Search, Tag, DollarSign, Scale, Box, Save, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, Search, Tag, DollarSign, Scale, Box, Save, X, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react'
 
 export default function InventoryItemsPage() {
     const [items, setItems] = useState<any[]>([])
@@ -11,6 +11,7 @@ export default function InventoryItemsPage() {
     const [filter, setFilter] = useState('')
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [syncing, setSyncing] = useState(false)
     const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'purchase_unit_cost', direction: 'desc' })
 
     // Form State
@@ -48,6 +49,21 @@ export default function InventoryItemsPage() {
             console.error(e)
         } finally {
             setLoading(false)
+        }
+    }
+
+    async function handleSync() {
+        setSyncing(true)
+        try {
+            const res = await fetch('/api/inventory/sync-quickbooks', { method: 'POST' })
+            if (!res.ok) throw new Error('Error en la sincronización')
+            const data = await res.json()
+            alert(`Sincronización exitosa: ${data.mappedCount} artículos actualizados.`)
+            fetchData()
+        } catch (e: any) {
+            alert(`Error: ${e.message}`)
+        } finally {
+            setSyncing(false)
         }
     }
 
@@ -171,13 +187,23 @@ export default function InventoryItemsPage() {
                     <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Insumos (Ingredients)</h1>
                     <p className="text-slate-500">Define las materias primas que compras (Cajas, Bolsas, Unidades).</p>
                 </div>
-                <button
-                    onClick={openCreate}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
-                >
-                    <Plus size={20} />
-                    Nuevo Insumo
-                </button>
+                <div className="flex gap-3">
+                    <button
+                        onClick={handleSync}
+                        disabled={syncing}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+                    >
+                        {syncing ? <RefreshCw size={20} className="animate-spin" /> : <RefreshCw size={20} />}
+                        Sincronizar con Intuit QuickBooks
+                    </button>
+                    <button
+                        onClick={openCreate}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
+                    >
+                        <Plus size={20} />
+                        Nuevo Insumo
+                    </button>
+                </div>
             </div>
 
             {/* Filters */}
