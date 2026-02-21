@@ -7,7 +7,6 @@ import { addDays, formatDateISO } from '../lib/utils'
 export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, projections, setProjections, actuals, storeId, onRefresh, isExternalLoading, onShowSalesDetail }: any) {
     const [isOpen, setIsOpen] = useState(true)
     const [isSyncing, setIsSyncing] = useState(false)
-    const [liveSalesOverride, setLiveSalesOverride] = useState<number | null>(null)
     const hasAutoSynced = useRef(false)
 
     // --- LOGIC ---
@@ -36,20 +35,16 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
         }
     }
 
-    const handleManualOverride = () => {
-        const manual = prompt('Venta Real HOY:', liveSalesOverride?.toString() || '')
-        if (manual && !isNaN(Number(manual))) setLiveSalesOverride(Number(manual))
-    }
 
     useEffect(() => {
         if (!storeId) return
         const businessToday = getBusinessDate()
         const currentSales = actuals?.[businessToday]?.sales || 0
-        if (!hasAutoSynced.current && currentSales === 0 && liveSalesOverride === null) {
+        if (!hasAutoSynced.current && currentSales === 0) {
             hasAutoSynced.current = true
             handleSync(false)
         }
-    }, [storeId, actuals, liveSalesOverride])
+    }, [storeId, actuals])
 
     const dailyData = useMemo(() => {
         const businessToday = getBusinessDate()
@@ -58,7 +53,6 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
             const dateStr = formatDateISO(date)
             const salesProj = parseFloat(projections[dateStr] || '0')
             let salesAct = actuals?.[dateStr]?.sales || 0
-            if (dateStr === businessToday && liveSalesOverride !== null) salesAct = liveSalesOverride
             const schedStats = laborStats[dateStr] || { cost: 0, hours: 0 }
             const actStats = actuals?.[dateStr]?.labor || { cost: 0, hours: 0 }
             const laborPctProj = salesProj > 0 ? (schedStats.cost / salesProj) * 100 : 0
@@ -67,7 +61,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
             return { date, dateStr, salesProj, salesAct, costSched: schedStats.cost, costAct: actStats.cost, hoursSched: schedStats.hours, hoursAct: actStats.hours, laborPctProj, laborPctAct, isBurnRate }
         })
         return days
-    }, [weekStart, projections, laborStats, actuals, liveSalesOverride])
+    }, [weekStart, projections, laborStats, actuals])
 
     const hoursSched = dailyData.reduce((a, d) => a + d.hoursSched, 0)
     const hoursAct = dailyData.reduce((a, d) => a + d.hoursAct, 0)
@@ -165,7 +159,6 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                                 />
                                 <span
                                     className={`font-bold text-left pl-1 cursor-pointer text-xs ${day.salesAct < day.salesProj ? 'text-red-500' : 'text-emerald-600'}`}
-                                    onClick={(e) => { e.stopPropagation(); handleManualOverride(); }}
                                 >
                                     {day.salesAct > 0 ? fmtMoney(day.salesAct) : '-'}
                                 </span>
