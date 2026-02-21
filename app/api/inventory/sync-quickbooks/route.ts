@@ -56,7 +56,7 @@ export async function POST() {
 
         // 4. Fetch QB Items
         const qbItems = await new Promise<any[]>((resolve, reject) => {
-            qbo.findItems({ active: true }, (err, result) => {
+            qbo.findItems({ active: true }, (err: any, result: any) => {
                 if (err) reject(err);
                 else resolve(result?.QueryResponse?.Item || []);
             });
@@ -66,79 +66,69 @@ export async function POST() {
         const { data: internalItems } = await supabase.from('inventory_items').select('*');
         if (!internalItems) throw new Error('No internal items found');
 
-        const updates_mappings = [];
-        const updates_inventory = [];
+        const { data: existingMappings } = await supabase.from('quickbooks_mappings').select('qb_item_id, inventory_item_id');
+        const mappedQbIds = new Set(existingMappings?.map(m => m.qb_item_id));
+        const usedInternalIds = new Set(existingMappings?.map(m => m.inventory_item_id));
 
-        for (const internal of internalItems) {
-            let qbMatch = null;
-            const internalSku = internal.sku?.trim().toUpperCase();
-            const internalNameNormalized = internal.name.toLowerCase().trim();
+        let updatedCount = 0;
+        let createdCount = 0;
 
-            // Match by SKU
-            if (internalSku) {
-                qbMatch = qbItems.find(q => q.Sku?.trim().toUpperCase() === internalSku);
+        const DEFAULT_CATEGORY_ID = '5678dc7e-4514-4757-a5d0-9330e904140e'; // QuickBooks Import
+
+        for (const qbItem of qbItems) {
+            if (qbItem.Type !== 'Inventory' && qbItem.Type !== 'NonInventory') continue;
+
+            const rate = Number(qbItem.UnitPrice || 0);
+
+            // Case A: Already mapped
+            const existingMapping = existingMappings?.find(m => m.qb_item_id === qbItem.Id);
+            if (existingMapping) {
+                await supabase.from('inventory_items').update({ purchase_unit_cost: rate, updated_at: new Date() }).eq('id', existingMapping.inventory_item_id);
+                await supabase.from('quickbooks_mappings').update({ last_fetch_cost: rate, updated_at: new Date() }).eq('qb_item_id', qbItem.Id);
+                updatedCount++;
+                continue;
             }
 
-            // Match by Name
-            if (!qbMatch) {
-                qbMatch = qbItems.find(q => q.Name.toLowerCase().trim() === internalNameNormalized);
-            }
+            // Case B: Not mapped, try to find a FREE internal item
+            let internal = internalItems.find(i =>
+                !usedInternalIds.has(i.id) && (
+                    (i.sku?.trim().toUpperCase() === qbItem.Sku?.trim().toUpperCase()) ||
+                    (i.name.toLowerCase().trim() === qbItem.Name.toLowerCase().trim())
+                )
+            );
 
-            // Manual fallbacks
-            if (!qbMatch) {
-                const manualMaps: Record<string, string> = {
-                    'asada': 'Carne Asada',
-                    'carne asada': 'Carne Asada',
-                    'pollo': 'Pollo',
-                    'pastor': 'Pastor',
-                    'cabeza': 'Cabeza',
-                    'lengua': 'Lengua',
-                    'chorizo': 'Chorizo',
-                    'tripas': 'DPK COOKED TRIPAS'
-                };
-                const targetName = manualMaps[internalNameNormalized];
-                if (targetName) qbMatch = qbItems.find(q => q.Name === targetName);
-            }
-
-            if (qbMatch && qbMatch.UnitPrice > 0) {
-                const rate = Number(qbMatch.UnitPrice);
-
-                updates_mappings.push({
-                    qb_item_id: qbMatch.Id,
-                    qb_item_name: qbMatch.Name,
-                    inventory_item_id: internal.id,
-                    last_fetch_cost: rate,
-                    updated_at: new Date()
-                });
-
-                updates_inventory.push({
-                    id: internal.id,
+            if (!internal) {
+                // Case C: Create new item
+                const { data: newItem, error: createError } = await supabase.from('inventory_items').insert({
+                    name: qbItem.Name,
+                    sku: qbItem.Sku || null,
+                    category_id: DEFAULT_CATEGORY_ID,
                     purchase_unit_cost: rate,
-                    updated_at: new Date()
-                });
-            }
-        }
+                    unit_type: 'Unit'
+                }).select().single();
 
-        // 6. Perform Updates in Bulk (Supabase upsert handles arrays)
-        if (updates_mappings.length > 0) {
-            await supabase.from('quickbooks_mappings').upsert(updates_mappings, { onConflict: 'qb_item_id' });
-        }
-
-        if (updates_inventory.length > 0) {
-            // Upsert inventory items to update costs
-            // Note: Upsert needs all required fields, but we only want to update purchase_unit_cost.
-            // Using a loop or a smart query is better here if upsert is too destructive.
-            // Since we have the IDs, we can do multiple updates or a single upsert if we select enough fields.
-            for (const invUpdate of updates_inventory) {
-                await supabase.from('inventory_items')
-                    .update({ purchase_unit_cost: invUpdate.purchase_unit_cost, updated_at: new Date() })
-                    .eq('id', invUpdate.id);
+                if (createError) continue;
+                internal = newItem;
+                createdCount++;
             }
+
+            // Create Mapping
+            await supabase.from('quickbooks_mappings').insert({
+                qb_item_id: qbItem.Id,
+                qb_item_name: qbItem.Name,
+                inventory_item_id: internal.id,
+                last_fetch_cost: rate,
+                updated_at: new Date()
+            });
+
+            usedInternalIds.add(internal.id);
+            updatedCount++;
         }
 
         return NextResponse.json({
             success: true,
-            mappedCount: updates_mappings.length
+            updatedCount,
+            createdCount
         });
 
     } catch (error: any) {
