@@ -384,10 +384,10 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // We need to fetch "Last 4 Weeks" ACTUALS to calculate trend.
     // The previous code had "sumRecent28". Let's reuse that but filter carefully.
 
-    // RE-FETCH RECENT TREND DATA (Last 28 Days)
+    // RE-FETCH RECENT TREND DATA (Last 21 Days - More reactive to current month)
     // We need to fetch it here because historyPoints above only has the OLD data.
     const trendStartDate = new Date(targetDate)
-    trendStartDate.setDate(trendStartDate.getDate() - 35) // 5 weeks buffer
+    trendStartDate.setDate(trendStartDate.getDate() - 21) // 3 weeks buffer (ignores Jan slump)
 
     const { data: recentTrendData } = await supabase
         .from('sales_daily_cache')
@@ -436,17 +436,18 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         }
     }
 
-    // Blend: 70% Specific Trend, 30% Global Trend (to capture macro shifts like "Holidays are booming")
+    // Blend: 80% Specific Trend, 20% Global Trend (to capture macro shifts like "Holidays are booming")
     // Previous global calculation:
     let globalGrowth = 1.0
     if (sumLastYear28 > 1000 && sumRecent28 > 1000) {
         globalGrowth = sumRecent28 / sumLastYear28
     }
 
-    let growthFactorSales = (specificTrendFactor * 0.7) + (globalGrowth * 0.3)
+    // V2.2 Calibration: Increased Global weight and Raised Floor
+    let growthFactorSales = (specificTrendFactor * 0.6) + (globalGrowth * 0.4)
 
-    // Safety Bounds (Don't let it go crazy)
-    growthFactorSales = Math.min(Math.max(growthFactorSales, 0.85), 1.40)
+    // Safety Bounds (Dampened to prevent extreme drops)
+    growthFactorSales = Math.min(Math.max(growthFactorSales, 0.92), 1.50)
 
     // --- SPECIAL RULE: SHORT DAYS (Early Close) ---
     // If the day is physically shorter multiple hours, high growth is unlikely realized.

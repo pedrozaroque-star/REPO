@@ -1,10 +1,10 @@
 'use client'
 
 import React, { useState, useMemo, useEffect, useRef } from 'react'
-import { ChevronDown, RefreshCw } from 'lucide-react'
+import { ChevronDown, RefreshCw, Brain } from 'lucide-react'
 import { addDays, formatDateISO } from '../lib/utils'
 
-export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, projections, setProjections, actuals, storeId, onRefresh, isExternalLoading, onShowSalesDetail }: any) {
+export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, projections, setProjections, actuals, storeId, onRefresh, onCalculateProjections, isExternalLoading, onShowSalesDetail }: any) {
     const [isOpen, setIsOpen] = useState(true)
     const [isSyncing, setIsSyncing] = useState(false)
     const hasAutoSynced = useRef(false)
@@ -113,9 +113,24 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                         <div className="h-11 flex items-center justify-between px-4 border-b border-gray-200 dark:border-slate-800">
                             <div className="flex items-center gap-2">
                                 <span className="font-bold text-gray-700 uppercase tracking-wide text-sm">Sales</span>
-                                <button onClick={(e) => { e.stopPropagation(); handleSync(true); }} disabled={isSyncing || isExternalLoading} className={`p-1 rounded hover:bg-gray-200 ${(isSyncing || isExternalLoading) ? 'animate-spin text-indigo-500' : 'text-gray-400'}`}>
-                                    <RefreshCw size={14} />
-                                </button>
+                                <div className="flex gap-1">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleSync(true); }}
+                                        disabled={isSyncing || isExternalLoading}
+                                        title="Actualizar Ventas Reales (Toast)"
+                                        className={`p-1 rounded hover:bg-gray-200 ${(isSyncing || isExternalLoading) ? 'text-indigo-500' : 'text-gray-400'}`}
+                                    >
+                                        <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onCalculateProjections && onCalculateProjections(); }}
+                                        disabled={isExternalLoading}
+                                        title="Recalcular Proyecciones (IA v2.2)"
+                                        className={`p-1 rounded hover:bg-gray-200 ${isExternalLoading ? 'text-purple-500' : 'text-gray-400'}`}
+                                    >
+                                        <Brain size={14} className={isExternalLoading ? 'animate-pulse' : ''} />
+                                    </button>
+                                </div>
                             </div>
                             <div className="flex gap-2 text-sm">
                                 <span className="text-blue-600 font-bold">{fmtMoney(totals.salesProj)}</span>

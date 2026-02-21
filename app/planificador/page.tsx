@@ -1256,7 +1256,8 @@ export default function SchedulePlanner() {
                         actuals={actuals}
                         storeId={storeGuid}
                         onRefresh={refetchActuals}
-                        isExternalLoading={loadingActuals}
+                        onCalculateProjections={calculateProjections}
+                        isExternalLoading={loadingActuals || isCalcProjections}
                         onShowSalesDetail={(date: string) => setSalesDetailModal({ isOpen: true, date })}
                     />
                 </div>
