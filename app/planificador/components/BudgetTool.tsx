@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { addDays, formatDateISO } from '../lib/utils'
 
-export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, projections, setProjections, actuals, storeId, onRefresh, isExternalLoading }: any) {
+export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, projections, setProjections, actuals, storeId, onRefresh, isExternalLoading, onShowSalesDetail }: any) {
     const [isOpen, setIsOpen] = useState(true)
     const [isSyncing, setIsSyncing] = useState(false)
     const [liveSalesOverride, setLiveSalesOverride] = useState<number | null>(null)
@@ -12,17 +12,12 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
 
     // --- LOGIC ---
     // --- BUSINESS DATE AWARENESS ---
-    // If it's before 4 AM, "Today" is technically "Yesterday" in business terms.
     const getBusinessDate = () => {
         const now = new Date()
         const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-
-        // Check if we are in the early morning (00:00 - 04:00)
         if (laTime.getHours() < 4) {
             laTime.setDate(laTime.getDate() - 1)
         }
-
-        // Format YYYY-MM-DD
         const y = laTime.getFullYear()
         const m = String(laTime.getMonth() + 1).padStart(2, '0')
         const d = String(laTime.getDate()).padStart(2, '0')
@@ -63,10 +58,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
             const dateStr = formatDateISO(date)
             const salesProj = parseFloat(projections[dateStr] || '0')
             let salesAct = actuals?.[dateStr]?.sales || 0
-
-            // Override strictly for Business Today
             if (dateStr === businessToday && liveSalesOverride !== null) salesAct = liveSalesOverride
-
             const schedStats = laborStats[dateStr] || { cost: 0, hours: 0 }
             const actStats = actuals?.[dateStr]?.labor || { cost: 0, hours: 0 }
             const laborPctProj = salesProj > 0 ? (schedStats.cost / salesProj) * 100 : 0
@@ -77,7 +69,6 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
         return days
     }, [weekStart, projections, laborStats, actuals, liveSalesOverride])
 
-    // Totals
     const hoursSched = dailyData.reduce((a, d) => a + d.hoursSched, 0)
     const hoursAct = dailyData.reduce((a, d) => a + d.hoursAct, 0)
     const costSched = dailyData.reduce((a, d) => a + d.costSched, 0)
@@ -86,15 +77,11 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
     const salesAct = dailyData.reduce((a, d) => a + d.salesAct, 0)
     const laborPctProj = salesProj > 0 ? (costSched / salesProj) * 100 : 0
     const laborPctAct = salesAct > 0 ? (costAct / salesAct) * 100 : (salesProj > 0 ? (costAct / salesProj) * 100 : 0)
-
     const totals = { hoursSched, hoursAct, costSched, costAct, salesProj, salesAct, laborPctProj, laborPctAct }
 
-    // Formatters - All with thousand separators except percentages
     const fmtHrs = (n: number) => n > 0 ? `${n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h` : '-'
     const fmtMoney = (n: number) => n > 0 ? `$${Math.round(n).toLocaleString('en-US')}` : '-'
     const fmtPct = (n: number) => n > 0 ? `${n.toFixed(1)}%` : '-'
-
-    // Color logic
     const getPctColor = (val: number, isBurn = false) => {
         if (isBurn) return 'bg-amber-100 text-amber-700 border-amber-300'
         if (val > 22) return 'bg-red-100 text-red-700 border-red-300'
@@ -103,24 +90,18 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
 
     return (
         <div className="sticky bottom-4 z-40 mx-4 rounded-xl rounded-t-lg bg-gray-50/98 dark:bg-slate-900/98 backdrop-blur-md border-x border-b border-t-4 border-gray-200 border-t-indigo-500 dark:border-slate-600 dark:border-t-indigo-500 shadow-[0_0_70px_20px_rgba(0,0,0,0.65)] dark:shadow-[0_0_80px_20px_rgba(0,0,0,0.95)] font-sans text-xs ring-1 ring-black/5 dark:ring-white/10 transition-all duration-500">
-            {/* Handle - 3D Button Style */}
-            {/* Handle - 3D Button Style */}
             <div
                 onClick={() => setIsOpen(!isOpen)}
                 className="absolute -top-9 left-1/2 -translate-x-1/2 w-36 h-9 bg-indigo-500 dark:bg-indigo-600 rounded-t-lg cursor-pointer flex items-center justify-center gap-2 shadow-lg hover:bg-indigo-600 dark:hover:bg-indigo-500 transition-all z-50 ring-1 ring-black/5"
             >
-                <div className="absolute inset-0 -top-4" /> {/* Invisible extended hit area */}
+                <div className="absolute inset-0 -top-4" />
                 <span className="text-xs font-bold text-white uppercase tracking-wider text-shadow-sm">Budget Tool</span>
                 <ChevronDown size={16} className={`text-indigo-100 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
             </div>
 
             <div className={`transition-all duration-300 overflow-hidden ${isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                {/* MASTER GRID: Match table columns exactly */}
                 <div className="grid grid-cols-[25%_repeat(7,10.7%)]">
-
-                    {/* ROW HEADERS */}
                     <div className="bg-gray-100 dark:bg-slate-900/80 flex flex-col border-r border-gray-300 dark:border-slate-700">
-                        {/* Hours Header */}
                         <div className="h-11 flex items-center justify-between px-4 border-b border-gray-200 dark:border-slate-800">
                             <span className="font-bold text-gray-700 uppercase tracking-wide text-sm">Hours</span>
                             <div className="flex gap-2 text-sm">
@@ -128,7 +109,6 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                                 <span className={`font-bold ${totals.hoursAct > totals.hoursSched ? 'text-red-500' : 'text-emerald-600'}`}>{fmtHrs(totals.hoursAct)}</span>
                             </div>
                         </div>
-                        {/* Labor $ Header */}
                         <div className="h-11 flex items-center justify-between px-4 border-b border-gray-200 dark:border-slate-800">
                             <span className="font-bold text-gray-700 uppercase tracking-wide text-sm">Labor $</span>
                             <div className="flex gap-2 text-sm">
@@ -136,11 +116,10 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                                 <span className={`font-bold ${totals.costAct > totals.costSched ? 'text-red-500' : 'text-emerald-600'}`}>{fmtMoney(totals.costAct)}</span>
                             </div>
                         </div>
-                        {/* Sales Header */}
                         <div className="h-11 flex items-center justify-between px-4 border-b border-gray-200 dark:border-slate-800">
                             <div className="flex items-center gap-2">
                                 <span className="font-bold text-gray-700 uppercase tracking-wide text-sm">Sales</span>
-                                <button onClick={() => handleSync(true)} disabled={isSyncing || isExternalLoading} className={`p-1 rounded hover:bg-gray-200 ${(isSyncing || isExternalLoading) ? 'animate-spin text-indigo-500' : 'text-gray-400'}`}>
+                                <button onClick={(e) => { e.stopPropagation(); handleSync(true); }} disabled={isSyncing || isExternalLoading} className={`p-1 rounded hover:bg-gray-200 ${(isSyncing || isExternalLoading) ? 'animate-spin text-indigo-500' : 'text-gray-400'}`}>
                                     <RefreshCw size={14} />
                                 </button>
                             </div>
@@ -149,7 +128,6 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                                 <span className={`font-bold ${totals.salesAct < totals.salesProj ? 'text-red-500' : 'text-emerald-600'}`}>{fmtMoney(totals.salesAct)}</span>
                             </div>
                         </div>
-                        {/* Labor % Header */}
                         <div className="h-11 flex items-center justify-between px-4">
                             <span className="font-bold text-gray-700 uppercase tracking-wide text-sm">Labor %</span>
                             <div className="flex gap-2 text-sm items-center">
@@ -159,28 +137,27 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                         </div>
                     </div>
 
-                    {/* DAYS DATA */}
                     {dailyData.map(day => (
-                        <div key={day.dateStr} className="flex flex-col text-center border-r border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
-
-                            {/* Hours Row */}
+                        <div
+                            key={day.dateStr}
+                            title="Ver Detalle de Ventas"
+                            onClick={() => onShowSalesDetail && onShowSalesDetail(day.dateStr)}
+                            className="flex flex-col text-center border-r border-gray-200 dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all cursor-pointer group"
+                        >
                             <div className="h-11 border-b border-gray-100 dark:border-slate-800 grid grid-cols-2 items-center px-1">
                                 <span className="text-blue-600 font-bold text-right pr-1 text-sm">{day.hoursSched > 0 ? day.hoursSched.toFixed(1) : '-'}</span>
                                 <span className={`font-bold text-left pl-1 text-sm ${day.hoursAct > day.hoursSched ? 'text-red-500' : 'text-emerald-600'}`}>{day.hoursAct > 0 ? day.hoursAct.toFixed(1) : '-'}</span>
                             </div>
-
-                            {/* Labor $ Row */}
-                            <div className="h-11 border-b border-gray-100 dark:border-slate-800 grid grid-cols-2 items-center px-1 bg-indigo-50/30 dark:bg-indigo-900/10">
+                            <div className="h-11 border-b border-gray-100 dark:border-slate-800 grid grid-cols-2 items-center px-1 bg-indigo-50/10 dark:bg-indigo-900/5 group-hover:bg-indigo-100/30">
                                 <span className="text-blue-600 font-bold text-right pr-1 text-sm">{fmtMoney(day.costSched)}</span>
                                 <span className={`font-bold text-left pl-1 text-sm ${day.costAct > day.costSched ? 'text-red-500' : 'text-emerald-600'}`}>{fmtMoney(day.costAct)}</span>
                             </div>
-
-                            {/* Sales Row */}
                             <div className="h-11 border-b border-gray-100 dark:border-slate-800 grid grid-cols-2 items-center px-1">
                                 <input
-                                    className="h-full bg-transparent text-right pr-1 text-blue-600 font-bold focus:text-blue-800 outline-none w-full text-sm"
+                                    className="h-full bg-transparent text-right pr-1 text-blue-600 font-bold focus:text-blue-800 outline-none w-full text-sm hover:bg-white/50 dark:hover:bg-slate-700/50 rounded"
                                     placeholder="-"
                                     value={projections[day.dateStr] ? Math.round(Number(projections[day.dateStr])).toLocaleString('en-US') : ''}
+                                    onClick={(e) => e.stopPropagation()}
                                     onChange={e => {
                                         const val = e.target.value.replace(/[^0-9]/g, '')
                                         setProjections((p: any) => ({ ...p, [day.dateStr]: val }))
@@ -188,13 +165,11 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
                                 />
                                 <span
                                     className={`font-bold text-left pl-1 cursor-pointer text-xs ${day.salesAct < day.salesProj ? 'text-red-500' : 'text-emerald-600'}`}
-                                    onClick={handleManualOverride}
+                                    onClick={(e) => { e.stopPropagation(); handleManualOverride(); }}
                                 >
                                     {day.salesAct > 0 ? fmtMoney(day.salesAct) : '-'}
                                 </span>
                             </div>
-
-                            {/* Labor % Row */}
                             <div className="h-11 grid grid-cols-2 items-center px-1">
                                 <span className={`text-right pr-1 text-sm font-bold ${day.laborPctProj > 22 ? 'text-red-500' : 'text-blue-600'}`}>{fmtPct(day.laborPctProj)}</span>
                                 <div className="text-left pl-1">

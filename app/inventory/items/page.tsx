@@ -58,7 +58,7 @@ export default function InventoryItemsPage() {
             const res = await fetch('/api/inventory/sync-quickbooks', { method: 'POST' })
             if (!res.ok) throw new Error('Error en la sincronización')
             const data = await res.json()
-            alert(`Sincronización exitosa: ${data.mappedCount} artículos actualizados.`)
+            alert(`Sincronización exitosa: ${data.updatedCount} actualizados y ${data.createdCount} nuevos creados.`)
             fetchData()
         } catch (e: any) {
             alert(`Error: ${e.message}`)

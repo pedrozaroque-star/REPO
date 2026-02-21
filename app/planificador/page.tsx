@@ -22,6 +22,7 @@ import { PremiumConfirmModal } from './components/PremiumConfirmModal'
 import { EmployeeRow } from './components/EmployeeRow'
 import { PrintModal } from './components/PrintModal'
 import { GmailConnectModal } from './components/GmailConnectModal'
+import { SalesDetailModal } from './components/SalesDetailModal'
 
 // Hooks
 import { useWeeklyStats } from './hooks/useWeeklyStats'
@@ -141,6 +142,7 @@ export default function SchedulePlanner() {
 
     // --- MODAL & UI STATES ---
     const [modalConfig, setModalConfig] = useState<any>({ isOpen: false, data: null, targetDate: null, targetEmpId: null })
+    const [salesDetailModal, setSalesDetailModal] = useState<{ isOpen: boolean, date: string | null }>({ isOpen: false, date: null })
     const [showTemplateModal, setShowTemplateModal] = useState(false)
     const [templateName, setTemplateName] = useState('')
     const [savedTemplates, setSavedTemplates] = useState<any[]>([])
@@ -1100,6 +1102,14 @@ export default function SchedulePlanner() {
                 isOpen={isGmailModalOpen}
                 onClose={() => setIsGmailModalOpen(false)}
             />
+
+            <SalesDetailModal
+                isOpen={salesDetailModal.isOpen}
+                onClose={() => setSalesDetailModal({ isOpen: false, date: null })}
+                storeGuid={storeGuid || ''}
+                date={salesDetailModal.date || ''}
+                storeName={currentStore?.name}
+            />
             <PremiumConfirmModal
                 isOpen={confirmModal.isOpen}
                 onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
@@ -1247,6 +1257,7 @@ export default function SchedulePlanner() {
                         storeId={storeGuid}
                         onRefresh={refetchActuals}
                         isExternalLoading={loadingActuals}
+                        onShowSalesDetail={(date: string) => setSalesDetailModal({ isOpen: true, date })}
                     />
                 </div>
             </div>

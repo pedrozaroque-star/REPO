@@ -1,21 +1,54 @@
-import React from 'react'
+'use client'
+
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { ChevronLeft, Menu } from 'lucide-react'
 
 export default function InventoryLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+
+    // Load preference from localStorage on mount
+    useEffect(() => {
+        const saved = localStorage.getItem('inventorySidebarOpen')
+        if (saved !== null) {
+            setIsSidebarOpen(saved === 'true')
+        }
+    }, [])
+
+    const toggleSidebar = () => {
+        const newState = !isSidebarOpen
+        setIsSidebarOpen(newState)
+        localStorage.setItem('inventorySidebarOpen', String(newState))
+    }
+
     return (
-        <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+        <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
             {/* Sidebar */}
-            <aside className="w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 hidden md:flex flex-col">
-                <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-                    <h1 className="text-xl font-bold text-slate-800 dark:text-white">Inventario (BETA)</h1>
-                    <p className="text-xs text-slate-500">Restaurant365-lite</p>
+            <aside
+                className={`
+                    ${isSidebarOpen ? 'w-64' : 'w-0'} 
+                    bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 
+                    hidden md:flex flex-col transition-all duration-300 ease-in-out relative overflow-hidden
+                `}
+            >
+                <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center whitespace-nowrap">
+                    <div>
+                        <h1 className="text-xl font-bold text-slate-800 dark:text-white">Inventario (BETA)</h1>
+                        <p className="text-xs text-slate-500">Restaurant365-lite</p>
+                    </div>
+                    <button
+                        onClick={toggleSidebar}
+                        className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-400"
+                    >
+                        <ChevronLeft size={20} />
+                    </button>
                 </div>
 
-                <nav className="flex-1 p-4 space-y-1">
+                <nav className="flex-1 p-4 space-y-1 whitespace-nowrap overflow-hidden">
                     <NavLink href="/inventory">Dashboard</NavLink>
                     <div className="pt-4 pb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
                         Catálogos
@@ -31,10 +64,23 @@ export default function InventoryLayout({
                 </nav>
             </aside>
 
-            {/* Main Content */}
-            <main className="flex-1 overflow-auto">
-                {children}
-            </main>
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col min-w-0 relative">
+                {/* Floating Opener Button when closed */}
+                {!isSidebarOpen && (
+                    <button
+                        onClick={toggleSidebar}
+                        className="fixed top-20 left-4 z-[100] p-2 bg-indigo-600 text-white rounded-lg shadow-xl hover:bg-indigo-700 transition-all hover:scale-110 active:scale-95 animate-in slide-in-from-left duration-300"
+                        title="Abrir Menú"
+                    >
+                        <Menu size={20} />
+                    </button>
+                )}
+
+                <main className="flex-1 overflow-auto">
+                    {children}
+                </main>
+            </div>
         </div>
     )
 }
