@@ -9,6 +9,10 @@
             "schedule": "0 15 * * *"
         },
         {
+            "path": "/api/cron/sync-labor",
+            "schedule": "50 19 * * *"
+        },
+        {
             "path": "/api/cron/sync-reviews",
             "schedule": "0 14 * * *"
         },
