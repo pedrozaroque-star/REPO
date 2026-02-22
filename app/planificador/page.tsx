@@ -115,6 +115,14 @@ export default function SchedulePlanner() {
     const { weather } = useWeather(storeGuid)
     const { actuals, loading: loadingActuals, refetch: refetchActuals } = useActualStats(storeGuid, weekStart) // NEW
 
+    // 🧠 AUTO-TRIGGER AI PROJECTIONS (Cerebrito)
+    useEffect(() => {
+        if (storeGuid && weekStart) {
+            console.log('🧠 [Auto-AI] Store or Week changed, recalculating meta...')
+            calculateProjections()
+        }
+    }, [storeGuid, weekStart, calculateProjections])
+
     // Aggregated Daily Stats for Budget Tool
     const dailyLaborStats = useMemo(() => {
         const stats: Record<string, { cost: number, hours: number }> = {}

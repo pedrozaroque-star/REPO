@@ -68,29 +68,54 @@ export function MobilePlannerView({
     const laborPctProj = dayProjections > 0 ? (daySchedStats.cost / dayProjections) * 100 : 0
     const laborPctAct = dayActuals > 0 ? (dayActStats.cost / dayActuals) * 100 : (dayProjections > 0 ? (dayActStats.cost / dayProjections) * 100 : 0)
 
-    // Weekly Stats Calc
+    // Weekly Stats Calc - Strictly Filtered by weekDays to ensure parity with Desktop
     const weeklyStats = useMemo(() => {
-        const totalProjSales = Object.values(projections).reduce((a, b) => a + Number(b), 0)
-        const totalActualSales = Object.values(actuals).reduce((a, b) => a + (b.sales || 0), 0)
+        let totalProjSales = 0
+        let totalActualSales = 0
+        let totalHoursSched = 0
+        let totalCostSched = 0
+        let totalHoursAct = 0
+        let totalCostAct = 0
 
-        // Aggregated labor costs from laborStats (which are weekly per employee in page.tsx context)
-        let totalHours = 0
-        let totalCost = 0
-        Object.values(laborStats).forEach((stat: any) => {
-            totalHours += stat.hours || 0
-            totalCost += stat.cost || 0
+        weekDays.forEach(day => {
+            const dStr = formatDateISO(day)
+
+            // Sales
+            totalProjSales += parseFloat(projections[dStr] || '0')
+            totalActualSales += actuals[dStr]?.sales || 0
+
+            // Scheduled Labor (from dailyLaborStats in page.tsx)
+            const sched = laborStats[dStr]
+            if (sched) {
+                totalHoursSched += sched.hours || 0
+                totalCostSched += sched.cost || 0
+            }
+
+            // Actual Labor (from useActualStats in page.tsx)
+            const act = actuals[dStr]?.labor
+            if (act) {
+                totalHoursAct += act.hours || 0
+                totalCostAct += act.cost || 0
+            }
         })
 
-        const totalLaborPct = totalProjSales > 0 ? (totalCost / totalProjSales) * 100 : 0
+        const totalLaborPctProj = totalProjSales > 0 ? (totalCostSched / totalProjSales) * 100 : 0
+        // Parity with Desktop Logic: if no actual sales, use projected sales as baseline for real labor %
+        const totalLaborPctAct = totalActualSales > 0
+            ? (totalCostAct / totalActualSales) * 100
+            : (totalProjSales > 0 ? (totalCostAct / totalProjSales) * 100 : 0)
 
         return {
             totalProjSales,
             totalActualSales,
-            totalHours,
-            totalCost,
-            totalLaborPct
+            totalHoursSched,
+            totalCostSched,
+            totalHoursAct,
+            totalCostAct,
+            totalLaborPctProj,
+            totalLaborPctAct
         }
-    }, [projections, actuals, laborStats])
+    }, [projections, actuals, laborStats, weekDays])
 
     return (
         <div className="flex flex-col h-full bg-gray-50 dark:bg-slate-950 overflow-hidden font-sans">
@@ -344,10 +369,10 @@ export function MobilePlannerView({
                                     <span className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Hours</span>
                                     <div className="flex gap-10">
                                         <span className="text-[15px] font-black text-blue-600 w-20 text-right">
-                                            {weeklyStats.totalHours.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h
+                                            {weeklyStats.totalHoursSched.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h
                                         </span>
-                                        <span className="text-[15px] font-black text-gray-300 w-20 text-right">
-                                            -
+                                        <span className={`text-[15px] font-black w-20 text-right ${weeklyStats.totalHoursAct > 0 ? (weeklyStats.totalHoursAct > weeklyStats.totalHoursSched ? 'text-red-500' : 'text-emerald-500') : 'text-gray-300'}`}>
+                                            {weeklyStats.totalHoursAct > 0 ? `${weeklyStats.totalHoursAct.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h` : '-'}
                                         </span>
                                     </div>
                                 </div>
@@ -357,10 +382,10 @@ export function MobilePlannerView({
                                     <span className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Labor $</span>
                                     <div className="flex gap-10">
                                         <span className="text-[15px] font-black text-blue-600 w-20 text-right">
-                                            ${Math.round(weeklyStats.totalCost).toLocaleString('en-US')}
+                                            ${Math.round(weeklyStats.totalCostSched).toLocaleString('en-US')}
                                         </span>
-                                        <span className="text-[15px] font-black text-gray-300 w-20 text-right">
-                                            -
+                                        <span className={`text-[15px] font-black w-20 text-right ${weeklyStats.totalCostAct > 0 ? (weeklyStats.totalCostAct > weeklyStats.totalCostSched ? 'text-red-500' : 'text-emerald-500') : 'text-gray-300'}`}>
+                                            {weeklyStats.totalCostAct > 0 ? `$${Math.round(weeklyStats.totalCostAct).toLocaleString('en-US')}` : '-'}
                                         </span>
                                     </div>
                                 </div>
@@ -393,14 +418,14 @@ export function MobilePlannerView({
                                     <span className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Labor %</span>
                                     <div className="flex gap-10 items-center">
                                         <span className="text-[15px] font-black text-blue-600 w-20 text-right">
-                                            {weeklyStats.totalLaborPct.toFixed(1)}%
+                                            {weeklyStats.totalLaborPctProj.toFixed(1)}%
                                         </span>
                                         <div className="w-20 flex justify-end">
-                                            <span className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 ${weeklyStats.totalLaborPct > 22
+                                            <span className={`px-2.5 py-1 rounded-lg text-xs font-black border-2 ${weeklyStats.totalLaborPctAct > 22
                                                 ? 'bg-red-100 text-red-700 border-red-300'
                                                 : 'bg-emerald-100 text-emerald-700 border-emerald-300'
                                                 }`}>
-                                                {weeklyStats.totalLaborPct.toFixed(1)}%
+                                                {weeklyStats.totalLaborPctAct > 0 ? `${weeklyStats.totalLaborPctAct.toFixed(1)}%` : '-'}
                                             </span>
                                         </div>
                                     </div>
@@ -409,16 +434,18 @@ export function MobilePlannerView({
                         </div>
 
                         {/* Tactical Advice Card */}
-                        <div className={`p-5 rounded-2xl shadow-lg border-l-8 ${weeklyStats.totalLaborPct > 24 ? 'bg-red-50 dark:bg-red-900/20 border-red-500' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500'}`}>
+                        <div className={`p-5 rounded-2xl shadow-lg border-l-8 ${weeklyStats.totalLaborPctAct > 22 ? 'bg-red-50 dark:bg-red-900/20 border-red-500' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500'}`}>
                             <div className="flex gap-4">
-                                <div className={`p-2 rounded-xl text-white ${weeklyStats.totalLaborPct > 24 ? 'bg-red-500' : 'bg-emerald-500'}`}>
+                                <div className={`p-2 rounded-xl text-white ${weeklyStats.totalLaborPctAct > 22 ? 'bg-red-500' : 'bg-emerald-500'}`}>
                                     <AlertCircle size={20} />
                                 </div>
-                                <div>
-                                    <h4 className="font-black text-gray-900 dark:text-white text-sm uppercase tracking-widest mb-1">Estado de la Operación</h4>
-                                    <p className="text-xs text-gray-600 dark:text-gray-400 font-medium leading-relaxed">
-                                        {weeklyStats.totalLaborPct > 24
-                                            ? 'El porcentaje de labor está excediendo la meta semanal. Se recomienda revisar los horarios de fin de semana para optimizar costos.'
+                                <div className="flex-1">
+                                    <h4 className={`text-sm font-black uppercase tracking-widest ${weeklyStats.totalLaborPctAct > 22 ? 'text-red-800 dark:text-red-200' : 'text-emerald-800 dark:text-emerald-200'}`}>
+                                        Estado de la Operación
+                                    </h4>
+                                    <p className={`text-sm mt-1 font-medium ${weeklyStats.totalLaborPctAct > 22 ? 'text-red-700/80 dark:text-red-300/80' : 'text-emerald-700/80 dark:text-emerald-300/80'}`}>
+                                        {weeklyStats.totalLaborPctAct > 22
+                                            ? 'El porcentaje de labor está excediendo la meta semanal. Se recomienda revisar los horarios para optimizar costos.'
                                             : 'El porcentaje de labor está alineado con las metas semanales. Continúa con este nivel de eficiencia.'}
                                     </p>
                                 </div>
