@@ -27,7 +27,7 @@ export function FloatingToolbar({
     const { t } = useLanguage()
 
     return (
-        <div className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3 p-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-white/20 dark:border-slate-800 animate-in slide-in-from-right duration-500">
+        <div className="fixed bottom-6 right-6 sm:right-6 sm:top-1/2 sm:-translate-y-1/2 z-[60] flex flex-row sm:flex-col gap-2 sm:gap-3 p-2 sm:p-3 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl rounded-2xl sm:rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] border border-indigo-500/20 dark:border-slate-700 animate-in slide-in-from-right duration-500 ring-1 ring-black/5">
             {/* AI Button - Primary */}
             <div className="relative group/tool">
                 <motion.button

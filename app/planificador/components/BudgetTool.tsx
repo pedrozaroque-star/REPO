@@ -86,16 +86,16 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
         <div className="sticky bottom-4 z-40 mx-4 rounded-xl rounded-t-lg bg-gray-50/98 dark:bg-slate-900/98 backdrop-blur-md border-x border-b border-t-4 border-gray-200 border-t-indigo-500 dark:border-slate-600 dark:border-t-indigo-500 shadow-[0_0_70px_20px_rgba(0,0,0,0.65)] dark:shadow-[0_0_80px_20px_rgba(0,0,0,0.95)] font-sans text-xs ring-1 ring-black/5 dark:ring-white/10 transition-all duration-500">
             <div
                 onClick={() => setIsOpen(!isOpen)}
-                className="absolute -top-9 left-1/2 -translate-x-1/2 w-36 h-9 bg-indigo-500 dark:bg-indigo-600 rounded-t-lg cursor-pointer flex items-center justify-center gap-2 shadow-lg hover:bg-indigo-600 dark:hover:bg-indigo-500 transition-all z-50 ring-1 ring-black/5"
+                className="absolute -top-8 left-1/2 -translate-x-1/2 w-32 h-8 bg-indigo-500 dark:bg-indigo-600 rounded-t-lg cursor-pointer flex items-center justify-center gap-1.5 shadow-lg hover:bg-indigo-600 dark:hover:bg-indigo-500 transition-all z-50 ring-1 ring-black/5"
             >
                 <div className="absolute inset-0 -top-4" />
-                <span className="text-xs font-bold text-white uppercase tracking-wider text-shadow-sm">Budget Tool</span>
-                <ChevronDown size={16} className={`text-indigo-100 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+                <span className="text-[10px] sm:text-xs font-bold text-white uppercase tracking-wider text-shadow-sm">Budget Tool</span>
+                <ChevronDown size={14} className={`text-indigo-100 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
             </div>
 
             <div className={`transition-all duration-300 overflow-hidden ${isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="grid grid-cols-[25%_repeat(7,10.7%)]">
-                    <div className="bg-gray-100 dark:bg-slate-900/80 flex flex-col border-r border-gray-300 dark:border-slate-700">
+                <div className="grid grid-cols-[300px_repeat(7,1fr)] min-w-[1200px]">
+                    <div className="bg-gray-100 dark:bg-slate-900/80 flex flex-col border-r border-gray-300 dark:border-slate-700 sticky left-0 z-20 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_10px_-4px_rgba(0,0,0,0.5)]">
                         <div className="h-11 flex items-center justify-between px-4 border-b border-gray-200 dark:border-slate-800">
                             <span className="font-bold text-gray-700 uppercase tracking-wide text-sm">Hours</span>
                             <div className="flex gap-2 text-sm">

@@ -33,7 +33,7 @@ export function EmployeeRow({
                 zIndex: 50
             }}
         >
-            <td className="sticky left-0 z-10 group-hover:z-[60] bg-white dark:bg-[#0f172a] group-hover:bg-gray-50 dark:group-hover:bg-[#1e293b] border-r border-b border-gray-200 dark:border-slate-800 p-3 transition-colors shadow-[4px_0_12px_-4px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.5)] w-[25%] min-w-[300px]">
+            <td className="sticky left-0 z-10 group-hover:z-[28] bg-white dark:bg-[#0f172a] group-hover:bg-gray-50 dark:group-hover:bg-[#1e293b] border-r border-b border-gray-200 dark:border-slate-800 p-3 transition-colors shadow-[4px_0_12px_-4px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_12px_-4px_rgba(0,0,0,0.5)] w-[300px]">
                 <div className="flex items-center gap-3 relative group/profile">
                     {/* Grip Handle */}
                     <div

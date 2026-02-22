@@ -23,6 +23,7 @@ import { EmployeeRow } from './components/EmployeeRow'
 import { PrintModal } from './components/PrintModal'
 import { GmailConnectModal } from './components/GmailConnectModal'
 import { SalesDetailModal } from './components/SalesDetailModal'
+import { MobilePlannerView } from './components/MobilePlannerView'
 
 // Hooks
 import { useWeeklyStats } from './hooks/useWeeklyStats'
@@ -98,6 +99,14 @@ export default function SchedulePlanner() {
     const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart])
     const currentStore = useMemo(() => stores.find(s => String(s.id) === String(selectedStoreId)), [stores, selectedStoreId])
     const storeGuid = currentStore?.external_id
+
+    const [isMobile, setIsMobile] = useState(false)
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 768)
+        checkMobile()
+        window.addEventListener('resize', checkMobile)
+        return () => window.removeEventListener('resize', checkMobile)
+    }, [])
 
     // --- HOOKS ---
     const { stats: laborStats, shiftStats } = useWeeklyStats(shifts, employees, jobs)
@@ -1065,7 +1074,7 @@ export default function SchedulePlanner() {
     if (loading) return <SurpriseLoader loadingText={t('planner.loading')} syncingText={t('planner.syncing_toast')} />
 
     return (
-        <div className="grid grid-rows-[auto_auto_1fr] h-[calc(97.5vh-95px)] bg-gray-50 dark:bg-slate-950 overflow-hidden">
+        <div className="grid grid-rows-[auto_auto_1fr] h-[calc(100vh-140px)] sm:h-[calc(100vh-95px)] bg-gray-50 dark:bg-slate-950 overflow-hidden">
             <ShiftModal
                 isOpen={modalConfig.isOpen}
                 onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
@@ -1160,107 +1169,117 @@ export default function SchedulePlanner() {
                 setShowPrintInfo={setShowPrintInfo}
             />
 
-            {/* MAIN GRID */}
-            <div className="overflow-auto bg-white dark:bg-slate-950 relative custom-scrollbar">
-                <div className="w-[99%] mx-auto border-x border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-                    <table className="w-full border-separate border-spacing-0 table-fixed">
-                        <colgroup>
-                            <col className="w-[25%] min-w-[300px]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                            <col className="w-[10.7%]" />
-                        </colgroup>
-                        <thead>
-                            <tr className="bg-gray-50 dark:bg-slate-900 sticky top-0 z-20 shadow-sm border-b border-gray-200 dark:border-slate-800">
-                                <th className="p-4 text-left font-black text-lg uppercase tracking-widest text-gray-800 dark:text-indigo-400 bg-gray-50 dark:bg-slate-900 z-30">{t('planner.table_header')}</th>
-                                {weekDays.map((date, i) => {
-                                    const dateStr = formatDateISO(date)
-                                    const w = weather[dateStr]
-
-                                    // Staff Count logic
-                                    const staffCount = new Set(
-                                        shifts
-                                            .filter(s => s.shift_date === dateStr && s.employee_id)
-                                            .map(s => s.employee_id)
-                                    ).size
-
-                                    const isToday = [date.getDate(), date.getMonth()].join('-') === [new Date().getDate(), new Date().getMonth()].join('-')
-
-                                    return (
-                                        <th key={i} className={`p-3 border-l border-gray-200 dark:border-slate-800 align-top transition-colors bg-gray-50 dark:bg-slate-900 ${isToday ? 'bg-blue-50/50 dark:bg-slate-800 relative overflow-hidden' : ''}`}>
-                                            {isToday && <div className="absolute top-0 left-0 w-full h-0.5 bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />}
-                                            <div className="flex flex-col h-full min-h-[60px]">
-                                                {/* Top Row: Day + Weather */}
-                                                <div className="flex justify-between items-start mb-2 gap-2">
-                                                    <div className="text-left">
-                                                        <div className={`text-base font-black leading-tight tracking-tight ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-slate-200'}`}>
-                                                            {[t('planner.days.sun'), t('planner.days.mon'), t('planner.days.tue'), t('planner.days.wed'), t('planner.days.thu'), t('planner.days.fri'), t('planner.days.sat')][date.getDay()]}
-                                                        </div>
-                                                        <div className={`text-xs font-bold capitalize mt-0.5 ${isToday ? 'text-blue-600/80 dark:text-blue-400/80' : 'text-gray-400 dark:text-slate-500'}`}>
-                                                            {date.toLocaleString(language === 'en' ? 'en-US' : 'es-US', { month: 'short' }).replace('.', '')} {date.getDate()}
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Weather Widget */}
-                                                    {w && (
-                                                        <div className="flex flex-col items-end flex-shrink-0" title={w.weather?.[0]?.description}>
-                                                            <WeatherIcon condition={w.weather?.[0]?.main} className="w-5 h-5 mb-0.5 text-gray-400 dark:text-slate-500" />
-                                                            <span className="text-[10px] font-bold text-gray-600 dark:text-slate-400">
-                                                                {Math.round(w.temp?.max || 0)}°
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Bottom Row: Staff Count */}
-                                                <div className="flex justify-end items-center gap-1.5 mt-auto pt-2 opacity-60 hover:opacity-100 transition-opacity" title={t('planner.employees_scheduled')}>
-                                                    <UserIcon className="w-3.5 h-3.5 text-gray-400 dark:text-slate-600" />
-                                                    <span className="text-[10px] font-bold text-gray-500 dark:text-slate-500">{staffCount}</span>
-                                                </div>
-                                            </div>
-                                        </th>
-                                    )
-                                })}
-                            </tr>
-                        </thead>
-                        <Reorder.Group as="tbody" axis="y" values={employees} onReorder={handleReorder}>
-                            {visibleEmployees.map(emp => (
-                                <EmployeeRow
-                                    key={emp.id}
-                                    emp={emp}
-                                    totals={laborStats[emp.id]}
-                                    weekDays={weekDays}
-                                    getShiftsForCell={(id: string | null, d: Date) => shifts.filter(s => (s.employee_id === id) && s.shift_date === formatDateISO(d))}
-                                    jobs={jobs}
-                                    weeklyStats={shiftStats} // Pass derived shift stats
-                                    handleDragStart={handleDragStart}
-                                    handleDrop={handleDrop}
-                                    setModalConfig={setModalConfig}
-                                />
-                            ))}
-                        </Reorder.Group>
-                    </table>
-
-                    {/* Budget Tool - Inside scroll container, always after last row */}
-                    <BudgetTool
-                        weekStart={weekStart}
+            {/* MAIN CONTENT AREA */}
+            <div className="flex-1 overflow-hidden relative">
+                {isMobile ? (
+                    <MobilePlannerView
                         shifts={shifts}
-                        weeklyStats={shiftStats}
+                        employees={visibleEmployees}
+                        jobs={jobs}
+                        weekDays={weekDays}
+                        shiftStats={shiftStats}
                         laborStats={dailyLaborStats}
                         projections={projections}
-                        setProjections={setProjections}
                         actuals={actuals}
-                        storeId={storeGuid}
+                        isExternalLoading={loadingActuals || isCalcProjections}
                         onRefresh={refetchActuals}
                         onCalculateProjections={calculateProjections}
-                        isExternalLoading={loadingActuals || isCalcProjections}
                         onShowSalesDetail={(date: string) => setSalesDetailModal({ isOpen: true, date })}
+                        onEditShift={(shift, date, empId) => setModalConfig({ isOpen: true, data: shift, targetDate: date, targetEmpId: empId })}
+                        onAddShift={(date, empId) => setModalConfig({ isOpen: true, data: null, targetDate: date, targetEmpId: empId })}
                     />
-                </div>
+                ) : (
+                    <div className="overflow-auto bg-white dark:bg-slate-950 relative h-full custom-scrollbar flex-1">
+                        <div className="w-full sm:w-[99%] mx-auto sm:border-x border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+                            <table className="w-full border-separate border-spacing-0 table-fixed min-w-[1200px]">
+                                <colgroup>
+                                    <col className="w-[300px]" />
+                                    <col className="w-[12.8%]" />
+                                    <col className="w-[12.8%]" />
+                                    <col className="w-[12.8%]" />
+                                    <col className="w-[12.8%]" />
+                                    <col className="w-[12.8%]" />
+                                    <col className="w-[12.8%]" />
+                                    <col className="w-[12.8%]" />
+                                </colgroup>
+                                <thead>
+                                    <tr className="bg-gray-50 dark:bg-slate-900 sticky top-0 z-[25] shadow-sm border-b border-gray-200 dark:border-slate-800">
+                                        <th className="p-4 text-left font-black text-lg uppercase tracking-widest text-gray-800 dark:text-indigo-400 bg-gray-50 dark:bg-slate-900 sticky left-0 z-30 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_10px_-4px_rgba(0,0,0,0.5)]">{t('planner.table_header')}</th>
+                                        {weekDays.map((date, i) => {
+                                            const dateStr = formatDateISO(date)
+                                            const w = weather[dateStr]
+                                            const staffCount = new Set(
+                                                shifts
+                                                    .filter(s => s.shift_date === dateStr && s.employee_id)
+                                                    .map(s => s.employee_id)
+                                            ).size
+                                            const isToday = [date.getDate(), date.getMonth()].join('-') === [new Date().getDate(), new Date().getMonth()].join('-')
+
+                                            return (
+                                                <th key={i} className={`p-3 border-l border-gray-200 dark:border-slate-800 align-top transition-colors bg-gray-50 dark:bg-slate-900 ${isToday ? 'bg-blue-50/50 dark:bg-slate-800 relative overflow-hidden' : ''}`}>
+                                                    {isToday && <div className="absolute top-0 left-0 w-full h-0.5 bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />}
+                                                    <div className="flex flex-col h-full min-h-[60px]">
+                                                        <div className="flex justify-between items-start mb-2 gap-2">
+                                                            <div className="text-left">
+                                                                <div className={`text-base font-black leading-tight tracking-tight ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-slate-200'}`}>
+                                                                    {[t('planner.days.sun'), t('planner.days.mon'), t('planner.days.tue'), t('planner.days.wed'), t('planner.days.thu'), t('planner.days.fri'), t('planner.days.sat')][date.getDay()]}
+                                                                </div>
+                                                                <div className={`text-xs font-bold capitalize mt-0.5 ${isToday ? 'text-blue-600/80 dark:text-blue-400/80' : 'text-gray-400 dark:text-slate-500'}`}>
+                                                                    {date.toLocaleString(language === 'en' ? 'en-US' : 'es-US', { month: 'short' }).replace('.', '')} {date.getDate()}
+                                                                </div>
+                                                            </div>
+                                                            {w && (
+                                                                <div className="flex flex-col items-end flex-shrink-0" title={w.weather?.[0]?.description}>
+                                                                    <WeatherIcon condition={w.weather?.[0]?.main} className="w-5 h-5 mb-0.5 text-gray-400 dark:text-slate-500" />
+                                                                    <span className="text-[10px] font-bold text-gray-600 dark:text-slate-400">{Math.round(w.temp?.max || 0)}°</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex justify-end items-center gap-1.5 mt-auto pt-2 opacity-60 hover:opacity-100 transition-opacity" title={t('planner.employees_scheduled')}>
+                                                            <UserIcon className="w-3.5 h-3.5 text-gray-400 dark:text-slate-600" />
+                                                            <span className="text-[10px] font-bold text-gray-500 dark:text-slate-500">{staffCount}</span>
+                                                        </div>
+                                                    </div>
+                                                </th>
+                                            )
+                                        })}
+                                    </tr>
+                                </thead>
+                                <Reorder.Group as="tbody" axis="y" values={employees} onReorder={handleReorder}>
+                                    {visibleEmployees.map(emp => (
+                                        <EmployeeRow
+                                            key={emp.id}
+                                            emp={emp}
+                                            totals={laborStats[emp.id]}
+                                            weekDays={weekDays}
+                                            getShiftsForCell={(id: string | null, d: Date) => shifts.filter(s => (s.employee_id === id) && s.shift_date === formatDateISO(d))}
+                                            jobs={jobs}
+                                            weeklyStats={shiftStats}
+                                            handleDragStart={handleDragStart}
+                                            handleDrop={handleDrop}
+                                            setModalConfig={setModalConfig}
+                                        />
+                                    ))}
+                                </Reorder.Group>
+                            </table>
+
+                            <BudgetTool
+                                weekStart={weekStart}
+                                shifts={shifts}
+                                weeklyStats={shiftStats}
+                                laborStats={dailyLaborStats}
+                                projections={projections}
+                                setProjections={setProjections}
+                                actuals={actuals}
+                                storeId={storeGuid}
+                                onRefresh={refetchActuals}
+                                onCalculateProjections={calculateProjections}
+                                isExternalLoading={loadingActuals || isCalcProjections}
+                                onShowSalesDetail={(date: string) => setSalesDetailModal({ isOpen: true, date })}
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
 
             <PrintModal
