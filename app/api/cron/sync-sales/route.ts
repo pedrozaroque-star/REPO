@@ -16,99 +16,103 @@ export async function GET(request: Request) {
             }
         }
 
-        // Calcular AYER (Fecha de cierre) CORRECTAMENTE en LA TIME
+        // Calcular los últimos 3 días para capturar ajustes de gerentes (Manager Edits)
         // 1. Obtener fecha actual en LA
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
-        // 2. Regla de Negocio: El día "operativo" termina a las 4 AM o 6 AM?
-        // Si son las 2 AM del Miercoles, todavía estamos cerrando Martes.
-        // Pero este CRON corre usualmente a las 6 AM o 7 AM UTC (que es ~11 PM LA anterior o 12 AM).
-        // A las 12 PM UTC (4 AM LA), todavía es "madrugada".
-
-        // SIMPLIFICACIÓN ROBUSTA:
-        // Si el cron corre a las 14:00 UTC (6 AM LA), queremos sincronizar AYER.
-        // Si son las 6 AM del Miercoles 12, queremos sync Martes 11.
-
-        const yesterday = new Date(laNow)
-        yesterday.setDate(yesterday.getDate() - 1)
-        const y = yesterday.getFullYear()
-        const m = String(yesterday.getMonth() + 1).padStart(2, '0')
-        const d = String(yesterday.getDate()).padStart(2, '0')
-        const dateStr = `${y}-${m}-${d}`
-
-        console.log(`⏰ [CRON] Iniciando sincronización de ventas para: ${dateStr}`)
-
-        // Ejecutar sincronización
-        const { rows, connectionError } = await fetchToastData({
-            storeIds: 'all',
-            startDate: dateStr,
-            endDate: dateStr,
-            groupBy: 'day',
-            skipCache: true
-        })
-
-        if (connectionError) {
-            console.error(`❌ [CRON] Error conectando a Toast: ${connectionError}`)
-            return NextResponse.json({ error: connectionError }, { status: 502 })
+        const results = []
+        const datesToSync: string[] = []
+        for (let i = 1; i <= 3; i++) {
+            const d = new Date(laNow)
+            d.setDate(d.getDate() - i)
+            const y = d.getFullYear()
+            const m = String(d.getMonth() + 1).padStart(2, '0')
+            const day = String(d.getDate()).padStart(2, '0')
+            datesToSync.push(`${y}-${m}-${day}`)
         }
+        console.log(`⏰ [CRON] Iniciando sincronización de ventas para: ${datesToSync.join(', ')}`)
 
-        // --- SAVE TO SUPABASE ---
-        if (rows.length > 0) {
-            const { createClient } = require('@supabase/supabase-js')
-            const supabase = createClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                process.env.SUPABASE_SERVICE_ROLE_KEY!
-            )
+        for (const dateStr of datesToSync) {
+            try {
+                // Ejecutar sincronización para cada día
+                const { rows, connectionError } = await fetchToastData({
+                    storeIds: 'all',
+                    startDate: dateStr,
+                    endDate: dateStr,
+                    groupBy: 'day',
+                    skipCache: true
+                })
 
-            const dbRows = rows.map(r => ({
-                store_id: r.storeId,
-                store_name: r.storeName || 'Unknown Store',
-                business_date: dateStr,
-                net_sales: r.netSales,
-                gross_sales: r.grossSales,
-                discounts: r.discounts,
-                tips: r.tips,
-                taxes: r.taxes,
-                service_charges: r.serviceCharges,
-                order_count: r.orderCount,
-                guest_count: r.guestCount,
-                labor_cost: r.laborCost,
-                labor_hours: r.totalHours,
-                hourly_data: r.hourlySales,
-                hourly_tickets: r.hourlyTickets,
-                hourly_labor: r.hourlyLabor,
-                uber_sales: r.uberSales || 0,
-                doordash_sales: r.doordashSales || 0,
-                grubhub_sales: r.grubhubSales || 0,
-                ebt_count: r.ebtCount || 0,
-                ebt_amount: r.ebtAmount || 0,
-                updated_at: new Date().toISOString()
-            }))
+                if (connectionError) {
+                    console.error(`❌ [CRON] Error conectando a Toast para ${dateStr}: ${connectionError}`)
+                    results.push({ date: dateStr, success: false, error: connectionError })
+                    continue
+                }
 
-            const { error: upsertError } = await supabase
-                .from('sales_daily_cache')
-                .upsert(dbRows, { onConflict: 'store_id,business_date' })
+                // --- SAVE TO SUPABASE ---
+                if (rows.length > 0) {
+                    const { createClient } = require('@supabase/supabase-js')
+                    const supabase = createClient(
+                        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                        process.env.SUPABASE_SERVICE_ROLE_KEY!
+                    )
 
-            if (upsertError) {
-                console.error(`❌ [CRON] DB Save Error:`, upsertError)
-                throw new Error(`DB Save Failed: ${upsertError.message}`)
+                    const dbRows = rows.map(r => ({
+                        store_id: r.storeId,
+                        store_name: r.storeName || 'Unknown Store',
+                        business_date: dateStr,
+                        net_sales: r.netSales,
+                        gross_sales: r.grossSales,
+                        discounts: r.discounts,
+                        tips: r.tips,
+                        taxes: r.taxes,
+                        service_charges: r.serviceCharges,
+                        order_count: r.orderCount,
+                        guest_count: r.guestCount,
+                        labor_cost: r.laborCost,
+                        labor_hours: r.totalHours,
+                        hourly_data: r.hourlySales,
+                        hourly_tickets: r.hourlyTickets,
+                        hourly_labor: r.hourlyLabor,
+                        uber_sales: r.uberSales || 0,
+                        doordash_sales: r.doordashSales || 0,
+                        grubhub_sales: r.grubhubSales || 0,
+                        ebt_count: r.ebtCount || 0,
+                        ebt_amount: r.ebtAmount || 0,
+                        updated_at: new Date().toISOString()
+                    }))
+
+                    const { error: upsertError } = await supabase
+                        .from('sales_daily_cache')
+                        .upsert(dbRows, { onConflict: 'store_id,business_date' })
+
+                    if (upsertError) {
+                        console.error(`❌ [CRON] DB Save Error para ${dateStr}:`, upsertError)
+                        results.push({ date: dateStr, success: false, error: upsertError.message })
+                        continue
+                    }
+                    console.log(`💾 [CRON] Guardado en DB para ${dateStr}: ${dbRows.length} filas.`)
+                    results.push({ date: dateStr, success: true, count: dbRows.length })
+                } else {
+                    results.push({ date: dateStr, success: true, count: 0 })
+                }
+            } catch (err: any) {
+                console.error(`💥 [CRON] Error en día ${dateStr}:`, err)
+                results.push({ date: dateStr, success: false, error: err.message })
             }
-            console.log(`💾 [CRON] Guardado en DB: ${dbRows.length} filas.`)
         }
-        // ------------------------
 
-        console.log(`✅ [CRON] Sincronización exitosa: ${rows.length} registros guardados/actualizados.`)
+        console.log(`✅ [CRON] Sincronización masiva completada.`)
 
         return NextResponse.json({
             success: true,
-            date: dateStr,
-            records_processed: rows.length,
-            message: `Ventas del ${dateStr} guardadas correctamente en caché.`
+            results,
+            processed_at: new Date().toISOString()
         })
 
     } catch (error: any) {
-        console.error(`💥 [CRON] Error crítico:`, error)
+        console.error(`💥 [CRON] Error crítico total:`, error)
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 }

@@ -8,14 +8,13 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-async function findStore() {
-    const query = process.argv[2] || ''
+async function checkStores() {
     const { data: stores } = await supabase
         .from('stores')
-        .select('external_id, name')
-        .ilike('name', `%${query}%`)
+        .select('*')
+        .ilike('name', '%Downey%')
 
-    console.log('Stores found:', stores)
+    console.log('Downey Stores:', stores)
 }
 
-findStore()
+checkStores()

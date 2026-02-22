@@ -188,8 +188,8 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
                         if (totalHours > 0) {
                             dayHours += totalHours
 
-                            // Cost Calc
-                            const wage = wages[p.employee_toast_guid] || 16.00 // Default if missing
+                            // Cost Calc - Prefer the actual wage from the punch record (synced from Toast)
+                            const wage = (Number(p.hourly_wage) > 0) ? Number(p.hourly_wage) : (wages[p.employee_toast_guid] || 16.00)
 
                             // Simple OT Logic for estimation
 
@@ -213,9 +213,18 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
                         }
                     })
 
-                    // OVERWRITE sales cache if we have punches
-                    newStats[dayStr].labor.hours = dayHours
-                    newStats[dayStr].labor.cost = dayCost
+                    // ⚡ SMART OVERWRITE ⚡
+                    // Only use punch-based calculation to overwrite the cache if:
+                    // 1. We are looking at "Today" (where cache is stale/incomplete)
+                    // 2. The cache is totally empty for that day (cost <= 0)
+                    const nowStr = formatDateISO(new Date())
+                    const isToday = dayStr === nowStr
+                    const cacheIsMaybeMissing = newStats[dayStr].labor.cost <= 0
+
+                    if (isToday || cacheIsMaybeMissing) {
+                        newStats[dayStr].labor.hours = dayHours
+                        newStats[dayStr].labor.cost = dayCost
+                    }
                 }
             })
 

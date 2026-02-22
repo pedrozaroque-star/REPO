@@ -8,14 +8,14 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-async function findStore() {
-    const query = process.argv[2] || ''
-    const { data: stores } = await supabase
+async function checkStore() {
+    const { data: store } = await supabase
         .from('stores')
-        .select('external_id, name')
-        .ilike('name', `%${query}%`)
+        .select('name, external_id')
+        .eq('external_id', '475bc112-187d-4b9c-884d-1f6a041698ce')
+        .single()
 
-    console.log('Stores found:', stores)
+    console.log('Store for 475bc...:', store)
 }
 
-findStore()
+checkStore()
