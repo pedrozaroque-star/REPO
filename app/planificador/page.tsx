@@ -165,8 +165,9 @@ export default function SchedulePlanner() {
     const [savedTemplates, setSavedTemplates] = useState<any[]>([])
     const [isSavingTemplate, setIsSavingTemplate] = useState(false)
     const [confirmModal, setConfirmModal] = useState<any>({ isOpen: false, title: '', message: '', onConfirm: () => { }, type: 'primary', icon: null })
-    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false) // NEW
-    const [shiftsToPublish, setShiftsToPublish] = useState<Shift[]>([]) // NEW
+    const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
+    const [shiftsToPublish, setShiftsToPublish] = useState<Shift[]>([])
+    const [isToolbarVisible, setIsToolbarVisible] = useState(false)
 
     // ... (This block is just to locate the insertion point correctly, I will replace the start of handlers area with the useMemo + handlers)
     // Actually, I can insert it right after the hooks section.
@@ -1152,30 +1153,37 @@ export default function SchedulePlanner() {
                 setShowPublishInfo={setShowPublishInfo}
                 googleConnected={googleConnected}
                 googleEmail={googleEmail}
+                setIsConfirmModalOpen={setIsConfirmModalOpen}
+                isToolbarVisible={isToolbarVisible}
+                setIsToolbarVisible={setIsToolbarVisible}
             />
 
-            <FloatingToolbar
-                handleGenerateSmart={handleGenerateSmart}
-                isGenerating={isGeneratingAPI}
-                showAIInfo={showAIInfo}
-                setShowAIInfo={setShowAIInfo}
-                setShowTemplateModal={setShowTemplateModal}
-                handleSyncEmployees={handleSyncEmployees}
-                isSyncingEmployees={isSyncingEmployees}
-                showSyncInfo={showSyncInfo}
-                setShowSyncInfo={setShowSyncInfo}
-                handleResetOrder={handleResetOrder}
-                showOrderInfo={showOrderInfo}
-                setShowOrderInfo={setShowOrderInfo}
-                handleClearDrafts={handleClearDrafts}
-                showClearInfo={showClearInfo}
-                setShowClearInfo={setShowClearInfo}
-                showTemplateInfo={showTemplateInfo}
-                setShowTemplateInfo={setShowTemplateInfo}
-                handlePrint={handlePrint}
-                showPrintInfo={showPrintInfo}
-                setShowPrintInfo={setShowPrintInfo}
-            />
+            <AnimatePresence>
+                {isToolbarVisible && (
+                    <FloatingToolbar
+                        handleGenerateSmart={handleGenerateSmart}
+                        isGenerating={isGeneratingAPI}
+                        showAIInfo={showAIInfo}
+                        setShowAIInfo={setShowAIInfo}
+                        setShowTemplateModal={setShowTemplateModal}
+                        handleSyncEmployees={handleSyncEmployees}
+                        isSyncingEmployees={isSyncingEmployees}
+                        showSyncInfo={showSyncInfo}
+                        setShowSyncInfo={setShowSyncInfo}
+                        handleResetOrder={handleResetOrder}
+                        showOrderInfo={showOrderInfo}
+                        setShowOrderInfo={setShowOrderInfo}
+                        handleClearDrafts={handleClearDrafts}
+                        showClearInfo={showClearInfo}
+                        setShowClearInfo={setShowClearInfo}
+                        setShowTemplateInfo={setShowTemplateInfo}
+                        showTemplateInfo={showTemplateInfo}
+                        handlePrint={handlePrint}
+                        showPrintInfo={showPrintInfo}
+                        setShowPrintInfo={setShowPrintInfo}
+                    />
+                )}
+            </AnimatePresence>
 
             {/* MAIN CONTENT AREA */}
             <div className="flex-1 overflow-hidden relative">

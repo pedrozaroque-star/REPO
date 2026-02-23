@@ -1,3 +1,5 @@
+import { getTranslatedSupervisor } from './supervisor-translations'
+
 /**
  * Converts any answer value (SI/NO, numeric, or rich object) into a numeric score.
  */
@@ -21,6 +23,7 @@ export const getNumericValue = (val: any): number | null => {
     return isNaN(num) ? null : num
 }
 
+
 export const calculateInspectionScore = (checklist: any, template: any) => {
     if (!template || !checklist) return checklist?.overall_score || 0
 
@@ -37,15 +40,24 @@ export const calculateInspectionScore = (checklist: any, template: any) => {
             ? JSON.parse(checklist.answers)
             : (checklist.answers || {})
 
-        // Robust Section Lookup
+        // Robust Section Lookup (Language Independent)
         let sectionItems = null
         const normTitle = normalize(section.title)
+        const normOriginal = normalize(section.original_title)
 
-        // 1. Direct match
+        // BILINGUAL FALLBACK: Check English version if UI is in Spanish
+        const engTitle = getTranslatedSupervisor(section.original_title || section.title, 'en')
+        const engNorm = normalize(engTitle)
+
+        // 1. Direct match with current or original
         if (answersObj[section.title]?.items) sectionItems = answersObj[section.title].items
-        // 2. Normalized match
+        else if (section.original_title && answersObj[section.original_title]?.items) sectionItems = answersObj[section.original_title].items
+        // 2. Normalized match across all keys (including English fallback)
         else {
-            const matchKey = Object.keys(answersObj).find(k => normalize(k) === normTitle)
+            const matchKey = Object.keys(answersObj).find(k => {
+                const nk = normalize(k)
+                return nk === normTitle || (normOriginal && nk === normOriginal) || nk === engNorm
+            })
             if (matchKey && answersObj[matchKey]?.items) sectionItems = answersObj[matchKey].items
         }
 

@@ -128,6 +128,7 @@ export function useDynamicChecklist(templateCode: string) {
 
                 return {
                     ...s,
+                    original_title: s.title, // Keep original for database lookup
                     title: finalTranslation
                 }
             })

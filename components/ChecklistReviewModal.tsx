@@ -43,6 +43,7 @@ import {
     Image as ImageIcon
 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { getTranslatedSupervisor } from '@/lib/supervisor-translations'
 import '@/app/checklists/checklists.css'
 import { ScoreGauge } from '@/components/checklists/ScoreGauge'
 
@@ -812,10 +813,36 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         let sSum = 0
                                         let sCount = 0
 
-                                        section.questions.forEach((q: any) => {
+                                        section.questions.forEach((q: any, qIdx: number) => {
                                             // --- Reusing same value lookup logic as below ---
                                             let value: any = undefined
-                                            if (checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) value = checklist.answers[q.id]
+
+                                            // Strategy 0: Section Index Lookup (Robust & Bilingual)
+                                            let sItems = null
+                                            if (checklist.answers?.[section.title]?.items) sItems = checklist.answers[section.title].items
+                                            else if (section.original_title && checklist.answers?.[section.original_title]?.items) sItems = checklist.answers[section.original_title].items
+                                            else {
+                                                const normalizeTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '').trim()
+                                                const targetNorm = normalizeTitle(section.title)
+                                                const originalNorm = section.original_title ? normalizeTitle(section.original_title) : null
+
+                                                // BILINGUAL FALLBACK: Check English version if UI is in Spanish
+                                                const engTitle = getTranslatedSupervisor(section.original_title || section.title, 'en')
+                                                const engNorm = normalizeTitle(engTitle)
+
+                                                const matchKey = Object.keys(checklist.answers || {}).find(k => {
+                                                    const kn = normalizeTitle(k)
+                                                    return kn === targetNorm || (originalNorm && kn === originalNorm) || kn === engNorm
+                                                })
+                                                if (matchKey && checklist.answers[matchKey]?.items) sItems = checklist.answers[matchKey].items
+                                            }
+
+                                            if (sItems) {
+                                                const item = sItems[`i${qIdx}`] || sItems[qIdx]
+                                                if (item !== undefined) value = (item.score !== undefined) ? item.score : item
+                                            }
+
+                                            if ((value === undefined || value === null) && checklist.answers?.[q.id] !== undefined && checklist.answers?.[q.id] !== null) value = checklist.answers[q.id]
                                             if ((value === undefined || value === null) && checklist.answers?.[q.text] !== undefined) value = checklist.answers[q.text]
                                             if ((value === undefined || value === null) && q.original_text && checklist.answers?.[q.original_text] !== undefined) value = checklist.answers[q.original_text]
                                             if ((value === undefined || value === null) && checklist.answers) {
@@ -886,9 +913,28 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                         // COMPREHENSIVE ANSWER LOOKUP WITH FALLBACK
                                                         let value: any = undefined
 
-                                                        // Strategy 0: Structured Section/Index Lookup (Supervisor V1)
-                                                        if (type === 'supervisor' && section.title && checklist.answers?.[section.title]?.items) {
-                                                            const item = checklist.answers[section.title].items[`i${qIdx}`] || checklist.answers[section.title].items[qIdx]
+                                                        // Strategy 0: Structured Section/Index Lookup (Supervisor V1 - Robust & Bilingual)
+                                                        let sItems = null
+                                                        if (checklist.answers?.[section.title]?.items) sItems = checklist.answers[section.title].items
+                                                        else if (section.original_title && checklist.answers?.[section.original_title]?.items) sItems = checklist.answers[section.original_title].items
+                                                        else {
+                                                            const normalizeTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '').trim()
+                                                            const targetNorm = normalizeTitle(section.title)
+                                                            const originalNorm = section.original_title ? normalizeTitle(section.original_title) : null
+
+                                                            // BILINGUAL FALLBACK
+                                                            const engTitle = getTranslatedSupervisor(section.original_title || section.title, 'en')
+                                                            const engNorm = normalizeTitle(engTitle)
+
+                                                            const matchKey = Object.keys(checklist.answers || {}).find(k => {
+                                                                const kn = normalizeTitle(k)
+                                                                return kn === targetNorm || (originalNorm && kn === originalNorm) || kn === engNorm
+                                                            })
+                                                            if (matchKey && checklist.answers[matchKey]?.items) sItems = checklist.answers[matchKey].items
+                                                        }
+
+                                                        if (type === 'supervisor' && sItems) {
+                                                            const item = sItems[`i${qIdx}`] || sItems[qIdx]
                                                             if (item !== undefined) {
                                                                 value = (item.score !== undefined) ? item.score : item
                                                             }
@@ -1036,8 +1082,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                     for (const iKey of Object.keys(section.items)) {
                                                                         const item = section.items[iKey]
                                                                         const itemLabel = item?.label || ''
+                                                                        const normLabel = normalize(itemLabel)
+                                                                        const originalTarget = q.original_text ? normalize(q.original_text) : null
 
-                                                                        if (normalize(itemLabel) === normalizedTarget && normalizedTarget.length > 5) {
+                                                                        if ((normLabel === normalizedTarget || (originalTarget && normLabel === originalTarget)) && normalizedTarget.length > 5) {
 
 
                                                                             // Try many possible photo keys
@@ -1064,8 +1112,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                                 }
                                                                 // Is it a direct answer with text mapping? (Strategy 4b)
                                                                 else if (key === '__text_photos' && section) {
+                                                                    const originalTarget = q.original_text ? normalize(q.original_text) : null
                                                                     for (const tKey of Object.keys(section)) {
-                                                                        if (normalize(tKey) === normalizedTarget) {
+                                                                        const ntKey = normalize(tKey)
+                                                                        if (ntKey === normalizedTarget || (originalTarget && ntKey === originalTarget)) {
                                                                             qPhotos = section[tKey]
                                                                             break
                                                                         }

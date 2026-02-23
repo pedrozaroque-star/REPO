@@ -375,15 +375,22 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             photos: allPhotos
           }
 
-          // Map section titles
+          // Map section titles (Support both ES and EN for bilingual supervisors)
           const sectionMapping: { [key: string]: string } = {
             'Servicio al Cliente': 'service_score',
+            'Customer Service': 'service_score',
             'Procedimiento de Carnes': 'meat_score',
+            'Meat Procedures': 'meat_score',
             'Preparación de Alimentos': 'food_score',
+            'Food Preparation': 'food_score',
             'Seguimiento a Tortillas': 'tortilla_score',
+            'Tortilla Monitoring': 'tortilla_score',
             'Limpieza General y Baños': 'cleaning_score',
+            'General Cleaning & Bathrooms': 'cleaning_score',
             'Checklists y Bitácoras': 'log_score',
-            'Aseo Personal': 'grooming_score'
+            'Checklists & Logs': 'log_score',
+            'Aseo Personal': 'grooming_score',
+            'Personal Grooming': 'grooming_score'
           }
 
           Object.entries(sectionScores).forEach(([title, score]) => {

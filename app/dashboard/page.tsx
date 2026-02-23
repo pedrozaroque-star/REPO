@@ -121,6 +121,7 @@ function DashboardContent() {
             }
 
             const { data: inspections } = await queryInspections
+
             const validInspections = inspections || []
 
             const categories = [
@@ -133,8 +134,14 @@ function DashboardContent() {
             ]
 
             const sectionPerf = categories.map(cat => {
-                const scores = validInspections.map((i: any) => i[cat.key]).filter(s => s !== null && s !== undefined)
-                const avg = scores.length > 0 ? Math.round(scores.reduce((a: any, b: any) => a + b, 0) / scores.length) : 0
+                // Ignore scores that are zero, null, or undefined to avoid skewing averages
+                const scores = validInspections
+                    .map((i: any) => i[cat.key])
+                    .filter(s => s !== null && s !== undefined && s > 0)
+
+                const avg = scores.length > 0
+                    ? Math.round(scores.reduce((a: any, b: any) => a + b, 0) / scores.length)
+                    : 0
                 return { label: cat.label, score: avg }
             }).sort((a, b) => a.score - b.score)
 

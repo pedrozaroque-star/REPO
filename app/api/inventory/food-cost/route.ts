@@ -23,13 +23,13 @@ export async function GET(request: NextRequest) {
 
         if (storeId === 'all') {
             const supabase = await getSupabaseClient()
-            const { data: stores } = await supabase
+            const { data: storesData } = await supabase
                 .from('stores')
-                .select('external_id')
+                .select('name, external_id')
                 .eq('is_active', true)
 
             // Filter valid stores
-            const validStores = stores?.filter(s => s.external_id) || []
+            const validStores = storesData?.filter(s => s.external_id) || []
 
             if (validStores.length === 0) {
                 console.error("[FoodCostAPI] No valid stores found with external_id")
@@ -42,7 +42,11 @@ export async function GET(request: NextRequest) {
             const results = await Promise.all(
                 validStores.map(async (s) => {
                     try {
-                        return await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true })
+                        const items = await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true })
+                        return items.map(item => ({
+                            ...item,
+                            store_name: s.name || 'Unknown'
+                        }))
                     } catch (err) {
                         console.error(`[FoodCostAPI] Failed to fetch store ${s.external_id}:`, err)
                         return [] // Return empty array on failure to avoid breaking entire report
@@ -50,11 +54,12 @@ export async function GET(request: NextRequest) {
                 })
             )
 
-            // Aggregate by GUID + Group Name + Name (Variation)
+            // Aggregate by STORE + GUID + Group Name + Name (Variation)
+            // We include Store Name in the key to prevent merging different stores
             const aggMap = new Map<string, any>()
 
             results.flat().forEach(item => {
-                const key = `${item.guid}_${item.group_name || 'Uncategorized'}_${item.name}`
+                const key = `${item.store_name}_${item.guid}_${item.group_name || 'Uncategorized'}_${item.name}`
 
                 if (!aggMap.has(key)) {
                     // Create deep copy for array
@@ -85,13 +90,18 @@ export async function GET(request: NextRequest) {
             }))
 
         } else {
-            // Bundle modifiers to capture full plate costs (e.g. Taco Plate + 3 Tacos)
+            // Single store fetch
+            const supabase = await getSupabaseClient()
+            const currentStore = await supabase.from('stores').select('name').eq('external_id', storeId).single()
             pmixItems = await getProductMix({ storeId, startDate, endDate, bundleModifiers: true })
+            pmixItems = pmixItems.map(item => ({
+                ...item,
+                store_name: currentStore.data?.name || 'Unknown'
+            }))
         }
 
         // 2. Fetch ALL Recipes and Inventory Items from DB
         const supabase = await getSupabaseClient()
-
         const { data: recipesData, error: recipeError } = await supabase
             .from('recipes')
             .select('*')
@@ -166,8 +176,6 @@ export async function GET(request: NextRequest) {
             // totalModCost = sum of all recipes for modifiers found in the batch
             const totalCost = totalBaseCost + totalModCost
 
-
-
             // Calculate final per-unit averages
             if (item.quantity > 0) {
                 unitCost = totalCost / item.quantity
@@ -186,7 +194,8 @@ export async function GET(request: NextRequest) {
                 total_cost: totalCost,
                 food_cost_percent: fcPercent,
                 has_recipe: !!recipe,
-                missing_prices: missingPrices > 0
+                missing_prices: missingPrices > 0,
+                store_name: item.store_name // Pass through
             }
         })
 

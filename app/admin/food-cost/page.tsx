@@ -22,6 +22,7 @@ interface FoodCostItem {
     food_cost_percent: number
     has_recipe: boolean
     missing_prices: boolean
+    store_name?: string
 }
 
 export default function FoodCostPage() {
@@ -86,6 +87,13 @@ export default function FoodCostPage() {
     }
 
     const sortedData = [...data].sort((a, b) => {
+        // Default multi-level sort: Store (asc) then Cost % (desc)
+        if (sortConfig.key === 'quantity' && sortConfig.direction === 'desc') {
+            const storeCompare = (a.store_name || '').localeCompare(b.store_name || '')
+            if (storeCompare !== 0) return storeCompare
+            return b.food_cost_percent - a.food_cost_percent
+        }
+
         const aVal = a[sortConfig.key]
         const bVal = b[sortConfig.key]
 
@@ -95,8 +103,6 @@ export default function FoodCostPage() {
                 : bVal.localeCompare(aVal)
         }
 
-        // Number comparison
-        // Handle boolean
         if (typeof aVal === 'boolean') {
             return sortConfig.direction === 'asc'
                 ? (Number(aVal) - Number(bVal))
@@ -115,6 +121,7 @@ export default function FoodCostPage() {
     const filteredData = sortedData.filter(item =>
         (item.name && item.name.toLowerCase().includes(filterTerm.toLowerCase())) ||
         (item.guid && item.guid.toLowerCase().includes(filterTerm.toLowerCase())) ||
+        (item.store_name && item.store_name.toLowerCase().includes(filterTerm.toLowerCase())) ||
         (item.group_name && item.group_name.toLowerCase().includes(filterTerm.toLowerCase()))
     )
 
@@ -122,16 +129,17 @@ export default function FoodCostPage() {
         acc.quantity += item.quantity
         acc.net_sales += item.net_sales
         acc.discounts += (item.discounts || 0)
+        acc.extras += (item.total_modifier_cost * item.quantity)
         acc.total_cost += item.total_cost
         return acc
-    }, { quantity: 0, net_sales: 0, discounts: 0, total_cost: 0 })
+    }, { quantity: 0, net_sales: 0, discounts: 0, extras: 0, total_cost: 0 })
 
     const filteredFC = filteredTotals.net_sales > 0
         ? (filteredTotals.total_cost / filteredTotals.net_sales) * 100
         : 0
 
     return (
-        <div className="p-6 max-w-[1600px] mx-auto space-y-6">
+        <div className="p-6 w-full space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900 dark:text-white">{t('food_cost.title')}</h1>
@@ -222,6 +230,7 @@ export default function FoodCostPage() {
                     <table className="w-full text-sm text-left relative border-collapse">
                         <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700">
                             <tr>
+                                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('store_name')}>Store</th>
                                 <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('group_name')}>Group</th>
                                 <th className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('name')}>{t('food_cost.table.product')}</th>
                                 <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('quantity')}>{t('food_cost.table.quantity')}</th>
@@ -237,7 +246,13 @@ export default function FoodCostPage() {
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                             {filteredData.map((item, idx) => (
-                                <tr key={`${item.guid}_${item.group_name || 'Uncategorized'}_${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                <tr key={`${item.store_name}_${item.guid}_${item.group_name || 'Uncategorized'}_${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-750/50 transition-colors">
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-blue-400 group-hover:scale-125 transition-transform"></div>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200">{item.store_name}</span>
+                                        </div>
+                                    </td>
                                     <td className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                                         {item.group_name || 'N/A'}
                                     </td>
@@ -247,7 +262,7 @@ export default function FoodCostPage() {
                                             <span className="text-xs text-slate-400 font-mono">{item.guid.slice(0, 8)}...</span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 text-right font-medium">{item.quantity}</td>
+                                    <td className="px-6 py-4 text-right font-medium">{item.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}</td>
                                     <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-300">
                                         ${item.unit_price.toFixed(2)}
                                     </td>
@@ -309,11 +324,14 @@ export default function FoodCostPage() {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4"></td>
-                                    <td className="px-6 py-4 text-right font-mono text-slate-700 dark:text-slate-300">{filteredTotals.quantity.toLocaleString()}</td>
+                                    <td className="px-6 py-4"></td>
+                                    <td className="px-6 py-4 text-right font-mono text-slate-700 dark:text-slate-300">{filteredTotals.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}</td>
                                     <td className="px-6 py-4 text-right text-slate-400 font-mono">-</td>
-                                    <td className="px-6 py-4 text-right text-slate-400 font-mono">-</td>
+                                    <td className="px-6 py-4 text-right font-mono text-slate-700 dark:text-slate-300">
+                                        {filteredTotals.extras > 0 ? `+$${filteredTotals.extras.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                                    </td>
                                     <td className="px-6 py-4 text-right font-mono text-amber-600 dark:text-amber-500 font-bold">
-                                        -${filteredTotals.discounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {filteredTotals.discounts > 0 ? `-$${filteredTotals.discounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                                     </td>
                                     <td className="px-6 py-4 text-right font-mono text-slate-900 dark:text-white">${filteredTotals.net_sales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td className="px-6 py-4 text-right text-slate-400 font-mono">-</td>
