@@ -37,22 +37,30 @@ export async function GET(request: NextRequest) {
             }
 
             console.log(`[FoodCostAPI] Fetching for ${validStores.length} stores...`)
+            // Fetch concurrently with error handling & rate limiting (chunks of 3)
+            const STORE_CONCURRENCY = 3
+            const results: any[] = []
 
-            // Fetch concurrently with error handling
-            const results = await Promise.all(
-                validStores.map(async (s) => {
-                    try {
-                        const items = await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true })
-                        return items.map(item => ({
-                            ...item,
-                            store_name: s.name || 'Unknown'
-                        }))
-                    } catch (err) {
-                        console.error(`[FoodCostAPI] Failed to fetch store ${s.external_id}:`, err)
-                        return [] // Return empty array on failure to avoid breaking entire report
-                    }
-                })
-            )
+            for (let i = 0; i < validStores.length; i += STORE_CONCURRENCY) {
+                const batch = validStores.slice(i, i + STORE_CONCURRENCY)
+                console.log(`[FoodCostAPI] Fetching stores batch ${Math.floor(i / STORE_CONCURRENCY) + 1}...`)
+                const batchResults = await Promise.all(
+                    batch.map(async (s) => {
+                        try {
+                            const items = await getProductMix({ storeId: s.external_id, startDate, endDate, bundleModifiers: true })
+                            return items.map(item => ({
+                                ...item,
+                                store_id: s.external_id,
+                                store_name: s.name || 'Unknown'
+                            }))
+                        } catch (err) {
+                            console.error(`[FoodCostAPI] Failed to fetch store ${s.external_id}:`, err)
+                            return [] // Return empty array on failure to avoid breaking entire report
+                        }
+                    })
+                )
+                results.push(...batchResults)
+            }
 
             // Aggregate by STORE + GUID + Group Name + Name (Variation)
             // We include Store Name in the key to prevent merging different stores
@@ -96,6 +104,7 @@ export async function GET(request: NextRequest) {
             pmixItems = await getProductMix({ storeId, startDate, endDate, bundleModifiers: true })
             pmixItems = pmixItems.map(item => ({
                 ...item,
+                store_id: storeId,
                 store_name: currentStore.data?.name || 'Unknown'
             }))
         }
@@ -137,15 +146,165 @@ export async function GET(request: NextRequest) {
             })
         })
 
+        // 3b. Build NAME-based fallback map for GUID mismatches
+        // When Toast has different GUIDs for the same product across menus/stores,
+        // this allows matching by product name as a safety net.
+        const nameToRecipeMap = new Map<string, Recipe>()
+
+        const { data: menuItemsWithRecipes } = await supabase
+            .from('toast_menu_items')
+            .select('guid, name')
+            .in('guid', Array.from(recipeMap.keys()))
+
+        if (menuItemsWithRecipes) {
+            menuItemsWithRecipes.forEach((mi: any) => {
+                const normalizedName = mi.name.trim().toLowerCase()
+                if (!nameToRecipeMap.has(normalizedName)) {
+                    const recipe = recipeMap.get(mi.guid)
+                    if (recipe) {
+                        nameToRecipeMap.set(normalizedName, recipe)
+                    }
+                }
+            })
+            console.log(`[FoodCostAPI] Built name fallback map with ${nameToRecipeMap.size} entries`)
+        }
+
         // 4. Combine Data
-        const report = pmixItems.map(item => {
-            const recipe = recipeMap.get(item.guid)
+        const filteredPmix = pmixItems.filter(item => !item.name.toLowerCase().includes('separator'))
+
+        const report = filteredPmix.map(item => {
+            // Primary: match by exact GUID
+            let recipe = recipeMap.get(item.guid)
+            let matchedByName = false
+
+            // Fallback: match by product name (strip modifier suffixes like "(Asada)")
+            if (!recipe) {
+                const baseName = item.name.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase()
+                recipe = nameToRecipeMap.get(baseName)
+                if (recipe) {
+                    matchedByName = true
+                    console.log(`[FoodCostAPI] ✅ Name fallback: "${item.name}" → matched recipe from GUID ${recipe.toast_menu_item_guid}`)
+                }
+            }
+
+            // Helper to get base portion for meat (in ounces)
+            const getMeatBaseOz = (name: string): number => {
+                const lower = name.toLowerCase()
+                if (lower.includes('taco plate')) return 0 // Explicitly ignored (uses individual taco recipes)
+                if (lower.includes('burrito') || lower.includes('nacho') || lower.includes('fries') || lower.includes('torta') || lower.includes('quesadilla') || lower.includes('bowl') || lower.includes('plato')) return 6.0
+                if (lower.includes('taco') || lower.includes('mulita') || lower.includes('sope') || lower.includes('gordita')) return 1.5
+                return 0 // Doesn't apply or unknown
+            }
+
             let baseUnitCost = 0
             let unitCost = 0 // Weight average for final report
             let missingPrices = 0
 
+            // -- NEW: Dynamic Half-Meat Recipe Adjustment --
+            // If the item has Half meat modifiers, we intercept the base recipe calculate step,
+            // remove its full meat portion, and inject the half portions correctly.
+            const halfMeatMods: any[] = []
+            let normalMods: string[] = []
+
+            if (item.modifier_guids && item.modifier_guids.length > 0) {
+                item.modifier_guids.forEach((modGuid: string) => {
+                    // Check if this modifier is a Half modifier (by name from toast_menu_items via nameToRecipeMap or direct lookup)
+                    // But we actually only have the modRecipe here. We can find its name via the global map or we can inspect ingredients.
+                    // Let's rely on the name of the modifier if we can. Since we don't have the mod name easily, we rely on the logic in toast-pmix
+                    // that already gives us `half_meat_adjustments` count.
+                    // Wait, even better: we can find the name of the modGuid from a lookup, or we can use the `item.name` which contains "(Half Pollo)".
+                })
+            }
+
+            // Let's extract half names from the parent item name itself because Toast appends them: "Super Burrito Asada (Con cebolla, Half Pastor...)"
+            const parentNameLower = item.name.toLowerCase()
+            const hasHalfMod = parentNameLower.includes('half asada') || parentNameLower.includes('half pollo') ||
+                parentNameLower.includes('half pastor') || parentNameLower.includes('half carnitas') ||
+                parentNameLower.includes('half buche') || parentNameLower.includes('half cabeza') ||
+                parentNameLower.includes('half lengua') || parentNameLower.includes('half chorizo')
+
+            let adjustedRecipeObj: any = null
+
             if (recipe) {
-                const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[])
+                // Determine if we need to split the meat dynamically
+                const meatOz = getMeatBaseOz(item.name)
+
+                if (hasHalfMod && meatOz > 0) {
+                    // 1. Identify what meats are mentioned as "Half" in the name
+                    const halfMeatsFound: string[] = []
+                    const checkMeats = ['asada', 'pollo', 'pastor', 'carnitas', 'buche', 'cabeza', 'lengua', 'chorizo']
+                    checkMeats.forEach(mt => {
+                        if (parentNameLower.includes(`half ${mt}`)) halfMeatsFound.push(mt)
+                    })
+
+                    if (halfMeatsFound.length > 0) {
+                        // 2. Clone the recipe so we don't mutate the cached one
+                        adjustedRecipeObj = {
+                            ...recipe,
+                            ingredients: [...recipe.ingredients]
+                        }
+
+                        // 3. Find the PRIMARY meat in the base recipe to reduce it
+                        // Inventory IDs for main meats:
+                        const meatIds = [
+                            'fab9d589-8ae8-4381-87da-85f836068996', // Asada
+                            '4ea7ef9c-986e-4fc1-a363-7200ca558aab', // Pollo
+                            'ad7e3703-2701-4a05-aa97-77866c8c717e', // Pastor
+                            '14990e85-0d90-467c-ad9d-362e6ed4f1cd', // Carnitas
+                            'baac1d41-3b80-4f80-acfc-7a19f46e03c2', // Buche
+                            '511e341b-ca42-44ed-89df-a4a84b51a619', // Cabeza
+                            '0fb87578-1185-41a9-a318-97428db20a5d', // Lengua
+                            '1e4c43b6-4e1b-4e51-8617-e127b89467f1', // Chorizo
+                        ]
+
+                        // Reduce all primary meats by the number of halves found.
+                        // e.g. If 1 half found -> primary meat becomes 50% (3oz).
+                        // If 2 halves found -> primary meat becomes 0% (replaced entirely by the two halves).
+                        const remainingPercentage = Math.max(0, 1 - (0.5 * halfMeatsFound.length))
+                        let foundPrimaryMeat = false
+
+                        adjustedRecipeObj.ingredients = adjustedRecipeObj.ingredients.map((ing: any) => {
+                            if (meatIds.includes(ing.inventory_item_id)) {
+                                foundPrimaryMeat = true
+                                return {
+                                    ...ing,
+                                    quantity: ing.quantity * remainingPercentage
+                                }
+                            }
+                            return ing
+                        })
+
+                        // 4. Inject the new Half meats (0.5 * meatOz) mapped to their inventory IDs
+                        const halfMapping: Record<string, string> = {
+                            'asada': 'fab9d589-8ae8-4381-87da-85f836068996',
+                            'pollo': '4ea7ef9c-986e-4fc1-a363-7200ca558aab',
+                            'pastor': 'ad7e3703-2701-4a05-aa97-77866c8c717e',
+                            'carnitas': '14990e85-0d90-467c-ad9d-362e6ed4f1cd',
+                            'buche': 'baac1d41-3b80-4f80-acfc-7a19f46e03c2',
+                            'cabeza': '511e341b-ca42-44ed-89df-a4a84b51a619',
+                            'lengua': '0fb87578-1185-41a9-a318-97428db20a5d',
+                            'chorizo': '1e4c43b6-4e1b-4e51-8617-e127b89467f1'
+                        }
+
+                        if (foundPrimaryMeat) {
+                            const halfOzQty = meatOz * 0.5 // e.g. 3oz for Burrito, 0.75oz for Taco
+
+                            halfMeatsFound.forEach(mt => {
+                                adjustedRecipeObj.ingredients.push({
+                                    inventory_item_id: halfMapping[mt],
+                                    quantity: halfOzQty,
+                                    unit: 'oz',
+                                    type: 'cooked'
+                                })
+                            })
+                            console.log(`[FoodCostAPI] 🔪 Splitting meat for "${item.name}": 50% Primary, injected ${halfMeatsFound.join(', ')} at ${halfOzQty} oz`)
+                        }
+                    }
+                }
+
+                // Use the adjusted recipe if we split meat, otherwise use the normal one
+                const finalRecipeForBase = adjustedRecipeObj || recipe
+                const costResult = calculateRecipeCost(finalRecipeForBase, inventoryData as InventoryItem[])
                 baseUnitCost = costResult.totalCost
                 missingPrices += costResult.missingPrices
             }
@@ -154,26 +313,31 @@ export async function GET(request: NextRequest) {
             let totalModCost = 0
 
             // Calculate Modifiers Cost (if any)
-            // Each entry in modifier_guids represents one instance of a modifier sold
+            // Skip "Half Meat" modifiers since we've already accounted for them in the base recipe split
             if (item.modifier_guids && item.modifier_guids.length > 0) {
                 item.modifier_guids.forEach((modGuid: string) => {
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
-                        const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
-
-                        if (item.name.includes('Pastor') || modRecipe.ingredients.some(ing => ing.inventory_item_id === 'ad7e3703-2701-4a05-aa97-77866c8c717e')) {
-                            console.log(`[DEBUG-PASTOR] GUID: ${modGuid} | Cost: $${modRes.totalCost.toFixed(4)}`)
-                            modRes.breakdown.forEach(b => console.log(`   - ${b.itemName}: ${b.quantity} ${b.unit} | Yield: ${b.yieldPercent}% | Cost: $${b.cost.toFixed(4)}`))
+                        // Check if this modifier is a Half modifier to skip it
+                        // Since we don't have the mod name directly, we can check its GUID or group.
+                        // Faster: just check if its GUID is one of the Half Meat GUIDs
+                        const halfGuids = [
+                            'ed889228-98e7-4c49-bc46-8e0718ec1fcf', 'b52ffce5-cc66-4930-bb96-70891c41643e',
+                            'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', '443938bb-ec20-4a64-9fa3-91d4f89de0a5',
+                            '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', 'fbe42d67-a0f8-481f-bb28-e1717075c290',
+                            '8717b04b-62c0-4276-96e9-d86430b32b64', '37c0cb59-fa76-4b81-b327-cd96784d9f78'
+                        ]
+                        if (!halfGuids.includes(modGuid)) {
+                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
+                            totalModCost += modRes.totalCost
+                            missingPrices += modRes.missingPrices
                         }
-
-                        totalModCost += modRes.totalCost
-                        missingPrices += modRes.missingPrices
                     }
                 })
             }
 
             // totalBaseCost = baseUnitCost * item.quantity (Calculated for the whole batch)
-            // totalModCost = sum of all recipes for modifiers found in the batch
+            // totalModCost = sum of all OTHER recipes for modifiers found in the batch
             const totalCost = totalBaseCost + totalModCost
 
             // Calculate final per-unit averages
@@ -195,9 +359,26 @@ export async function GET(request: NextRequest) {
                 food_cost_percent: fcPercent,
                 has_recipe: !!recipe,
                 missing_prices: missingPrices > 0,
+                store_id: item.store_id, // Pass through
                 store_name: item.store_name // Pass through
             }
         })
+
+        // ═══ DEBUG: Log items without recipes ═══
+        const noRecipeItems = report.filter(r => !r.has_recipe && r.quantity > 0)
+        if (noRecipeItems.length > 0) {
+            console.log(`\n🔴 [FOOD-COST DEBUG] ${noRecipeItems.length} items WITHOUT recipe match:`)
+            noRecipeItems
+                .sort((a, b) => b.quantity - a.quantity)
+                .slice(0, 30)
+                .forEach(item => {
+                    console.log(`   GUID: ${item.guid} | Name: "${item.name}" | Group: ${item.group_name} | Qty: ${item.quantity} | Sales: $${item.net_sales.toFixed(2)}`)
+                })
+            console.log(`   (Showing top 30 by quantity)\n`)
+        } else {
+            console.log(`\n✅ [FOOD-COST DEBUG] All items with sales have recipe matches!\n`)
+        }
+        // ═══ END DEBUG ═══
 
         // Default Sort: Quantity Desc
         report.sort((a, b) => b.quantity - a.quantity)

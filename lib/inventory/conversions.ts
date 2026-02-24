@@ -124,10 +124,10 @@ export function calculateInventoryUsage(
     if (['lb', 'oz', 'kg', 'g'].includes(invBase)) {
         // Convert TO LBS as standard middle ground
         let lbs = 0
-        if (normFrom === 'lb') lbs = quantityInBase
-        else if (normFrom === 'oz') lbs = quantityInBase / 16
-        else if (normFrom === 'kg') lbs = quantityInBase * 2.20462
-        else if (normFrom === 'g') lbs = quantityInBase * 0.00220462
+        if (safeFrom === 'lb') lbs = quantityInBase
+        else if (safeFrom === 'oz') lbs = quantityInBase / 16
+        else if (safeFrom === 'kg') lbs = quantityInBase * 2.20462
+        else if (safeFrom === 'g') lbs = quantityInBase * 0.00220462
         else return quantityInBase / invFactor // Mismatch fallback
 
         // Convert LBS to INV BASE
@@ -140,10 +140,10 @@ export function calculateInventoryUsage(
     else if (['gal', 'l', 'ml', 'fl oz'].includes(invBase)) {
         // Convert TO GAL as standard
         let gals = 0
-        if (normFrom === 'gal') gals = quantityInBase
-        else if (normFrom === 'l') gals = quantityInBase * 0.264172
-        else if (normFrom === 'ml') gals = quantityInBase * 0.000264172
-        else if (normFrom === 'oz' || normFrom === 'fl oz') gals = quantityInBase / 128
+        if (safeFrom === 'gal') gals = quantityInBase
+        else if (safeFrom === 'l') gals = quantityInBase * 0.264172
+        else if (safeFrom === 'ml') gals = quantityInBase * 0.000264172
+        else if (safeFrom === 'oz' || safeFrom === 'fl oz') gals = quantityInBase / 128
         else return quantityInBase / invFactor // Mismatch fallback
 
         if (invBase === 'gal') quantityInBase = gals
@@ -152,14 +152,15 @@ export function calculateInventoryUsage(
         else if (invBase === 'oz' || invBase === 'fl oz') quantityInBase = gals * 128
     }
     // 3. Dozen / Piece Conversions
-    else if (['dz', 'pza', 'ct'].includes(invBase) || ['dz', 'pza', 'ct'].includes(normFrom)) {
+    else if (['dz', 'pza', 'ct'].includes(invBase) || ['dz', 'pza', 'ct'].includes(safeFrom)) {
         let pieces = quantityInBase
 
         // Convert FROM to PIECES
-        if (normFrom === 'dz') pieces = quantityInBase * 12
-        else if (normFrom === 'pza' || normFrom === 'ct') pieces = quantityInBase
+        if (safeFrom === 'dz') pieces = quantityInBase * 12
+        else if (safeFrom === 'pza' || safeFrom === 'ct') pieces = quantityInBase
         // If unknown unit but we are targetting pieces/dz, assume direct PZA mapping? 
         // Or error. For now, assume pieces.
+
 
         // Convert PIECES to INV BASE
         if (invBase === 'dz') quantityInBase = pieces / 12
@@ -167,7 +168,7 @@ export function calculateInventoryUsage(
     }
     else {
         // Direct match
-        if (normFrom === invBase) {
+        if (safeFrom === invBase) {
             quantityInBase = recipeQuantity
         }
     }

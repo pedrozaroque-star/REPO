@@ -168,6 +168,7 @@ export default function SchedulePlanner() {
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
     const [shiftsToPublish, setShiftsToPublish] = useState<Shift[]>([])
     const [isToolbarVisible, setIsToolbarVisible] = useState(false)
+    const [deletedPublishedEmpIds, setDeletedPublishedEmpIds] = useState<string[]>([])
 
     // ... (This block is just to locate the insertion point correctly, I will replace the start of handlers area with the useMemo + handlers)
     // Actually, I can insert it right after the hooks section.
@@ -612,12 +613,12 @@ export default function SchedulePlanner() {
         const supabase = await getSupabaseClient()
         // Optimistic
         const tempId = shiftData.id || `temp-${Date.now()}`
-        const optimisticShift = { ...shiftData, id: tempId, store_id: storeGuid }
+        const optimisticShift: Shift = { ...shiftData, id: tempId, store_id: storeGuid, status: 'draft' }
 
         if (shiftData.id) setShifts(prev => prev.map(s => s.id === shiftData.id ? optimisticShift : s))
         else setShifts(prev => [...prev, optimisticShift])
 
-        const payload = { ...shiftData, store_id: storeGuid }
+        const payload: any = { ...shiftData, store_id: storeGuid, status: 'draft' }
         delete payload.id
 
         // Fix dates
@@ -648,6 +649,13 @@ export default function SchedulePlanner() {
 
     const handleDeleteShift = async (id: string) => {
         const supabase = await getSupabaseClient()
+        const shiftToDelete = shifts.find(s => s.id === id)
+
+        // Track if we are deleting a published shift to enable re-publish
+        if (shiftToDelete?.status === 'published' && shiftToDelete.employee_id) {
+            setDeletedPublishedEmpIds(prev => [...new Set([...prev, shiftToDelete.employee_id!])])
+        }
+
         setShifts(prev => prev.filter(s => s.id !== id))
         await supabase.from('shifts').delete().eq('id', id)
         toast.success(t('planner.toasts.shift_deleted'))
@@ -918,8 +926,11 @@ export default function SchedulePlanner() {
             await supabase.from('shifts').update({ status: 'published' }).in('id', ids)
             setShifts(prev => prev.map(s => ids.includes(s.id) ? { ...s, status: 'published' } : s))
 
-            // Notify API (Only impacted employees)
-            const impactedEmployeeIds = [...new Set(shiftsToPublish.map(s => s.employee_id).filter(Boolean))]
+            // Notify API (Impacted employees: Newly published + Deletions)
+            const impactedEmployeeIds = [...new Set([
+                ...shiftsToPublish.map(s => s.employee_id).filter(Boolean),
+                ...deletedPublishedEmpIds
+            ])]
             const startStr = formatDateISO(weekStart)
             const endStr = formatDateISO(addDays(weekStart, 6))
 
@@ -1006,7 +1017,10 @@ export default function SchedulePlanner() {
             console.error('CRITICAL PUBLISH ERROR:', e)
             toast.error(e.message)
         }
-        finally { setLoading(false) }
+        finally {
+            setDeletedPublishedEmpIds([]) // Clear tracking after publish attempt
+            setLoading(false)
+        }
     }
 
     const handlePublish = async () => {
@@ -1147,7 +1161,7 @@ export default function SchedulePlanner() {
                 currentDate={currentDate}
                 setCurrentDate={setCurrentDate}
                 syncing={syncing}
-                draftCount={shifts.filter(s => s.status === 'draft').length}
+                draftCount={shifts.filter(s => s.status === 'draft').length + deletedPublishedEmpIds.length}
                 handlePublish={handlePublish}
                 showPublishInfo={showPublishInfo}
                 setShowPublishInfo={setShowPublishInfo}
