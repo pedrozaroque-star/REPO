@@ -28,6 +28,7 @@ interface FoodCostItem {
     has_recipe: boolean
     missing_prices: boolean
     store_name?: string
+    total_meat_lbs: number
 }
 
 export default function StoreFoodCostDetail() {
@@ -181,7 +182,8 @@ export default function StoreFoodCostDetail() {
             totalCost: 0,
             totalQuantity: 0,
             totalExtras: 0,
-            totalDiscounts: 0
+            totalDiscounts: 0,
+            totalMeatLbs: 0
         }
         sortedData.forEach(item => {
             sumData.totalSales += item.net_sales
@@ -189,6 +191,7 @@ export default function StoreFoodCostDetail() {
             sumData.totalQuantity += item.quantity
             sumData.totalExtras += (item.total_modifier_cost * item.quantity)
             sumData.totalDiscounts += (item.discounts || 0)
+            sumData.totalMeatLbs += (item.total_meat_lbs || 0)
         })
 
         return {
@@ -330,6 +333,12 @@ export default function StoreFoodCostDetail() {
                                                     {sortConfig?.key === 'quantity' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-emerald-500" /> : <ChevronDown size={14} className="text-emerald-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
+                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('total_meat_lbs')}>
+                                                <div className="flex items-center justify-end gap-1" title="Libras de Carne Cruda">
+                                                    LIBRAS (CARNE)
+                                                    {sortConfig?.key === 'total_meat_lbs' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-orange-500" /> : <ChevronDown size={14} className="text-orange-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                                </div>
+                                            </th>
                                             <th className="px-4 py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('unit_price')}>
                                                 <div className="flex items-center justify-end gap-1 text-slate-500">
                                                     PRICE
@@ -389,6 +398,9 @@ export default function StoreFoodCostDetail() {
                                                 </td>
                                                 <td className="px-4 py-3 text-right font-mono font-bold text-sm text-slate-700 dark:text-slate-300">
                                                     {item.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono font-bold text-xs text-orange-600 dark:text-orange-400">
+                                                    {(item.total_meat_lbs || 0) > 0 ? item.total_meat_lbs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                                                 </td>
                                                 <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-400 font-mono text-xs">
                                                     ${item.unit_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -451,6 +463,9 @@ export default function StoreFoodCostDetail() {
                                                 <td></td>
                                                 <td className="px-4 py-4 text-right font-mono text-slate-900 dark:text-white">
                                                     {summaryData?.totalQuantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="px-4 py-4 text-right font-mono font-bold text-orange-600 dark:text-orange-400">
+                                                    {(summaryData?.totalMeatLbs || 0) > 0 ? summaryData!.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                                                 </td>
                                                 <td></td>
                                                 <td className="px-4 py-4 text-right text-rose-500 font-mono">
