@@ -2,7 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
+import { normalizeToLbs } from '@/lib/inventory/conversions'
 import { Recipe, InventoryItem } from '@/types/inventory'
+
+const MEAT_IDS = [
+    'fab9d589-8ae8-4381-87da-85f836068996', // Asada
+    '4ea7ef9c-986e-4fc1-a363-7200ca558aab', // Pollo
+    'ad7e3703-2701-4a05-aa97-77866c8c717e', // Pastor
+    '14990e85-0d90-467c-ad9d-362e6ed4f1cd', // Carnitas
+    'baac1d41-3b80-4f80-acfc-7a19f46e03c2', // Buche
+    '511e341b-ca42-44ed-89df-a4a84b51a619', // Cabeza
+    '0fb87578-1185-41a9-a318-97428db20a5d', // Lengua
+    '1e4c43b6-4e1b-4e51-8617-e127b89467f1', // Chorizo
+]
 
 export async function GET(request: NextRequest) {
     try {
@@ -142,7 +154,7 @@ export async function GET(request: NextRequest) {
                 inventory_item_id: row.inventory_item_id,
                 quantity: row.quantity,
                 unit: row.unit,
-                type: row.type || 'cooked' // Default to COOKED to apply yield logic (most recipes are plated)
+                type: row.type || 'cooked' // Default to COOKED to apply yield logic
             })
         })
 
@@ -245,17 +257,7 @@ export async function GET(request: NextRequest) {
                         }
 
                         // 3. Find the PRIMARY meat in the base recipe to reduce it
-                        // Inventory IDs for main meats:
-                        const meatIds = [
-                            'fab9d589-8ae8-4381-87da-85f836068996', // Asada
-                            '4ea7ef9c-986e-4fc1-a363-7200ca558aab', // Pollo
-                            'ad7e3703-2701-4a05-aa97-77866c8c717e', // Pastor
-                            '14990e85-0d90-467c-ad9d-362e6ed4f1cd', // Carnitas
-                            'baac1d41-3b80-4f80-acfc-7a19f46e03c2', // Buche
-                            '511e341b-ca42-44ed-89df-a4a84b51a619', // Cabeza
-                            '0fb87578-1185-41a9-a318-97428db20a5d', // Lengua
-                            '1e4c43b6-4e1b-4e51-8617-e127b89467f1', // Chorizo
-                        ]
+                        // Inventory IDs for main meats: (Moved to MEAT_IDS at top)
 
                         // Reduce all primary meats by the number of halves found.
                         // e.g. If 1 half found -> primary meat becomes 50% (3oz).
@@ -264,7 +266,7 @@ export async function GET(request: NextRequest) {
                         let foundPrimaryMeat = false
 
                         adjustedRecipeObj.ingredients = adjustedRecipeObj.ingredients.map((ing: any) => {
-                            if (meatIds.includes(ing.inventory_item_id)) {
+                            if (MEAT_IDS.includes(ing.inventory_item_id)) {
                                 foundPrimaryMeat = true
                                 return {
                                     ...ing,
@@ -312,6 +314,27 @@ export async function GET(request: NextRequest) {
             let totalBaseCost = baseUnitCost * item.quantity
             let totalModCost = 0
 
+            let baseMeatLbs = 0
+            let modMeatLbs = 0
+
+            // Helper to extract meat lbs from a break down calculation
+            const extractMeatLbs = (breakdowns: any[]) => {
+                let lbs = 0
+                breakdowns.forEach(bd => {
+                    if (MEAT_IDS.includes(bd.inventoryItemId)) {
+                        lbs += normalizeToLbs(bd.quantity, bd.unit as any)
+                    }
+                })
+                return lbs
+            }
+
+            // Extract meat lbs from the base recipe computation
+            if (recipe) {
+                const finalRecipeForBase = adjustedRecipeObj || recipe
+                const costResult = calculateRecipeCost(finalRecipeForBase, inventoryData as InventoryItem[])
+                baseMeatLbs = extractMeatLbs(costResult.breakdown)
+            }
+
             // Calculate Modifiers Cost (if any)
             // Skip "Half Meat" modifiers since we've already accounted for them in the base recipe split
             if (item.modifier_guids && item.modifier_guids.length > 0) {
@@ -331,6 +354,7 @@ export async function GET(request: NextRequest) {
                             const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
                             totalModCost += modRes.totalCost
                             missingPrices += modRes.missingPrices
+                            modMeatLbs += extractMeatLbs(modRes.breakdown)
                         }
                     }
                 })
@@ -360,7 +384,8 @@ export async function GET(request: NextRequest) {
                 has_recipe: !!recipe,
                 missing_prices: missingPrices > 0,
                 store_id: item.store_id, // Pass through
-                store_name: item.store_name // Pass through
+                store_name: item.store_name, // Pass through
+                meat_lbs_used: (baseMeatLbs + modMeatLbs) * item.quantity
             }
         })
 

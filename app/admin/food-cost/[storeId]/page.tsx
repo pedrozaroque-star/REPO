@@ -28,6 +28,7 @@ interface FoodCostItem {
     has_recipe: boolean
     missing_prices: boolean
     store_name?: string
+    meat_lbs_used?: number
 }
 
 export default function StoreFoodCostDetail() {
@@ -181,7 +182,8 @@ export default function StoreFoodCostDetail() {
             totalCost: 0,
             totalQuantity: 0,
             totalExtras: 0,
-            totalDiscounts: 0
+            totalDiscounts: 0,
+            totalMeatLbs: 0
         }
         sortedData.forEach(item => {
             sumData.totalSales += item.net_sales
@@ -189,6 +191,7 @@ export default function StoreFoodCostDetail() {
             sumData.totalQuantity += item.quantity
             sumData.totalExtras += (item.total_modifier_cost * item.quantity)
             sumData.totalDiscounts += (item.discounts || 0)
+            sumData.totalMeatLbs += (item.meat_lbs_used || 0)
         })
 
         return {
@@ -330,6 +333,12 @@ export default function StoreFoodCostDetail() {
                                                     {sortConfig?.key === 'quantity' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-emerald-500" /> : <ChevronDown size={14} className="text-emerald-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
+                                            <th className="px-4 py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('meat_lbs_used')}>
+                                                <div className="flex items-center justify-end gap-1 text-amber-700 dark:text-amber-500">
+                                                    MEAT LBS
+                                                    {sortConfig?.key === 'meat_lbs_used' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-amber-700 dark:text-amber-500" /> : <ChevronDown size={14} className="text-amber-700 dark:text-amber-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                                </div>
+                                            </th>
                                             <th className="px-4 py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('unit_price')}>
                                                 <div className="flex items-center justify-end gap-1 text-slate-500">
                                                     PRICE
@@ -372,7 +381,6 @@ export default function StoreFoodCostDetail() {
                                                     {sortConfig?.key === 'food_cost_percent' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-rose-500" /> : <ChevronDown size={14} className="text-rose-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
-                                            <th className="px-4 py-3 text-center">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-black/5 dark:divide-slate-800">
@@ -389,6 +397,9 @@ export default function StoreFoodCostDetail() {
                                                 </td>
                                                 <td className="px-4 py-3 text-right font-mono font-bold text-sm text-slate-700 dark:text-slate-300">
                                                     {item.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-sm text-amber-600 dark:text-amber-500">
+                                                    {(item.meat_lbs_used || 0) > 0 ? item.meat_lbs_used!.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
                                                 </td>
                                                 <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-400 font-mono text-xs">
                                                     ${item.unit_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -424,21 +435,6 @@ export default function StoreFoodCostDetail() {
                                                         <span className="text-slate-300 dark:text-slate-600 font-mono">-</span>
                                                     )}
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
-                                                    {item.has_recipe ? (
-                                                        item.missing_prices ? (
-                                                            <span title="Inventory Missing Price" className="flex items-center justify-center">
-                                                                <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
-                                                            </span>
-                                                        ) : (
-                                                            <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto opacity-50 group-hover:opacity-100 transition-opacity" />
-                                                        )
-                                                    ) : (
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-100/50 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                                            No Recipe
-                                                        </span>
-                                                    )}
-                                                </td>
                                             </tr>
                                         ))}
 
@@ -451,6 +447,9 @@ export default function StoreFoodCostDetail() {
                                                 <td></td>
                                                 <td className="px-4 py-4 text-right font-mono text-slate-900 dark:text-white">
                                                     {summaryData?.totalQuantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="px-4 py-4 text-right font-mono font-bold text-amber-600 dark:text-amber-500 text-sm">
+                                                    {(summaryData?.totalMeatLbs || 0) > 0 ? summaryData!.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
                                                 </td>
                                                 <td></td>
                                                 <td className="px-4 py-4 text-right text-rose-500 font-mono">
@@ -476,7 +475,6 @@ export default function StoreFoodCostDetail() {
                                                         </span>
                                                     ) : '-'}
                                                 </td>
-                                                <td className="px-4 py-4 text-center"></td>
                                             </tr>
                                         )}
                                     </tbody>

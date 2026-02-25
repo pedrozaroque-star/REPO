@@ -2,6 +2,7 @@ import { InventoryItem, Recipe, RecipeIngredient } from '@/types/inventory'
 import { calculateRawUsage, normalizeToLbs, calculateInventoryUsage } from './conversions'
 
 export interface CostBreakdown {
+    inventoryItemId: string
     itemName: string
     quantity: number
     unit: string
@@ -77,6 +78,7 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
         }
 
         breakdown.push({
+            inventoryItemId: item.id,
             itemName: item.name,
             quantity: rawUsage.quantity,
             unit: rawUsage.unit,
