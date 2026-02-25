@@ -237,92 +237,13 @@ export async function GET(request: NextRequest) {
                 parentNameLower.includes('half buche') || parentNameLower.includes('half cabeza') ||
                 parentNameLower.includes('half lengua') || parentNameLower.includes('half chorizo')
 
-            let adjustedRecipeObj: any = null
-
+            // 1. Calculate unadulterated base recipe unit cost
             if (recipe) {
-                // Determine if we need to split the meat dynamically
-                const meatOz = getMeatBaseOz(item.name)
-
-                if (hasHalfMod && meatOz > 0) {
-                    // 1. Identify what meats are mentioned as "Half" in the name
-                    const halfMeatsFound: string[] = []
-                    const checkMeats = ['asada', 'pollo', 'pastor', 'carnitas', 'buche', 'cabeza', 'lengua', 'chorizo']
-                    checkMeats.forEach(mt => {
-                        if (parentNameLower.includes(`half ${mt}`)) halfMeatsFound.push(mt)
-                    })
-
-                    if (halfMeatsFound.length > 0) {
-                        // 2. Clone the recipe so we don't mutate the cached one
-                        adjustedRecipeObj = {
-                            ...recipe,
-                            ingredients: [...recipe.ingredients]
-                        }
-
-                        // 3. Find the PRIMARY meat in the base recipe to reduce it
-                        // Inventory IDs for main meats:
-                        const meatIds = [
-                            'fab9d589-8ae8-4381-87da-85f836068996', // Asada
-                            '4ea7ef9c-986e-4fc1-a363-7200ca558aab', // Pollo
-                            'ad7e3703-2701-4a05-aa97-77866c8c717e', // Pastor
-                            '14990e85-0d90-467c-ad9d-362e6ed4f1cd', // Carnitas
-                            'baac1d41-3b80-4f80-acfc-7a19f46e03c2', // Buche
-                            '511e341b-ca42-44ed-89df-a4a84b51a619', // Cabeza
-                            '0fb87578-1185-41a9-a318-97428db20a5d', // Lengua
-                            '1e4c43b6-4e1b-4e51-8617-e127b89467f1', // Chorizo
-                        ]
-
-                        // Reduce all primary meats by the number of halves found.
-                        // e.g. If 1 half found -> primary meat becomes 50% (3oz).
-                        // If 2 halves found -> primary meat becomes 0% (replaced entirely by the two halves).
-                        const remainingPercentage = Math.max(0, 1 - (0.5 * halfMeatsFound.length))
-                        let foundPrimaryMeat = false
-
-                        adjustedRecipeObj.ingredients = adjustedRecipeObj.ingredients.map((ing: any) => {
-                            if (meatIds.includes(ing.inventory_item_id)) {
-                                foundPrimaryMeat = true
-                                return {
-                                    ...ing,
-                                    quantity: ing.quantity * remainingPercentage
-                                }
-                            }
-                            return ing
-                        })
-
-                        // 4. Inject the new Half meats (0.5 * meatOz) mapped to their inventory IDs
-                        const halfMapping: Record<string, string> = {
-                            'asada': 'fab9d589-8ae8-4381-87da-85f836068996',
-                            'pollo': '4ea7ef9c-986e-4fc1-a363-7200ca558aab',
-                            'pastor': 'ad7e3703-2701-4a05-aa97-77866c8c717e',
-                            'carnitas': '14990e85-0d90-467c-ad9d-362e6ed4f1cd',
-                            'buche': 'baac1d41-3b80-4f80-acfc-7a19f46e03c2',
-                            'cabeza': '511e341b-ca42-44ed-89df-a4a84b51a619',
-                            'lengua': '0fb87578-1185-41a9-a318-97428db20a5d',
-                            'chorizo': '1e4c43b6-4e1b-4e51-8617-e127b89467f1'
-                        }
-
-                        if (foundPrimaryMeat) {
-                            const halfOzQty = meatOz * 0.5 // e.g. 3oz for Burrito, 0.75oz for Taco
-
-                            halfMeatsFound.forEach(mt => {
-                                adjustedRecipeObj.ingredients.push({
-                                    inventory_item_id: halfMapping[mt],
-                                    quantity: halfOzQty,
-                                    unit: 'oz',
-                                    type: 'cooked'
-                                })
-                            })
-                            console.log(`[FoodCostAPI] 🔪 Splitting meat for "${item.name}": 50% Primary, injected ${halfMeatsFound.join(', ')} at ${halfOzQty} oz`)
-                        }
-                    }
-                }
-
-                // Use the adjusted recipe if we split meat, otherwise use the normal one
-                const finalRecipeForBase = adjustedRecipeObj || recipe
-                const costResult = calculateRecipeCost(finalRecipeForBase, inventoryData as InventoryItem[])
+                const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[])
                 baseUnitCost = costResult.totalCost
                 missingPrices += costResult.missingPrices
 
-                // Sum meat pounds for the base item
+                // Sum meat pounds for the unadulterated base item
                 costResult.breakdown.forEach(b => {
                     if (mainMeatIds.includes(b.inventoryItemId)) {
                         meatLbsPerUnit += normalizeToLbs(b.quantity, b.unit as any)
@@ -331,32 +252,100 @@ export async function GET(request: NextRequest) {
             }
 
             let totalBaseCost = baseUnitCost * item.quantity
-            let totalModCost = 0
+            let totalBaseMeatLbs = meatLbsPerUnit * item.quantity
 
-            // Calculate Modifiers Cost (if any)
-            // Skip "Half Meat" modifiers since we've already accounted for them in the base recipe split
+            let totalModCost = 0
+            let totalModMeatLbs = 0
+
+            // 2. Apply "Half Meat" substitutions directly to the BATCH TOTALS
+            // This prevents the substitution from being amplified by item.quantity
+            if (recipe && item.modifier_guids && item.modifier_guids.length > 0) {
+                const halfModsFound = item.modifier_guids.filter((g: string) => [
+                    'ed889228-98e7-4c49-bc46-8e0718ec1fcf', // Half Asada
+                    'b52ffce5-cc66-4930-bb96-70891c41643e', // Half Pastor
+                    'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', // Half Cabeza
+                    '443938bb-ec20-4a64-9fa3-91d4f89de0a5', // Half Pollo
+                    '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', // Half Carnitas
+                    'fbe42d67-a0f8-481f-bb28-e1717075c290', // Half Buche
+                    '8717b04b-62c0-4276-96e9-d86430b32b64', // Half Lengua
+                    '37c0cb59-fa76-4b81-b327-cd96784d9f78'  // Half Chorizo
+                ].includes(g))
+
+                if (halfModsFound.length > 0) {
+                    const halfMapping: Record<string, string> = {
+                        'ed889228-98e7-4c49-bc46-8e0718ec1fcf': 'fab9d589-8ae8-4381-87da-85f836068996', // asada
+                        'b52ffce5-cc66-4930-bb96-70891c41643e': 'ad7e3703-2701-4a05-aa97-77866c8c717e', // pastor
+                        'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3': '511e341b-ca42-44ed-89df-a4a84b51a619', // cabeza
+                        '443938bb-ec20-4a64-9fa3-91d4f89de0a5': '4ea7ef9c-986e-4fc1-a363-7200ca558aab', // pollo
+                        '6d1bfd79-8c97-4c81-8e03-729fa08ecc75': '14990e85-0d90-467c-ad9d-362e6ed4f1cd', // carnitas
+                        'fbe42d67-a0f8-481f-bb28-e1717075c290': 'baac1d41-3b80-4f80-acfc-7a19f46e03c2', // buche
+                        '8717b04b-62c0-4276-96e9-d86430b32b64': '0fb87578-1185-41a9-a318-97428db20a5d', // lengua
+                        '37c0cb59-fa76-4b81-b327-cd96784d9f78': '1e4c43b6-4e1b-4e51-8617-e127b89467f1'  // chorizo
+                    }
+
+                    const meatIds = [
+                        'fab9d589-8ae8-4381-87da-85f836068996', '4ea7ef9c-986e-4fc1-a363-7200ca558aab',
+                        'ad7e3703-2701-4a05-aa97-77866c8c717e', '14990e85-0d90-467c-ad9d-362e6ed4f1cd',
+                        'baac1d41-3b80-4f80-acfc-7a19f46e03c2', '511e341b-ca42-44ed-89df-a4a84b51a619',
+                        '0fb87578-1185-41a9-a318-97428db20a5d', '1e4c43b6-4e1b-4e51-8617-e127b89467f1'
+                    ]
+                    const primaryMeatIng = recipe.ingredients.find((i: any) => meatIds.includes(i.inventory_item_id))
+
+                    if (primaryMeatIng) {
+                        const deltaRecipe = { ingredients: [] as any[] }
+
+                        // We remove X portions of primary meat based on how many halves were ordered
+                        const portionsToRemove = halfModsFound.length * 0.5
+                        deltaRecipe.ingredients.push({
+                            ...primaryMeatIng,
+                            quantity: -(primaryMeatIng.quantity * portionsToRemove)
+                        })
+
+                        // We inject the halves (0.5 portion of primary quantity per half)
+                        halfModsFound.forEach((modGuid: string) => {
+                            deltaRecipe.ingredients.push({
+                                inventory_item_id: halfMapping[modGuid],
+                                quantity: primaryMeatIng.quantity * 0.5,
+                                unit: primaryMeatIng.unit,
+                                type: primaryMeatIng.type
+                            })
+                        })
+
+                        const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[])
+                        totalBaseCost += deltaRes.totalCost
+                        // Avoid double counting missing prices for delta
+
+                        deltaRes.breakdown.forEach(b => {
+                            if (mainMeatIds.includes(b.inventoryItemId)) {
+                                totalBaseMeatLbs += normalizeToLbs(b.quantity, b.unit as any)
+                            }
+                        })
+                    }
+                }
+            }
+
+            // 3. Calculate Modifiers Cost
+            // Skip "Half Meat" modifiers since we've already accounted for them in the batch delta
             if (item.modifier_guids && item.modifier_guids.length > 0) {
+                const halfGuids = [
+                    'ed889228-98e7-4c49-bc46-8e0718ec1fcf', 'b52ffce5-cc66-4930-bb96-70891c41643e',
+                    'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', '443938bb-ec20-4a64-9fa3-91d4f89de0a5',
+                    '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', 'fbe42d67-a0f8-481f-bb28-e1717075c290',
+                    '8717b04b-62c0-4276-96e9-d86430b32b64', '37c0cb59-fa76-4b81-b327-cd96784d9f78'
+                ]
+
                 item.modifier_guids.forEach((modGuid: string) => {
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
-                        // Check if this modifier is a Half modifier to skip it
-                        // Since we don't have the mod name directly, we can check its GUID or group.
-                        // Faster: just check if its GUID is one of the Half Meat GUIDs
-                        const halfGuids = [
-                            'ed889228-98e7-4c49-bc46-8e0718ec1fcf', 'b52ffce5-cc66-4930-bb96-70891c41643e',
-                            'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', '443938bb-ec20-4a64-9fa3-91d4f89de0a5',
-                            '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', 'fbe42d67-a0f8-481f-bb28-e1717075c290',
-                            '8717b04b-62c0-4276-96e9-d86430b32b64', '37c0cb59-fa76-4b81-b327-cd96784d9f78'
-                        ]
                         if (!halfGuids.includes(modGuid)) {
                             const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
                             totalModCost += modRes.totalCost
                             missingPrices += modRes.missingPrices
 
-                            // Sum meat pounds for the modifiers
+                            // Modifiers meat goes to totalModMeatLbs and is NEVER multiplied by item.quantity
                             modRes.breakdown.forEach(b => {
                                 if (mainMeatIds.includes(b.inventoryItemId)) {
-                                    meatLbsPerUnit += normalizeToLbs(b.quantity, b.unit as any)
+                                    totalModMeatLbs += normalizeToLbs(b.quantity, b.unit as any)
                                 }
                             })
                         }
@@ -389,7 +378,7 @@ export async function GET(request: NextRequest) {
                 missing_prices: missingPrices > 0,
                 store_id: item.store_id, // Pass through
                 store_name: item.store_name, // Pass through
-                total_meat_lbs: meatLbsPerUnit * item.quantity
+                total_meat_lbs: totalBaseMeatLbs + totalModMeatLbs
             }
         })
 
