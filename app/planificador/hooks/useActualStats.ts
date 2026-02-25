@@ -89,7 +89,7 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
 
                 const now = new Date()
                 const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-                if (laTime.getHours() < 4) laTime.setDate(laTime.getDate() - 1)
+                if (laTime.getHours() < 6) laTime.setDate(laTime.getDate() - 1)
                 const y = laTime.getFullYear()
                 const m = String(laTime.getMonth() + 1).padStart(2, '0')
                 const d = String(laTime.getDate()).padStart(2, '0')

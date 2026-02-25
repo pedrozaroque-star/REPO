@@ -14,7 +14,7 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
     const getBusinessDate = () => {
         const now = new Date()
         const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        if (laTime.getHours() < 4) {
+        if (laTime.getHours() < 6) {
             laTime.setDate(laTime.getDate() - 1)
         }
         const y = laTime.getFullYear()

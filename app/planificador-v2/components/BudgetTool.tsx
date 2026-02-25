@@ -17,8 +17,8 @@ export function BudgetTool({ weekStart, shifts, weeklyStats, laborStats, project
         const now = new Date()
         const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
-        // Check if we are in the early morning (00:00 - 04:00)
-        if (laTime.getHours() < 4) {
+        // Check if we are in the early morning (00:00 - 05:59)
+        if (laTime.getHours() < 6) {
             laTime.setDate(laTime.getDate() - 1)
         }
 

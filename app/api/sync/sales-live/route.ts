@@ -15,8 +15,8 @@ export async function POST(request: Request) {
         const now = new Date()
         const laTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
-        // If < 4 AM, belongs to Previous Business Day
-        if (laTime.getHours() < 4) {
+        // If < 6 AM, belongs to Previous Business Day
+        if (laTime.getHours() < 6) {
             laTime.setDate(laTime.getDate() - 1)
         }
 
