@@ -29,8 +29,10 @@ interface FoodCostItem {
     missing_prices: boolean
     store_name?: string
     store_id?: string
-    meat_lbs_used?: number
+    total_meat_lbs?: number
 }
+
+type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPercent' | 'missing_prices' | 'totalDiscounts' | 'totalMeatLbs'
 
 export default function FoodCostPage() {
     const { t } = useLanguage()
@@ -61,7 +63,7 @@ export default function FoodCostPage() {
     const [storeList, setStoreList] = useState<string[]>([])
 
     // We now sort by the aggregated store metrics
-    type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPercent' | 'totalDiscounts' | 'totalMeatLbs'
+    type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPercent' | 'missing_prices' | 'totalDiscounts' | 'totalMeatLbs'
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>({ key: 'costPercent', direction: 'desc' })
 
     const requestSort = (key: SortKey) => {
@@ -179,7 +181,7 @@ export default function FoodCostPage() {
             sumData.totalQuantity += item.quantity
             sumData.totalExtras += (item.total_modifier_cost * item.quantity)
             sumData.totalDiscounts += (item.discounts || 0)
-            sumData.totalMeatLbs += (item.meat_lbs_used || 0)
+            sumData.totalMeatLbs += (item.total_meat_lbs || 0)
         })
 
         // 3. Compute Store Aggregations for the Chart and Table
@@ -193,7 +195,7 @@ export default function FoodCostPage() {
             s.totalCost += item.total_cost
             s.quantity += item.quantity
             s.totalDiscounts += (item.discounts || 0)
-            s.totalMeatLbs += (item.meat_lbs_used || 0)
+            s.totalMeatLbs += (item.total_meat_lbs || 0)
             if (item.missing_prices) s.missing_prices = true
         })
 
@@ -386,6 +388,9 @@ export default function FoodCostPage() {
                                                     <span className="font-semibold text-sm text-slate-800 dark:text-slate-200 truncate">
                                                         {formatStoreName(item.storeName)}
                                                     </span>
+                                                    {item.missing_prices && (
+                                                        <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse shrink-0"></span>
+                                                    )}
                                                 </div>
                                                 {item.totalSales > 0 ? (
                                                     <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono border shrink-0 ${costColor}`}>
@@ -415,12 +420,6 @@ export default function FoodCostPage() {
                                                     <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Qty</span>
                                                     <p className="font-mono font-bold text-slate-600 dark:text-slate-400 text-xs mt-0.5">
                                                         {item.quantity.toLocaleString('en-US')}
-                                                    </p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Meat</span>
-                                                    <p className="font-mono font-bold text-amber-600 dark:text-amber-500 text-xs mt-0.5">
-                                                        {item.totalMeatLbs > 0 ? item.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' lbs' : '-'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -463,12 +462,6 @@ export default function FoodCostPage() {
                                                     {summaryData.totalQuantity.toLocaleString('en-US')}
                                                 </p>
                                             </div>
-                                            <div className="text-right">
-                                                <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider font-medium">Meat</span>
-                                                <p className="font-mono font-bold text-amber-600 dark:text-amber-500 text-xs mt-0.5">
-                                                    {(summaryData.totalMeatLbs || 0) > 0 ? summaryData.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' lbs' : '-'}
-                                                </p>
-                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -500,9 +493,9 @@ export default function FoodCostPage() {
                                                 </div>
                                             </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalMeatLbs')}>
-                                                <div className="flex items-center justify-end gap-1 text-amber-700 dark:text-amber-500">
-                                                    MEAT (LBS)
-                                                    {sortConfig?.key === 'totalMeatLbs' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-amber-700 dark:text-amber-500" /> : <ChevronDown size={14} className="text-amber-700 dark:text-amber-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                                <div className="flex items-center justify-end gap-1 w-full" title="Total Asada, Pollo, Pastor, Cabeza, Lengua, Buche, Carnitas, Chorizo items (raw lbs)">
+                                                    LIBRAS (CARNE)
+                                                    {sortConfig?.key === 'totalMeatLbs' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-orange-500" /> : <ChevronDown size={14} className="text-orange-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
                                             <th className="px-3 py-2 md:px-4 md:py-3 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('totalDiscounts')}>
@@ -529,6 +522,12 @@ export default function FoodCostPage() {
                                                     {sortConfig?.key === 'costPercent' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-rose-500" /> : <ChevronDown size={14} className="text-rose-500" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                                 </div>
                                             </th>
+                                            <th className="px-3 py-2 md:px-4 md:py-3 text-center cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('missing_prices')}>
+                                                <div className="flex items-center justify-center gap-1">
+                                                    Status
+                                                    {sortConfig?.key === 'missing_prices' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                                </div>
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-black/5 dark:divide-slate-800">
@@ -552,8 +551,8 @@ export default function FoodCostPage() {
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono font-bold text-xs md:text-sm text-slate-700 dark:text-slate-300">
                                                     {item.quantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                                                 </td>
-                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono text-xs md:text-sm text-amber-600 dark:text-amber-500">
-                                                    {item.totalMeatLbs > 0 ? item.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono font-bold text-xs md:text-sm text-orange-600 dark:text-orange-400">
+                                                    {item.totalMeatLbs > 0 ? item.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right text-rose-500 dark:text-rose-400 font-mono text-xs md:text-sm">
                                                     {item.totalDiscounts > 0 ? `-$${item.totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
@@ -580,6 +579,15 @@ export default function FoodCostPage() {
                                                         <span className="text-slate-300 dark:text-slate-600 font-mono">-</span>
                                                     )}
                                                 </td>
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-center">
+                                                    {item.missing_prices ? (
+                                                        <span title="Inventory Missing Price" className="flex items-center justify-center">
+                                                            <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                                                        </span>
+                                                    ) : (
+                                                        <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto opacity-50 group-hover:opacity-100 transition-opacity" />
+                                                    )}
+                                                </td>
                                             </tr>
                                         ))}
 
@@ -592,8 +600,8 @@ export default function FoodCostPage() {
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono text-slate-900 dark:text-white text-xs md:text-sm">
                                                     {summaryData?.totalQuantity.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                                                 </td>
-                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono font-bold text-amber-600 dark:text-amber-500 text-xs md:text-sm">
-                                                    {(summaryData?.totalMeatLbs || 0) > 0 ? summaryData!.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-right font-mono font-bold text-orange-600 dark:text-orange-400 text-xs md:text-sm">
+                                                    {(summaryData?.totalMeatLbs || 0) > 0 ? summaryData!.totalMeatLbs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right text-rose-500 font-mono text-xs md:text-sm">
                                                     {(summaryData?.totalDiscounts || 0) > 0 ? `-$${summaryData!.totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
@@ -614,6 +622,7 @@ export default function FoodCostPage() {
                                                         </span>
                                                     ) : '-'}
                                                 </td>
+                                                <td className="px-3 py-3 md:px-4 md:py-4 text-center"></td>
                                             </tr>
                                         )}
                                     </tbody>
