@@ -62,8 +62,8 @@ function SalesPageContent() {
 
                 // Handle derived columns
                 if (sortConfig.key === 'diff') {
-                    aValue = a.amount - (a.projectedSales || 0)
-                    bValue = b.amount - (b.projectedSales || 0)
+                    aValue = a.amount - (a.projectedToDate || 0)
+                    bValue = b.amount - (b.projectedToDate || 0)
                 } else if (sortConfig.key === 'avgTicket') {
                     aValue = a.amount / (a.orderCount || 1)
                     bValue = b.amount / (b.orderCount || 1)
@@ -104,6 +104,11 @@ function SalesPageContent() {
 
         summary.laborPercentage = summary.netSales > 0 ? (summary.laborCost / summary.netSales) * 100 : 0
 
+        const now = new Date();
+        const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:00`;
+        const nowDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const currentMinuteRatio = now.getMinutes() / 60;
+
         // Store Data
         const storeMap = new Map()
         rows.forEach((row: any) => {
@@ -120,9 +125,42 @@ function SalesPageContent() {
                     laborCost: 0,
                     laborPercentage: 0,
                     totalHours: 0,
-                    projectedSales: 0
+                    projectedSales: 0,
+                    projectedToDate: 0
                 })
             }
+
+            let rowProjToDate = 0;
+            if (groupByMode === 'hour' && row.projectedHourly) {
+                const baseDateStr = referenceDate;
+                const nextDate = new Date(baseDateStr + 'T00:00:00');
+                nextDate.setDate(nextDate.getDate() + 1);
+                const nextDateStr = nextDate.toISOString().split('T')[0];
+
+                Object.entries(row.projectedHourly).forEach(([h, amount]) => {
+                    let hourInt = parseInt(h);
+                    let isNext = hourInt < 6;
+                    if (hourInt >= 24) {
+                        hourInt -= 24;
+                        isNext = true;
+                    }
+                    const dStr = isNext ? nextDateStr : baseDateStr;
+                    const timeStr = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`;
+
+                    if (timeStr < nowStr) {
+                        rowProjToDate += Number(amount) || 0;
+                    } else if (timeStr === nowStr) {
+                        rowProjToDate += (Number(amount) || 0) * currentMinuteRatio;
+                    }
+                });
+            } else {
+                if (row.periodStart && row.periodStart < nowDateStr) {
+                    rowProjToDate = row.projectedSales || 0;
+                } else if (!row.periodStart || row.periodStart === nowDateStr) {
+                    rowProjToDate = row.projectedSales || 0;
+                }
+            }
+
             const s = storeMap.get(storeName)
             s.amount += (row.netSales || 0)
             s.netSales += (row.netSales || 0)
@@ -131,6 +169,7 @@ function SalesPageContent() {
             s.laborCost += (row.laborCost || 0)
             s.totalHours += (row.totalHours || 0)
             s.projectedSales += (row.projectedSales || 0)
+            s.projectedToDate += rowProjToDate
         })
 
         const storeData = Array.from(storeMap.values())
@@ -721,10 +760,10 @@ function SalesPageContent() {
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                             </div>
                                         </th>
-                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedSales')}>
-                                            <div className="flex items-center justify-end gap-1 text-indigo-500">
-                                                {t('sales.projected').toUpperCase()}
-                                                {sortConfig?.key === 'projectedSales' ? (
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedToDate')}>
+                                            <div className="flex items-center justify-end gap-1 text-cyan-500">
+                                                {t('sales.charts.projectedToDate') ? t('sales.charts.projectedToDate').toUpperCase() : 'PROJ. TO DATE'}
+                                                {sortConfig?.key === 'projectedToDate' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
                                             </div>
@@ -735,6 +774,14 @@ function SalesPageContent() {
                                                 {sortConfig?.key === 'amount' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-emerald-500" /> : <ChevronDown size={14} className="text-emerald-500" />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
+                                            </div>
+                                        </th>
+                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedSales')}>
+                                            <div className="flex items-center justify-end gap-1 text-indigo-500">
+                                                {t('sales.projected').toUpperCase()}
+                                                {sortConfig?.key === 'projectedSales' ? (
+                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
                                             </div>
                                         </th>
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('diff')}>
@@ -788,15 +835,18 @@ function SalesPageContent() {
                                                 <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-lg">
                                                     {formatStoreName(store.name || store.storeName)}
                                                 </td>
-                                                <td className="px-6 py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-lg">
-                                                    ${(store.projectedSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                <td className="px-6 py-4 text-right text-cyan-600 dark:text-cyan-400 font-mono font-bold text-lg">
+                                                    ${(store.projectedToDate || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-lg">
                                                     ${store.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (store.projectedSales || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                                    {store.amount - (store.projectedSales || 0) >= 0 ? '+' : ''}
-                                                    ${(store.amount - (store.projectedSales || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                <td className="px-6 py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-lg">
+                                                    ${(store.projectedSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (store.projectedToDate || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                    {store.amount - (store.projectedToDate || 0) >= 0 ? '+' : ''}
+                                                    ${(store.amount - (store.projectedToDate || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-700 dark:text-white font-medium">
                                                     {orders.toLocaleString('en-US')}
