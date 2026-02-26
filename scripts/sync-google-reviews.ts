@@ -54,11 +54,21 @@ async function listAccounts(token: string) {
 
 async function listLocations(token: string, accountName: string) {
     const readMask = 'name,title,storeCode,metadata,storefrontAddress'
-    const res = await fetch(`https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=${readMask}`, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-    const data = await res.json()
-    return data.locations || []
+    let allLocations: any[] = []
+    let pageToken: string | null = null
+
+    do {
+        const url: string = `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=${readMask}&pageSize=100${pageToken ? `&pageToken=${pageToken}` : ''}`
+        const res: any = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+        const data: any = await res.json()
+
+        if (data.locations) {
+            allLocations = allLocations.concat(data.locations)
+        }
+        pageToken = data.nextPageToken || null
+    } while (pageToken)
+
+    return allLocations
 }
 
 async function listReviews(token: string, locationName: string, accountName: string) {
@@ -180,15 +190,41 @@ async function main() {
                 const cityClean = city.toUpperCase().trim()
                 const candidates = stores.filter(s => s.city && s.city.toUpperCase().trim() === cityClean)
 
+                const normalize = (a: string) => a.toUpperCase()
+                    .replace(/[^A-Z0-9]/g, '')
+                    .replace(/STREET/g, 'ST')
+                    .replace(/AVENUE/g, 'AVE')
+                    .replace(/BOULEVARD/g, 'BLVD')
+                    .replace(/SOUTH/g, 'S')
+                    .replace(/NORTH/g, 'N')
+                    .replace(/EAST/g, 'E')
+                    .replace(/WEST/g, 'W')
+
+                const gNorm = normalize(fullAddress)
+
                 if (candidates.length === 1) {
                     store = candidates[0]
                 } else if (candidates.length > 1) {
-                    store = candidates.find(s => fullAddress.includes(s.address.toUpperCase()))
+                    store = candidates.find(s => s.address && gNorm.includes(normalize(s.address)))
+                }
+
+                // Global fallback by address (if city mismatched)
+                if (!store) {
+                    store = stores.find(s => s.address && gNorm.includes(normalize(s.address)))
+                }
+
+                // Global fallback by TITLE (Google Title vs DB Store Name)
+                if (!store && loc.title) {
+                    const gTitle = loc.title.toUpperCase()
+                    store = stores.find(s => {
+                        const sName = s.name.toUpperCase().replace('LA ', '').trim()
+                        return gTitle.includes(sName) || fullAddress.includes(sName)
+                    })
                 }
             }
 
             if (!store) {
-                console.warn(`   ⚠️ SKIPPED: No match for "${city}"`)
+                console.warn(`   ⚠️ SKIPPED: No match for "${loc.title || city}" (Address: ${fullAddress})`)
                 continue
             }
 
@@ -200,16 +236,33 @@ async function main() {
 
             // SYNC HISTORY
             const reviews = await listReviews(token, locName, account.name)
-            console.log(`   📝 Found ${reviews.length} reviews from last 6 months. Saving...`)
 
-            if (reviews.length === 0) continue
+            if (reviews.length === 0) {
+                console.log('   📝 No se encontraron reseñas en Google para esta sucursal.')
+                continue
+            }
+
+            // OBTENER RESEÑAS YA EXISTENTES
+            const { data: existingData } = await supabase
+                .from('customer_feedback')
+                .select('external_id')
+                .eq('store_id', store.id)
+                .eq('source', 'google')
+
+            const existingIds = new Set(existingData?.map(r => r.external_id) || [])
+            const newReviews = reviews.filter(r => !existingIds.has(r.reviewId))
+
+            console.log(`   📝 Encontradas: ${reviews.length} totales. Omitiendo: ${reviews.length - newReviews.length} ya existentes.`)
+            console.log(`   ✨ Guardando ${newReviews.length} reseñas nuevas...`)
+
+            if (newReviews.length === 0) continue
 
             // Upsert (Batch 100)
             const STAR_MAP: any = { 'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 5 }
 
             const batchSize = 100
-            for (let i = 0; i < reviews.length; i += batchSize) {
-                const chunk = reviews.slice(i, i + batchSize)
+            for (let i = 0; i < newReviews.length; i += batchSize) {
+                const chunk = newReviews.slice(i, i + batchSize)
                 // Construct a helpful link (Deep link to specific review is hard without public ID)
                 // Fallback: Link to the Store's Reviews List
                 const mapsLink = store.google_place_id

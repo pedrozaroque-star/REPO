@@ -12,6 +12,10 @@ export async function GET(request: NextRequest) {
     try {
         const guid = request.nextUrl.searchParams.get('guid')
         const itemName = request.nextUrl.searchParams.get('name') || ''
+        const quantityParam = request.nextUrl.searchParams.get('quantity')
+        const quantity = quantityParam ? parseFloat(quantityParam) : 1
+        const modifiersParam = request.nextUrl.searchParams.get('modifiers')
+        const modifiers = modifiersParam ? modifiersParam.split(',') : []
 
         if (!guid) {
             return NextResponse.json({ error: 'Missing guid' }, { status: 400 })
@@ -170,16 +174,88 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // 5. Calculate breakdown
         const finalRecipe = adjustedRecipeObj || recipe
         const result = calculateRecipeCost(finalRecipe, inventoryData as InventoryItem[])
+
+        // 6. Integrate Modifiers
+        let totalCost = result.totalCost
+        let missingPrices = result.missingPrices
+        const aggregatedBreakdown = [...result.breakdown]
+
+        if (modifiers.length > 0) {
+            const halfGuids = [
+                'ed889228-98e7-4c49-bc46-8e0718ec1fcf', 'b52ffce5-cc66-4930-bb96-70891c41643e',
+                'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', '443938bb-ec20-4a64-9fa3-91d4f89de0a5',
+                '6d1bfd79-8c97-4c81-8e03-729fa08ecc75', 'fbe42d67-a0f8-481f-bb28-e1717075c290',
+                '8717b04b-62c0-4276-96e9-d86430b32b64', '37c0cb59-fa76-4b81-b327-cd96784d9f78'
+            ]
+
+            // We will group extra ingredients by inventoryItemId so we don't return 96 rows of tortillas for 32 taco plates
+            const extraMap = new Map<string, {
+                inventoryItemId: string,
+                itemName: string,
+                unit: string,
+                yieldPercent: number,
+                isMissingPrice: boolean,
+                totalQty: number,
+                totalCost: number
+            }>()
+
+            modifiers.forEach(modGuid => {
+                if (!halfGuids.includes(modGuid)) {
+                    const modRecipe = recipeMap.get(modGuid)
+                    if (modRecipe) {
+                        const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
+
+                        // Modifier costs are accumulated across ALL quantities, so we must divide by quantity to get PER UNIT cost
+                        const perUnitModCost = quantity > 0 ? (modRes.totalCost / quantity) : 0
+                        totalCost += perUnitModCost
+                        missingPrices += modRes.missingPrices // missing price flag carries over
+
+                        // Aggregate into the map
+                        modRes.breakdown.forEach(modIng => {
+                            const existing = extraMap.get(modIng.inventoryItemId) || {
+                                inventoryItemId: modIng.inventoryItemId,
+                                itemName: `[Extra] ${modIng.itemName}`,
+                                unit: modIng.unit,
+                                yieldPercent: modIng.yieldPercent,
+                                isMissingPrice: modIng.isMissingPrice,
+                                totalQty: 0,
+                                totalCost: 0
+                            }
+
+                            existing.totalQty += modIng.quantity
+                            existing.totalCost += modIng.cost
+
+                            extraMap.set(modIng.inventoryItemId, existing)
+                        })
+                    }
+                }
+            })
+
+            // Now, push the consolidated fractional ingredients to the breakdown
+            Array.from(extraMap.values()).forEach(groupedExtra => {
+                const fractionalQty = quantity > 0 ? (groupedExtra.totalQty / quantity) : 0
+                const fractionalCost = quantity > 0 ? (groupedExtra.totalCost / quantity) : 0
+
+                aggregatedBreakdown.push({
+                    inventoryItemId: groupedExtra.inventoryItemId,
+                    itemName: groupedExtra.itemName,
+                    quantity: fractionalQty,
+                    unit: groupedExtra.unit,
+                    yieldPercent: groupedExtra.yieldPercent,
+                    cost: fractionalCost,
+                    isMissingPrice: groupedExtra.isMissingPrice
+                })
+            })
+        }
 
         return NextResponse.json({
             has_recipe: true,
             match_method: matchMethod,
-            total_cost: result.totalCost,
-            missing_prices: result.missingPrices,
-            breakdown: result.breakdown
+            total_cost: totalCost,
+            missing_prices: missingPrices,
+            breakdown: aggregatedBreakdown
         })
 
     } catch (e: any) {

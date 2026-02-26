@@ -42,13 +42,22 @@ async function listAccounts(token: string) {
 }
 
 async function listLocations(token: string, accountName: string) {
-    // Critical: Get Address for strict matching
     const readMask = 'name,title,storeCode,metadata,storefrontAddress'
-    const res = await fetch(`https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=${readMask}`, {
-        headers: { Authorization: `Bearer ${token}` }
-    })
-    const data = await res.json()
-    return data.locations || []
+    let allLocations: any[] = []
+    let pageToken: string | null = null
+
+    do {
+        const url: string = `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?readMask=${readMask}&pageSize=100${pageToken ? `&pageToken=${pageToken}` : ''}`
+        const res: any = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+        const data: any = await res.json()
+
+        if (data.locations) {
+            allLocations = allLocations.concat(data.locations)
+        }
+        pageToken = data.nextPageToken || null
+    } while (pageToken)
+
+    return allLocations
 }
 
 async function listReviews(token: string, locationName: string, accountName: string) {
@@ -156,11 +165,20 @@ export async function GET(request: Request) {
 
             // 2. Try Match by City Name (Strict)
             if (!store) {
-                // Format: "LYNWOOD"
                 const cityClean = city.toUpperCase().trim()
-
-                // Find stores in that city
                 const candidates = stores.filter((s: Store) => s.city && s.city.toUpperCase().trim() === cityClean)
+
+                const normalize = (a: string) => a.toUpperCase()
+                    .replace(/[^A-Z0-9]/g, '')
+                    .replace(/STREET/g, 'ST')
+                    .replace(/AVENUE/g, 'AVE')
+                    .replace(/BOULEVARD/g, 'BLVD')
+                    .replace(/SOUTH/g, 'S')
+                    .replace(/NORTH/g, 'N')
+                    .replace(/EAST/g, 'E')
+                    .replace(/WEST/g, 'W')
+
+                const gNorm = normalize(fullAddress)
 
                 if (candidates.length === 1) {
                     store = candidates[0]
@@ -169,14 +187,26 @@ export async function GET(request: Request) {
                         await supabase.from('stores').update({ google_place_id: placeId }).eq('id', store.id)
                     }
                 } else if (candidates.length > 1) {
-                    // Multiple stores in same city (e.g. Los Angeles)
-                    // Fallback to Address matching
-                    store = candidates.find((s: Store) => fullAddress.includes(s.address.toUpperCase()))
+                    store = candidates.find((s: Store) => s.address && gNorm.includes(normalize(s.address)))
+                }
+
+                // Global fallback by address (if city mismatched)
+                if (!store) {
+                    store = stores.find((s: Store) => s.address && gNorm.includes(normalize(s.address)))
+                }
+
+                // Global fallback by TITLE (Google Title vs DB Store Name)
+                if (!store && loc.title) {
+                    const gTitle = loc.title.toUpperCase()
+                    store = stores.find((s: Store) => {
+                        const sName = s.name.toUpperCase().replace('LA ', '').trim()
+                        return gTitle.includes(sName) || fullAddress.includes(sName)
+                    })
                 }
             }
 
             if (!store) {
-                logs.push(`⚠️ SKIPPED: ${fullAddress} (No clear match in DB)`)
+                logs.push(`⚠️ SKIPPED: ${loc.title || city} (Address: ${fullAddress}) (No clear match in DB)`)
                 continue
             }
 
@@ -185,12 +215,24 @@ export async function GET(request: Request) {
             // Sync Reviews
             const reviews = await listReviews(token, locName, account.name)
 
+            // OBTENER RESEÑAS YA EXISTENTES
+            const { data: existingData } = await supabase
+                .from('customer_feedback')
+                .select('external_id')
+                .eq('store_id', store.id)
+                .eq('source', 'google')
+
+            const existingIds = new Set(existingData?.map((r: any) => r.external_id) || [])
+            const newReviews = reviews.filter((r: any) => !existingIds.has(r.reviewId))
+
+            logs.push(`🔍 Google: ${reviews.length}, Nuevas: ${newReviews.length}, Omitidas: ${reviews.length - newReviews.length}`)
+
             // Upsert
             let upsertCount = 0
             const STAR_MAP: any = { 'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 5 }
 
-            if (reviews.length > 0) {
-                const rows = reviews.map((r: any) => ({
+            if (newReviews.length > 0) {
+                const rows = newReviews.map((r: any) => ({
                     store_id: store!.id,
                     source: 'google',
                     external_id: r.reviewId,

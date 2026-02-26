@@ -249,17 +249,43 @@ export default function SalesCharts({ trendData, period }: ChartsProps) {
                     </ResponsiveContainer>
                 </div>
 
-                {/* Daily Totals Summary - RESPONSIVE FIX */}
                 <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 grid grid-cols-2 md:flex items-center justify-center gap-4 md:gap-8">
                     {(() => {
+                        const now = new Date();
+                        const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:00`;
+                        const nowDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                        const currentMinuteRatio = now.getMinutes() / 60; // Calcula el % de la hora actual
+
                         const totalActual = trendData.reduce((sum, d) => sum + (d.amount || 0), 0)
                         const totalProjected = hasProjections ? trendData.reduce((sum, d) => sum + (d.projected || 0), 0) : 0
+                        const projectedToDate = hasProjections ? trendData.reduce((sum, d) => {
+                            if (d.time.includes(' ')) {
+                                if (d.time < nowStr) return sum + (d.projected || 0);
+                                if (d.time === nowStr) return sum + ((d.projected || 0) * currentMinuteRatio);
+                                return sum;
+                            } else {
+                                const isPastOrCurrent = d.time <= nowDateStr;
+                                return sum + (isPastOrCurrent ? (d.projected || 0) : 0);
+                            }
+                        }, 0) : 0;
+
                         const diff = totalActual - totalProjected
                         const percentDiff = totalProjected > 0 ? (diff / totalProjected) * 100 : 0
                         const isPositive = diff >= 0
 
                         return (
                             <>
+                                {hasProjections && (
+                                    <div className="text-center border-r border-slate-200 dark:border-slate-700 pr-4 md:pr-8">
+                                        <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1 truncate">
+                                            {language === 'es' ? 'Proy. a la Fecha' : 'Proj. To Date'}
+                                        </p>
+                                        <p className="text-base md:text-xl font-bold text-cyan-600 dark:text-cyan-400 font-mono">
+                                            ${projectedToDate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </p>
+                                    </div>
+                                )}
+
                                 <div className="text-center">
                                     <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1 truncate">
                                         {t('sales.charts.actual')}

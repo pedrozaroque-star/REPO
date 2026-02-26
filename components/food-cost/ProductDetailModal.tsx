@@ -27,6 +27,7 @@ interface ProductItem {
     food_cost_percent: number
     has_recipe: boolean
     missing_prices: boolean
+    modifier_guids?: string[]
 }
 
 interface ProductDetailModalProps {
@@ -50,6 +51,11 @@ export default function ProductDetailModal({ item, onClose }: ProductDetailModal
         const params = new URLSearchParams()
         params.append('guid', item.guid)
         params.append('name', item.name)
+        params.append('quantity', item.quantity.toString())
+
+        if (item.modifier_guids && item.modifier_guids.length > 0) {
+            params.append('modifiers', item.modifier_guids.join(','))
+        }
 
         fetch(`/api/inventory/recipe-detail?${params.toString()}`)
             .then(r => r.json())

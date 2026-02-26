@@ -29,6 +29,7 @@ interface FoodCostItem {
     missing_prices: boolean
     store_name?: string
     total_meat_lbs: number
+    modifier_guids?: string[]
 }
 
 export default function StoreFoodCostDetail() {

@@ -378,7 +378,8 @@ export async function GET(request: NextRequest) {
                 missing_prices: missingPrices > 0,
                 store_id: item.store_id, // Pass through
                 store_name: item.store_name, // Pass through
-                total_meat_lbs: totalBaseMeatLbs + totalModMeatLbs
+                total_meat_lbs: totalBaseMeatLbs + totalModMeatLbs,
+                modifier_guids: item.modifier_guids
             }
         })
 
