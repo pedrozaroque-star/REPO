@@ -269,13 +269,14 @@ export default function SalesCharts({ trendData, period }: ChartsProps) {
                             }
                         }, 0) : 0;
 
-                        const diff = totalActual - totalProjected
-                        const percentDiff = totalProjected > 0 ? (diff / totalProjected) * 100 : 0
+                        const baseProjected = period === 'today' ? projectedToDate : totalProjected;
+                        const diff = totalActual - baseProjected
+                        const percentDiff = baseProjected > 0 ? (diff / baseProjected) * 100 : 0
                         const isPositive = diff >= 0
 
                         return (
                             <>
-                                {hasProjections && (
+                                {hasProjections && period === 'today' && (
                                     <div className="text-center border-r border-slate-200 dark:border-slate-700 pr-4 md:pr-8">
                                         <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1 truncate">
                                             {language === 'es' ? 'Proy. a la Fecha' : 'Proj. To Date'}

@@ -62,8 +62,9 @@ function SalesPageContent() {
 
                 // Handle derived columns
                 if (sortConfig.key === 'diff') {
-                    aValue = a.amount - (a.projectedToDate || 0)
-                    bValue = b.amount - (b.projectedToDate || 0)
+                    const isToday = period === 'today'
+                    aValue = a.amount - (isToday ? (a.projectedToDate || 0) : (a.projectedSales || 0))
+                    bValue = b.amount - (isToday ? (b.projectedToDate || 0) : (b.projectedSales || 0))
                 } else if (sortConfig.key === 'avgTicket') {
                     aValue = a.amount / (a.orderCount || 1)
                     bValue = b.amount / (b.orderCount || 1)
@@ -760,17 +761,19 @@ function SalesPageContent() {
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                             </div>
                                         </th>
-                                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedToDate')}>
-                                            <div className="flex items-center justify-end gap-1 text-cyan-500">
-                                                {t('sales.charts.projectedToDate') ? t('sales.charts.projectedToDate').toUpperCase() : 'PROJ. TO DATE'}
-                                                {sortConfig?.key === 'projectedToDate' ? (
-                                                    sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-                                                ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
-                                            </div>
-                                        </th>
+                                        {period === 'today' && (
+                                            <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedToDate')}>
+                                                <div className="flex items-center justify-end gap-1 text-cyan-500">
+                                                    PROJ. TO DATE
+                                                    {sortConfig?.key === 'projectedToDate' ? (
+                                                        sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                    ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
+                                                </div>
+                                            </th>
+                                        )}
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('amount')}>
                                             <div className="flex items-center justify-end gap-1">
-                                                {t('sales.net_sales')}
+                                                ACTUAL
                                                 {sortConfig?.key === 'amount' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-emerald-500" /> : <ChevronDown size={14} className="text-emerald-500" />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
@@ -778,7 +781,7 @@ function SalesPageContent() {
                                         </th>
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedSales')}>
                                             <div className="flex items-center justify-end gap-1 text-indigo-500">
-                                                {t('sales.projected').toUpperCase()}
+                                                PROJECTED
                                                 {sortConfig?.key === 'projectedSales' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
@@ -786,7 +789,7 @@ function SalesPageContent() {
                                         </th>
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('diff')}>
                                             <div className="flex items-center justify-end gap-1 text-emerald-600 dark:text-emerald-400">
-                                                {t('sales.difference').toUpperCase()}
+                                                VARIANCE
                                                 {sortConfig?.key === 'diff' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
@@ -835,18 +838,20 @@ function SalesPageContent() {
                                                 <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-lg">
                                                     {formatStoreName(store.name || store.storeName)}
                                                 </td>
-                                                <td className="px-6 py-4 text-right text-cyan-600 dark:text-cyan-400 font-mono font-bold text-lg">
-                                                    ${(store.projectedToDate || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </td>
+                                                {period === 'today' && (
+                                                    <td className="px-6 py-4 text-right text-cyan-600 dark:text-cyan-400 font-mono font-bold text-lg">
+                                                        ${(store.projectedToDate || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                )}
                                                 <td className="px-6 py-4 text-right text-emerald-600 dark:text-emerald-400 font-mono font-bold text-lg">
                                                     ${store.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-lg">
                                                     ${(store.projectedSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (store.projectedToDate || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                                    {store.amount - (store.projectedToDate || 0) >= 0 ? '+' : ''}
-                                                    ${(store.amount - (store.projectedToDate || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (period === 'today' ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                    {store.amount - (period === 'today' ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? '+' : ''}
+                                                    ${(store.amount - (period === 'today' ? (store.projectedToDate || 0) : (store.projectedSales || 0))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-700 dark:text-white font-medium">
                                                     {orders.toLocaleString('en-US')}
