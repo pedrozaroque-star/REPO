@@ -186,6 +186,11 @@ export function EmployeeRow({
                                                     ${isPublished ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-slate-400'}
                                                 `}>
                                                     {formatTime12h(shift.start_time)} - {formatTime12h(shift.end_time)}
+                                                    {sStats.totalOT > 0 && (
+                                                        <span className="text-red-500 dark:text-red-400 ml-1 text-[11px] font-black" title="Overtime">
+                                                            ({sStats.totalOT.toFixed(1)}h OT)
+                                                        </span>
+                                                    )}
                                                 </div>
 
                                                 {/* ACTUAL PUNCH OVERLAY */}
@@ -197,27 +202,19 @@ export function EmployeeRow({
                                                     </div>
                                                 )}
 
-                                                {/* BREAKS OVERLAY */}
+                                                {/* BREAKS OVERLAY (MINIMALIST) */}
                                                 {matchedPunch?.breaks && Array.isArray(matchedPunch.breaks) && matchedPunch.breaks.length > 0 && (
-                                                    <div className="flex flex-col items-center mt-0.5 w-full gap-[1px]">
+                                                    <div className="flex flex-col items-center mt-[1px] w-full gap-[1px]">
                                                         {matchedPunch.breaks.map((rk: any, idx: number) => {
                                                             const bIn = formatRealTime(rk.inDate);
                                                             const bOut = formatRealTime(rk.outDate);
                                                             if (!bIn) return null;
                                                             return (
-                                                                <div key={idx} className="text-[9px] font-bold tracking-tight flex items-center gap-1 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10 px-1 rounded border border-orange-200 dark:border-orange-500/20" title={rk.paid ? "Break (Pagado)" : "Lunch (No Pagado)"}>
-                                                                    ☕ {bIn} <span className="text-gray-400 dark:text-slate-600 font-normal">➔</span> {bOut || '--'}
+                                                                <div key={idx} className="text-[10px] font-medium tracking-tight flex items-center gap-1 text-gray-500 dark:text-slate-400" title={rk.paid ? "Break (Pagado)" : "Lunch (No Pagado)"}>
+                                                                    {bIn} <span className="text-gray-300 dark:text-slate-600 font-normal">➔</span> {bOut || '--'}
                                                                 </div>
                                                             );
                                                         })}
-                                                    </div>
-                                                )}
-
-                                                {/* OT Indicator */}
-                                                {sStats.totalOT > 0 && (
-                                                    <div className="mt-1 flex items-center gap-1 justify-center">
-                                                        <div className="h-1 w-1 bg-red-500 rounded-full animate-pulse"></div>
-                                                        <span className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-wider">{sStats.totalOT.toFixed(1)}h OT</span>
                                                     </div>
                                                 )}
                                             </div>
