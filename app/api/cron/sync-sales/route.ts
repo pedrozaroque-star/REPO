@@ -58,6 +58,16 @@ export async function GET(request: Request) {
                         process.env.SUPABASE_SERVICE_ROLE_KEY!
                     )
 
+                    // 🛡️ REGLA: Borrar explícitamente el día antes de insertar
+                    const { error: deleteError } = await supabase
+                        .from('sales_daily_cache')
+                        .delete()
+                        .eq('business_date', dateStr)
+
+                    if (deleteError) {
+                        console.error(`❌ [CRON] Error borrando caché previa para ${dateStr}:`, deleteError)
+                    }
+
                     const dbRows = rows.map(r => ({
                         store_id: r.storeId,
                         store_name: r.storeName || 'Unknown Store',

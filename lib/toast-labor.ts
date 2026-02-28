@@ -325,6 +325,7 @@ export async function syncToastPunches(storeId: string, startDate: string, endDa
                 regular_hours: p.regularHours || 0,
                 overtime_hours: p.overtimeHours || 0,
                 hourly_wage: p.hourlyWage || null,
+                breaks: p.breaks || null,
                 last_updated: new Date().toISOString()
             }
         })

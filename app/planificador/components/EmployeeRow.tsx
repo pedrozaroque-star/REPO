@@ -197,6 +197,22 @@ export function EmployeeRow({
                                                     </div>
                                                 )}
 
+                                                {/* BREAKS OVERLAY */}
+                                                {matchedPunch?.breaks && Array.isArray(matchedPunch.breaks) && matchedPunch.breaks.length > 0 && (
+                                                    <div className="flex flex-col items-center mt-0.5 w-full gap-[1px]">
+                                                        {matchedPunch.breaks.map((rk: any, idx: number) => {
+                                                            const bIn = formatRealTime(rk.inDate);
+                                                            const bOut = formatRealTime(rk.outDate);
+                                                            if (!bIn) return null;
+                                                            return (
+                                                                <div key={idx} className="text-[9px] font-bold tracking-tight flex items-center gap-1 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10 px-1 rounded border border-orange-200 dark:border-orange-500/20" title={rk.paid ? "Break (Pagado)" : "Lunch (No Pagado)"}>
+                                                                    ☕ {bIn} <span className="text-gray-400 dark:text-slate-600 font-normal">➔</span> {bOut || '--'}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+
                                                 {/* OT Indicator */}
                                                 {sStats.totalOT > 0 && (
                                                     <div className="mt-1 flex items-center gap-1 justify-center">

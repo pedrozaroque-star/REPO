@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     // 2. Determine Date Range (Last 3 days to cover edits/delays) - UTC Optimized
     const end = new Date()
     const start = new Date()
-    start.setDate(end.getDate() - 14) // 2 Weeks lookback to catch late edits/ghost shifts
+    start.setDate(end.getDate() - 3) // 3 Days lookback instead of 14 to prevent Vercel 5min timeout
 
     // Format ISO for Toast (YYYY-MM-DDThh:mm:ss.000+0000)
     const startIso = start.toISOString().split('T')[0] + 'T00:00:00.000+0000'
