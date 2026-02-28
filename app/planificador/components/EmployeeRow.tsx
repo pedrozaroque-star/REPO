@@ -10,6 +10,7 @@ export function EmployeeRow({
     getShiftsForCell,
     jobs,
     weeklyStats,
+    punches,
     handleDragStart,
     handleDrop,
     setModalConfig
@@ -148,6 +149,20 @@ export function EmployeeRow({
                                     const sStats = weeklyStats[shift.id] || { totalOT: 0, dailyOT: 0, weeklyOT: 0 };
                                     const isPublished = shift.status === 'published'
 
+                                    // ⚡ Live Punch Match ⚡ 
+                                    let matchedPunch = null;
+                                    if (punches && punches.length > 0) {
+                                        matchedPunch = punches.find((p: any) => p.employee_toast_guid === emp.toast_guid && p.business_date === shift.shift_date);
+                                    }
+
+                                    const formatRealTime = (isoString?: string) => {
+                                        if (!isoString) return null;
+                                        return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+                                    };
+
+                                    const realIn = formatRealTime(matchedPunch?.clock_in);
+                                    const realOut = formatRealTime(matchedPunch?.clock_out);
+
                                     return (
                                         <div
                                             key={shift.id}
@@ -173,9 +188,18 @@ export function EmployeeRow({
                                                     {formatTime12h(shift.start_time)} - {formatTime12h(shift.end_time)}
                                                 </div>
 
+                                                {/* ACTUAL PUNCH OVERLAY */}
+                                                {(realIn || realOut) && (
+                                                    <div className="flex flex-col items-center mt-0.5 pt-0.5 border-t border-black/10 dark:border-white/10 w-full">
+                                                        <div className="text-[10px] font-black tracking-tight flex items-center gap-1 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-1 py-[1px] rounded" title="Entrada / Salida Real">
+                                                            {realIn || '--'} <span className="text-gray-400 dark:text-slate-600 font-normal">➔</span> {realOut || '--'}
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                                 {/* OT Indicator */}
                                                 {sStats.totalOT > 0 && (
-                                                    <div className="mt-1 flex items-center gap-1">
+                                                    <div className="mt-1 flex items-center gap-1 justify-center">
                                                         <div className="h-1 w-1 bg-red-500 rounded-full animate-pulse"></div>
                                                         <span className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-wider">{sStats.totalOT.toFixed(1)}h OT</span>
                                                     </div>

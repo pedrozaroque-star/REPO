@@ -241,5 +241,5 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
 
 
 
-    return { actuals, loading, refetch: forceRefresh }
+    return { actuals, loading, refetch: forceRefresh, punches }
 }

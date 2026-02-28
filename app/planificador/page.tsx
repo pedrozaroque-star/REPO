@@ -113,7 +113,7 @@ export default function SchedulePlanner() {
     const { projections, setProjections, calculateProjections, isGenerating: isCalcProjections } = useSmartProjections(storeGuid, weekStart)
     const visibleEmployees: Employee[] = useVisibleEmployees(employees, shifts, jobs)
     const { weather } = useWeather(storeGuid)
-    const { actuals, loading: loadingActuals, refetch: refetchActuals } = useActualStats(storeGuid, weekStart) // NEW
+    const { actuals, loading: loadingActuals, refetch: refetchActuals, punches } = useActualStats(storeGuid, weekStart) // NEW
 
     // 🧠 AUTO-TRIGGER AI PROJECTIONS (Cerebrito)
     useEffect(() => {
@@ -1285,6 +1285,7 @@ export default function SchedulePlanner() {
                                             getShiftsForCell={(id: string | null, d: Date) => shifts.filter(s => (s.employee_id === id) && s.shift_date === formatDateISO(d))}
                                             jobs={jobs}
                                             weeklyStats={shiftStats}
+                                            punches={punches}
                                             handleDragStart={handleDragStart}
                                             handleDrop={handleDrop}
                                             setModalConfig={setModalConfig}

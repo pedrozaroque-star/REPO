@@ -62,9 +62,9 @@ function SalesPageContent() {
 
                 // Handle derived columns
                 if (sortConfig.key === 'diff') {
-                    const isToday = period === 'today'
-                    aValue = a.amount - (isToday ? (a.projectedToDate || 0) : (a.projectedSales || 0))
-                    bValue = b.amount - (isToday ? (b.projectedToDate || 0) : (b.projectedSales || 0))
+                    const isCurrentPeriod = ['today', 'week', 'month'].includes(period)
+                    aValue = a.amount - (isCurrentPeriod ? (a.projectedToDate || 0) : (a.projectedSales || 0))
+                    bValue = b.amount - (isCurrentPeriod ? (b.projectedToDate || 0) : (b.projectedSales || 0))
                 } else if (sortConfig.key === 'avgTicket') {
                     aValue = a.amount / (a.orderCount || 1)
                     bValue = b.amount / (b.orderCount || 1)
@@ -158,7 +158,10 @@ function SalesPageContent() {
                 if (row.periodStart && row.periodStart < nowDateStr) {
                     rowProjToDate = row.projectedSales || 0;
                 } else if (!row.periodStart || row.periodStart === nowDateStr) {
-                    rowProjToDate = row.projectedSales || 0;
+                    const currentBizHour = now.getHours() < 6 ? now.getHours() + 24 : now.getHours();
+                    const elapsedHours = currentBizHour - 6;
+                    const elapsedFraction = elapsedHours < 0 ? 0 : Math.min((elapsedHours + currentMinuteRatio) / 24, 1);
+                    rowProjToDate = (row.projectedSales || 0) * elapsedFraction;
                 }
             }
 
@@ -761,7 +764,7 @@ function SalesPageContent() {
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                             </div>
                                         </th>
-                                        {period === 'today' && (
+                                        {['today', 'week', 'month'].includes(period) && (
                                             <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedToDate')}>
                                                 <div className="flex items-center justify-end gap-1 text-cyan-500">
                                                     PROJ. TO DATE
@@ -838,7 +841,7 @@ function SalesPageContent() {
                                                 <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-lg">
                                                     {formatStoreName(store.name || store.storeName)}
                                                 </td>
-                                                {period === 'today' && (
+                                                {['today', 'week', 'month'].includes(period) && (
                                                     <td className="px-6 py-4 text-right text-cyan-600 dark:text-cyan-400 font-mono font-bold text-lg">
                                                         ${(store.projectedToDate || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </td>
@@ -849,9 +852,9 @@ function SalesPageContent() {
                                                 <td className="px-6 py-4 text-right text-indigo-500 dark:text-indigo-400 font-mono font-bold text-lg">
                                                     ${(store.projectedSales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (period === 'today' ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                                    {store.amount - (period === 'today' ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? '+' : ''}
-                                                    ${(store.amount - (period === 'today' ? (store.projectedToDate || 0) : (store.projectedSales || 0))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                <td className={`px-6 py-4 text-right font-mono font-bold text-lg ${store.amount - (['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                                    {store.amount - (['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0)) >= 0 ? '+' : ''}
+                                                    ${(store.amount - (['today', 'week', 'month'].includes(period) ? (store.projectedToDate || 0) : (store.projectedSales || 0))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-slate-700 dark:text-white font-medium">
                                                     {orders.toLocaleString('en-US')}

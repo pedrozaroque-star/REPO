@@ -264,19 +264,27 @@ export default function SalesCharts({ trendData, period }: ChartsProps) {
                                 if (d.time === nowStr) return sum + ((d.projected || 0) * currentMinuteRatio);
                                 return sum;
                             } else {
-                                const isPastOrCurrent = d.time <= nowDateStr;
-                                return sum + (isPastOrCurrent ? (d.projected || 0) : 0);
+                                if (d.time < nowDateStr) {
+                                    return sum + (d.projected || 0);
+                                } else if (d.time === nowDateStr) {
+                                    const currentBizHour = now.getHours() < 6 ? now.getHours() + 24 : now.getHours();
+                                    const elapsedHours = currentBizHour - 6;
+                                    const elapsedFraction = elapsedHours < 0 ? 0 : Math.min((elapsedHours + currentMinuteRatio) / 24, 1);
+                                    return sum + ((d.projected || 0) * elapsedFraction);
+                                }
+                                return sum;
                             }
                         }, 0) : 0;
 
-                        const baseProjected = period === 'today' ? projectedToDate : totalProjected;
+                        const isCurrentPeriod = ['today', 'week', 'month'].includes(period || '');
+                        const baseProjected = isCurrentPeriod ? projectedToDate : totalProjected;
                         const diff = totalActual - baseProjected
                         const percentDiff = baseProjected > 0 ? (diff / baseProjected) * 100 : 0
                         const isPositive = diff >= 0
 
                         return (
                             <>
-                                {hasProjections && period === 'today' && (
+                                {hasProjections && isCurrentPeriod && (
                                     <div className="text-center border-r border-slate-200 dark:border-slate-700 pr-4 md:pr-8">
                                         <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1 truncate">
                                             {language === 'es' ? 'Proy. a la Fecha' : 'Proj. To Date'}
