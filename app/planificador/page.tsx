@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
-import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle } from 'lucide-react'
+import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle, AlertTriangle } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -10,7 +10,7 @@ import { useLanguage } from '@/lib/i18n'
 
 // Libs & Types
 import { Shift, Employee, Job } from './lib/types'
-import { toast, formatDateISO, addDays, getMonday, getRoleWeight, formatStoreName } from './lib/utils'
+import { toast, formatDateISO, formatDateNice, addDays, getMonday, getRoleWeight, formatStoreName } from './lib/utils'
 
 // Components
 import { PlanificadorHeader } from './components/PlanificadorHeader'
@@ -169,6 +169,122 @@ export default function SchedulePlanner() {
     const [shiftsToPublish, setShiftsToPublish] = useState<Shift[]>([])
     const [isToolbarVisible, setIsToolbarVisible] = useState(false)
     const [deletedPublishedEmpIds, setDeletedPublishedEmpIds] = useState<string[]>([])
+    const [violationModal, setViolationModal] = useState<{ isOpen: boolean, violations: any[] }>({ isOpen: false, violations: [] })
+    const [lastAnalyzedPunches, setLastAnalyzedPunches] = useState<string>('')
+
+    // 🚦 BREAK/LUNCH VIOLATIONS ALARM
+    useEffect(() => {
+        if (!punches || punches.length === 0 || employees.length === 0) return;
+
+        const runSignature = `${punches.length}-${storeGuid}-${weekStart.getTime()}`;
+        if (lastAnalyzedPunches === runSignature) return;
+
+        const violations: any[] = [];
+        punches.forEach((p: any) => {
+            if (p.breaks && Array.isArray(p.breaks)) {
+                p.breaks.forEach((b: any) => {
+                    if (!b.inDate || !b.outDate) return;
+                    const start = new Date(b.inDate).getTime();
+                    const end = new Date(b.outDate).getTime();
+                    const diffMins = (end - start) / 60000;
+
+                    if (b.paid) {
+                        if (diffMins > 12) {
+                            violations.push({ employeeRef: p.employee_toast_guid, type: 'BRK', allowed: 10, actual: diffMins, date: p.business_date, inDate: b.inDate, outDate: b.outDate });
+                        }
+                    } else {
+                        if (diffMins > 32) {
+                            violations.push({ employeeRef: p.employee_toast_guid, type: 'LUN', allowed: 30, actual: diffMins, date: p.business_date, inDate: b.inDate, outDate: b.outDate });
+                        }
+                    }
+                });
+            }
+        });
+
+        if (violations.length > 0) {
+            const detailedViolations = violations.map(v => {
+                const emp = employees.find((e: any) => e.toast_guid === v.employeeRef);
+                return {
+                    ...v,
+                    name: emp ? `${emp.chosen_name || emp.first_name} ${emp.last_name}` : 'Unknown'
+                };
+            }).filter(v => v.name !== 'Unknown');
+
+            if (detailedViolations.length > 0) {
+                // Consultar en base de datos si ya fueron avisados
+                const checkDbAndShow = async () => {
+                    const supabase = await getSupabaseClient()
+                    const { data: existing } = await supabase
+                        .from('punch_violations')
+                        .select('employee_toast_guid, business_date, in_time')
+                        .eq('store_id', storeGuid)
+
+                    const mapped = detailedViolations.map(v => {
+                        let isAlreadyNotified = false;
+                        if (existing && existing.length > 0) {
+                            isAlreadyNotified = existing.some((dbV: any) => {
+                                return dbV.employee_toast_guid === v.employeeRef &&
+                                    dbV.business_date === v.date &&
+                                    new Date(dbV.in_time).getTime() === new Date(v.inDate).getTime()
+                            })
+                        }
+                        return { ...v, isNotified: isAlreadyNotified };
+                    })
+
+                    // We now show all violations even if notified, so the manager can see the "Enviado" badge.
+                    if (mapped.length > 0) {
+                        setViolationModal({ isOpen: true, violations: mapped });
+                    }
+                }
+
+                checkDbAndShow();
+            }
+        }
+        setLastAnalyzedPunches(runSignature);
+    }, [punches, employees, lastAnalyzedPunches, storeGuid, weekStart]);
+
+    const [isSendingViolations, setIsSendingViolations] = useState(false);
+
+    const handleAcknowledgeViolations = async () => {
+        const toSend = violationModal.violations.filter(v => !v.isNotified);
+
+        if (toSend.length === 0) {
+            setViolationModal(prev => ({ ...prev, isOpen: false }))
+            return;
+        }
+
+        setIsSendingViolations(true);
+        try {
+            const res = await fetch('/api/scheduler/violations/notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    violations: toSend,
+                    userEmail: user?.email,
+                    userRole: user?.role,
+                    userId: user?.id,
+                    storeId: storeGuid
+                })
+            })
+
+            const resData = await res.json()
+
+            if (!res.ok) {
+                throw new Error(resData.error || 'Failed to send notifications')
+            }
+
+            if (!user?.role?.toLowerCase().includes('admin')) {
+                toast.success(resData.message || (language === 'en' ? 'Notifications sent and recorded.' : 'Notificaciones enviadas y guardadas.'))
+            }
+
+            setViolationModal(prev => ({ ...prev, isOpen: false }))
+        } catch (error: any) {
+            console.error(error)
+            toast.error(error.message)
+        } finally {
+            setIsSendingViolations(false);
+        }
+    }
 
     // ... (This block is just to locate the insertion point correctly, I will replace the start of handlers area with the useMemo + handlers)
     // Actually, I can insert it right after the hooks section.
@@ -1322,6 +1438,111 @@ export default function SchedulePlanner() {
                 onClose={() => setIsPrintModalOpen(false)}
                 url={`/planificador/imprimir?storeId=${storeGuid}&startDate=${formatDateISO(weekStart)}`}
             />
+
+            {/* 🚨 VIOLATION MODAL */}
+            <AnimatePresence>
+                {violationModal.isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, y: 50, opacity: 0 }}
+                            animate={{ scale: 1, y: 0, opacity: 1 }}
+                            exit={{ scale: 0.9, y: 50, opacity: 0 }}
+                            className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl border-4 border-red-500 overflow-hidden"
+                        >
+                            <div className="bg-red-500 p-6 text-center">
+                                <AlertTriangle size={48} className="mx-auto text-white mb-2 animate-pulse" />
+                                <h2 className="text-2xl font-black text-white uppercase tracking-widest">
+                                    {language === 'en' ? 'Urgent Alert' : 'Alerta Urgente'}
+                                </h2>
+                                <p className="text-red-100 font-medium">
+                                    {language === 'en' ? 'Time Exceeded on Breaks/Lunches' : 'Tiempo Excedido en Breaks/Lunches'}
+                                </p>
+                            </div>
+
+                            <div className="p-6 max-h-[50vh] overflow-y-auto custom-scrollbar">
+                                <ul className="space-y-3">
+                                    {(() => {
+                                        const grouped: Record<string, any[]> = {};
+                                        violationModal.violations.forEach(v => {
+                                            if (!grouped[v.name]) grouped[v.name] = [];
+                                            grouped[v.name].push(v);
+                                        });
+
+                                        return Object.entries(grouped)
+                                            .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
+                                            .map(([name, vList], idx) => {
+                                                const sorted = [...vList].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || new Date(a.inDate).getTime() - new Date(b.inDate).getTime());
+
+                                                return (
+                                                    <li key={idx} className="flex flex-col bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50 rounded-xl p-4 shadow-sm">
+                                                        <div className="flex justify-between items-start mb-3">
+                                                            <span className="font-bold text-red-900 dark:text-red-200 text-lg">{name}</span>
+                                                        </div>
+                                                        <div className="space-y-3">
+                                                            {sorted.map((v, i) => {
+                                                                const formatTime = (isoString?: string) => {
+                                                                    if (!isoString) return '--';
+                                                                    return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                                                                };
+                                                                return (
+                                                                    <div key={i} className="flex flex-col bg-white dark:bg-slate-800 rounded-lg p-3 border border-red-100 dark:border-red-900/30">
+                                                                        <div className="flex justify-between items-center mb-1">
+                                                                            <span className="text-xs font-black px-2 py-0.5 rounded-full bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200">
+                                                                                {formatDateNice(v.date)}
+                                                                            </span>
+                                                                            {v.isNotified && (
+                                                                                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 flex items-center gap-1">
+                                                                                    <span>✓</span> {language === 'en' ? 'Sent' : 'Avisado'}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-[11px] text-red-700/80 dark:text-red-300/80 font-bold tracking-tight mb-2">
+                                                                            ⏱ {formatTime(v.inDate)} ➔ {formatTime(v.outDate)}
+                                                                        </div>
+                                                                        <div className="flex justify-between items-center font-medium text-sm text-red-800 dark:text-red-300">
+                                                                            <span>
+                                                                                {v.type === 'BRK' ? 'Break' : 'Lunch'}: {language === 'en' ? 'Allowed' : 'Permitido'} {v.allowed} min
+                                                                            </span>
+                                                                            <span className="font-black text-red-600 dark:text-red-400">
+                                                                                {language === 'en' ? 'Actual' : 'Real'} {Math.round(v.actual)} min
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </li>
+                                                );
+                                            });
+                                    })()}
+                                </ul>
+                            </div>
+
+                            <div className="p-4 bg-gray-50 dark:bg-slate-800 border-t border-gray-100 dark:border-slate-800 flex justify-end">
+                                <button
+                                    onClick={handleAcknowledgeViolations}
+                                    disabled={isSendingViolations}
+                                    className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
+                                >
+                                    {isSendingViolations ? (
+                                        <>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            {language === 'en' ? 'Processing...' : 'Procesando...'}
+                                        </>
+                                    ) : (
+                                        language === 'en' ? 'Acknowledge' : 'Entendido'
+                                    )}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     )
 }
