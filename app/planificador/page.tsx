@@ -1211,6 +1211,7 @@ export default function SchedulePlanner() {
                         laborStats={dailyLaborStats}
                         projections={projections}
                         actuals={actuals}
+                        punches={punches}
                         isExternalLoading={loadingActuals || isCalcProjections}
                         onRefresh={refetchActuals}
                         onCalculateProjections={calculateProjections}
@@ -1293,6 +1294,9 @@ export default function SchedulePlanner() {
                                     ))}
                                 </Reorder.Group>
                             </table>
+
+                            {/* PADDING FOR BUDGET TOOL: Prevents the sticky BudgetTool from hiding the last row */}
+                            <div className="h-20 w-full bg-transparent" />
 
                             <BudgetTool
                                 weekStart={weekStart}

@@ -27,6 +27,7 @@ interface MobilePlannerViewProps {
     laborStats: Record<string, any>
     projections: Record<string, any>
     actuals: Record<string, any>
+    punches?: any[]
     onEditShift: (shift: any, date: Date, empId: string) => void
     onAddShift: (date: Date, empId: string) => void
     onShowSalesDetail: (date: string) => void
@@ -44,6 +45,7 @@ export function MobilePlannerView({
     laborStats,
     projections,
     actuals,
+    punches = [],
     onEditShift,
     onAddShift,
     onShowSalesDetail,
@@ -276,6 +278,23 @@ export function MobilePlannerView({
                                     const jobTitle = job?.title || 'Rol'
                                     const jobColor = stringToColor(jobTitle)
 
+                                    let matchedPunch = null;
+                                    let realIn = '';
+                                    let realOut = '';
+
+                                    const formatRealTime = (isoString?: string) => {
+                                        if (!isoString) return null;
+                                        return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+                                    };
+
+                                    if (punches && punches.length > 0 && empShifts.length > 0) {
+                                        matchedPunch = punches.find((p: any) => p.employee_toast_guid === emp.toast_guid && p.business_date === empShifts[0].shift_date);
+                                        if (matchedPunch) {
+                                            if (matchedPunch.clock_in) realIn = formatRealTime(matchedPunch.clock_in) || '';
+                                            if (matchedPunch.clock_out) realOut = formatRealTime(matchedPunch.clock_out) || '';
+                                        }
+                                    }
+
                                     return (
                                         <motion.div
                                             key={emp.id}
@@ -330,6 +349,37 @@ export function MobilePlannerView({
                                                                     {formatTime12h(empShifts[0].start_time)} - {formatTime12h(empShifts[0].end_time)}
                                                                 </div>
                                                             </div>
+
+                                                            {/* ACTUAL PUNCH OVERLAY */}
+                                                            {(realIn || realOut) && (
+                                                                <div className="text-[10px] font-black tracking-tight flex items-center gap-1 text-sky-600 dark:text-sky-400 mt-1" title="Entrada / Salida Real">
+                                                                    {realIn || '--'} <span className="text-sky-400/70 dark:text-sky-600/70 font-normal">➔</span> {realOut || '--'}
+                                                                </div>
+                                                            )}
+
+                                                            {/* BREAKS OVERLAY (MINIMALIST) */}
+                                                            {matchedPunch?.breaks && Array.isArray(matchedPunch.breaks) && matchedPunch.breaks.length > 0 && (
+                                                                <div className="flex flex-col items-end mt-0.5 gap-[1px]">
+                                                                    {[...matchedPunch.breaks].sort((a: any, b: any) => new Date(a.inDate).getTime() - new Date(b.inDate).getTime()).map((rk: any, idx: number) => {
+                                                                        const formatRealTimeLocal = (isoString?: string) => {
+                                                                            if (!isoString) return null;
+                                                                            return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+                                                                        };
+                                                                        const bIn = formatRealTimeLocal(rk.inDate);
+                                                                        const bOut = formatRealTimeLocal(rk.outDate);
+                                                                        const typeLabel = rk.paid ? "BRK" : "LUN";
+                                                                        const colorClass = rk.paid ? "text-orange-600 dark:text-orange-400" : "text-blue-600 dark:text-blue-400";
+
+                                                                        if (!bIn) return null;
+                                                                        return (
+                                                                            <div key={idx} className="text-[9px] font-medium tracking-tight flex items-center gap-1 text-gray-600 dark:text-slate-300">
+                                                                                <span className={`font-bold text-[8px] ${colorClass}`}>{typeLabel}</span> {bIn} <span className="text-gray-300 dark:text-slate-600 font-normal">➔</span> {bOut || '--'}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+
                                                             {shiftStats[empShifts[0].id]?.totalOT > 0 && (
                                                                 <span className="text-[10px] text-red-600 dark:text-red-400 font-black mt-1 uppercase tracking-tighter">
                                                                     {shiftStats[empShifts[0].id].totalOT.toFixed(1)}h OT ⚡

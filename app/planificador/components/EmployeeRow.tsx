@@ -178,7 +178,7 @@ export function EmployeeRow({
                                             style={{
                                                 borderLeftColor: stringToColor(jobTitle),
                                                 borderColor: !isPublished ? stringToColor(jobTitle) : undefined,
-                                                backgroundColor: `${stringToColor(jobTitle)}20` // Always apply tint (Draft & Published)
+                                                backgroundColor: `${stringToColor(jobTitle)}${isPublished ? '15' : '20'}` // Softer tint when Published
                                             }}
                                         >
                                             <div className="flex flex-col justify-center gap-0.5">
@@ -196,8 +196,8 @@ export function EmployeeRow({
                                                 {/* ACTUAL PUNCH OVERLAY */}
                                                 {(realIn || realOut) && (
                                                     <div className="flex flex-col items-center mt-0.5 pt-0.5 border-t border-black/10 dark:border-white/10 w-full">
-                                                        <div className="text-[10px] font-black tracking-tight flex items-center gap-1 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-1 py-[1px] rounded" title="Entrada / Salida Real">
-                                                            {realIn || '--'} <span className="text-gray-400 dark:text-slate-600 font-normal">➔</span> {realOut || '--'}
+                                                        <div className="text-[10px] font-black tracking-tight flex items-center gap-1 text-sky-600 dark:text-sky-400 px-1 py-[1px] rounded" title="Entrada / Salida Real">
+                                                            {realIn || '--'} <span className="text-sky-400/70 dark:text-sky-600/70 font-normal">➔</span> {realOut || '--'}
                                                         </div>
                                                     </div>
                                                 )}
@@ -205,13 +205,16 @@ export function EmployeeRow({
                                                 {/* BREAKS OVERLAY (MINIMALIST) */}
                                                 {matchedPunch?.breaks && Array.isArray(matchedPunch.breaks) && matchedPunch.breaks.length > 0 && (
                                                     <div className="flex flex-col items-center mt-[1px] w-full gap-[1px]">
-                                                        {matchedPunch.breaks.map((rk: any, idx: number) => {
+                                                        {[...matchedPunch.breaks].sort((a: any, b: any) => new Date(a.inDate).getTime() - new Date(b.inDate).getTime()).map((rk: any, idx: number) => {
                                                             const bIn = formatRealTime(rk.inDate);
                                                             const bOut = formatRealTime(rk.outDate);
+                                                            const typeLabel = rk.paid ? "BRK" : "LUN";
+                                                            const colorClass = rk.paid ? "text-orange-600 dark:text-orange-400" : "text-blue-600 dark:text-blue-400";
+
                                                             if (!bIn) return null;
                                                             return (
-                                                                <div key={idx} className="text-[10px] font-medium tracking-tight flex items-center gap-1 text-gray-500 dark:text-slate-400" title={rk.paid ? "Break (Pagado)" : "Lunch (No Pagado)"}>
-                                                                    {bIn} <span className="text-gray-300 dark:text-slate-600 font-normal">➔</span> {bOut || '--'}
+                                                                <div key={idx} className="text-[10px] font-medium tracking-tight flex items-center gap-1 text-gray-600 dark:text-slate-300" title={rk.paid ? "Break (Pagado)" : "Lunch (No Pagado)"}>
+                                                                    <span className={`font-bold text-[9px] ${colorClass}`}>{typeLabel}</span> {bIn} <span className="text-gray-300 dark:text-slate-600 font-normal">➔</span> {bOut || '--'}
                                                                 </div>
                                                             );
                                                         })}
