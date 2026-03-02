@@ -1523,21 +1523,54 @@ export default function SchedulePlanner() {
                                 </ul>
                             </div>
 
-                            <div className="p-4 bg-gray-50 dark:bg-slate-800 border-t border-gray-100 dark:border-slate-800 flex justify-end">
-                                <button
-                                    onClick={handleAcknowledgeViolations}
-                                    disabled={isSendingViolations}
-                                    className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
-                                >
-                                    {isSendingViolations ? (
-                                        <>
-                                            <Loader2 size={16} className="animate-spin" />
-                                            {language === 'en' ? 'Processing...' : 'Procesando...'}
-                                        </>
-                                    ) : (
-                                        language === 'en' ? 'Acknowledge' : 'Entendido'
-                                    )}
-                                </button>
+                            <div className="p-4 bg-gray-50 dark:bg-slate-800 border-t border-gray-100 dark:border-slate-800 flex justify-end gap-3">
+                                {user?.role?.toLowerCase().includes('admin') ? (
+                                    <button
+                                        onClick={() => setViolationModal(prev => ({ ...prev, isOpen: false }))}
+                                        className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 text-gray-800 font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors"
+                                    >
+                                        {language === 'en' ? 'Close' : 'Cerrar'}
+                                    </button>
+                                ) : user?.role?.toLowerCase().includes('supervisor') ? (
+                                    <>
+                                        <button
+                                            onClick={() => setViolationModal(prev => ({ ...prev, isOpen: false }))}
+                                            disabled={isSendingViolations}
+                                            className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 text-gray-800 font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors"
+                                        >
+                                            {language === 'en' ? 'Cancel' : 'Cancelar'}
+                                        </button>
+                                        <button
+                                            onClick={handleAcknowledgeViolations}
+                                            disabled={isSendingViolations}
+                                            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
+                                        >
+                                            {isSendingViolations ? (
+                                                <>
+                                                    <Loader2 size={16} className="animate-spin" />
+                                                    {language === 'en' ? 'Processing...' : 'Procesando...'}
+                                                </>
+                                            ) : (
+                                                language === 'en' ? 'Notify Employees' : 'Avisar a los Empleados'
+                                            )}
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={handleAcknowledgeViolations}
+                                        disabled={isSendingViolations}
+                                        className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
+                                    >
+                                        {isSendingViolations ? (
+                                            <>
+                                                <Loader2 size={16} className="animate-spin" />
+                                                {language === 'en' ? 'Processing...' : 'Procesando...'}
+                                            </>
+                                        ) : (
+                                            language === 'en' ? 'Acknowledge' : 'Entendido'
+                                        )}
+                                    </button>
+                                )}
                             </div>
                         </motion.div>
                     </motion.div>
