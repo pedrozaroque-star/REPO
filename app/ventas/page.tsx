@@ -887,7 +887,7 @@ function SalesPageContent() {
 
 export default function SalesPage() {
     return (
-        <ProtectedRoute allowedRoles={['admin', 'supervisor']}>
+        <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager']}>
             <SalesPageContent />
         </ProtectedRoute>
     )

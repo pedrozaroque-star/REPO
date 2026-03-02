@@ -22,8 +22,8 @@ export async function GET(request: NextRequest) {
         // 2. Validate Role (Admin Only)
         // Check the 'user_role' claim inside the token directly! 
         // Logic: Our /api/login embeds 'user_role' in the JWT.
-        if (user.user_role !== 'admin' && user.user_role !== 'supervisor') {
-            return NextResponse.json({ error: 'Forbidden: Admins & Supervisors Only' }, { status: 403 })
+        if (user.user_role !== 'admin' && user.user_role !== 'supervisor' && user.user_role !== 'manager') {
+            return NextResponse.json({ error: 'Forbidden: Admins, Supervisors & Managers Only' }, { status: 403 })
         }
 
         // ✅ AUTH SUCCESS - PROCEED
