@@ -1541,7 +1541,14 @@ export default function SchedulePlanner() {
                                             {language === 'en' ? 'Cancel' : 'Cancelar'}
                                         </button>
                                         <button
-                                            onClick={handleAcknowledgeViolations}
+                                            onClick={() => {
+                                                const msg = language === 'en'
+                                                    ? 'WARNING: You are about to send an alert message using your SUPERVISOR account to all involved employees of this store. Do you want to continue?'
+                                                    : 'ATENCIÓN: Cuidado, se enviará un mensaje de alerta usando tu cuenta de SUPERVISOR a todos los empleados involucrados de esta tienda. ¿Deseas continuar?';
+                                                if (window.confirm(msg)) {
+                                                    handleAcknowledgeViolations();
+                                                }
+                                            }}
                                             disabled={isSendingViolations}
                                             className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
                                         >
