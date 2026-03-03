@@ -567,22 +567,7 @@ export default function SchedulePlanner() {
 
         if (shiftData) setShifts(shiftData)
 
-        // Check for Saved Budget (Snapshot)
-        const { data: savedBudget } = await supabase
-            .from('weekly_budgets')
-            .select('*')
-            .eq('store_id', storeGuid)
-            .eq('week_start', startStr)
-            .maybeSingle()
-
-        if (savedBudget && savedBudget.sales_projections) {
-            // Use Saved Snapshot
-            console.log('Using saved budget snapshot')
-            setProjections(savedBudget.sales_projections)
-        } else {
-            // Calculate Fresh Projections (Client Side for Footer)
-            calculateProjections()
-        }
+        // removed snapshot load
 
         setSyncing(false)
     }

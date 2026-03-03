@@ -77,9 +77,15 @@ export function ShiftModal({ isOpen, onClose, onSave, onDelete, initialData, emp
         if (!isOpenShift && !empId) return toast.error('Selecciona un empleado')
 
         // Construct Dates
-        // NOTE: mixing defaultDate (Year-Month-Day) with startTime (HH:mm)
-        // Using local time construction
-        const dateBase = new Date(defaultDate)
+        // NOTE: mixing defaultDate (Year-Month-Day or Date object) with startTime (HH:mm)
+        let dateBase: Date
+        if (typeof defaultDate === 'string') {
+            dateBase = new Date(defaultDate.includes('T') ? defaultDate : defaultDate + 'T12:00:00')
+        } else {
+            dateBase = new Date(defaultDate) // It's already a Date object
+        }
+        dateBase.setHours(12, 0, 0, 0) // Force noon to safely avoid TZ edge cases
+
         const [sh, sm] = startTime.split(':').map(Number)
         const [eh, em] = endTime.split(':').map(Number)
 
@@ -87,12 +93,12 @@ export function ShiftModal({ isOpen, onClose, onSave, onDelete, initialData, emp
         start.setHours(sh, sm, 0, 0)
 
         const end = new Date(dateBase)
-        end.setHours(eh, em, 0, 0)
-
-        // Handle overnight shifts (end time < start time)
-        if (end < start) {
+        // Handle overnight shifts logically before evaluating the invalid time
+        const isOvernight = (eh < sh) || (eh === sh && em < sm)
+        if (isOvernight) {
             end.setDate(end.getDate() + 1)
         }
+        end.setHours(eh, em, 0, 0)
 
         onSave({
             id: initialData?.id,
