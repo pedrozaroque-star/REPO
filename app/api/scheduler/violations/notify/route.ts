@@ -64,13 +64,19 @@ async function getTransporter(userId?: string) {
 // Helpers format
 function formatTime(isoString?: string) {
     if (!isoString) return '--'
-    return new Date(isoString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    return new Date(isoString).toLocaleTimeString('en-US', {
+        timeZone: 'America/Los_Angeles',
+        hour: 'numeric', minute: '2-digit', hour12: true
+    })
 }
 
 function formatDateNice(isoString: string) {
     if (!isoString) return ''
     const date = new Date(isoString)
-    return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+    return date.toLocaleDateString('es-ES', {
+        timeZone: 'America/Los_Angeles',
+        day: '2-digit', month: 'short', year: 'numeric'
+    })
 }
 
 export async function POST(req: Request) {
