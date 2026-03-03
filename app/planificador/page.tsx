@@ -171,10 +171,18 @@ export default function SchedulePlanner() {
     const [deletedPublishedEmpIds, setDeletedPublishedEmpIds] = useState<string[]>([])
     const [violationModal, setViolationModal] = useState<{ isOpen: boolean, violations: any[] }>({ isOpen: false, violations: [] })
     const [lastAnalyzedPunches, setLastAnalyzedPunches] = useState<string>('')
+    const lastAlertedStore = useRef<string | null>(null)
 
     // 🚦 BREAK/LUNCH VIOLATIONS ALARM
     useEffect(() => {
-        if (!punches || punches.length === 0 || employees.length === 0) return;
+        if (!punches || punches.length === 0 || employees.length === 0 || !storeGuid) return;
+
+        // ONLY Trigger if the punches ACTUALLY BELONG to the current store
+        // (prevents 'Fast Clicks' bug where it alerts previous store's violations on the new store's screen)
+        if (punches[0].store_id && punches[0].store_id !== storeGuid) return;
+
+        // ONLY trigger if we haven't alerted for THIS store yet
+        if (lastAlertedStore.current === storeGuid) return;
 
         const runSignature = `${punches.length}-${storeGuid}-${weekStart.getTime()}`;
         if (lastAnalyzedPunches === runSignature) return;
@@ -240,6 +248,9 @@ export default function SchedulePlanner() {
                 checkDbAndShow();
             }
         }
+
+        // Mark as alerted for this store so we don't show it again when only changing the week
+        lastAlertedStore.current = storeGuid;
         setLastAnalyzedPunches(runSignature);
     }, [punches, employees, lastAnalyzedPunches, storeGuid, weekStart]);
 

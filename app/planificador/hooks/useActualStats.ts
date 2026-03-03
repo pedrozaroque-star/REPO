@@ -30,7 +30,7 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
         // 2. Fetch Labor (Punches) - Include clock_in/out for manual calc fallback
         const { data: punchData, error: punchError } = await supabase
             .from('punches')
-            .select('business_date, regular_hours, overtime_hours, employee_toast_guid, clock_in, clock_out, breaks')
+            .select('business_date, regular_hours, overtime_hours, employee_toast_guid, clock_in, clock_out, breaks, store_id')
             .eq('store_id', storeGuid)
             .gte('business_date', startStr)
             .lte('business_date', endStr)
