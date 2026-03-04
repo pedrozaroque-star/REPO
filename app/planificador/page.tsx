@@ -197,11 +197,11 @@ export default function SchedulePlanner() {
                     const diffMins = (end - start) / 60000;
 
                     if (b.paid) {
-                        if (diffMins > 12) {
+                        if (diffMins >= 13) {
                             violations.push({ employeeRef: p.employee_toast_guid, type: 'BRK', allowed: 10, actual: diffMins, date: p.business_date, inDate: b.inDate, outDate: b.outDate });
                         }
                     } else {
-                        if (diffMins > 32) {
+                        if (diffMins >= 33) {
                             violations.push({ employeeRef: p.employee_toast_guid, type: 'LUN', allowed: 30, actual: diffMins, date: p.business_date, inDate: b.inDate, outDate: b.outDate });
                         }
                     }
@@ -1493,7 +1493,7 @@ export default function SchedulePlanner() {
                                                                             </span>
                                                                             {v.isNotified && (
                                                                                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 flex items-center gap-1">
-                                                                                    <span>✓</span> {language === 'en' ? 'Sent' : 'Avisado'}
+                                                                                    <span>✓</span> {v.type === 'LUN' ? (language === 'en' ? 'Logged' : 'Registrado') : (language === 'en' ? 'Sent' : 'Enviado')}
                                                                                 </span>
                                                                             )}
                                                                         </div>

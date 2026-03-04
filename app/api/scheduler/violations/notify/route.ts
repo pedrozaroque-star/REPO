@@ -118,11 +118,11 @@ export async function POST(req: Request) {
             out_time: v.outDate,
             allowed_minutes: v.allowed,
             actual_minutes: Math.round(v.actual),
-            status: 'Avisado',
+            status: v.type === 'LUN' ? 'Registrado' : 'Avisado',
             notified_recipients: {
                 initiator: userEmail,
                 initiator_role: userRole,
-                email_sent: true
+                email_sent: v.type === 'BRK'
             }
         }))
 
@@ -172,6 +172,9 @@ export async function POST(req: Request) {
         const { data: emps } = await supabase.from('toast_employees').select('toast_guid, email, first_name').in('toast_guid', emailsToFetch)
 
         for (const v of violations) {
+            // ONLY email employees for BREAKS, stop notifying for LUNCHES
+            if (v.type === 'LUN') continue;
+
             const empDb = emps?.find((e: any) => e.toast_guid === v.employeeRef)
             const empEmail = empDb?.email
             const empName = v.name || empDb?.first_name || 'Empleado'
@@ -198,9 +201,6 @@ export async function POST(req: Request) {
                                 </ul>
                             </div>
                             
-                            <p style="font-size: 14px; color: #475569;">
-                                Recuerda que por políticas de la empresa, acumular <strong>más de 3 infracciones</strong> de tiempo en un mismo mes puede resultar en una suspensión temporal, hasta que se emita una resolución disciplinaria formal.
-                            </p>
                             <p style="font-size: 14px; color: #475569;">
                                 Te invitamos a respetar tus tiempos de descanso para mantener una buena operación en equipo. Si crees que este registro es un error (por ejemplo, olvidaste punchar tu regreso), comunícate inmediatamente con este correo respondíendole a tu gerente.
                             </p>
