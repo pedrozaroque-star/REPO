@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
 import { getSupabaseClient } from '@/lib/supabase'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: Request) {
     // FORCE REBUILD 1 
     const { searchParams } = new URL(request.url)
@@ -51,20 +53,27 @@ export async function GET(request: Request) {
                 actual_hours: row.totalHours.toFixed(2),
                 actual_labor: row.laborPercentage.toFixed(2),
                 actual_avg_order: avgOrder,
-                daily_cars: row.orderCount.toString(),
+                daily_cars: (row.guestCount || 0).toString(),
+                order_count: row.orderCount || 0,
+                sos_time: (() => {
+                    const sec = row.ebtCount || 0
+                    if (!sec) return ''
+                    const m = Math.floor(sec / 60)
+                    const s = sec % 60
+                    return `${m}:${s.toString().padStart(2, '0')}`
+                })(),
 
                 // New Fields for Monthly Report
                 uber_post: (row.uberSales || 0).toFixed(2),
                 doordash: (row.doordashSales || 0).toFixed(2),
-                grubhub: (row.grubhubSales || 0).toFixed(2),
-                ebt: (row.ebtCount || 0).toString(), // Using Count per image analysis (no decimal)
+                ebt: (row.ebtAmount || 0).toFixed(2), // Requesting the total monetary amount, not count
                 // ebt_amount: (row.ebtAmount || 0).toFixed(2), // Available if needed
 
                 open_sales: (() => {
                     const order = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
                     for (const h of order) {
                         const val = row.hourlySales?.[h] || 0
-                        if (val > 0) return val.toFixed(2)
+                        if (val > 20) return val.toFixed(2)
                     }
                     return '0.00'
                 })(),
@@ -75,7 +84,7 @@ export async function GET(request: Request) {
                     for (let i = order.length - 1; i >= 0; i--) {
                         const h = order[i]
                         const val = row.hourlySales?.[h] || 0
-                        if (val > 0) return val.toFixed(2)
+                        if (val > 20) return val.toFixed(2)
                     }
                     return '0.00'
                 })()

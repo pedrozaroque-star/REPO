@@ -1,184 +1,35 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte de Ventas por Supervisor: Apertura vs Cierre 2025</title>
+    <title>Reporte de Ventas por Supervisor: Apertura vs Cierre REAL 2025</title>
     <style>
-        :root {
-            --primary: #D32F2F;
-            --dark: #212121;
-            --light: #F5F5F5;
-            --grey: #9E9E9E;
-            --border: #E0E0E0;
-            --highlight-high: #E8F5E9; /* Green tint */
-            --highlight-low: #FFEBEE; /* Red tint */
-            --text-high: #2E7D32;
-            --text-low: #C62828;
-            --proposal-color: #0288D1; /* Blue for proposals */
-            --proposal-bg: #E1F5FE;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: #F9FAFB;
-            color: #333;
-            margin: 0;
-            padding: 40px;
-            line-height: 1.6;
-        }
-        
-        .container {
-            max-width: 1400px; /* Wider to accommodate new columns */
-            margin: 0 auto;
-            background: white;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        
-        header {
-            background-color: var(--dark);
-            color: white;
-            padding: 30px 40px;
-            border-bottom: 4px solid var(--primary);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
+        :root { --primary: #D32F2F; --dark: #212121; --light: #F5F5F5; --grey: #9E9E9E; --border: #E0E0E0; --highlight-high: #E8F5E9; --highlight-low: #FFEBEE; --text-high: #2E7D32; --text-low: #C62828; --proposal-color: #0288D1; --proposal-bg: #E1F5FE; }
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #F9FAFB; color: #333; margin: 0; padding: 40px; line-height: 1.6; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-radius: 8px; overflow: hidden; }
+        header { background-color: var(--dark); color: white; padding: 30px 40px; border-bottom: 4px solid var(--primary); display: flex; justify-content: space-between; align-items: center; }
         h1 { margin: 0; font-size: 24px; font-weight: 600; }
         .subtitle { opacity: 0.8; font-size: 14px; margin-top: 5px; }
-        
-        .summary-card {
-            padding: 20px 40px;
-            background-color: white;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .supervisor-section {
-            padding: 20px 40px;
-            border-bottom: 4px solid #f0f0f0;
-        }
-        
-        .supervisor-header {
-            background-color: var(--primary);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 4px;
-            font-size: 18px;
-            font-weight: 700;
-            margin-top: 20px;
-            margin-bottom: 20px;
-            display: inline-block;
-        }
-
-        .store-block {
-            margin-bottom: 40px;
-        }
-        
-        .store-header {
-            display: flex;
-            align-items: center;
-            margin-top: 10px;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid var(--border);
-        }
-        
-        .store-title {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--dark);
-            margin: 0;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-        
-        th {
-            text-align: left;
-            padding: 12px 16px;
-            background-color: #f5f5f5;
-            color: #666;
-            font-weight: 600;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        td {
-            padding: 12px 16px;
-            border-bottom: 1px solid #eee;
-        }
-        
+        .summary-card { padding: 20px 40px; background-color: white; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .supervisor-section { padding: 20px 40px; border-bottom: 4px solid #f0f0f0; }
+        .supervisor-header { background-color: var(--primary); color: white; padding: 10px 20px; border-radius: 4px; font-size: 18px; font-weight: 700; margin-top: 20px; margin-bottom: 20px; display: inline-block; }
+        .store-block { margin-bottom: 40px; }
+        .store-header { display: flex; align-items: center; margin-top: 10px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid var(--border); }
+        .store-title { font-size: 18px; font-weight: 700; color: var(--dark); margin: 0; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 12px 16px; background-color: #f5f5f5; color: #666; font-weight: 600; border-bottom: 1px solid #ddd; }
+        td { padding: 12px 16px; border-bottom: 1px solid #eee; }
         tr:last-child td { border-bottom: none; }
-        
         .money { font-family: 'Consolas', monospace; font-weight: 600; }
         .time { color: #555; }
-        
-        /* Intensity Formatting */
         .high-intensity { color: var(--text-high); background-color: var(--highlight-high); }
         .medium-intensity { color: #1565C0; background-color: #E3F2FD; }
         .low-intensity { color: var(--text-low); background-color: var(--highlight-low); font-weight: bold; }
-        
-        .proposal-text {
-            color: var(--proposal-color);
-            background-color: var(--proposal-bg);
-            font-weight: bold;
-            padding: 2px 6px;
-            border-radius: 4px;
-            border: 1px dashed var(--proposal-color);
-        }
-        
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 700;
-        }
-        
-        .footer {
-            background-color: #f9f9f9;
-            padding: 20px 40px;
-            text-align: center;
-            font-size: 12px;
-            color: #888;
-            border-top: 1px solid var(--border);
-        }
-        
-        .print-btn {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-        /* Input specific styles */
-        .input-cell {
-            background-color: #fafafa;
-            border-left: 2px solid #eee;
-        }
-        
-        .input-box {
-            border: 1px solid #ddd;
-            background: white;
-            min-height: 24px;
-            width: 100%;
-            border-radius: 2px;
-            padding: 2px 5px;
-            font-size: 13px;
-        }
-
+        .proposal-text { color: var(--proposal-color); background-color: var(--proposal-bg); font-weight: bold; padding: 2px 6px; border-radius: 4px; border: 1px dashed var(--proposal-color); }
+        .badge { display: inline-block; padding: 4px 8px; font-weight: 600; }
+        .input-cell { background-color: #fafafa; border-left: 2px solid #eee; }
+        .input-box { border: 1px solid #ddd; background: white; min-height: 24px; width: 100%; border-radius: 2px; padding: 2px 5px; font-size: 13px; }
         @media print {
             body { padding: 0; background: white; }
             .container { box-shadow: none; max-width: 100%; border-radius: 0; }
@@ -191,19 +42,17 @@
     </style>
 </head>
 <body>
-
 <div class="container">
     <header>
         <div>
-            <h1>Análisis de Ventas por Supervisor: Apertura vs Cierre</h1>
-            <div class="subtitle">Promedios Anuales 2025 • Basado en Horarios Oficiales (Matriz Estricta)</div>
+            <h1>Análisis de Ventas por Supervisor: Apertura vs Cierre (VERSIÓN INVESTIGACIÓN REAL)</h1>
+            <div class="subtitle">Promedios Anuales 2025 • Modas Reales de Operación de la Sucursal</div>
         </div>
         <button class="print-btn" onclick="window.print()">🖨️ Imprimir PDF</button>
     </header>
-
     <div class="summary-card">
         <div>
-            <p><strong>Metodología:</strong> Promedio de Ventas Netas ($) de 2025 para la primera y última hora oficial de operación.</p>
+            <p><strong>Metodología:</strong> Se analizó ticket por ticket todo 2025 para ubicar los <strong>bloques de horas reales</strong> en los que cada sucursal recibe sus primeras y últimas ventas (filtrando actividad menor de $20). Luego se promedió esa 1ra hora viva contra la última hora viva verdadera.</p>
             <p style="font-size: 12px; color: #666; margin-top: 5px;">
                 <strong>Reglas de Propuesta Automática:</strong><br>
                 1. Apertura: Si vende < $350 -> Proponer abrir 1 hora después<br>
@@ -219,684 +68,603 @@
 
         <div class="supervisor-section">
             <div class="supervisor-header">👮‍♂️ Supervisor: Estefani Duran</div>
-        
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Azusa</h2>
+                    <h2 class="store-title">🏪 Azusa</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money low-intensity">$239.58</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$183.42</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$312.69</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$226.81</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$285.44</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$205.00</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$276.79</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$240.92</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$302.24</td>
                         
-                        <td class="time">1:00 AM</td>
-                        <td class="money ">$255.34</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
+                        <td class="money low-intensity">$124.46</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM a 1:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$283.03</td>
                         
-                        <td class="time">1:00 AM</td>
-                        <td class="money ">$292.10</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
+                        <td class="money low-intensity">$162.91</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM a 1:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$260.60</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$215.95</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Rialto</h2>
+                    <h2 class="store-title">🏪 Rialto</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$170.05</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$404.00</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$227.09</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$415.74</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$223.83</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$481.65</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$218.96</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$312.27</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM a 12:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$258.95</td>
                         
-                        <td class="time">3:00 AM</td>
-                        <td class="money low-intensity">$223.51</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
+                        <td class="money ">$359.49</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">2:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$256.73</td>
                         
-                        <td class="time">3:00 AM</td>
-                        <td class="money low-intensity">$236.76</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
+                        <td class="money ">$459.56</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">2:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$222.04</td>
                         
-                        <td class="time">12:00 AM</td>
-                        <td class="money medium-intensity">$562.41</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
+                        <td class="money ">$376.84</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan West Covina</h2>
+                    <h2 class="store-title">🏪 West Covina</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$189.03</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$351.74</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$207.23</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$368.94</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$232.41</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$437.56</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$220.19</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$474.46</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$262.93</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$350.36</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$328.04</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$457.25</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$236.19</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$446.43</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
-            </div>
-            </div>
+            </div></div>
         <div class="supervisor-section">
             <div class="supervisor-header">👮‍♂️ Supervisor: Javier Pastor</div>
-        
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Hollywood</h2>
+                    <h2 class="store-title">🏪 Hollywood</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$289.41</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$399.17</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$307.54</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$469.41</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$305.36</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$454.44</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$305.21</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money medium-intensity">$520.24</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$339.58</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$513.85</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$283.62</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$535.08</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$177.54</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money medium-intensity">$561.52</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan LA Broadway</h2>
+                    <h2 class="store-title">🏪 LA Broadway</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$309.17</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$433.08</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM a 10:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$320.80</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$411.30</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM a 10:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$324.88</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$459.12</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM a 10:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$327.92</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money medium-intensity">$510.91</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM a 10:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$369.49</td>
                         
-                        <td class="time">4:00 AM</td>
+                        <td class="time">3:00 AM a 4:00 AM</td>
                         <td class="money ">$409.61</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -904,16 +672,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$462.64</td>
                         
-                        <td class="time">4:00 AM</td>
+                        <td class="time">3:00 AM a 4:00 AM</td>
                         <td class="money ">$492.10</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -921,16 +687,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$389.90</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money medium-intensity">$560.16</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -938,58 +702,51 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan LA Central</h2>
+                    <h2 class="store-title">🏪 LA Central</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$320.73</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money medium-intensity">$558.85</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM a 10:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$358.60</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money medium-intensity">$562.51</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -997,16 +754,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$350.75</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money medium-intensity">$656.66</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1014,16 +769,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$363.29</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$414.97</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1031,16 +784,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$428.19</td>
                         
-                        <td class="time">4:00 AM</td>
+                        <td class="time">3:00 AM a 4:00 AM</td>
                         <td class="money ">$369.64</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1048,16 +799,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$375.10</td>
                         
-                        <td class="time">4:00 AM</td>
+                        <td class="time">3:00 AM a 4:00 AM</td>
                         <td class="money ">$448.43</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1065,58 +814,51 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">8:00 AM</td>
+                        <td class="time">8:00 AM a 9:00 AM</td>
                         <td class="money ">$275.79</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money medium-intensity">$504.00</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">9:00 AM a 10:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Slauson</h2>
+                    <h2 class="store-title">🏪 Slauson</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$392.60</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$414.87</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1124,16 +866,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$495.35</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$386.04</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1141,16 +881,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$448.91</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$451.23</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1158,16 +896,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$437.19</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$471.00</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1175,16 +911,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$476.31</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$383.14</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1192,16 +926,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$456.73</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$389.47</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1209,16 +941,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$455.08</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$473.09</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1226,112 +956,98 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
-            </div>
-            </div>
+            </div></div>
         <div class="supervisor-section">
             <div class="supervisor-header">👮‍♂️ Supervisor: Ricardo Velazquez</div>
-        
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Huntington Park</h2>
+                    <h2 class="store-title">🏪 Huntington Park</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$424.49</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$324.08</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$378.73</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$321.55</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$374.99</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$335.04</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$397.33</td>
                         
-                        <td class="time">2:00 AM</td>
-                        <td class="money low-intensity">$18.25</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
+                        <td class="money ">$317.34</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">1:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM a 12:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$414.44</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$456.50</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1339,16 +1055,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$474.61</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$530.95</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1356,16 +1070,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$417.83</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$394.07</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1373,346 +1085,305 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan La Puente</h2>
+                    <h2 class="store-title">🏪 La Puente</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$312.31</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$43.36</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$239.99</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$359.55</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$46.06</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$274.01</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$343.50</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$49.13</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$265.23</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$341.79</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$57.26</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$304.76</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$356.97</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$46.36</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money ">$285.18</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">1:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM a 1:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$424.95</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$71.71</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money ">$394.21</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$361.59</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$84.04</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$303.67</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Norwalk</h2>
+                    <h2 class="store-title">🏪 Norwalk</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$45.29</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$494.03</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$39.78</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$487.52</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$34.62</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money medium-intensity">$519.99</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$35.11</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money medium-intensity">$621.86</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$38.82</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$501.72</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$54.43</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$640.00</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$39.06</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money ">$359.74</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Santa Ana</h2>
+                    <h2 class="store-title">🏪 Santa Ana</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$365.52</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$322.43</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$469.17</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$382.06</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1720,16 +1391,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$406.59</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$391.77</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1737,16 +1406,14 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$473.00</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$447.95</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1754,50 +1421,44 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$459.09</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money ">$270.91</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">1:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM a 1:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$485.55</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money ">$307.06</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">1:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM a 1:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$448.99</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$444.76</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -1805,256 +1466,225 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
-            </div>
-            </div>
+            </div></div>
         <div class="supervisor-section">
             <div class="supervisor-header">👮‍♂️ Supervisor: Willian Aguilar</div>
-        
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Bell</h2>
+                    <h2 class="store-title">🏪 Bell</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money low-intensity">$241.38</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$178.07</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money low-intensity">$225.85</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$186.82</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money low-intensity">$228.97</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$195.93</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money low-intensity">$221.76</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$234.39</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$265.18</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money low-intensity">$164.64</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">1:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM a 1:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$276.88</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money low-intensity">$225.38</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">1:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">12:00 AM a 1:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money low-intensity">$246.82</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money low-intensity">$248.43</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 AM a 12:00 PM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Downey</h2>
+                    <h2 class="store-title">🏪 Downey</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money low-intensity">$227.37</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$282.24</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$256.54</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$295.39</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$283.52</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$313.61</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 PM a 11:00 PM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$290.93</td>
                         
-                        <td class="time">12:00 AM</td>
-                        <td class="money ">$439.51</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
+                        <td class="money low-intensity">$193.76</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">11:00 PM a 12:00 AM</span></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$361.03</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$673.40</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -2062,287 +1692,253 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$306.77</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$723.66</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$278.50</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$399.85</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan Lynwood</h2>
+                    <h2 class="store-title">🏪 Lynwood</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$261.67</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money medium-intensity">$546.57</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$294.28</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money medium-intensity">$596.85</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$273.41</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money medium-intensity">$651.64</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$327.47</td>
                         
-                        <td class="time">2:00 AM</td>
+                        <td class="time">1:00 AM a 2:00 AM</td>
                         <td class="money medium-intensity">$544.48</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$349.49</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$560.13</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$320.15</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money medium-intensity">$624.37</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">9:00 AM</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
                         <td class="money ">$301.49</td>
                         
-                        <td class="time">1:00 AM</td>
+                        <td class="time">12:00 AM a 1:00 AM</td>
                         <td class="money high-intensity">$800.49</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM</span></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
             </div>
-            
             <div class="store-block">
                 <div class="store-header">
-                    <h2 class="store-title">🏪 Tacos Gavilan South Gate</h2>
+                    <h2 class="store-title">🏪 South Gate</h2>
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 10%">Día</th>
-                            <th style="width: 12%">Hora Apertura</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Rango Apertura (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <th style="width: 12%">Hora Cierre</th>
-                            <th style="width: 12%">Venta Promedio</th>
+                            <th style="width: 15%">Última Hora Operativa (Real)</th>
+                            <th style="width: 10%">Venta Promedio</th>
                             
-                            <!-- NEW COLUMNS -->
                             <th style="width: 20%; border-left: 2px solid #ddd;">📝 Propuesta Apertura</th>
                             <th style="width: 20%">📝 Propuesta Cierre</th>
                         </tr>
                     </thead>
                     <tbody>
-            
                     <tr>
                         <td><strong>Lunes</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$387.79</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$108.55</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$377.37</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Martes</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$458.93</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$112.66</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$397.97</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Miércoles</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$420.52</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$129.78</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$419.05</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Jueves</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money ">$412.75</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$141.16</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$477.20</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Viernes</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money medium-intensity">$546.37</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$373.76</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -2350,33 +1946,29 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Sábado</strong></td>
-                        <td class="time">10:00 AM</td>
-                        <td class="money medium-intensity">$510.72</td>
+                        <td class="time">9:00 AM a 10:00 AM</td>
+                        <td class="money low-intensity">$156.89</td>
                         
-                        <td class="time">3:00 AM</td>
+                        <td class="time">2:00 AM a 3:00 AM</td>
                         <td class="money ">$428.53</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
-                            <div class="input-box" contenteditable="true"></div>
+                            <div class="input-box" contenteditable="true"><span class="proposal-text">10:00 AM a 11:00 AM</span></div>
                         </td>
                         <td class="input-cell" style="border-left: 1px solid #eee;">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     <tr>
                         <td><strong>Domingo</strong></td>
-                        <td class="time">10:00 AM</td>
+                        <td class="time">10:00 AM a 11:00 AM</td>
                         <td class="money ">$470.92</td>
                         
-                        <td class="time">12:00 AM</td>
+                        <td class="time">11:00 PM a 12:00 AM</td>
                         <td class="money ">$464.00</td>
                         
-                        <!-- NEW COLUMN CELLS -->
                         <td class="input-cell">
                             <div class="input-box" contenteditable="true"></div>
                         </td>
@@ -2384,15 +1976,12 @@
                             <div class="input-box" contenteditable="true"></div>
                         </td>
                     </tr>
-                
                     </tbody>
                 </table>
-            </div>
-            </div>
-    <div class="footer">
-        Generado por Antigravity • Tacos Gavilán Intelligence System v4.0 • 2/10/2026
+            </div></div>
+    <div class="footer" style="padding: 20px 40px; text-align: center; font-size: 13px; color: #777;">
+        Generado por Algoritmo de Inteligencia Antigravity • Análisis Estadístico de Transacciones Reales 2025 • 3/6/2026, 5:07:35 PM
     </div>
 </div>
-
 </body>
 </html>

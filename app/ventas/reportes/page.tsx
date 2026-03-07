@@ -47,7 +47,7 @@ const MONTHLY_STRUCTURE = [
     { id: 'uber_post', label: 'Uber/Post', type: 'currency', width: '100px' },
     { id: 'doordash', label: 'Doordash', type: 'currency', width: '100px' },
     { id: 'grubhub', label: 'Grubhub', type: 'currency', width: '100px' },
-    { id: 'ebt', label: 'EBT', type: 'number', width: '80px' },
+    { id: 'ebt', label: 'EBT', type: 'currency', width: '80px' },
     { id: 'daily_cars', label: 'CARS', type: 'number', width: '80px' },
     { id: 'sos_time', label: 'TIME', type: 'time', width: '80px' },
     { id: 'week_sales', label: 'Week SALES', type: 'currency', width: '120px' },
@@ -800,28 +800,57 @@ export default function ReportesPage() {
             let sysData = {
                 net_sales: 0,
                 order_count: 0,
+                guest_count: 0,
                 act_avg_order: 0,
                 open_sales: 0,
                 close_sales: 0,
                 uber_sales: 0,
                 doordash_sales: 0,
                 grubhub_sales: 0,
-                ebt_count: 0
+                ebt_count: 0,
+                ebt_amount: 0,
+                drivethru_time_sum: 0
             }
 
             if (dayRows.length > 0) {
                 dayRows.forEach(r => {
                     sysData.net_sales += (r.net_sales || 0)
                     sysData.order_count += (r.order_count || 0)
-                    sysData.open_sales += (r.open_sales || 0)
-                    sysData.close_sales += (r.close_sales || 0)
+                    sysData.guest_count += (r.guest_count || 0) // Serves as DriveThru Ticket Count
                     sysData.uber_sales += (r.uber_sales || 0)
                     sysData.doordash_sales += (r.doordash_sales || 0)
                     sysData.grubhub_sales += (r.grubhub_sales || 0)
-                    sysData.ebt_count += (r.ebt_count || 0)
+                    sysData.ebt_amount += (r.ebt_amount || 0)
+
+                    if ((r.ebt_count || 0) > 0) {
+                        // ebt_count serves as DriveThru SOS Average in seconds
+                        // De-average it for multiple stores sum
+                        sysData.drivethru_time_sum += (r.ebt_count * (r.guest_count || 1))
+                    }
+
+                    // Dynamically calculate Open and Close from hourly_data to ensure accuracy
+                    const hourly = r.hourly_data || {}
+                    const hoursOrder = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
+
+                    let o = 0
+                    for (const h of hoursOrder) {
+                        const val = Number(hourly[h] || 0)
+                        if (val > 20) { o = val; break; }
+                    }
+                    sysData.open_sales += o || (r.open_sales || 0)
+
+                    let c = 0
+                    for (let i = hoursOrder.length - 1; i >= 0; i--) {
+                        const h = hoursOrder[i]
+                        const val = Number(hourly[h] || 0)
+                        if (val > 20) { c = val; break; }
+                    }
+                    sysData.close_sales += c || (r.close_sales || 0)
                 })
                 // Recalc Avg Order globally
                 sysData.act_avg_order = sysData.order_count > 0 ? (sysData.net_sales / sysData.order_count) : 0
+                // Finalize averaging SOS time
+                sysData.ebt_count = sysData.guest_count > 0 ? Math.floor(sysData.drivethru_time_sum / sysData.guest_count) : 0
             }
 
 
@@ -847,8 +876,16 @@ export default function ReportesPage() {
 
                 newMonthly[dateKey] = {
                     ...newMonthly[dateKey],
+                    order_count: sysData.order_count, // Explicitly saved for upsert data parsing
                     actual_sales: formatCurrency(sysData.net_sales),
-                    daily_cars: sysData.order_count || '',
+                    daily_cars: sysData.guest_count || '',
+                    sos_time: (() => {
+                        const sec = sysData.ebt_count
+                        if (!sec) return ''
+                        const m = Math.floor(sec / 60)
+                        const s = sec % 60
+                        return `${m}:${s.toString().padStart(2, '0')}`
+                    })(),
                     actual_avg_order: formatCurrency(sysData.act_avg_order),
 
                     // New Fields
@@ -857,7 +894,7 @@ export default function ReportesPage() {
                     uber_post: formatCurrency(sysData.uber_sales),
                     doordash: formatCurrency(sysData.doordash_sales),
                     grubhub: formatCurrency(sysData.grubhub_sales),
-                    ebt: sysData.ebt_count || ''
+                    ebt: sysData.ebt_amount > 0 ? formatCurrency(sysData.ebt_amount) : (sysData.ebt_count > 0 ? String(sysData.ebt_count) : '')
                 }
             }
         }
@@ -898,153 +935,6 @@ export default function ReportesPage() {
     }, [activeTab, selectedStore, weekDate])
 
 
-    const handleMonthlyAutoFill = async () => {
-        if (!selectedStore || !weekDate) {
-            alert('Selecciona Tienda y una fecha dentro del mes deseado')
-            return
-        }
-        const confirmFill = confirm('¿Conectar a Toast y obtener reporte mensual completo (Ventas, Apps, EBT)?\nEsto puede tardar unos segundos.')
-        if (!confirmFill) return
-
-        setLoading(true)
-        try {
-            // Determine Month Range
-            const targetMonth = weekDate.substring(0, 7) // "2026-01"
-            const [y, m] = targetMonth.split('-').map(Number)
-
-            const startOfMonth = new Date(y, m - 1, 1)
-            const endOfMonth = new Date(y, m, 0)
-
-            const startStr = startOfMonth.toISOString().split('T')[0]
-            const endStr = endOfMonth.toISOString().split('T')[0]
-
-            const res = await fetch(`/api/ventas/autofill?storeId=${selectedStore}&start=${startStr}&end=${endStr}&t=${Date.now()}`)
-            const json = await res.json()
-            if (json.error) throw new Error(json.error)
-
-            // DEBUG: Check what we actually got
-            if (json.debug) {
-                alert(`DEBUG INFO:\nRows: ${json.debug.rowsFetched}\nErr: ${json.debug.connectionError}\nRange: ${json.debug.period}`)
-            }
-
-            const firstKey = Object.keys(json.data)[0]
-
-            // Merge
-            setMonthlyData(prev => {
-                const next = { ...prev }
-                Object.keys(json.data).forEach(dateStr => {
-                    // Update matching date
-                    const row = json.data[dateStr]
-
-                    // Helper: Format
-                    const fmt = (val: any, pre: string = '') => {
-                        if (val === undefined || val === null) return 'ERR' // Debugging indicator
-                        const n = parseFloat(val)
-                        if (isNaN(n)) return ''
-                        // Show 0.00 to indicate successful fetch
-                        return pre + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                    }
-
-                    if (!next[dateStr]) next[dateStr] = { date: dateStr } // Init if missing
-
-                    next[dateStr] = {
-                        ...next[dateStr],
-                        actual_sales: fmt(row.actual_sales, '$'),
-                        open_sales: fmt(row.open_sales, '$'),
-                        close_sales: fmt(row.close_sales, '$'),
-                        actual_avg_order: fmt(row.actual_avg_order, '$'),
-                        uber_post: fmt(row.uber_post, '$'),
-                        doordash: fmt(row.doordash, '$'),
-                        grubhub: fmt(row.grubhub, '$'),
-                        ebt: row.ebt === '0' ? '' : row.ebt,
-                        daily_cars: row.daily_cars === '0' ? '' : row.daily_cars,
-                    }
-                })
-
-                // Re-calc Weekly Totals
-                Object.keys(next).sort().forEach(dateKey => {
-                    const date = new Date(dateKey + 'T12:00:00')
-                    if (date.getDay() === 0) { // Sunday
-                        let sum = 0
-                        for (let i = 0; i < 7; i++) {
-                            const d = new Date(date)
-                            d.setDate(d.getDate() - i)
-                            const k = d.toISOString().split('T')[0]
-                            if (next[k]) {
-                                const val = parseFloat(String(next[k].actual_sales).replace(/[^0-9.-]+/g, "") || '0')
-                                sum += val
-                            }
-                        }
-                        next[dateKey] = {
-                            ...next[dateKey],
-                            week_sales: sum > 0 ? '$' + sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
-                        }
-                    }
-                })
-
-                return next
-            })
-            alert(t('sales.reports_page.alerts.monthly_updated'))
-
-        } catch (e: any) {
-            console.error(e)
-            alert('Error: ' + e.message)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-
-
-    const saveMonthlyReport = async () => {
-        if (!selectedStore || !weekDate) return
-        setLoading(true)
-        try {
-            const supabase = await getSupabaseClient()
-            const storeObj = stores.find(s => String(s.id) === String(selectedStore))
-            const storeId = storeObj?.external_id
-
-            if (!storeId) throw new Error("Store ID not found")
-
-            // Current Month Range
-            const targetMonth = weekDate.substring(0, 7) // "2026-01"
-            const upsertData = Object.values(monthlyData)
-                .filter((row: any) => row.date.startsWith(targetMonth)) // Safety filter
-                .map((row: any) => {
-                    const sales = parseNumber(row.actual_sales)
-                    // If no sales, probably empty row, but we might want to save manual entries?
-                    // Let's save if date is valid.
-
-                    return {
-                        store_id: storeId,
-                        store_name: storeObj.name,
-                        business_date: row.date,
-                        net_sales: sales,
-                        order_count: parseNumber(row.daily_cars),
-
-                        // New Columns
-                        uber_sales: parseNumber(row.uber_post),
-                        doordash_sales: parseNumber(row.doordash),
-                        grubhub_sales: parseNumber(row.grubhub),
-                        ebt_count: parseNumber(row.ebt),
-                        open_sales: parseNumber(row.open_sales),
-                        close_sales: parseNumber(row.close_sales),
-
-                        updated_at: new Date().toISOString()
-                    }
-                })
-
-            const { error } = await supabase.from('sales_daily_cache').upsert(upsertData, { onConflict: 'store_id,business_date' })
-            if (error) throw error
-
-            alert('Reporte Mensual Guardado en Supabase 💾')
-        } catch (e: any) {
-            console.error(e)
-            alert('Error guardando: ' + e.message)
-        } finally {
-            setLoading(false)
-        }
-    }
 
 
     const handleMonthlyInputChange = (dateKey: string, colId: string, val: string) => {
@@ -1487,24 +1377,7 @@ export default function ReportesPage() {
                             </div>
                         )}
 
-                        {activeTab === 'monthly' && (
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={saveMonthlyReport}
-                                    disabled={loading || !selectedStore || !weekDate || selectedStore === 'all'}
-                                    className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-700 transition-colors disabled:opacity-50"
-                                >
-                                    <Save size={16} /> Save
-                                </button>
-                                <button
-                                    onClick={handleMonthlyAutoFill}
-                                    disabled={loading || !selectedStore || !weekDate || selectedStore === 'all'}
-                                    className="flex items-center gap-2 px-4 py-2 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-xl text-xs font-bold hover:bg-orange-200 transition-colors disabled:opacity-50"
-                                >
-                                    <Clock size={16} /> Sync Toast
-                                </button>
-                            </div>
-                        )}
+
                     </div>
 
                     {loading ? (

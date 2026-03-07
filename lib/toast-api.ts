@@ -239,6 +239,29 @@ async function getDiningOptionsMap(token: string, storeId: string): Promise<Reco
     }
 }
 
+// --- HELPER: GET ALTERNATE PAYMENT TYPES MAP ---
+async function getAlternatePaymentTypesMap(token: string, storeId: string): Promise<Record<string, string>> {
+    try {
+        const url = new URL(`${TOAST_API_HOST}/config/v2/alternatePaymentTypes`)
+        const res = await fetch(url.toString(), {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeId
+            }
+        })
+        if (!res.ok) return {}
+        const data = await res.json()
+        const map: Record<string, string> = {}
+        if (Array.isArray(data)) {
+            data.forEach((opt: any) => {
+                if (opt.guid && opt.name) map[opt.guid] = opt.name
+            })
+        }
+        return map
+    } catch (e) {
+        return {}
+    }
+}
 
 // --- HELPER: GET SALES (ATTEMPT) ---
 // Since we might not have Reporting API, we'll try to get Orders Summary or Fallback
@@ -246,6 +269,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
     try {
         // Fetch Metadata Map first
         const diningOptionMap = fastMode ? {} : await getDiningOptionsMap(token, storeId)
+        const alternatePaymentMap = fastMode ? {} : await getAlternatePaymentTypesMap(token, storeId)
 
 
         let net = 0
@@ -263,6 +287,8 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
         let grubhub = 0
         let ebtC = 0
         let ebtA = 0
+        let dtCount = 0
+        let dtDurationSec = 0
 
         let page = 1
         const pageSize = 100
@@ -291,6 +317,8 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                     'openedDate',
                     'voided',
                     'numberOfGuests',
+                    'closedDate',
+                    'duration',
                     'checks.voided',
                     'checks.amount', // Total with Tax/Tip
                     'checks.taxAmount',
@@ -315,6 +343,8 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                     'checks.payments.amount',
                     'checks.payments.displayName',
                     'checks.payments.paymentInstrument',
+                    'checks.payments.type',
+                    'checks.payments.otherPayment',
                     'checks.payments.refundStatus',
                     'checks.payments.refundAmount',
                     'checks.selections.price',
@@ -336,7 +366,7 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             url.searchParams.append('fields', fields)
 
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 25000) // 25s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 60000) // 60s timeout
 
             console.log(`[FastMode] Fetching for ${storeId} (Fast=${fastMode})`)
 
@@ -438,7 +468,13 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                             // --- EBT DETECTION (Check Level) ---
                             // iterate payments to find EBT
                             check.payments?.forEach((p: any) => {
-                                const pName = (p.displayName || p.paymentInstrument?.displayName || '').toLowerCase()
+                                let pName = (p.displayName || p.paymentName || p.paymentInstrument?.displayName || '').toLowerCase()
+
+                                if (p.type === 'OTHER' && p.otherPayment?.guid) {
+                                    const altName = alternatePaymentMap[p.otherPayment.guid]
+                                    if (altName) pName = altName.toLowerCase()
+                                }
+
                                 if (pName.includes('ebt')) {
                                     ebtC++
                                     ebtA += Number(p.amount || 0)
@@ -557,10 +593,21 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                 const isUber = fullString.includes('uber') || fullString.includes('eats') || fullString.includes('postmates')
                 const isDoorDash = fullString.includes('doordash') || fullString.includes('dash')
                 const isGrubHub = fullString.includes('grubhub') || fullString.includes('grub')
+                const isDriveThru = fullString.includes('drive')
 
                 if (isUber) uber += orderNetCalc
                 else if (isDoorDash) doordash += orderNetCalc
                 else if (isGrubHub) grubhub += orderNetCalc
+
+                if (isDriveThru && !order.voided) {
+                    dtCount++
+                    if (typeof order.duration === 'number') {
+                        dtDurationSec += order.duration
+                    } else if (order.openedDate && order.closedDate) {
+                        const diffMs = new Date(order.closedDate).getTime() - new Date(order.openedDate).getTime()
+                        if (diffMs > 0) dtDurationSec += Math.floor(diffMs / 1000)
+                    }
+                }
             })
 
 
@@ -584,14 +631,14 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             taxes: totalTaxes,
             serviceCharges: totalSvcCharges,
             orders: count,
-            guests: guests,
+            guests: dtCount, // OVERRIDDEN: Now serves as DriveThru Ticket Count
             hours: count * 0.4,
             hourlySales,
             hourlyTickets,
             uberSales: uber,
             doordashSales: doordash,
             grubhubSales: grubhub,
-            ebtCount: ebtC,
+            ebtCount: dtCount > 0 ? Math.floor(dtDurationSec / dtCount) : 0, // OVERRIDDEN: Now serves as average DriveThru SOS in seconds
             ebtAmount: ebtA
         }
     } catch (e: any) {
@@ -902,7 +949,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
             })
 
             const batchResults: any[] = []
-            const CONCURRENCY_LIMIT = 10
+            const CONCURRENCY_LIMIT = options.fastMode ? 10 : 3
             let storeIndex = 0
 
             async function processStoreDate(store: any, dateStr: string) {
@@ -927,7 +974,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // SAFETY: Also ignore cache if it reports $0 sales (likely failed sync), ensuring we retry fetching live.
                 // CRITICAL FIX: If requesting Hourly Breakdown (isHourly), we require cached.hourly_labor to exist.
                 // Since the column might be missing in DB schema, this forces a live fetch for "Yesterday" until migration is run.
-                if (cached && !isDirty && Number(cached.net_sales) > 0 && (!isHourly || cached.hourly_labor)) {
+                if (!options.skipCache && cached && !isDirty && Number(cached.net_sales) > 0 && (!isHourly || cached.hourly_labor)) {
                     return {
                         store,
                         date: dateStr,
@@ -939,7 +986,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             taxes: Number(cached.taxes || 0),
                             serviceCharges: Number(cached.service_charges || 0),
                             orders: cached.order_count,
-                            guests: cached.guest_count,
+                            guests: cached.guest_count, // DriveThru Count
                             // Fix for cached single days: Use real hourly data if available (new column),
                             // otherwise fallback to average distribution.
                             hourlySales: cached.hourly_data || (() => {
@@ -955,7 +1002,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             uberSales: Number(cached.uber_sales || 0),
                             doordashSales: Number(cached.doordash_sales || 0),
                             grubhubSales: Number(cached.grubhub_sales || 0),
-                            ebtCount: Number(cached.ebt_count || 0),
+                            ebtCount: Number(cached.ebt_count || 0), // DriveThru Time Sec
                             ebtAmount: Number(cached.ebt_amount || 0)
                         },
                         laborMetrics: {
