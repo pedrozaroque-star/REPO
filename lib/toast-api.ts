@@ -382,7 +382,12 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
             if (!res.ok) {
                 const errTxt = await res.text().catch(() => 'No Body')
                 console.error(`[FastMode] ERROR ${res.status}: ${errTxt}`)
-                break
+                if (res.status === 429) {
+                    console.warn(`[Toast API] Rate limited on page ${page}, waiting 5s...`)
+                    await new Promise(r => setTimeout(r, 5000))
+                    continue // retry the same page
+                }
+                throw new Error(`Toast API Error: ${res.status} ${errTxt}`)
             }
 
             const data = await res.json()
@@ -684,7 +689,14 @@ async function getLaborForRange(token: string, storeId: string, startDate: strin
             })
             clearTimeout(timeoutId)
 
-            if (!res.ok) break
+            if (!res.ok) {
+                if (res.status === 429) {
+                    console.warn(`[Toast Labor API] Rate limited on page ${page}, waiting 5s...`)
+                    await new Promise(r => setTimeout(r, 5000))
+                    continue // retry the same page
+                }
+                break
+            }
 
             const data = await res.json()
             const entries = Array.isArray(data) ? data : (data.timeEntries || [])
