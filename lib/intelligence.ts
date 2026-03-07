@@ -178,7 +178,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
 
         // weights: index 0 (1yr ago) = 3, index 1 (2yrs ago) = 2, index 2 = 1
-        historyPoints.forEach(pt => {
+        historyPoints.forEach((pt: any) => {
             // Determine recency
             const ptDate = new Date(pt.business_date)
             const ytDate = new Date(targetDate) // Target
@@ -243,7 +243,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     if (baseSales === 0) {
         // Fetch last 4 same-weekdays (e.g. last 4 Tuesdays)
         // We go back 4 weeks from targetDate
-        const recentDates = []
+        const recentDates: string[] = []
         for (let i = 1; i <= 4; i++) {
             const d = new Date(targetDate)
             d.setDate(d.getDate() - (i * 7))
@@ -266,7 +266,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             const avgHourlyS: Record<string, number> = {}
             const avgHourlyT: Record<string, number> = {}
 
-            recentHistory.forEach(day => {
+            recentHistory.forEach((day: any) => {
                 totalS += day.net_sales
 
                 // Sum Hourly
