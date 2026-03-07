@@ -987,6 +987,30 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // CRITICAL FIX: If requesting Hourly Breakdown (isHourly), we require cached.hourly_labor to exist.
                 // Since the column might be missing in DB schema, this forces a live fetch for "Yesterday" until migration is run.
                 if (!options.skipCache && cached && !isDirty && Number(cached.net_sales) > 0 && (!isHourly || cached.hourly_labor)) {
+                    const finalHourlySales = (cached.hourly_data && Object.keys(cached.hourly_data).length > 0) ? cached.hourly_data : (() => {
+                        if (!isHourly) return {}
+                        const total = Number(cached.net_sales)
+                        const dist: Record<number, number> = {}
+                        const operatingHours = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2]
+                        const perH = total / operatingHours.length
+                        operatingHours.forEach(h => dist[h] = perH)
+                        return dist
+                    })();
+
+                    const finalHourlyLabor = (cached.hourly_labor && Object.keys(cached.hourly_labor).length > 0) ? cached.hourly_labor : (() => {
+                        if (!isHourly) return {}
+                        const totalLaborCost = Number(cached.labor_cost)
+                        const totalSales = Number(cached.net_sales)
+                        const laborPercentage = totalSales > 0 ? (totalLaborCost / totalSales) : 0
+
+                        const dist: Record<number, number> = {}
+                        // Mirror the sales curve applying the average labor percentage constraint
+                        Object.keys(finalHourlySales).forEach(h => {
+                            dist[Number(h)] = Number(finalHourlySales[Number(h)] || 0) * laborPercentage
+                        })
+                        return dist
+                    })();
+
                     return {
                         store,
                         date: dateStr,
@@ -998,29 +1022,19 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             taxes: Number(cached.taxes || 0),
                             serviceCharges: Number(cached.service_charges || 0),
                             orders: cached.order_count,
-                            guests: cached.guest_count, // DriveThru Count
-                            // Fix for cached single days: Use real hourly data if available (new column),
-                            // otherwise fallback to average distribution.
-                            hourlySales: cached.hourly_data || (() => {
-                                if (!isHourly) return {}
-                                const total = Number(cached.net_sales)
-                                const dist: Record<number, number> = {}
-                                const startH = 9; const endH = 23; // 14 hours
-                                const perH = total / (endH - startH)
-                                for (let h = startH; h < endH; h++) dist[h] = perH
-                                return dist
-                            })(),
+                            guests: cached.guest_count,
+                            hourlySales: finalHourlySales,
                             hourlyTickets: cached.hourly_tickets || {},
                             uberSales: Number(cached.uber_sales || 0),
                             doordashSales: Number(cached.doordash_sales || 0),
                             grubhubSales: Number(cached.grubhub_sales || 0),
-                            ebtCount: Number(cached.ebt_count || 0), // DriveThru Time Sec
+                            ebtCount: Number(cached.ebt_count || 0),
                             ebtAmount: Number(cached.ebt_amount || 0)
                         },
                         laborMetrics: {
                             hours: Number(cached.labor_hours),
                             laborCost: Number(cached.labor_cost),
-                            hourlyLabor: cached.hourly_labor || {}
+                            hourlyLabor: finalHourlyLabor
                         },
                         fromCache: true
                     }
