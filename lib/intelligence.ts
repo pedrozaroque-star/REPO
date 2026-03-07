@@ -281,10 +281,18 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // 3. Calculate Dynamic Growth Factor (Hybrid Trend: 28-Day Stability + 7-Day Immediacy)
     let growthFactor = 1.0
 
-    // Range A: 28 Days (Stability)
-    // Anchor trend analysis to the target date (simulate "what we knew then")
+    // NEW STABILITY ANCHOR: Lock the trend analysis to the Sunday BEFORE the target week.
+    // This ensures that whether we generate a forecast on Monday morning or Friday night
+    // for this same week, the "recent trend" data snapshot remains identical, freezing the projection.
+    const dayOfWeek = targetDate.getUTCDay() // 0 = Sunday, 1 = Monday, etc.
+    // If target is Sunday (0), we want the Sunday 7 days ago to avoid incomplete data. 
+    // If target is Monday (1), we want Sunday (target - 1).
+    const daysToPriorSunday = dayOfWeek === 0 ? 7 : dayOfWeek
+
     const dRecentEnd = new Date(targetDate)
-    dRecentEnd.setDate(dRecentEnd.getDate() - 1)
+    dRecentEnd.setDate(dRecentEnd.getDate() - daysToPriorSunday)
+
+    // Range A: 28 Days (Stability)
     const dRecentStart = new Date(dRecentEnd)
     dRecentStart.setDate(dRecentStart.getDate() - 28)
 
@@ -385,16 +393,16 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // The previous code had "sumRecent28". Let's reuse that but filter carefully.
 
     // RE-FETCH RECENT TREND DATA (Last 21 Days - More reactive to current month)
-    // We need to fetch it here because historyPoints above only has the OLD data.
-    const trendStartDate = new Date(targetDate)
-    trendStartDate.setDate(trendStartDate.getDate() - 21) // 3 weeks buffer (ignores Jan slump)
+    // Anchored to the exact same 'dRecentEnd' (Prior Sunday) so intra-week days don't shift the trend.
+    const trendStartDate = new Date(dRecentEnd)
+    trendStartDate.setDate(trendStartDate.getDate() - 21 + 1) // +1 because the query is .gte 
 
     const { data: recentTrendData } = await supabase
         .from('sales_daily_cache')
         .select('business_date, net_sales, hourly_tickets')
         .eq('store_id', storeId)
         .gte('business_date', trendStartDate.toISOString().split('T')[0])
-        .lt('business_date', targetDateStr)
+        .lte('business_date', dRecentEnd.toISOString().split('T')[0])
 
     // Calculate Trend specific to Day of Week
     let specificTrendFactor = 1.0
