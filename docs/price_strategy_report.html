@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis de Estrategia de Precios (Hook Strategy)</title>
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f3f4f6;
+        }
+
+        .container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        h1 {
+            color: #111827;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 0.75rem;
+            margin-top: 0;
+        }
+
+        h2 {
+            color: #374151;
+            margin-top: 2.5rem;
+        }
+
+        .intro {
+            font-size: 1.1rem;
+            color: #4b5563;
+        }
+
+        .highlight-taco {
+            color: #2563eb;
+            font-weight: 700;
+        }
+
+        .summary-box {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-left: 4px solid #3b82f6;
+            padding: 1.5rem;
+            border-radius: 6px;
+            margin-bottom: 1.5rem;
+        }
+
+        .summary-box ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .summary-box li {
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px dashed #cbd5e1;
+            padding-bottom: 0.3rem;
+        }
+
+        .summary-box li:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .summary-box li span.val {
+            font-weight: 600;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .summary-box li span.val.positive {
+            color: #059669;
+        }
+
+        .summary-box li span.val.negative {
+            color: #dc2626;
+        }
+
+        .note {
+            font-style: italic;
+            color: #854d0e;
+            font-size: 0.95rem;
+            background-color: #fefce8;
+            border-left: 4px solid #facc15;
+            padding: 1rem;
+            border-radius: 4px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin-top: 1.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+            text-align: left;
+        }
+
+        th,
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        th {
+            background-color: #f9fafb;
+            font-weight: 600;
+            color: #4b5563;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.05em;
+        }
+
+        tr:hover {
+            background-color: #f3f4f6;
+        }
+
+        td:nth-child(3),
+        td:nth-child(4),
+        td:nth-child(5) {
+            text-align: right;
+            font-family: ui-monospace, SFMono-Regular, monospace;
+        }
+
+        td.new-price {
+            font-weight: 700;
+            color: #059669;
+            background-color: #ecfdf5;
+        }
+
+        tr.hook-item td.new-price {
+            color: #2563eb;
+            background-color: #eff6ff;
+        }
+
+        .footer-validation {
+            margin-top: 3rem;
+            background-color: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            padding: 1.5rem;
+            border-radius: 8px;
+        }
+
+        .footer-validation h3 {
+            margin-top: 0;
+            color: #166534;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Análisis de Estrategia de Precios (Hook Strategy)</h1>
+        <p class="intro">
+            El usuario solicitó mantener el precio de los <span class="highlight-taco">Tacos en $2.29 (como
+                hook)</span>, y redistribuir el incremento de margen (5% global) hacia los demás productos para
+            compensar.
+        </p>
+
+        <h2>Resumen del Ajuste</h2>
+        <div class="summary-box">
+            <ul>
+                <li><span>Ingreso Actual Estimado (30 días):</span> <span class="val">$296,475.00</span></li>
+                <li><span>Ingreso Propuesto Excel Estimado:</span> <span class="val positive">$310,633.00
+                        (+4.78%)</span></li>
+                <li><span>Pérdida por congelar Tacos a $2.29:</span> <span class="val negative">-$5,720.00</span></li>
+                <li><span>Incremento adicional prorrateado al resto del menú:</span> <span
+                        class="val positive">+3.01%</span> sobre propuesta Excel</li>
+            </ul>
+        </div>
+
+        <div class="note">
+            <strong>Nota:</strong> Todos los precios finales (excepto Tacos) han sido redondeados a terminación .09,
+            .19, .29, etc., como truco psicológico mercadotécnico, tal como solicitaste.
+        </div>
+
+        <h2>Tabla de Precios Ajustada (In-Store)</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Categoría</th>
+                        <th>Producto</th>
+                        <th>Actual (06/20/26)</th>
+                        <th>Propuesta Excel</th>
+                        <th>Nueva Propuesta</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="hook-item">
+                        <td>Tacos</td>
+                        <td>⭐ Regular</td>
+                        <td>$2.29</td>
+                        <td>$2.39</td>
+                        <td class="new-price">$2.29</td>
+                    </tr>
+                    <tr>
+                        <td>Mulitas</td>
+                        <td>Regular</td>
+                        <td>$4.49</td>
+                        <td>$4.69</td>
+                        <td class="new-price">$4.89</td>
+                    </tr>
+                    <tr>
+                        <td>Mulitas</td>
+                        <td>No Meat</td>
+                        <td>$3.69</td>
+                        <td>$3.89</td>
+                        <td class="new-price">$4.09</td>
+                    </tr>
+                    <tr>
+                        <td>Super Mulitas</td>
+                        <td>Regular</td>
+                        <td>$5.69</td>
+                        <td>$5.99</td>
+                        <td class="new-price">$6.19</td>
+                    </tr>
+                    <tr>
+                        <td>Super Mulitas</td>
+                        <td>No Meat</td>
+                        <td>$4.49</td>
+                        <td>$4.69</td>
+                        <td class="new-price">$4.89</td>
+                    </tr>
+                    <tr>
+                        <td>Sopes</td>
+                        <td>Regular / Cheese</td>
+                        <td>$4.49</td>
+                        <td>$4.69</td>
+                        <td class="new-price">$4.89</td>
+                    </tr>
+                    <tr>
+                        <td>Sopes</td>
+                        <td>Beans Only</td>
+                        <td>$3.69</td>
+                        <td>$3.89</td>
+                        <td class="new-price">$4.09</td>
+                    </tr>
+                    <tr>
+                        <td>Burritos</td>
+                        <td>Regular</td>
+                        <td>$8.59</td>
+                        <td>$8.99</td>
+                        <td class="new-price">$9.29</td>
+                    </tr>
+                    <tr>
+                        <td>Burritos</td>
+                        <td>Beans / Rice / Cheese</td>
+                        <td>$6.19</td>
+                        <td>$6.49</td>
+                        <td class="new-price">$6.69</td>
+                    </tr>
+                    <tr>
+                        <td>Burritos</td>
+                        <td>Beans OR Rice / Cheese</td>
+                        <td>$5.69</td>
+                        <td>$5.99</td>
+                        <td class="new-price">$6.19</td>
+                    </tr>
+                    <tr>
+                        <td>PC Burritos</td>
+                        <td>Regular</td>
+                        <td>$10.49</td>
+                        <td>$10.99</td>
+                        <td class="new-price">$11.39</td>
+                    </tr>
+                    <tr>
+                        <td>Tortas</td>
+                        <td>Regular</td>
+                        <td>$9.09</td>
+                        <td>$9.49</td>
+                        <td class="new-price">$9.79</td>
+                    </tr>
+                    <tr>
+                        <td>Tortas</td>
+                        <td>Cubana</td>
+                        <td>$9.89</td>
+                        <td>$10.39</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Tortas</td>
+                        <td>Pan Tostado w/ Beans/Cheese</td>
+                        <td>$3.29</td>
+                        <td>$3.49</td>
+                        <td class="new-price">$3.59</td>
+                    </tr>
+                    <tr>
+                        <td>Tortas</td>
+                        <td>Pan Tostado</td>
+                        <td>$2.39</td>
+                        <td>$2.49</td>
+                        <td class="new-price">$2.59</td>
+                    </tr>
+                    <tr>
+                        <td>Quesadillas</td>
+                        <td>Regular</td>
+                        <td>$8.59</td>
+                        <td>$8.99</td>
+                        <td class="new-price">$9.29</td>
+                    </tr>
+                    <tr>
+                        <td>Quesadillas</td>
+                        <td>No Meat</td>
+                        <td>$5.09</td>
+                        <td>$5.29</td>
+                        <td class="new-price">$5.49</td>
+                    </tr>
+                    <tr>
+                        <td>Platos</td>
+                        <td>Regular</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Burrito Huevos / Chorizo</td>
+                        <td>$8.59</td>
+                        <td>$8.99</td>
+                        <td class="new-price">$9.29</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Burrito Huevos/Jamon</td>
+                        <td>$8.59</td>
+                        <td>$8.99</td>
+                        <td class="new-price">$9.29</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Burrito Huevos a la Mex</td>
+                        <td>$8.59</td>
+                        <td>$8.99</td>
+                        <td class="new-price">$9.29</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Burrito Huevos / CQueso</td>
+                        <td>$8.59</td>
+                        <td>$8.99</td>
+                        <td class="new-price">$9.29</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Burrito Huevos / Salchicha</td>
+                        <td>$8.59</td>
+                        <td>$8.99</td>
+                        <td class="new-price">$9.29</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Torta Huevo</td>
+                        <td>$9.09</td>
+                        <td>$9.49</td>
+                        <td class="new-price">$9.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Torta Huevos / Chorizo</td>
+                        <td>$9.09</td>
+                        <td>$9.49</td>
+                        <td class="new-price">$9.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Torta Huevos / Jmaon</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Huevos A La Mex</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Huevos / Chorizo</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Huevos / HJamon</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Huevos / Salchicha</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Desayunos</td>
+                        <td>Huevos Rancheros</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr class="hook-item">
+                        <td>Combos</td>
+                        <td>⭐ Taco Combo</td>
+                        <td>$9.09</td>
+                        <td>$9.49</td>
+                        <td class="new-price">$2.29</td>
+                    </tr>
+                    <tr>
+                        <td>Combos</td>
+                        <td>Quesadilla Combo</td>
+                        <td>$10.49</td>
+                        <td>$10.99</td>
+                        <td class="new-price">$11.39</td>
+                    </tr>
+                    <tr>
+                        <td>Super Burritos</td>
+                        <td>Regular</td>
+                        <td>$10.99</td>
+                        <td>$11.49</td>
+                        <td class="new-price">$11.89</td>
+                    </tr>
+                    <tr>
+                        <td>Super Burritos</td>
+                        <td>Beans / Rice / Cheese</td>
+                        <td>$10.99</td>
+                        <td>$11.49</td>
+                        <td class="new-price">$11.89</td>
+                    </tr>
+                    <tr>
+                        <td>Super PC Burritos</td>
+                        <td>Regular</td>
+                        <td>$12.09</td>
+                        <td>$12.69</td>
+                        <td class="new-price">$13.09</td>
+                    </tr>
+                    <tr>
+                        <td>Super Quesadillas</td>
+                        <td>Regular</td>
+                        <td>$9.89</td>
+                        <td>$10.42</td>
+                        <td class="new-price">$10.79</td>
+                    </tr>
+                    <tr>
+                        <td>Super Quesadillas</td>
+                        <td>No Meat</td>
+                        <td>$6.19</td>
+                        <td>$6.49</td>
+                        <td class="new-price">$6.69</td>
+                    </tr>
+                    <tr>
+                        <td>Super Nachos</td>
+                        <td>Regular</td>
+                        <td>$9.09</td>
+                        <td>$9.49</td>
+                        <td class="new-price">$9.79</td>
+                    </tr>
+                    <tr>
+                        <td>Super Nachos</td>
+                        <td>No Meat</td>
+                        <td>$7.19</td>
+                        <td>$7.49</td>
+                        <td class="new-price">$7.79</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Avocado</td>
+                        <td>$2.29</td>
+                        <td>$2.39</td>
+                        <td class="new-price">$2.49</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Sour Cream</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Beans</td>
+                        <td>$2.29</td>
+                        <td>$2.39</td>
+                        <td class="new-price">$2.49</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Rice</td>
+                        <td>$2.29</td>
+                        <td>$2.39</td>
+                        <td class="new-price">$2.49</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Jack Cheese</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Cotija Cheese</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Nacho Cheese</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Queso Fresco</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Chips</td>
+                        <td>$3.29</td>
+                        <td>$3.49</td>
+                        <td class="new-price">$3.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Egg</td>
+                        <td>$2.39</td>
+                        <td>$2.49</td>
+                        <td class="new-price">$2.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Order of Meat</td>
+                        <td>$3.99</td>
+                        <td>$4.19</td>
+                        <td class="new-price">$4.39</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Order of Maiz</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Order of Harina</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Side Orders</td>
+                        <td>Beans / Rice Combo</td>
+                        <td>$2.39</td>
+                        <td>$2.49</td>
+                        <td class="new-price">$2.59</td>
+                    </tr>
+                    <tr>
+                        <td>Desserts</td>
+                        <td>Flan</td>
+                        <td>$4.54</td>
+                        <td>$4.79</td>
+                        <td class="new-price">$4.99</td>
+                    </tr>
+                    <tr>
+                        <td>Desserts</td>
+                        <td>Cheesecake</td>
+                        <td>$4.54</td>
+                        <td>$4.79</td>
+                        <td class="new-price">$4.99</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>15 - 20 People</td>
+                        <td>$188.99</td>
+                        <td>$198.49</td>
+                        <td class="new-price">$204.49</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>20 - 25 People</td>
+                        <td>$230.99</td>
+                        <td>$242.59</td>
+                        <td class="new-price">$249.89</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>25 - 30 People</td>
+                        <td>$283.49</td>
+                        <td>$297.69</td>
+                        <td class="new-price">$306.69</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>35 - 40 People</td>
+                        <td>$351.39</td>
+                        <td>$368.99</td>
+                        <td class="new-price">$380.09</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>2lb Meat</td>
+                        <td>$24.09</td>
+                        <td>$25.29</td>
+                        <td class="new-price">$26.09</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>6lb Meat</td>
+                        <td>$59.89</td>
+                        <td>$62.89</td>
+                        <td class="new-price">$64.79</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>12lb Meat</td>
+                        <td>$110.19</td>
+                        <td>$115.69</td>
+                        <td class="new-price">$119.19</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>1/2 Tray Beans or Rice</td>
+                        <td>$25.19</td>
+                        <td>$26.49</td>
+                        <td class="new-price">$27.29</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>Full Tray Beans or Rice</td>
+                        <td>$37.79</td>
+                        <td>$39.69</td>
+                        <td class="new-price">$40.89</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>Gallon de Agua</td>
+                        <td>$13.69</td>
+                        <td>$14.39</td>
+                        <td class="new-price">$14.89</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>Dz. Tortillas Harina</td>
+                        <td>$6.29</td>
+                        <td>$6.59</td>
+                        <td class="new-price">$6.79</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>Dz. Tortillas Maiz</td>
+                        <td>$4.19</td>
+                        <td>$4.39</td>
+                        <td class="new-price">$4.59</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>20 oz. Salsa</td>
+                        <td>$6.29</td>
+                        <td>$6.59</td>
+                        <td class="new-price">$6.79</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>1lb Guacamole</td>
+                        <td>$11.09</td>
+                        <td>$11.69</td>
+                        <td class="new-price">$12.09</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>Full Flan</td>
+                        <td>$26.19</td>
+                        <td>$27.49</td>
+                        <td class="new-price">$28.39</td>
+                    </tr>
+                    <tr>
+                        <td>Catering</td>
+                        <td>Full Cheesecake</td>
+                        <td>$26.19</td>
+                        <td>$27.49</td>
+                        <td class="new-price">$28.39</td>
+                    </tr>
+                    <tr>
+                        <td>Drinks</td>
+                        <td>Medium</td>
+                        <td>$3.39</td>
+                        <td>$3.59</td>
+                        <td class="new-price">$3.69</td>
+                    </tr>
+                    <tr>
+                        <td>Drinks</td>
+                        <td>Large</td>
+                        <td>$3.79</td>
+                        <td>$3.98</td>
+                        <td class="new-price">$4.09</td>
+                    </tr>
+                    <tr>
+                        <td>Drinks</td>
+                        <td>Coffee</td>
+                        <td>$2.39</td>
+                        <td>$2.49</td>
+                        <td class="new-price">$2.59</td>
+                    </tr>
+                    <tr>
+                        <td>Drinks</td>
+                        <td>Champurrado</td>
+                        <td>$3.79</td>
+                        <td>$3.98</td>
+                        <td class="new-price">$4.09</td>
+                    </tr>
+                    <tr>
+                        <td>Drinks</td>
+                        <td>Catering Champurrado</td>
+                        <td>$26.19</td>
+                        <td>$27.45</td>
+                        <td class="new-price">$28.29</td>
+                    </tr>
+                    <tr>
+                        <td>Drinks</td>
+                        <td>Bottled Water</td>
+                        <td>$0.99</td>
+                        <td>$0.99</td>
+                        <td class="new-price">$1.09</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Aguacate 1.5 oz</td>
+                        <td>$1.29</td>
+                        <td>$1.39</td>
+                        <td class="new-price">$1.49</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Crema 1.5 oz</td>
+                        <td>$0.79</td>
+                        <td>$0.89</td>
+                        <td class="new-price">$0.99</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Jack Cheese 1.5 oz</td>
+                        <td>$0.59</td>
+                        <td>$0.69</td>
+                        <td class="new-price">$0.79</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Carne Dorada 1.5 oz</td>
+                        <td>$0.59</td>
+                        <td>$0.69</td>
+                        <td class="new-price">$0.79</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Extra Carne 1.5 oz</td>
+                        <td>$0.89</td>
+                        <td>$0.99</td>
+                        <td class="new-price">$1.09</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Extra Nacho Cheese 1.5 oz</td>
+                        <td>$0.59</td>
+                        <td>$0.69</td>
+                        <td class="new-price">$0.79</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Extra Cotija Cheese 1.5 oz.</td>
+                        <td>$0.59</td>
+                        <td>$0.69</td>
+                        <td class="new-price">$0.79</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Extra Beans 1.5 oz</td>
+                        <td>$0.79</td>
+                        <td>$0.89</td>
+                        <td class="new-price">$0.99</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                        <td>Extra Rice 1.5 oz</td>
+                        <td>$0.79</td>
+                        <td>$0.89</td>
+                        <td class="new-price">$0.99</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Aguacate 3 oz</td>
+                        <td>$3.09</td>
+                        <td>$3.29</td>
+                        <td class="new-price">$3.39</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Crema 3 oz</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Jack Cheese 3 oz</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Carne Dorada 3 oz</td>
+                        <td>$0.99</td>
+                        <td>$0.99</td>
+                        <td class="new-price">$1.09</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Extra Carne 3 oz</td>
+                        <td>$3.99</td>
+                        <td>$4.19</td>
+                        <td class="new-price">$4.39</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Extra Nacho Cheese 3 oz</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Extra Cotija Cheese 3 oz</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Extra Rice 3 oz</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                    <tr>
+                        <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                        <td>Extra Beans 3 oz</td>
+                        <td>$1.39</td>
+                        <td>$1.49</td>
+                        <td class="new-price">$1.59</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="footer-validation">
+            <h3>Validación Financiera de la Estrategia Hook</h3>
+            <ul>
+                <li><strong>Ingreso con Nueva Propuesta Estratégica:</strong> $311,035.00</li>
+                <li><strong>Diferencia vs Propuesta de Excel:</strong> +$402.00</li>
+            </ul>
+            <p style="margin-bottom: 0;">Como puedes ver, el ingreso total se mantiene prácticamente igual (e incluso
+                ligeramente superior debido al redondeo de .X9 en los demás productos), asegurando la rentabilidad
+                global mientras mantienes tus Tacos competitivos a $2.29.</p>
+        </div>
+    </div>
+</body>
+
+</html>

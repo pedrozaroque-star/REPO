@@ -42,6 +42,17 @@ export interface DayForecast {
     hours: OperatingHour[]
 }
 
+// Add simple fast memory cache to avoid blasting Supabase 300+ times per API hit
+const _memCache = new Map<string, { data: any, time: number }>();
+async function _cachedQuery(key: string, queryFn: () => Promise<any>) {
+    const now = Date.now();
+    const cached = _memCache.get(key);
+    if (cached && now - cached.time < 60000) return cached.data;
+    const data = await queryFn();
+    _memCache.set(key, { data, time: now });
+    return data;
+}
+
 /**
  * GENERATE HYBRID FORECAST
  * ------------------------
@@ -147,12 +158,15 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         }
     }
 
-    const { data: historyPoints } = await supabase
-        .from('sales_daily_cache')
-        .select('business_date, net_sales, hourly_data, hourly_tickets')
-        .eq('store_id', storeId)
-        .in('business_date', compDays)
-        .gt('net_sales', 0)
+    const historyPoints = await _cachedQuery(`hist_${storeId}_${compDays.join(',')}`, async () => {
+        const { data } = await supabase
+            .from('sales_daily_cache')
+            .select('business_date, net_sales, hourly_data, hourly_tickets')
+            .eq('store_id', storeId)
+            .in('business_date', compDays)
+            .gt('net_sales', 0)
+        return data || []
+    });
 
     if (historyPoints && historyPoints.length > 0) {
         // Calculate Weighted Average
@@ -236,12 +250,15 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             recentDates.push(d.toISOString().split('T')[0])
         }
 
-        const { data: recentHistory } = await supabase
-            .from('sales_daily_cache')
-            .select('net_sales, hourly_data, hourly_tickets')
-            .eq('store_id', storeId)
-            .in('business_date', recentDates)
-            .gt('net_sales', 0) // Filter out closed days
+        const recentHistory = await _cachedQuery(`recent4_${storeId}_${recentDates.join(',')}`, async () => {
+            const { data } = await supabase
+                .from('sales_daily_cache')
+                .select('net_sales, hourly_data, hourly_tickets')
+                .eq('store_id', storeId)
+                .in('business_date', recentDates)
+                .gt('net_sales', 0) // Filter out closed days
+            return data || []
+        });
 
         if (recentHistory && recentHistory.length > 0) {
             // Calculate Average
@@ -309,63 +326,71 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     dLastYearShort.setDate(dLastYearShort.getDate() - 7)
 
     // FETCH 28-DAY DATA
-    const { data: salesRecent28 } = await supabase
-        .from('sales_daily_cache')
-        .select('net_sales, business_date')
-        .eq('store_id', storeId)
-        .gte('business_date', dRecentStart.toISOString().split('T')[0])
-        .lte('business_date', dRecentEnd.toISOString().split('T')[0])
+    const dRecStartStr = dRecentStart.toISOString().split('T')[0]
+    const dRecEndStr = dRecentEnd.toISOString().split('T')[0]
+    const dLYStartStr = dLastYearStart.toISOString().split('T')[0]
+    const dLYEndStr = dLastYearEnd.toISOString().split('T')[0]
+
+    const salesRecent28 = await _cachedQuery(`rec28_${storeId}_${dRecStartStr}_${dRecEndStr}`, async () => {
+        const { data } = await supabase
+            .from('sales_daily_cache')
+            .select('net_sales, business_date, total_tickets')
+            .eq('store_id', storeId)
+            .gte('business_date', dRecStartStr)
+            .lte('business_date', dRecEndStr)
+        return data || []
+    });
 
     // ... (Keep the fix for salesLastYearSafe below) ...
 
-    const { data: salesLastYear28, error: errorLastYear } = await supabase
-        .from('sales_daily_cache')
-        .select('net_sales, business_date, total_tickets')
-        .eq('store_id', storeId)
-        .gte('business_date', dLastYearStart.toISOString().split('T')[0])
-        .lte('business_date', dLastYearEnd.toISOString().split('T')[0])
-
-    let salesLastYearSafe = salesLastYear28
-
-    if (!salesLastYear28 || errorLastYear) {
-        // Fallback: Fetch ONLY net_sales if total_tickets doesn't exist
-        const { data: retryData } = await supabase
+    const salesLastYearSafe = await _cachedQuery(`ly28_${storeId}_${dLYStartStr}_${dLYEndStr}`, async () => {
+        let { data, error } = await supabase
             .from('sales_daily_cache')
-            .select('net_sales, business_date')
+            .select('net_sales, business_date, total_tickets')
             .eq('store_id', storeId)
-            .gte('business_date', dLastYearStart.toISOString().split('T')[0])
-            .lte('business_date', dLastYearEnd.toISOString().split('T')[0])
+            .gte('business_date', dLYStartStr)
+            .lte('business_date', dLYEndStr)
 
-        salesLastYearSafe = retryData as any
-    }
+        if (!data || error) {
+            // Fallback: Fetch ONLY net_sales if total_tickets doesn't exist
+            const { data: retryData } = await supabase
+                .from('sales_daily_cache')
+                .select('net_sales, business_date')
+                .eq('store_id', storeId)
+                .gte('business_date', dLYStartStr)
+                .lte('business_date', dLYEndStr)
+            data = retryData as any
+        }
+        return data || []
+    });
 
     // Compute 28-Day Growth
     // --- TREND ANALYSIS (Sales & Tickets) ---
     // We calculate separate trends because Sales Growth != Traffic Growth (Inflation/Price Hikes)
 
     // 1. Sales Growth Factors
-    const sumRecent28 = salesRecent28?.reduce((a, b) => a + b.net_sales, 0) || 0
-    const sumLastYear28 = salesLastYearSafe?.reduce((a, b: any) => a + b.net_sales, 0) || 0
+    const sumRecent28 = salesRecent28?.reduce((a: any, b: any) => a + b.net_sales, 0) || 0
+    const sumLastYear28 = salesLastYearSafe?.reduce((a: any, b: any) => a + b.net_sales, 0) || 0
     let salesGrowth28 = 1.0
     if (sumLastYear28 > 1000) salesGrowth28 = sumRecent28 / sumLastYear28
 
-    const sumRecentShort = salesRecent28?.filter(s => s.business_date >= dShortStart.toISOString().split('T')[0])
-        .reduce((a, b: any) => a + b.net_sales, 0) || 0
+    const sumRecentShort = salesRecent28?.filter((s: any) => s.business_date >= dShortStart.toISOString().split('T')[0])
+        .reduce((a: any, b: any) => a + b.net_sales, 0) || 0
     const sumLastYearShort = salesLastYearSafe?.filter((s: any) => s.business_date >= dLastYearShort.toISOString().split('T')[0])
-        .reduce((a, b: any) => a + b.net_sales, 0) || 0
+        .reduce((a: any, b: any) => a + b.net_sales, 0) || 0
     let salesGrowthShort = 1.0
     if (sumLastYearShort > 1000) salesGrowthShort = sumRecentShort / sumLastYearShort
 
     // 2. Ticket Growth Factors
-    const sumTicketsRecent28 = salesRecent28?.reduce((a, b: any) => a + (b.total_tickets || 0), 0) || 0
-    const sumTicketsLastYear28 = (salesLastYearSafe as any[])?.reduce((a, b) => a + (b.total_tickets || 0), 0) || 0
+    const sumTicketsRecent28 = salesRecent28?.reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
+    const sumTicketsLastYear28 = (salesLastYearSafe as any[])?.reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
     let ticketGrowth28 = 1.0
     if (sumTicketsLastYear28 > 100) ticketGrowth28 = sumTicketsRecent28 / sumTicketsLastYear28
 
-    const sumTicketsRecentShort = salesRecent28?.filter(s => s.business_date >= dShortStart.toISOString().split('T')[0])
-        .reduce((a, b: any) => a + (b.total_tickets || 0), 0) || 0
-    const sumTicketsLastYearShort = (salesLastYearSafe as any[])?.filter(s => s.business_date >= dLastYearShort.toISOString().split('T')[0])
-        .reduce((a, b) => a + (b.total_tickets || 0), 0) || 0
+    const sumTicketsRecentShort = salesRecent28?.filter((s: any) => s.business_date >= dShortStart.toISOString().split('T')[0])
+        .reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
+    const sumTicketsLastYearShort = (salesLastYearSafe as any[])?.filter((s: any) => s.business_date >= dLastYearShort.toISOString().split('T')[0])
+        .reduce((a: any, b: any) => a + (b.total_tickets || 0), 0) || 0
     let ticketGrowthShort = 1.0
     if (sumTicketsLastYearShort > 100) ticketGrowthShort = sumTicketsRecentShort / sumTicketsLastYearShort
 
@@ -378,13 +403,13 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // 1. Filter history for SAME WEEKDAY only (e.g. only Mondays)
     const targetDayOfWeek = targetDate.getUTCDay() // 0-6
     const safeHistory = historyPoints || []
-    const sameWeekdayHistory = safeHistory.filter(h => {
+    const sameWeekdayHistory = safeHistory.filter((h: any) => {
         const d = new Date(h.business_date)
         return d.getUTCDay() === targetDayOfWeek
     })
 
     // 2. Sort by date desc
-    sameWeekdayHistory.sort((a, b) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime())
+    sameWeekdayHistory.sort((a: any, b: any) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime())
 
     // 3. Take last 4 instances (Last 4 Mondays)
     const recent4SameDays = sameWeekdayHistory.slice(0, 4) // Today is 2026, historyPoints includes 2025 comp. 
@@ -397,19 +422,24 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     const trendStartDate = new Date(dRecentEnd)
     trendStartDate.setDate(trendStartDate.getDate() - 21 + 1) // +1 because the query is .gte 
 
-    const { data: recentTrendData } = await supabase
-        .from('sales_daily_cache')
-        .select('business_date, net_sales, hourly_tickets')
-        .eq('store_id', storeId)
-        .gte('business_date', trendStartDate.toISOString().split('T')[0])
-        .lte('business_date', dRecentEnd.toISOString().split('T')[0])
+    const tsDStr = trendStartDate.toISOString().split('T')[0]
+    const teDStr = dRecentEnd.toISOString().split('T')[0]
+    const recentTrendData = await _cachedQuery(`trend_${storeId}_${tsDStr}_${teDStr}`, async () => {
+        const { data } = await supabase
+            .from('sales_daily_cache')
+            .select('business_date, net_sales, hourly_tickets')
+            .eq('store_id', storeId)
+            .gte('business_date', tsDStr)
+            .lte('business_date', teDStr)
+        return data || []
+    });
 
     // Calculate Trend specific to Day of Week
     let specificTrendFactor = 1.0
 
     if (recentTrendData && recentTrendData.length > 0) {
         // Filter for same weekday in recent data (e.g. Jan 21, Jan 14, Jan 7 -> for Jan 28 target)
-        const recentSameWeekdays = recentTrendData.filter(d => {
+        const recentSameWeekdays = recentTrendData.filter((d: any) => {
             const dt = new Date(d.business_date)
             return dt.getUTCDay() === targetDayOfWeek
         })
@@ -419,7 +449,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
 
         let sumRecentSpecific = 0
         let countRecentSpecific = 0
-        recentSameWeekdays.forEach(d => {
+        recentSameWeekdays.forEach((d: any) => {
             if (d.net_sales > 100) { // Filter noise
                 sumRecentSpecific += d.net_sales
                 countRecentSpecific++
@@ -429,7 +459,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         let sumHistSpecific = 0
         let countHistSpecific = 0
         const safeHistPoints = historyPoints || []
-        safeHistPoints.forEach(h => {
+        safeHistPoints.forEach((h: any) => {
             // historyPoints already filtered for comp days (which are same weekday by definition)
             if (h.net_sales > 100) {
                 sumHistSpecific += h.net_sales
