@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
 
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300 // Allow up to 5 minutes so Vercel does not kill it in the middle of fetching/emailing 
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const supabase = createClient(supabaseUrl, supabaseKey)
@@ -107,15 +110,38 @@ export async function GET(req: Request) {
         const { accessToken, fromEmail } = authObj;
 
         // 2. Fetch Data
-        const { data: stores } = await supabase.from('stores').select('id, name, supervisor_name')
-        const { data: emps } = await supabase.from('toast_employees').select('toast_guid, first_name, last_name, chosen_name')
-        const { data: punches } = await supabase.from('punches')
-            .select('store_id, employee_toast_guid, business_date, breaks')
-            .gte('business_date', mondayStr)
-            .lte('business_date', sundayStr)
+        const { data: stores } = await supabase.from('stores').select('id, name, supervisor_name, external_id')
 
-        if (!punches || punches.length === 0) {
+        let punches: any[] = []
+        let currentOffset = 0
+        const pageSize = 1000
+        while (true) {
+            const { data: chunk, error } = await supabase.from('punches')
+                .select('store_id, employee_toast_guid, business_date, breaks')
+                .gte('business_date', mondayStr)
+                .lte('business_date', sundayStr)
+                .range(currentOffset, currentOffset + pageSize - 1)
+
+            if (error) {
+                console.error('Punches fetch error:', error)
+                break
+            }
+            if (!chunk || chunk.length === 0) break
+            punches.push(...chunk)
+            if (chunk.length < pageSize) break
+            currentOffset += pageSize
+        }
+
+        if (punches.length === 0) {
             return NextResponse.json({ message: 'No punches found for the week' })
+        }
+
+        const uniqueEmpIds = Array.from(new Set(punches.map((p: any) => p.employee_toast_guid))).filter(Boolean)
+        const emps: any[] = []
+        for (let i = 0; i < uniqueEmpIds.length; i += 500) {
+            const chunk = uniqueEmpIds.slice(i, i + 500)
+            const { data } = await supabase.from('toast_employees').select('toast_guid, first_name, last_name, chosen_name').in('toast_guid', chunk)
+            if (data) emps.push(...data)
         }
 
         // 3. Process Violations
@@ -143,7 +169,7 @@ export async function GET(req: Request) {
                     // SOLO BREAKS (b.paid === true)
                     // Tolerancia de 3 minutos, asi que cuenta si diffMins es >= 13
                     if (b.paid && diffMins >= 13) {
-                        const store = stores?.find(s => s.id === p.store_id)
+                        const store = stores?.find(s => s.external_id === p.store_id)
                         const emp = emps?.find(e => e.toast_guid === p.employee_toast_guid)
 
                         violations.push({

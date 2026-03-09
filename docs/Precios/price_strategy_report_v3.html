@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis Estrategia de Precios In-Store & 3rd Party (The Hook Strategy)</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #2980b9; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        h3 { color: #2c3e50; margin-top: 25px; }
+        .summary-box { background: #f8f9fa; border-left: 4px solid #3498db; padding: 15px; margin: 20px 0; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .executive-summary { background: #fffcf5; border: 1px solid #f1c40f; padding: 20px; border-radius: 8px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .highlight { font-weight: bold; color: #e74c3c; }
+        .success { font-weight: bold; color: #27ae60; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.9em; box-shadow: 0 0 20px rgba(0, 0, 0, 0.05); background: #fff; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #34495e; color: white; position: sticky; top: 0; }
+        tr:hover { background-color: #f5f5f5; }
+        .taco-row { background-color: #fff3cd; font-weight: bold; }
+        .taco-row:hover { background-color: #ffe69c; }
+        .explanation { background: #e8f4f8; padding: 25px; border-radius: 8px; margin-bottom: 30px; border-left: 5px solid #3498db; }
+        ul, ol { margin-top: 5px; }
+        li { margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Reporte Ejecutivo: The "Hook" Price Strategy (2026)</h1>
+    
+    <div class="executive-summary">
+        <h2>🎯 Resumen del Objetivo y Reglas del Modelo (+5.0% Global)</h2>
+        <p>Este reporte proyecta los ingresos calculando el <strong>aumento global real del 5%</strong> en la facturación mensual, protegiendo los productos estrella de grandes subidas de precio y partiendo única y exclusivamente de los precios vigentes reales ("Prices ACTUAL toast"). Las reglas del simulador fueron construidas bajo las siguientes directrices:</p>
+        <ul>
+            <li><strong>El Gancho Intacto (0%):</strong> Taco Regular de mostrador se congela en históricos <strong>$2.29</strong>.</li>
+            <li><strong>Límite Proteccionista (Tope 5%):</strong> Burritos Regulares y Quesadillas Regulares se bloquean para no subir más allá de $8.99.</li>
+            <li><strong>Decisión a Medida (Tope Dueño):</strong> Tortas ($9.69), Champurrado ($3.99) y Super Mulitas ($5.99).</li>
+            <li><strong>El "Camino B" (La Compensación Dinámica):</strong> Dado que congelamos los Tacos y Burritos (que son nuestro volumen más grande), la ganancia faltante para llegar al 5% global debe recuperarse del resto del menú. El "Camino B" (o Ajuste Compensatorio Dinámico) es el algoritmo calculando <em>la cantidad milimétrica exacta porcentual</em> que Sides, Bebidas, Super Burritos, etc., tienen que subir para lograr arrastrar el promedio final mensual a la meta dorada.</li>
+        </ul>
+    </div>
+
+    <div class="explanation">
+        <h2>📊 Guía para leer las Tablas de Precios (In-Store y 3rd Party)</h2>
+        <p>A continuación se presentan dos tablas con el resumen financiero. En cada tabla encontrarás una columna llamada <strong>"Motivo de Ajuste"</strong>, la cual le indica a Gerencia la regla matemática exacta que el sistema usó para asignar el nuevo precio (por ejemplo: si dice "Camino B (+8.16%)", significa que a ese artículo en específico le tocó arrastrar la carreta y subir dicho porcentaje para ayudar a los Tacos y Burritos topados).</p>
+        <p><strong>Nota importante sobre la sección "3rd Party" (Uber Eats / DoorDash):</strong><br/>
+        Al revisar la tabla de aplicaciones móviles, notarás una columna especial de referencia en color <strong>morado</strong> llamada <strong>"In-Store + 25%"</strong>. Esta columna fue añadida como una brújula ejecutiva: Toma el precio final sugerido en mostrador, le inyecta directamente un +25% lineal para cobertura de comisiones, y lo redondea psicologicamente a un <em>.99 / .X9</em>. Sirve para comparar visualmente ese número plano contra la sugerencia dinámica arrojada por el algoritmo (columna verde final).</p>
+    </div>
+
+        <div class="summary-box">
+            <h2>Resultados Base: In-Store</h2>
+            <ul>
+                <li><strong>Ingreso Actual Estimado (Febrero 2026, Volumen Histórico):</strong> $3,967,986.01</li>
+                <li><strong>Ingreso con Nueva Propuesta (Escenario Alternativo):</strong> <span class="success">$4,165,250.65</span></li>
+                <li><strong>Aumento Real Efectivo Mensual (Global):</strong> <span class="highlight">+4.97%</span> vs Actual.</li>
+            </ul>
+        </div>
+
+        <h2>Tabla de Precios Detallada: In-Store</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Categoría</th>
+                    <th>Producto</th>
+                    <th>Motivo de Ajuste</th>
+                    <th>Precio Actual</th>
+                    
+                    <th>Nuevo Escenario V2 (Dinámico Algoritmo)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="taco-row">
+                    <td>Tacos</td>
+                    <td>⭐ Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Gancho (0%)</td>
+                    <td>$2.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Mulitas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$4.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Mulitas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$3.69</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$3.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Mulitas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope Dueño ($5.99 base)</td>
+                    <td>$5.69</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Mulitas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$4.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Sopes</td>
+                    <td>Regular / Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$4.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Sopes</td>
+                    <td>Beans Only</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$3.69</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$3.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope 5%</td>
+                    <td>$8.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$8.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Burritos</td>
+                    <td>Beans / Rice / Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$6.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$6.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Burritos</td>
+                    <td>Beans OR Rice / Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$5.69</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$6.19</strong></td>
+                </tr>
+                <tr>
+                    <td>PC Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$10.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$11.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Tortas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope Dueño ($9.69 base)</td>
+                    <td>$9.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Tortas</td>
+                    <td>Cubana</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope Dueño ($9.69 base)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Queso OR Jamon OR Salchicha</td>
+                    <td>Pan Tostado w/ Beans/Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$3.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$3.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Queso OR Jamon OR Salchicha</td>
+                    <td>Pan Tostado</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.39</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.59</strong></td>
+                </tr>
+                <tr>
+                    <td>Quesadillas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope 5%</td>
+                    <td>$8.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$8.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Quesadillas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$5.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.59</strong></td>
+                </tr>
+                <tr>
+                    <td>Platos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Burrito Huevos / Chorizo</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$8.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Burrito Huevos/Jamon</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$8.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Burrito Huevos a la Mex</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$8.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Burrito Huevos / CQueso</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$8.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Burrito Huevos / Salchicha</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$8.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Torta Huevo</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope Dueño ($9.69 base)</td>
+                    <td>$9.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Torta Huevos / Chorizo</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope Dueño ($9.69 base)</td>
+                    <td>$9.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Torta Huevos / Jmaon</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope Dueño ($9.69 base)</td>
+                    <td>$9.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Huevos A La Mex</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Huevos / Chorizo</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Huevos / HJamon</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Huevos / Salchicha</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Desayunos</td>
+                    <td>Huevos Rancheros</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Combos</td>
+                    <td>Taco Combo (3 Tacos / Rice / Beans)</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$10.99</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$11.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Burritos</td>
+                    <td>Beans / Rice / Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$8.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Super PC Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$12.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$13.09</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Quesadillas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Quesadillas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$6.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$7.19</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Nachos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$9.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$9.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Nachos</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$7.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$7.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Avocado</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Sour Cream</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Beans</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Rice</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Jack Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Cotija Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Nacho Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Queso Fresco</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Chips</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$3.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$3.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Egg</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.39</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.59</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Order of Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$5.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Order of Maiz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Order of Harina</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Beans / Rice Combo</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Desserts</td>
+                    <td>Flan</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$4.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Desserts</td>
+                    <td>Cheesecake</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$4.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>15 - 20 People</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$188.99</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$204.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>20 - 25 People</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$230.99</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$249.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>25 - 30 People</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$283.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$306.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>35 - 40 People</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$351.39</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$380.09</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>2lb Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$24.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$26.09</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>6lb Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$59.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$64.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>12lb Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$110.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$119.19</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>1/2 Tray Beans or Rice</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$25.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$27.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>Full Tray Beans or Rice</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$37.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$40.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>Gallon de Agua</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$13.69</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$14.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>Dz. Tortillas Harina</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$6.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$6.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>Dz. Tortillas Maiz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$4.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.59</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>20 oz. Salsa</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$6.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$6.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>1lb Guacamole</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$10.99</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$11.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>Full Flan</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$26.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$28.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>Full Cheesecake</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$26.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$28.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Medium</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$3.29</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$3.59</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Large</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$3.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.09</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Coffee</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$2.39</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.59</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Champurrado</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope Dueño ($3.99 base)</td>
+                    <td>$3.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$3.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Catering Champurrado</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$26.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$28.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Bottled Water</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.09</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.19</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Aguacate 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Crema 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Jack Cheese 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Carne Dorada 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Extra Carne 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.09</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Extra Nacho Cheese 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Extra Cotija Cheese 1.5 oz.</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.59</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Extra Beans 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Extra Rice 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$0.89</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Aguacate 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Crema 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Jack Cheese 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Carne Dorada 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.49</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Extra Carne 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$5.19</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Extra Nacho Cheese 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Extra Rice 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Extra Beans 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+8.16%)</td>
+                    <td>$1.79</td>
+                    
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.99</strong></td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="summary-box">
+            <h2>Resultados Base: 3rd Party (UberEats / DoorDash)</h2>
+            <ul>
+                <li><strong>Ingreso Actual Estimado (Febrero 2026, Volumen Histórico):</strong> $829,451.35</li>
+                <li><strong>Ingreso con Nueva Propuesta (Escenario Alternativo):</strong> <span class="success">$870,715.55</span></li>
+                <li><strong>Aumento Real Efectivo Mensual (Global):</strong> <span class="highlight">+4.97%</span> vs Actual.</li>
+            </ul>
+        </div>
+
+        <h2>Tabla de Precios Detallada: 3rd Party (UberEats / DoorDash)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Categoría</th>
+                    <th>Producto</th>
+                    <th>Motivo de Ajuste</th>
+                    <th>Precio Actual</th>
+                    <th style="background-color: #8e44ad;">In-Store + 25% (Referencia)</th>
+                    <th>Nuevo Escenario V2 (Dinámico Algoritmo)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="taco-row">
+                    <td>Tacos</td>
+                    <td>⭐ Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Gancho (0%)</td>
+                    <td>$2.59</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$2.89</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Mulitas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$5.39</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$6.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Mulitas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$4.39</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$4.99</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Mulitas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$6.79</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$7.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$7.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Mulitas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$5.39</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$6.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Sopes</td>
+                    <td>Regular / Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$5.39</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$6.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Sopes</td>
+                    <td>Beans Only</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$4.39</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$4.99</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope 5%</td>
+                    <td>$10.29</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$11.29</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Burritos</td>
+                    <td>Beans / Rice / Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$6.79</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$8.39</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$7.49</strong></td>
+                </tr>
+                <tr>
+                    <td>PC Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$12.99</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$14.29</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$14.19</strong></td>
+                </tr>
+                <tr>
+                    <td>Tortas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$10.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$12.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$11.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Tortas</td>
+                    <td>Cubana</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$11.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$12.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$12.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Quesadillas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Tope 5%</td>
+                    <td>$10.29</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$11.29</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$10.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Quesadillas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$6.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$6.99</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$6.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Platos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$11.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$13.39</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$12.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Combos</td>
+                    <td>Taco Combo (3 Tacos / Rice / Beans)</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$10.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$12.39</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$11.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$13.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$14.89</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$14.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Burritos</td>
+                    <td>Beans / Rice / Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$13.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$12.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$14.49</strong></td>
+                </tr>
+                <tr>
+                    <td>Super PC Burritos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$14.49</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$16.39</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$15.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Quesadillas</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$11.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$13.39</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$12.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Quesadillas</td>
+                    <td>No Meat</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$7.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$8.99</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$8.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Super Nachos</td>
+                    <td>Regular</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$10.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$12.39</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$11.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Avocado</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.69</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$3.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Sour Cream</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.69</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$3.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Beans</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.69</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$3.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Rice</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.69</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$3.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Jack Cheese</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.69</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$3.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Side Orders</td>
+                    <td>Chips</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$3.79</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$4.39</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.19</strong></td>
+                </tr>
+                <tr>
+                    <td>Desserts</td>
+                    <td>Flan</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$5.29</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$6.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Desserts</td>
+                    <td>Cheesecake</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$5.29</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$6.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$5.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>15 - 20 People</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$226.99</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$255.69</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$248.09</strong></td>
+                </tr>
+                <tr>
+                    <td>Catering</td>
+                    <td>Gallon de Agua</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$16.39</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$18.69</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$17.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Medium</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$3.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$4.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.29</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Large</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$4.49</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$5.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Coffee</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.89</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$3.29</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$3.19</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Champurrado</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$4.49</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$4.99</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$4.99</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Catering Champurrado</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$29.99</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$35.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$32.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Drinks</td>
+                    <td>Bottled Water</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$1.49</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$1.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.69</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Aguacate 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$1.09</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$1.29</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$1.19</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Crema 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$0.79</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$0.89</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Jack Cheese 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$0.79</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$0.89</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$0.89</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Tacos/Mul/Sop)</td>
+                    <td>Extra Carne 1.5 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.29</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$2.69</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.59</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Aguacate 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$2.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Crema 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$2.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Jack Cheese 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$2.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.39</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Extra Carne 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$6.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$7.19</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$6.79</strong></td>
+                </tr>
+                <tr>
+                    <td>Extra Add-Ons (Bur/Que/Tor)</td>
+                    <td>Extra Nacho Cheese 3 oz</td>
+                    <td style="color: #2980b9; font-weight: bold;">Camino B (+9.26%)</td>
+                    <td>$2.19</td>
+                    <td style="color: #8e44ad; font-weight: bold;">$2.49</td>
+                    <td style="font-size: 1.1em; color: green;"><strong>$2.39</strong></td>
+                </tr>
+            </tbody>
+        </table>
+</body>
+</html>
