@@ -11,7 +11,27 @@ function run() {
 
     function processSheet(sheetName: string, title: string, tacoHookPrice: number, is3rdParty: boolean) {
         const sheet = excelData[sheetName];
-        if (!sheet) return null;
+        if (!sheet || sheet.length === 0) return null;
+
+        const headerRow = sheet[0];
+        let foodItemKey = '';
+        let actualToastKey = '';
+        let categoryKey = '';
+        let newPriceKey = '';
+
+        for (const k of Object.keys(headerRow)) {
+            const val = String(headerRow[k]).toLowerCase().trim();
+            if (val.includes('food item')) foodItemKey = k;
+            if (val.includes('actual toast')) actualToastKey = k;
+            if (val.includes('categoria')) categoryKey = k;
+            if (val.includes('new price')) newPriceKey = k;
+        }
+
+        // Fallbacks
+        if (!foodItemKey) foodItemKey = Object.keys(headerRow).find(k => k.toLowerCase().includes('food item')) || Object.keys(headerRow)[1];
+        if (!actualToastKey) actualToastKey = '__EMPTY_4';
+        if (!categoryKey) categoryKey = '__EMPTY';
+        if (!newPriceKey) newPriceKey = '__EMPTY_5';
 
         const localPmix = is3rdParty ? JSON.parse(JSON.stringify(aggregatedPmix3rdParty)) : JSON.parse(JSON.stringify(aggregatedPmixInStore));
 
@@ -20,19 +40,26 @@ function run() {
 
         for (let i = 1; i < sheet.length; i++) {
             const row = sheet[i];
-            const itemNameRaw = row[Object.keys(row)[0]] || '';
 
-            if (row['__EMPTY'] === undefined && row['__EMPTY_1'] === undefined && itemNameRaw !== '') {
-                currentCategory = itemNameRaw;
+            // Keep fallback for category from previous rows if the user didn't pull down the "Categoria" formula
+            if (row[categoryKey] && String(row[categoryKey]).trim() !== '') {
+                currentCategory = String(row[categoryKey]);
+            } else if (row[foodItemKey] && !row[actualToastKey]) {
+                currentCategory = String(row[foodItemKey]);
                 continue;
             }
 
-            if (!itemNameRaw) continue;
+            const itemNameRaw = String(row[foodItemKey] || '').trim();
+            const rawCur = row[actualToastKey];
+            const hasActualPrice = (rawCur !== undefined && rawCur !== '' && String(rawCur).toLowerCase() !== 'n/a');
 
-            const rawCur = row['__EMPTY_3'];
-            const currentPrice = Number((rawCur === 'N/A' || isNaN(Number(rawCur))) ? 0 : rawCur);
-            const rawProp = row['__EMPTY_4'];
-            const proposedExcelPrice = Number((rawProp === 'N/A' || isNaN(Number(rawProp))) ? 0 : rawProp);
+            if (!itemNameRaw || !hasActualPrice) {
+                continue;
+            }
+
+            const currentPrice = Number((String(rawCur) === 'N/A' || isNaN(Number(rawCur))) ? 0 : rawCur);
+            const rawProp = row[newPriceKey];
+            const proposedExcelPrice = Number((String(rawProp) === 'N/A' || isNaN(Number(rawProp))) ? 0 : rawProp);
 
             let qty = 0;
             const cLower = currentCategory.toLowerCase();
@@ -130,6 +157,8 @@ function run() {
         }
 
         let fixedItemsRevenue = 0;
+        let fixedItemsRevenueV3 = 0;
+        let fixedItemsRevenueV4 = 0;
 
         for (const item of items) {
             const lowName = item.name.toLowerCase();
@@ -153,30 +182,57 @@ function run() {
 
             if (isTacoHook) {
                 item.hookType = 'Taco';
+                item.hookTypeV3 = 'Taco';
+                item.hookTypeV4 = 'Taco';
                 item.hookStrategyPrice = tacoHookPrice;
                 fixedItemsRevenue += item.hookStrategyPrice * item.pmixQty30Days;
+                fixedItemsRevenueV3 += item.hookStrategyPrice * item.pmixQty30Days;
+                fixedItemsRevenueV4 += item.hookStrategyPrice * item.pmixQty30Days;
             } else if (isRegularBurrito) {
                 item.hookType = 'Burrito';
+                item.hookTypeV3 = 'Other';
+                item.hookTypeV4 = 'Other';
                 item.hookStrategyPrice = roundTo9(item.currentPrice * 1.0465);
                 fixedItemsRevenue += item.hookStrategyPrice * item.pmixQty30Days;
             } else if (isRegularQuesadilla) {
                 item.hookType = 'Quesadilla';
+                item.hookTypeV3 = 'Other';
+                item.hookTypeV4 = 'Other';
                 item.hookStrategyPrice = roundTo9(item.currentPrice * 1.0465);
                 fixedItemsRevenue += item.hookStrategyPrice * item.pmixQty30Days;
-            } else if (isTortaAll && !is3rdParty) {
-                item.hookType = 'TortaAll';
-                item.hookStrategyPrice = 9.69;
-                fixedItemsRevenue += item.hookStrategyPrice * item.pmixQty30Days;
+            } else if (isTortaAll) {
+                if (!is3rdParty) {
+                    item.hookType = 'TortaAll';
+                    item.hookTypeV3 = 'TortaAll';
+                    item.hookTypeV4 = 'TortaAllV4';
+                    item.hookStrategyPrice = 9.69;
+                    fixedItemsRevenue += item.hookStrategyPrice * item.pmixQty30Days;
+                    fixedItemsRevenueV3 += item.hookStrategyPrice * item.pmixQty30Days;
+                    item.hookStrategyPriceV4Base = 9.09;
+                } else {
+                    item.hookType = 'Other';
+                    item.hookTypeV3 = 'Other';
+                    item.hookTypeV4 = 'TortaAllV4';
+                    item.hookStrategyPriceV4Base = 10.89;
+                }
             } else if (isChampurrado && !is3rdParty) {
                 item.hookType = 'Champurrado';
+                item.hookTypeV3 = 'Champurrado';
+                item.hookTypeV4 = 'Other';
                 item.hookStrategyPrice = 3.99;
                 fixedItemsRevenue += item.hookStrategyPrice * item.pmixQty30Days;
+                fixedItemsRevenueV3 += item.hookStrategyPrice * item.pmixQty30Days;
             } else if (isSuperMulita && !is3rdParty) {
                 item.hookType = 'SuperMulita';
+                item.hookTypeV3 = 'SuperMulita';
+                item.hookTypeV4 = 'Other';
                 item.hookStrategyPrice = 5.99;
                 fixedItemsRevenue += item.hookStrategyPrice * item.pmixQty30Days;
+                fixedItemsRevenueV3 += item.hookStrategyPrice * item.pmixQty30Days;
             } else {
                 item.hookType = 'Other';
+                item.hookTypeV3 = 'Other';
+                item.hookTypeV4 = 'Other';
             }
         }
 
@@ -184,49 +240,122 @@ function run() {
         let minDiff = Infinity;
         let optimalRevenue = 0;
 
+        let optimalPercentageV3 = 0;
+        let minDiffV3 = Infinity;
+        let optimalRevenueV3 = 0;
+
+        let optimalPercentageV4 = 0;
+        let minDiffV4 = Infinity;
+        let optimalRevenueV4 = 0;
+
         for (let p = 0.0500; p <= 0.2500; p += 0.0001) {
             let testRev = fixedItemsRevenue;
+            let testRevV3 = fixedItemsRevenueV3;
+            let testRevV4 = fixedItemsRevenueV4;
+
             for (const item of items) {
                 if (item.hookType === 'Other') {
                     testRev += roundTo9(item.currentPrice * (1 + p)) * item.pmixQty30Days;
                 }
+                if (item.hookTypeV3 === 'Other') {
+                    testRevV3 += roundTo9(item.currentPrice * (1 + p)) * item.pmixQty30Days;
+                }
+                if (item.hookTypeV4 === 'Other') {
+                    testRevV4 += roundTo9(item.currentPrice * (1 + p)) * item.pmixQty30Days;
+                }
+                if (item.hookTypeV4 === 'TortaAllV4') {
+                    testRevV4 += roundTo9(item.hookStrategyPriceV4Base * (1 + p)) * item.pmixQty30Days;
+                }
             }
+
             const diff = Math.abs(testRev - targetRevenue);
             if (diff < minDiff) {
                 minDiff = diff;
                 optimalPercentage = p;
                 optimalRevenue = testRev;
             }
+
+            const diffV3 = Math.abs(testRevV3 - targetRevenue);
+            if (diffV3 < minDiffV3) {
+                minDiffV3 = diffV3;
+                optimalPercentageV3 = p;
+                optimalRevenueV3 = testRevV3;
+            }
+
+            const diffV4 = Math.abs(testRevV4 - targetRevenue);
+            if (diffV4 < minDiffV4) {
+                minDiffV4 = diffV4;
+                optimalPercentageV4 = p;
+                optimalRevenueV4 = testRevV4;
+            }
         }
 
         // Apply optimal percentage to "Other"
         for (const item of items) {
+            item.isHook = false;
+
+            // --- V2 ---
             if (item.hookType === 'Taco') {
                 item.isHook = true;
                 item.adjustmentTag = 'Gancho (0%)';
             } else if (item.hookType === 'Burrito' || item.hookType === 'Quesadilla') {
-                item.isHook = false;
                 item.adjustmentTag = 'Tope 5%';
             } else if (item.hookType === 'TortaAll') {
-                item.isHook = false;
                 item.adjustmentTag = 'Tope Dueño ($9.69 base)';
             } else if (item.hookType === 'Champurrado') {
-                item.isHook = false;
                 item.adjustmentTag = 'Tope Dueño ($3.99 base)';
             } else if (item.hookType === 'SuperMulita') {
-                item.isHook = false;
                 item.adjustmentTag = 'Tope Dueño ($5.99 base)';
             } else {
                 item.hookStrategyPrice = roundTo9(item.currentPrice * (1 + optimalPercentage));
-                item.isHook = false;
                 item.adjustmentTag = `Camino B (+${(optimalPercentage * 100).toFixed(2)}%)`;
+            }
+
+            // --- V3 ---
+            if (item.hookTypeV3 === 'Taco') {
+                item.adjustmentTagV3 = 'Gancho (0%)';
+                item.hookStrategyPriceV3 = item.hookStrategyPrice;
+            } else if (item.hookTypeV3 === 'TortaAll') {
+                item.adjustmentTagV3 = 'Tope Dueño ($9.69 base)';
+                item.hookStrategyPriceV3 = item.hookStrategyPrice;
+            } else if (item.hookTypeV3 === 'Champurrado') {
+                item.adjustmentTagV3 = 'Tope Dueño ($3.99 base)';
+                item.hookStrategyPriceV3 = item.hookStrategyPrice;
+            } else if (item.hookTypeV3 === 'SuperMulita') {
+                item.adjustmentTagV3 = 'Tope Dueño ($5.99 base)';
+                item.hookStrategyPriceV3 = item.hookStrategyPrice;
+            } else {
+                item.hookStrategyPriceV3 = roundTo9(item.currentPrice * (1 + optimalPercentageV3));
+                item.adjustmentTagV3 = item.hookType === 'Other'
+                    ? `Nuevo Camino (+${(optimalPercentageV3 * 100).toFixed(2)}%)`
+                    : `Liberado (+${(optimalPercentageV3 * 100).toFixed(2)}%)`;
+            }
+
+            // --- V4 ---
+            if (item.hookTypeV4 === 'Taco') {
+                item.adjustmentTagV4 = 'Gancho (0%)';
+                item.hookStrategyPriceV4 = item.hookStrategyPrice;
+            } else if (item.hookTypeV4 === 'TortaAllV4') {
+                item.hookStrategyPriceV4 = roundTo9(item.hookStrategyPriceV4Base * (1 + optimalPercentageV4));
+                item.adjustmentTagV4 = `Base Unificada ($${item.hookStrategyPriceV4Base.toFixed(2)}) +${(optimalPercentageV4 * 100).toFixed(2)}%`;
+            } else {
+                item.hookStrategyPriceV4 = roundTo9(item.currentPrice * (1 + optimalPercentageV4));
+                item.adjustmentTagV4 = (item.hookType === 'Other' && item.hookTypeV3 === 'Other')
+                    ? `Nuevo Camino (+${(optimalPercentageV4 * 100).toFixed(2)}%)`
+                    : `Liberado (+${(optimalPercentageV4 * 100).toFixed(2)}%)`;
             }
         }
 
         const totalNewRevenue = optimalRevenue;
         const finalIncreasePercentage = ((totalNewRevenue / currentTotalRevenue) - 1) * 100;
 
-        return { title, items, currentTotalRevenue, excelProposedRevenue, totalNewRevenue, finalIncreasePercentage, optimalPercentage };
+        const totalNewRevenueV3 = optimalRevenueV3;
+        const finalIncreasePercentageV3 = ((totalNewRevenueV3 / currentTotalRevenue) - 1) * 100;
+
+        const totalNewRevenueV4 = optimalRevenueV4;
+        const finalIncreasePercentageV4 = ((totalNewRevenueV4 / currentTotalRevenue) - 1) * 100;
+
+        return { title, items, currentTotalRevenue, excelProposedRevenue, totalNewRevenue, finalIncreasePercentage, optimalPercentage, totalNewRevenueV3, finalIncreasePercentageV3, optimalPercentageV3, totalNewRevenueV4, finalIncreasePercentageV4, optimalPercentageV4 };
     }
 
     // In Store hook is 2.29, 3rd Party hook based on Excel is likely 2.89 (we'll check what current is, in Excel 06/20/26 is 2.89)
@@ -235,8 +364,8 @@ function run() {
     let tpTacoPrice = 2.89; // Fallback
     if (thirdPartySheetRaw) {
         for (let i = 0; i < thirdPartySheetRaw.length; i++) {
-            if (thirdPartySheetRaw[i]['3rd Party - Food Item Prices'] === 'Tacos') {
-                const rawVal = thirdPartySheetRaw[i + 1]['__EMPTY_2'];
+            if (thirdPartySheetRaw[i]['3rd Party - Food Item Prices'] === 'Tacos' || thirdPartySheetRaw[i]['Categoria'] === 'Tacos') {
+                const rawVal = thirdPartySheetRaw[i + 1]['__EMPTY_4'];
                 tpTacoPrice = Number((rawVal === 'N/A' || isNaN(Number(rawVal))) ? 2.89 : rawVal);
                 break;
             }
@@ -264,7 +393,7 @@ function run() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Análisis Estrategia de Precios In-Store & 3rd Party (The Hook Strategy)</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; max-width: 98%; margin: 0 auto; padding: 20px; }
         h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
         h2 { color: #2980b9; margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
         h3 { color: #2c3e50; margin-top: 25px; }
@@ -281,6 +410,19 @@ function run() {
         .explanation { background: #e8f4f8; padding: 25px; border-radius: 8px; margin-bottom: 30px; border-left: 5px solid #3498db; }
         ul, ol { margin-top: 5px; }
         li { margin-bottom: 8px; }
+        @media print {
+            @page { size: landscape; margin: 1cm; }
+            body { max-width: 100%; margin: 0; padding: 0; font-size: 11px; background: white; }
+            .explanation, .executive-summary, .summary-box { border: 1px solid #ccc; box-shadow: none; break-inside: avoid; padding: 10px; margin-bottom: 15px; }
+            table { width: 100%; font-size: 10px; box-shadow: none; border: 1px solid #ccc; }
+            th { position: static; background-color: #e0e0e0 !important; color: #000 !important; border: 1px solid #aaa; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            td { border: 1px solid #ccc; padding: 6px 8px; }
+            .taco-row { background-color: #fff3cd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            /* Fix colored headers for print readability */
+            th[style] { color: #000 !important; background-color: #f5f5f5 !important; font-weight: bold; border: 1px solid #aaa; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            td[style] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            h1, h2 { break-after: avoid; margin-top: 15px; margin-bottom: 10px; }
+        }
     </style>
 </head>
 <body>
@@ -293,20 +435,26 @@ function run() {
             <li><strong>El Gancho Intacto (0%):</strong> Taco Regular de mostrador se congela en históricos <strong>$2.29</strong>.</li>
             <li><strong>Límite Proteccionista (Tope 5%):</strong> Burritos Regulares y Quesadillas Regulares se bloquean para no subir más allá de $8.99.</li>
             <li><strong>Decisión a Medida (Tope Dueño):</strong> Tortas ($9.69), Champurrado ($3.99) y Super Mulitas ($5.99).</li>
-            <li><strong>El "Camino B" (La Compensación Dinámica):</strong> Dado que congelamos los Tacos y Burritos (que son nuestro volumen más grande), la ganancia faltante para llegar al 5% global debe recuperarse del resto del menú. El "Camino B" (o Ajuste Compensatorio Dinámico) es el algoritmo calculando <em>la cantidad milimétrica exacta porcentual</em> que Sides, Bebidas, Super Burritos, etc., tienen que subir para lograr arrastrar el promedio final mensual a la meta dorada.</li>
+            <li><strong>El "Camino B" (La Compensación Dinámica - Escenario V2):</strong> Dado que congelamos los Tacos y Burritos (que son nuestro volumen más grande), la ganancia faltante para llegar al 5% global debe recuperarse del resto del menú. El "Camino B" (o Ajuste Compensatorio Dinámico) es el algoritmo calculando <em>la cantidad milimétrica exacta porcentual</em> que Sides, Bebidas, Super Burritos, etc., tienen que subir para lograr arrastrar el promedio final mensual a la meta dorada.</li>
         </ul>
     </div>
 
     <div class="explanation">
         <h2>📊 Guía para leer las Tablas de Precios (In-Store y 3rd Party)</h2>
-        <p>A continuación se presentan dos tablas con el resumen financiero. En cada tabla encontrarás una columna llamada <strong>"Motivo de Ajuste"</strong>, la cual le indica a Gerencia la regla matemática exacta que el sistema usó para asignar el nuevo precio (por ejemplo: si dice "Camino B (+8.16%)", significa que a ese artículo en específico le tocó arrastrar la carreta y subir dicho porcentaje para ayudar a los Tacos y Burritos topados).</p>
+        <p>A continuación se presentan dos tablas con el resumen financiero. En cada tabla encontrarás una columna llamada <strong>"Motivo de Ajuste"</strong>, la cual le indica a Gerencia la regla matemática que guía el "Nuevo Escenario V2".</p>
+        <p>A petición directiva, se añadieron tres nuevas columnas adicionales para evaluación:<br/>
+        1. <strong>"Aumento Plano Directo (+5%)"</strong>: Ignora la estrategia V2 del "gancho", y simplemente agarra el Precio Actual de cada producto individual y le sube un +5.0% clavado (redondeándolo a .X9). Demuestra qué pasaría si se hace una subida agresiva y ciega.<br/>
+        2. <strong>"Pronóstico 6 Meses (Plano +5% sobre el +5%)"</strong>: Una proyección a mediano plazo. Toma el precio de la primera alza plana y le vuelve a aplicar otro +5.0% acumulativo para simular el precio del menú dentro de medio año, bajo esta lógica lineal directiva.<br/>
+        3. <strong>"Nuevo Escenario V3 (Sin Tope en Burritos)"</strong>: Este escenario presenta una simulación matemática alternativa. <strong>Retira la restricción del 5% establecida a los Burritos Regulares y Quesadillas Regulares.</strong> Al permitir que estos productos de alto volumen formen parte del ajuste global dinámico, el incremento requerido para el resto de los productos complementarios (bebidas, complementos, postres) se estabiliza de un <strong>+8.16%</strong> a un más equilibrado <strong>+6.39%</strong>. El Taco Regular permanece protegido a $2.29.<br/>
+        4. <strong>"Nuevo Escenario V4 (Base Unificada Tortas)"</strong>: A petición corporativa, este simulador unifica todas las variedades de Tortas tratándolas como si tuvieran un valor idéntico base de $9.09 ($10.89 en 3rd Party) antes de inyectarles la inflación, eliminando la disparidad de Jamón y Cubana en el mostrador. Manteniendo al Taco intacto como gancho primario, también se liberan Champurrado y Super Mulitas hacia el cálculo dinámico, absorbiendo con equidad total el incremento del +5%.</p>
         <p><strong>Nota importante sobre la sección "3rd Party" (Uber Eats / DoorDash):</strong><br/>
         Al revisar la tabla de aplicaciones móviles, notarás una columna especial de referencia en color <strong>morado</strong> llamada <strong>"In-Store + 25%"</strong>. Esta columna fue añadida como una brújula ejecutiva: Toma el precio final sugerido en mostrador, le inyecta directamente un +25% lineal para cobertura de comisiones, y lo redondea psicologicamente a un <em>.99 / .X9</em>. Sirve para comparar visualmente ese número plano contra la sugerencia dinámica arrojada por el algoritmo (columna verde final).</p>
     </div>
 `;
     for (const res of results) {
         if (!res) continue;
-        const colorVar = res.finalIncreasePercentage >= 5.0 ? 'success' : 'highlight';
+        const colorVarV2 = res.finalIncreasePercentage >= 5.0 ? 'success' : 'highlight';
+        const colorVarV3 = res.finalIncreasePercentageV3 >= 5.0 ? 'success' : 'highlight';
         const is3rdPartyOutput = res.title.includes('3rd Party');
 
         html += `
@@ -314,8 +462,12 @@ function run() {
             <h2>Resultados Base: ${res.title}</h2>
             <ul>
                 <li><strong>Ingreso Actual Estimado (Febrero 2026, Volumen Histórico):</strong> $${formatCurrency(res.currentTotalRevenue)}</li>
-                <li><strong>Ingreso con Nueva Propuesta (Escenario Alternativo):</strong> <span class="success">$${formatCurrency(res.totalNewRevenue)}</span></li>
-                <li><strong>Aumento Real Efectivo Mensual (Global):</strong> <span class="${colorVar}">+${res.finalIncreasePercentage.toFixed(2)}%</span> vs Actual.</li>
+                <li><strong>Ingreso con Escenario V2 (Tope 5% en Burritos):</strong> <span class="success">$${formatCurrency(res.totalNewRevenue)}</span></li>
+                <li><strong>Aumento Real Efectivo Mensual V2 (Global):</strong> <span class="${colorVarV2}">+${res.finalIncreasePercentage.toFixed(2)}%</span> vs Actual.</li>
+                <li style="margin-top:10px;"><strong>Ingreso con Escenario V3 (Sin Tope en Burritos):</strong> <span class="success" style="color:#e67e22;">$${formatCurrency(res.totalNewRevenueV3)}</span></li>
+                <li><strong>Aumento Real Efectivo Mensual V3 (Global):</strong> <span class="${colorVarV3}" style="color:#d35400;">+${res.finalIncreasePercentageV3.toFixed(2)}%</span> vs Actual.</li>
+                <li style="margin-top:10px;"><strong>Ingreso con Escenario V4 (Sólo Taco Protegido):</strong> <span class="success" style="color:#20c997;">$${formatCurrency(res.totalNewRevenueV4)}</span></li>
+                <li><strong>Aumento Real Efectivo Mensual V4 (Global):</strong> <span class="${res.finalIncreasePercentageV4 >= 5.0 ? 'success' : 'highlight'}" style="color:#17a2b8;">+${res.finalIncreasePercentageV4.toFixed(2)}%</span> vs Actual.</li>
             </ul>
         </div>
 
@@ -325,10 +477,16 @@ function run() {
                 <tr>
                     <th>Categoría</th>
                     <th>Producto</th>
-                    <th>Motivo de Ajuste</th>
                     <th>Precio Actual</th>
-                    ${is3rdPartyOutput ? '<th style="background-color: #8e44ad;">In-Store + 25% (Referencia)</th>' : ''}
+                    <th style="background-color: #27ae60; color: white;">Aumento Plano Directo (+5%)</th>
+                    <th style="background-color: #27ae60; color: white;">Pronóstico 6 Meses (Plano +5% y otro +5%)</th>
+                    <th>Motivo de Ajuste (V2)</th>
                     <th>Nuevo Escenario V2 (Dinámico Algoritmo)</th>
+                    ${is3rdPartyOutput ? '<th style="background-color: #8e44ad;">In-Store + 25% (Referencia)</th>' : ''}
+                    <th style="background-color: #d35400; color: white;">Motivo de Ajuste (V3)</th>
+                    <th style="background-color: #d35400; color: white;">Nuevo Escenario V3 (Sin Tope en Burritos)</th>
+                    <th style="background-color: #17a2b8; color: white;">Motivo de Ajuste (V4)</th>
+                    <th style="background-color: #17a2b8; color: white;">Nuevo Escenario V4 (Sólo Taco Protegido)</th>
                 </tr>
             </thead>
             <tbody>`;
@@ -341,21 +499,33 @@ function run() {
             if (is3rdPartyOutput) {
                 const matchedInStore = inStoreResult?.items.find((x: any) => x.category === item.category && x.name === item.name);
                 if (matchedInStore) {
-                    const mappedPrice = Math.floor(matchedInStore.hookStrategyPrice * 1.25 * 10) / 10 + 0.09;
+                    const mappedPrice = Math.floor(matchedInStore.hookStrategyPriceV4 * 1.25 * 10) / 10 + 0.09; // Use V4 as best reference
                     inStorePlus25 = `<td style="color: #8e44ad; font-weight: bold;">$${mappedPrice.toFixed(2)}</td>`;
                 } else {
                     inStorePlus25 = `<td style="color: gray;">N/A</td>`;
                 }
             }
 
+            let plano5Value = Math.floor(item.currentPrice * 1.05 * 10) / 10 + 0.09;
+            let plano5_next6mValue = Math.floor(plano5Value * 1.05 * 10) / 10 + 0.09;
+
+            let plano5 = item.currentPrice === 0 ? 'N/A' : '$' + plano5Value.toFixed(2);
+            let plano5_next6m = item.currentPrice === 0 ? 'N/A' : '$' + plano5_next6mValue.toFixed(2);
+
             html += `
                 <tr${rowClass}>
                     <td>${item.category}</td>
                     <td>${isTacoStar}${item.name}</td>
-                    <td style="color: #2980b9; font-weight: bold;">${item.adjustmentTag}</td>
                     <td>${item.currentPrice === 0 ? 'N/A' : '$' + item.currentPrice.toFixed(2)}</td>
-                    ${inStorePlus25}
+                    <td style="font-weight: bold; color: #27ae60;">${plano5}</td>
+                    <td style="font-weight: bold; color: #1abc9c;">${plano5_next6m}</td>
+                    <td style="color: #2980b9; font-weight: bold;">${item.adjustmentTag}</td>
                     <td style="font-size: 1.1em; color: green;"><strong>$${item.hookStrategyPrice.toFixed(2)}</strong></td>
+                    ${inStorePlus25}
+                    <td style="color: #d35400; font-weight: bold;">${item.adjustmentTagV3}</td>
+                    <td style="font-size: 1.1em; color: #e67e22;"><strong>$${item.hookStrategyPriceV3.toFixed(2)}</strong></td>
+                    <td style="color: #17a2b8; font-weight: bold;">${item.adjustmentTagV4}</td>
+                    <td style="font-size: 1.1em; color: #20c997;"><strong>$${item.hookStrategyPriceV4.toFixed(2)}</strong></td>
                 </tr>`;
         }
 
