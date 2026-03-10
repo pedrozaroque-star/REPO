@@ -1,308 +1,177 @@
-"use client";
+'use client'
 
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  ShieldCheck,
-  Plus,
-  Clock,
-  FileImage,
-  Trash2,
-  ChevronLeft,
-  Calendar as CalendarIcon,
-  Save,
-  LockIcon,
-} from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import SurpriseLoader from "@/components/SurpriseLoader";
-import ImageDropzone from "@/components/ui/ImageDropzone";
-import {
-  createFolderAction,
-  deleteFolderAction,
-  uploadImageAction,
-  deleteImageAction,
-} from "./actions";
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ShieldCheck, Monitor, Clock, FileImage, Trash2, Calendar as CalendarIcon, Save, LockIcon } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import SurpriseLoader from '@/components/SurpriseLoader'
+import ImageDropzone from '@/components/ui/ImageDropzone'
+import { uploadImageNewAction, deleteImageNewAction, updateImageSchedulesAction } from './actions'
 
 export default function TvMenusAdminPage() {
-  const [folders, setFolders] = useState<any[]>([]);
-  const [images, setImages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeFolder, setActiveFolder] = useState<any | null>(null);
-  const [customSchedules, setCustomSchedules] = useState<any[]>([]);
+  const [images, setImages] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   // Assignment state
-  const [uploadScreen, setUploadScreen] = useState(1);
+  const [activeTab, setActiveTab] = useState(1) // TV 1 to 6
+  const screens = [1, 2, 3, 4, 5, 6]
 
-  // Schedule Exceptions state
-  const [exceptionStore, setExceptionStore] = useState("LYNWOOD");
-  const [exceptionStart, setExceptionStart] = useState("06:00");
-  const [exceptionEnd, setExceptionEnd] = useState("11:00");
+  // Form state for Uploader
+  const [isAlways, setIsAlways] = useState(true)
+  const [uploadStart, setUploadStart] = useState('06:00')
+  const [uploadEnd, setUploadEnd] = useState('11:00')
 
-  // Form state
-  const [showNewFolder, setShowNewFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [newFolderStart, setNewFolderStart] = useState("06:00");
-  const [newFolderEnd, setNewFolderEnd] = useState("11:00");
+  // Modals & Scheduling
+  const [editingImage, setEditingImage] = useState<any>(null)
+  const [exceptionStore, setExceptionStore] = useState('LYNWOOD')
+  const [exceptionStart, setExceptionStart] = useState('06:00')
+  const [exceptionEnd, setExceptionEnd] = useState('11:00')
 
   // Auth state
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState("");
-  const ADMIN_PASSWORD = "admin123";
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [password, setPassword] = useState('')
+  const ADMIN_PASSWORD = 'admin123'
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetchFolders();
+      fetchImages()
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated])
 
-  useEffect(() => {
-    if (activeFolder) {
-      setCustomSchedules(activeFolder.custom_schedules || []);
-      fetchImages(activeFolder.id);
-    }
-  }, [activeFolder]);
-
-  const fetchFolders = async () => {
+  const fetchImages = async () => {
     try {
       const { data, error } = await supabase
-        .from("tv_folders")
-        .select("*")
-        .order("start_time", { ascending: true });
+        .from('tv_images')
+        .select('*')
+        .order('screen_number', { ascending: true })
+        .order('id', { ascending: false })
 
-      if (error) throw error;
-      setFolders(data || []);
+      if (error) throw error
+      setImages(data || [])
     } catch (err) {
-      console.error("Error fetching folders:", err);
-      alert("Error cargando los horarios");
+      console.error('Error fetching images:', err)
+      alert('Error cargando las imágenes')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
-
-  const fetchImages = async (folderId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("tv_images")
-        .select("*")
-        .eq("folder_id", folderId)
-        .order("sort_order", { ascending: true });
-
-      if (error) throw error;
-      setImages(data || []);
-    } catch (err) {
-      console.error("Error fetching images:", err);
-    }
-  };
-
-  const createFolder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const newFolder = await createFolderAction(
-        newFolderName,
-        newFolderStart,
-        newFolderEnd,
-      );
-      setFolders(
-        [...folders, newFolder].sort((a, b) =>
-          a.start_time.localeCompare(b.start_time),
-        ),
-      );
-      setShowNewFolder(false);
-      setNewFolderName("");
-    } catch (err) {
-      console.error("Error creating folder:", err);
-      alert("Error al crear el horario");
-    }
-  };
-
-  const deleteFolder = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (
-      !confirm("¿Seguro que deseas eliminar este horario y TODAS sus imágenes?")
-    )
-      return;
-
-    try {
-      await deleteFolderAction(id);
-      setFolders(folders.filter((f) => f.id !== id));
-    } catch (err) {
-      console.error("Error deleting folder:", err);
-      alert("Error al eliminar horario");
-    }
-  };
+  }
 
   const handleUploadImages = async (files: File[]) => {
-    if (!activeFolder) return;
-
-    let currentSort = images.length;
+    let currentSort = images.filter(i => i.screen_number === activeTab).length
 
     for (const file of files) {
       try {
-        const formData = new FormData();
-        formData.append("file", file);
+        const formData = new FormData()
+        formData.append('file', file)
 
-        await uploadImageAction(
-          activeFolder.id,
-          formData,
-          currentSort,
-          uploadScreen,
-        );
-        currentSort++;
+        const start = isAlways ? null : uploadStart
+        const end = isAlways ? null : uploadEnd
 
-        // Refresh images eagerly after each successful upload to give feedback
-        await fetchImages(activeFolder.id);
+        await uploadImageNewAction(formData, currentSort, activeTab, isAlways, start, end, [])
+        currentSort++
       } catch (err) {
-        console.error("Error uploading file:", err);
-        alert("Hubo un error al subir alguna de las imágenes");
+        console.error('Error uploading file:', err)
+        alert('Hubo un error al subir alguna de las imágenes')
       }
     }
-  };
+    await fetchImages()
+  }
 
   const deleteImage = async (id: string, storagePath: string) => {
-    if (!confirm("¿Seguro que deseas eliminar esta imagen?")) return;
+    if (!confirm('¿Seguro que deseas eliminar esta imagen?')) return
 
     try {
-      await deleteImageAction(id, storagePath);
-      setImages(images.filter((img) => img.id !== id));
+      await deleteImageNewAction(id, storagePath)
+      setImages(images.filter(img => img.id !== id))
     } catch (err) {
-      console.error("Error deleting image:", err);
-      alert("Error al eliminar imagen");
+      console.error('Error deleting image:', err)
+      alert('Error al eliminar imagen')
     }
-  };
+  }
 
   const formatTime = (timeInfo: string) => {
-    if (!timeInfo) return "";
-    const [hours, minutes] = timeInfo.split(":");
-    let h = parseInt(hours);
-    const ampm = h >= 12 ? "PM" : "AM";
-    h = h % 12 || 12;
-    return `${h}:${minutes} ${ampm}`;
-  };
+    if (!timeInfo) return '--:--'
+    const [hours, minutes] = timeInfo.split(':')
+    let h = parseInt(hours)
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    h = h % 12 || 12
+    return `${h}:${minutes} ${ampm}`
+  }
 
   const addException = async () => {
-    if (!activeFolder) return;
-    const newSchedule = {
-      store_id: exceptionStore,
-      start_time: exceptionStart,
-      end_time: exceptionEnd,
-    };
-    // check if store already exists to replace it, or add new
-    const existing = customSchedules.filter(
-      (s) => s.store_id !== exceptionStore,
-    );
-    const updated = [...existing, newSchedule];
+    if (!editingImage) return
+    const newSchedule = { store_id: exceptionStore, start_time: exceptionStart, end_time: exceptionEnd }
+    const currentSchedules = editingImage.custom_schedules || []
+    const existing = currentSchedules.filter((s: any) => s.store_id !== exceptionStore)
+    const updated = [...existing, newSchedule]
 
     try {
-      // we need to dynamically import or add updateFolderSchedulesAction to the import list
-      const { updateFolderSchedulesAction } = await import("./actions");
-      await updateFolderSchedulesAction(activeFolder.id, updated);
-      setCustomSchedules(updated);
-      // also update active folder in memory
-      setActiveFolder({ ...activeFolder, custom_schedules: updated });
-      // update in global list
-      setFolders(
-        folders.map((f) =>
-          f.id === activeFolder.id
-            ? { ...activeFolder, custom_schedules: updated }
-            : f,
-        ),
-      );
+      await updateImageSchedulesAction(editingImage.id, updated)
+      setEditingImage({ ...editingImage, custom_schedules: updated })
+      setImages(images.map(img => img.id === editingImage.id ? { ...img, custom_schedules: updated } : img))
     } catch (e) {
-      alert("Error al guardar horario excepcional");
+      alert('Error al guardar horario excepcional')
     }
-  };
+  }
 
   const removeException = async (storeId: string) => {
-    if (!activeFolder) return;
-    const updated = customSchedules.filter((s) => s.store_id !== storeId);
+    if (!editingImage) return
+    const currentSchedules = editingImage.custom_schedules || []
+    const updated = currentSchedules.filter((s: any) => s.store_id !== storeId)
 
     try {
-      const { updateFolderSchedulesAction } = await import("./actions");
-      await updateFolderSchedulesAction(activeFolder.id, updated);
-      setCustomSchedules(updated);
-      setActiveFolder({ ...activeFolder, custom_schedules: updated });
-      setFolders(
-        folders.map((f) =>
-          f.id === activeFolder.id
-            ? { ...activeFolder, custom_schedules: updated }
-            : f,
-        ),
-      );
+      await updateImageSchedulesAction(editingImage.id, updated)
+      setEditingImage({ ...editingImage, custom_schedules: updated })
+      setImages(images.map(img => img.id === editingImage.id ? { ...img, custom_schedules: updated } : img))
     } catch (e) {
-      alert("Error al eliminar horario excepcional");
+      alert('Error al eliminar horario excepcional')
     }
-  };
+  }
 
   const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true);
+      setIsAuthenticated(true)
     } else {
-      alert("Contraseña incorrecta");
+      alert('Contraseña incorrecta')
     }
-  };
+  }
 
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 relative overflow-hidden">
         <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 w-full max-w-md border border-gray-100 dark:border-slate-800 relative z-10"
-        >
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 w-full max-w-md border border-gray-100 dark:border-slate-800 relative z-10">
           <div className="text-center mb-8">
             <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600 dark:text-indigo-400">
               <LockIcon size={40} />
             </div>
-            <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-1">
-              Menús Digitales TV
-            </h1>
-            <p className="text-gray-500 dark:text-slate-400 font-medium tracking-tight">
-              Acceso Restringido
-            </p>
+            <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-1">Menús TV</h1>
+            <p className="text-gray-500 dark:text-slate-400 font-medium tracking-tight">Acceso Restringido</p>
           </div>
-
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label
-                htmlFor="password"
-                className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-3"
-              >
-                Contraseña
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-2xl text-gray-900 dark:text-white font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all"
-                placeholder="••••••••"
-                required
-              />
+              <label htmlFor="password" className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-3">Contraseña</label>
+              <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-3.5 bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-2xl text-gray-900 dark:text-white font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" placeholder="••••••••" required />
             </div>
-
-            <button
-              type="submit"
-              className="w-full bg-gray-900 dark:bg-slate-100 dark:text-slate-900 text-white font-black py-4 rounded-2xl transition-all active:scale-[0.98] shadow-xl shadow-gray-200 dark:shadow-none uppercase tracking-widest"
-            >
-              INGRESAR
-            </button>
+            <button type="submit" className="w-full bg-gray-900 dark:bg-slate-100 dark:text-slate-900 text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase tracking-widest">INGRESAR</button>
           </form>
         </motion.div>
       </div>
-    );
+    )
   }
 
   if (loading) {
     return (
       <div className="min-h-screen bg-transparent dark:bg-neutral-900 flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10 dark:opacity-40 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
         <SurpriseLoader />
       </div>
-    );
+    )
   }
+
+  const activeImages = images.filter(i => i.screen_number === activeTab)
+  const alwaysImages = activeImages.filter(i => i.is_always)
+  const scheduledImages = activeImages.filter(i => !i.is_always)
 
   return (
     <div className="min-h-screen bg-transparent dark:bg-neutral-900 font-sans pt-20 lg:pt-0 relative">
@@ -313,375 +182,193 @@ export default function TvMenusAdminPage() {
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-              <ShieldCheck size={18} />
+              <Monitor size={18} />
             </div>
             <div>
-              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">
-                Menús Digitales TV
-              </h1>
-              <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                Gestión de Publicidad en Sucursales
-              </p>
+              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Menús Digitales TV</h1>
+              <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wider">Gestión por Pantalla</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 pb-24 relative z-10">
-        <AnimatePresence mode="wait">
-          {!activeFolder ? (
-            <motion.div
-              key="folders"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-6"
+      <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 pb-32 relative z-10">
+        {/* TABS */}
+        <div className="flex flex-wrap gap-2 mb-8 bg-white dark:bg-slate-800 p-2 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
+          {screens.map(screen => (
+            <button
+              key={screen}
+              onClick={() => { setActiveTab(screen); setEditingImage(null); }}
+              className={`flex-1 min-w-[100px] py-3 px-4 rounded-xl font-black text-center transition-all ${activeTab === screen ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
             >
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-black text-gray-900 dark:text-white">
-                    Horarios (Carpetas)
-                  </h2>
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
-                    Crea los bloques de horario para mostrar diferentes menús.
-                  </p>
-                </div>
-                {!showNewFolder && (
-                  <button
-                    onClick={() => setShowNewFolder(true)}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-bold transition-all shadow-md shadow-indigo-500/20"
-                  >
-                    <Plus size={18} />
-                    <span>Nuevo Horario</span>
-                  </button>
-                )}
-              </div>
+              <Monitor size={16} className="mx-auto mb-1 opacity-60" />
+              PANTALLA {screen}
+            </button>
+          ))}
+        </div>
 
-              {/* Formulario nuevo horario */}
-              {showNewFolder && (
-                <motion.form
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  onSubmit={createFolder}
-                  className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm mb-6"
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                        Nombre del Evento
-                      </label>
-                      <input
-                        required
-                        type="text"
-                        placeholder="Ej: Desayuno, Almuerzo..."
-                        value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.target.value)}
-                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500/50"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                        Hora de Inicio
-                      </label>
-                      <input
-                        required
-                        type="time"
-                        value={newFolderStart}
-                        onChange={(e) => setNewFolderStart(e.target.value)}
-                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500/50"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                        Hora de Fin
-                      </label>
-                      <input
-                        required
-                        type="time"
-                        value={newFolderEnd}
-                        onChange={(e) => setNewFolderEnd(e.target.value)}
-                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500/50"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-3 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setShowNewFolder(false)}
-                      className="px-5 py-2.5 rounded-xl font-bold text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-md shadow-indigo-500/20"
-                    >
-                      <Save size={18} /> Guardar
-                    </button>
-                  </div>
-                </motion.form>
-              )}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          {/* LEFT COL: UPLOADER & CURRENT SETTINGS */}
+          <div className="col-span-1 space-y-6">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm sticky top-24">
+              <h3 className="text-lg font-black text-gray-900 dark:text-white mb-4">Añadir a Pantalla {activeTab}</h3>
 
-              {/* Lista de Carpetas */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {folders.length === 0 && !showNewFolder && (
-                  <div className="col-span-full py-20 text-center opacity-60">
-                    <CalendarIcon
-                      size={48}
-                      className="mx-auto mb-4 text-gray-400"
-                    />
-                    <p className="text-xl font-bold text-gray-700 dark:text-slate-300">
-                      No hay horarios creados
-                    </p>
-                    <p className="text-sm">
-                      Comienza creando un horario para subir imágenes.
-                    </p>
+              <div className="mb-6 space-y-4 bg-gray-50 dark:bg-slate-900 p-4 rounded-2xl">
+                <label className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
+                  <input type="radio" checked={isAlways} onChange={() => setIsAlways(true)} className="w-4 h-4 text-indigo-600" />
+                  <div>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">Se Muestra Siempre</p>
+                    <p className="text-xs text-gray-500">La imagen estará visible todo el tiempo.</p>
                   </div>
-                )}
-                {folders.map((folder) => (
-                  <div
-                    key={folder.id}
-                    onClick={() => setActiveFolder(folder)}
-                    className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-md cursor-pointer transition-all hover:scale-[1.02] group"
-                  >
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center text-indigo-500">
-                        <FileImage size={24} />
+                </label>
+                <label className="flex flex-col gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <input type="radio" checked={!isAlways} onChange={() => setIsAlways(false)} className="w-4 h-4 text-indigo-600" />
+                    <div>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">Horario Específico</p>
+                      <p className="text-xs text-gray-500">Ej: Solo para Desayunos.</p>
+                    </div>
+                  </div>
+
+                  {!isAlways && (
+                    <div className="flex gap-2 mt-2 pt-3 border-t border-gray-100 dark:border-slate-700">
+                      <div className="flex-1">
+                        <label className="text-xs font-bold text-gray-400">De (Hora):</label>
+                        <input type="time" value={uploadStart} onChange={e => setUploadStart(e.target.value)} className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1 text-sm outline-none" />
                       </div>
-                      <button
-                        onClick={(e) => deleteFolder(folder.id, e)}
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                        title="Eliminar Horario"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <div className="flex-1">
+                        <label className="text-xs font-bold text-gray-400">A (Hora):</label>
+                        <input type="time" value={uploadEnd} onChange={e => setUploadEnd(e.target.value)} className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1 text-sm outline-none" />
+                      </div>
                     </div>
-
-                    <h3 className="text-xl font-black text-gray-900 dark:text-white mb-1">
-                      {folder.name}
-                    </h3>
-                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 w-fit px-3 py-1.5 rounded-lg border border-gray-100 dark:border-slate-700">
-                      <Clock size={14} className="text-indigo-500" />
-                      <span>
-                        {formatTime(folder.start_time)} -{" "}
-                        {formatTime(folder.end_time)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  )}
+                </label>
               </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="images"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="space-y-6"
-            >
-              <div className="flex items-center gap-4 mb-6">
-                <button
-                  onClick={() => {
-                    setActiveFolder(null);
-                    setImages([]);
-                  }}
-                  className="p-2 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-                >
-                  <ChevronLeft size={24} />
-                </button>
-                <div>
-                  <h2 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-3">
-                    {activeFolder.name}
-                    <span className="text-xs font-bold uppercase tracking-widest bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400 px-3 py-1 rounded-full border border-indigo-200 dark:border-indigo-800/50">
-                      {formatTime(activeFolder.start_time)} -{" "}
-                      {formatTime(activeFolder.end_time)}
-                    </span>
-                  </h2>
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
-                    Las TVs mostrarán estas imágenes durante este horario.
-                  </p>
+
+              <ImageDropzone onUpload={handleUploadImages} />
+            </div>
+          </div>
+
+          {/* RIGHT COL: IMAGES GALLERY */}
+          <div className="col-span-1 xl:col-span-2 space-y-8">
+            {/* SCHEDULED IMAGES (BREAKFAST ETC) */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+                <Clock className="text-orange-500" /> Imágenes por Horario (Prioridad Alta)
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Estas imágenes reemplazarán a las imágenes "Fijas" durante las horas establecidas.</p>
+
+              {scheduledImages.length === 0 ? (
+                <div className="p-8 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-3xl text-center text-gray-400">
+                  No hay imágenes programadas en esta pantalla.
                 </div>
-              </div>
-
-              {/* Ajustes de Horarios Excepcionales por Sucursal */}
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm mb-6">
-                <h3 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider mb-4 border-b border-gray-100 dark:border-slate-700 pb-2">
-                  Horarios Diferentes por Sucursal (Opcional)
-                </h3>
-
-                {customSchedules.length > 0 && (
-                  <div className="mb-4 space-y-2">
-                    {customSchedules.map((s: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="flex justify-between items-center bg-gray-50 dark:bg-slate-900 px-4 py-2 rounded-xl text-sm font-semibold"
-                      >
-                        <span>{s.store_id}</span>
-                        <div className="flex items-center gap-4">
-                          <span className="text-indigo-600 dark:text-indigo-400">
-                            {formatTime(s.start_time)} -{" "}
-                            {formatTime(s.end_time)}
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {scheduledImages.map(img => (
+                    <div key={img.id} className={`bg-white dark:bg-slate-800 border ${editingImage?.id === img.id ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-gray-200 dark:border-slate-700'} rounded-2xl overflow-hidden shadow-sm transition-all`}>
+                      <div className="aspect-video relative group bg-gray-100 dark:bg-slate-900">
+                        <img src={img.storage_path} className="w-full h-full object-cover" />
+                        <button onClick={() => deleteImage(img.id, img.storage_path)} className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16} /></button>
+                      </div>
+                      <div className="p-4">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs font-black uppercase px-2 py-1 rounded-md">
+                            {formatTime(img.start_time)} - {formatTime(img.end_time)}
                           </span>
-                          <button
-                            onClick={() => removeException(s.store_id)}
-                            className="text-red-500 hover:text-red-700 p-1"
-                          >
-                            <Trash2 size={16} />
+                          <button onClick={() => setEditingImage(editingImage?.id === img.id ? null : img)} className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline">
+                            {editingImage?.id === img.id ? 'Ocultar Tiendas' : 'Ajustar x Tienda'}
                           </button>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
 
-                <div className="flex flex-col md:flex-row gap-4 items-end">
-                  <div className="flex-1">
-                    <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                      Sucursal
-                    </label>
-                    <select
-                      value={exceptionStore}
-                      onChange={(e) => setExceptionStore(e.target.value)}
-                      className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500/50"
-                    >
-                      <option value="AZUSA">Azusa</option>
-                      <option value="BELL">Bell</option>
-                      <option value="DOWNEY">Downey</option>
-                      <option value="HOLLYWOOD">Hollywood</option>
-                      <option value="HUNTINGTON PARK">Huntington Park</option>
-                      <option value="LA BROADWAY">LA Broadway</option>
-                      <option value="LA CENTRAL">LA Central</option>
-                      <option value="LA PUENTE">La Puente</option>
-                      <option value="LYNWOOD">Lynwood</option>
-                      <option value="NORWALK">Norwalk</option>
-                      <option value="RIALTO">Rialto</option>
-                      <option value="SANTA ANA">Santa Ana</option>
-                      <option value="SLAUSON">Slauson</option>
-                      <option value="SOUTH GATE">South Gate</option>
-                      <option value="WEST COVINA">West Covina</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                      Inicio
-                    </label>
-                    <input
-                      type="time"
-                      value={exceptionStart}
-                      onChange={(e) => setExceptionStart(e.target.value)}
-                      className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                      Fin
-                    </label>
-                    <input
-                      type="time"
-                      value={exceptionEnd}
-                      onChange={(e) => setExceptionEnd(e.target.value)}
-                      className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500/50"
-                    />
-                  </div>
-                  <button
-                    onClick={addException}
-                    className="h-[46px] px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-indigo-500/20"
-                  >
-                    Añadir
-                  </button>
-                </div>
-              </div>
+                        <div className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                          {(img.custom_schedules || []).length > 0
+                            ? <span className="text-indigo-500 font-bold">{(img.custom_schedules).length} excepción(es) de tienda</span>
+                            : 'Aplica igual para todas las tiendas.'}
+                        </div>
 
-              {/* Ajustes de Asignación */}
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm mb-6 flex flex-col md:flex-row gap-4">
-                <div className="flex-1 flex flex-col justify-center">
-                  <h3 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider mb-1">
-                    Subir Nuevas Imágenes
-                  </h3>
-                  <p className="text-xs text-gray-500 dark:text-slate-400">
-                    Selecciona a qué número de televisión quieres enviar las
-                    siguientes imágenes. Estas se mostrarán en TODAS las
-                    sucursales según sus horarios.
-                  </p>
-                </div>
-                <div className="w-full md:w-64">
-                  <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    En la Pantalla (TV N°)
-                  </label>
-                  <select
-                    value={uploadScreen}
-                    onChange={(e) => setUploadScreen(Number(e.target.value))}
-                    className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                      <option key={num} value={num}>
-                        TV {num}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Uploader */}
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm">
-                <ImageDropzone onUpload={handleUploadImages} />
-              </div>
-
-              {/* Grid de Imágenes */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
-                {images.length === 0 && (
-                  <div className="col-span-full py-10 text-center text-gray-500 dark:text-slate-400 font-bold">
-                    No hay imágenes en este horario. ¡Sube la primera!
-                  </div>
-                )}
-                {images.map((img, index) => (
-                  <div
-                    key={img.id}
-                    className="group relative bg-white dark:bg-slate-800 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 shadow-sm hover:shadow-lg transition-all"
-                  >
-                    <div className="aspect-video w-full bg-gray-100 dark:bg-slate-900 relative">
-                      <img
-                        src={img.storage_path}
-                        alt="TV Menu"
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
-                        <button
-                          onClick={() => deleteImage(img.id, img.storage_path)}
-                          className="bg-red-500 hover:bg-red-600 text-white p-3 rounded-full flex items-center justify-center shadow-lg transform transition-transform hover:scale-110"
-                        >
-                          <Trash2 size={20} />
-                        </button>
-                        <span className="text-white text-xs font-bold uppercase tracking-widest drop-shadow-md">
-                          Eliminar
-                        </span>
+                        {/* Edit Matrix for Exceptions */}
+                        <AnimatePresence>
+                          {editingImage?.id === img.id && (
+                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                              <div className="mt-4 pt-4 border-t border-gray-100 dark:border-slate-700">
+                                <h4 className="text-[10px] font-black uppercase text-gray-400 mb-2">Ajustar horario en otra sucursal:</h4>
+                                <div className="space-y-2 mb-4">
+                                  {(editingImage.custom_schedules || []).map((s: any, i: number) => (
+                                    <div key={i} className="flex justify-between items-center text-xs bg-gray-50 dark:bg-slate-900 p-2 rounded-lg">
+                                      <span className="font-bold">{s.store_id}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-gray-500">{formatTime(s.start_time)} - {formatTime(s.end_time)}</span>
+                                        <button onClick={() => removeException(s.store_id)} className="text-red-500"><Trash2 size={14} /></button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                  <select value={exceptionStore} onChange={e => setExceptionStore(e.target.value)} className="text-xs p-2 rounded border dark:bg-slate-900 border-gray-200 dark:border-slate-700 outline-none w-full">
+                                    <option value="AZUSA">Azusa</option>
+                                    <option value="BELL">Bell</option>
+                                    <option value="DOWNEY">Downey</option>
+                                    <option value="HOLLYWOOD">Hollywood</option>
+                                    <option value="HUNTINGTON PARK">Huntington Park</option>
+                                    <option value="LA BROADWAY">LA Broadway</option>
+                                    <option value="LA CENTRAL">LA Central</option>
+                                    <option value="LA PUENTE">La Puente</option>
+                                    <option value="LYNWOOD">Lynwood</option>
+                                    <option value="NORWALK">Norwalk</option>
+                                    <option value="RIALTO">Rialto</option>
+                                    <option value="SANTA ANA">Santa Ana</option>
+                                    <option value="SLAUSON">Slauson</option>
+                                    <option value="SOUTH GATE">South Gate</option>
+                                    <option value="WEST COVINA">West Covina</option>
+                                  </select>
+                                  <div className="flex gap-2">
+                                    <input type="time" value={exceptionStart} onChange={e => setExceptionStart(e.target.value)} className="w-1/2 text-xs p-2 rounded border border-gray-200 dark:border-slate-700 dark:bg-slate-900 outline-none" />
+                                    <input type="time" value={exceptionEnd} onChange={e => setExceptionEnd(e.target.value)} className="w-1/2 text-xs p-2 rounded border border-gray-200 dark:border-slate-700 dark:bg-slate-900 outline-none" />
+                                  </div>
+                                  <button onClick={addException} className="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 py-2 rounded-lg text-xs font-bold transition-colors">Vincular a Sucursal</button>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
                     </div>
-                    <div className="p-3 bg-gray-50 dark:bg-slate-800/80 border-t border-gray-100 dark:border-slate-700 flex flex-col gap-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black tracking-widest text-indigo-600 dark:text-indigo-400 uppercase">
-                          UNIVERSAL
-                        </span>
-                        <span className="text-[10px] font-black tracking-widest text-white bg-slate-800 px-2 py-0.5 rounded-md">
-                          TV {img.screen_number || 1}
-                        </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ALWAYS ON IMAGES */}
+            <div className="space-y-4 pt-8 border-t border-gray-200 dark:border-slate-800">
+              <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+                <FileImage className="text-indigo-500" /> Imágenes Siempre Visibles (Fijas)
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Este es el menú base. Se muestra siempre que no haya un horario especial activo.</p>
+
+              {alwaysImages.length === 0 ? (
+                <div className="p-8 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-3xl text-center text-gray-400">
+                  No hay imágenes fijas en esta pantalla. (La pantalla se quedará en negro si no hay menú base).
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {alwaysImages.map((img, idx) => (
+                    <div key={img.id} className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm group relative">
+                      <div className="aspect-video bg-gray-100 dark:bg-slate-900">
+                        <img src={img.storage_path} className="w-full h-full object-cover" />
                       </div>
-                      <div className="flex justify-between items-center opacity-50">
-                        <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">
-                          Ord: {index + 1}
-                        </span>
-                        <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">
-                          {img.duration_seconds}s
-                        </span>
+                      <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md text-white px-2 py-0.5 rounded text-[10px] font-bold">
+                        Fija - {idx + 1}
                       </div>
+                      <button onClick={() => deleteImage(img.id, img.storage_path)} className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
       </div>
     </div>
-  );
+  )
 }

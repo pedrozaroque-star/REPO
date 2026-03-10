@@ -7,39 +7,21 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 
-export async function createFolderAction(name: string, start_time: string, end_time: string) {
-    const { data, error } = await supabaseAdmin
-        .from('tv_folders')
-        .insert([{ name, start_time, end_time }])
-        .select()
-
-    if (error) {
-        console.error("Action Error createFolder:", error)
-        throw new Error(error.message)
-    }
-    return data[0]
-}
-
-export async function deleteFolderAction(id: string) {
-    const { error } = await supabaseAdmin
-        .from('tv_folders')
-        .delete()
-        .eq('id', id)
-
-    if (error) {
-        console.error("Action Error deleteFolder:", error)
-        throw new Error(error.message)
-    }
-    return true
-}
-
-export async function uploadImageAction(folderId: string, formData: FormData, sortOrder: number, screenNumber: number) {
+export async function uploadImageNewAction(
+    formData: FormData,
+    sortOrder: number,
+    screenNumber: number,
+    isAlways: boolean,
+    startTime: string | null,
+    endTime: string | null,
+    customSchedules: any[]
+) {
     const file = formData.get('file') as File
     if (!file) throw new Error("No file provided")
 
     const fileExt = file.name.split('.').pop()
     const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`
-    const filePath = `${folderId}/${fileName}`
+    const filePath = `screen_${screenNumber}/${fileName}`
 
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
@@ -52,7 +34,6 @@ export async function uploadImageAction(folderId: string, formData: FormData, so
         })
 
     if (uploadError) {
-        console.error("Action Error uploadImage Storage:", uploadError)
         throw new Error(uploadError.message)
     }
 
@@ -60,25 +41,31 @@ export async function uploadImageAction(folderId: string, formData: FormData, so
         .from('tv_menus')
         .getPublicUrl(filePath)
 
+    // Convert empty schedules array to valid JSON array
+    const cleanSchedules = customSchedules || []
+
     const { error: dbError } = await supabaseAdmin
         .from('tv_images')
         .insert([{
-            folder_id: folderId,
             storage_path: publicUrl,
             sort_order: sortOrder,
             duration_seconds: 15,
-            screen_number: screenNumber || 1
+            screen_number: screenNumber,
+            is_always: isAlways,
+            start_time: startTime || null,
+            end_time: endTime || null,
+            custom_schedules: cleanSchedules
         }])
 
     if (dbError) {
-        console.error("Action Error uploadImage DB:", dbError)
+        console.error("Action Error uploadImageNewAction:", dbError)
         throw new Error(dbError.message)
     }
 
     return true
 }
 
-export async function deleteImageAction(id: string, storagePath: string) {
+export async function deleteImageNewAction(id: string, storagePath: string) {
     const { error: dbError } = await supabaseAdmin
         .from('tv_images')
         .delete()
@@ -99,14 +86,14 @@ export async function deleteImageAction(id: string, storagePath: string) {
     return true
 }
 
-export async function updateFolderSchedulesAction(id: string, schedules: any[]) {
+export async function updateImageSchedulesAction(id: string, customSchedules: any[]) {
     const { error } = await supabaseAdmin
-        .from('tv_folders')
-        .update({ custom_schedules: schedules })
+        .from('tv_images')
+        .update({ custom_schedules: customSchedules })
         .eq('id', id)
 
     if (error) {
-        console.error("Action Error updateFolderSchedules:", error)
+        console.error("Action Error updateImageSchedulesAction:", error)
         throw new Error(error.message)
     }
     return true
