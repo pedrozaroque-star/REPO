@@ -1,171 +1,93 @@
-'use client'
+import { createClient } from '@supabase/supabase-js'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from '@/lib/supabase'
+export const dynamic = 'force-dynamic';
 
-export default function TvViewerPage() {
-  // Estado de los parámetros de la URL
-  const [storeParam, setStoreParam] = useState<string>('ALL')
-  const [screenParam, setScreenParam] = useState<number>(1)
-  const [paramsLoaded, setParamsLoaded] = useState(false)
+export default async function TvViewerPage({
+  searchParams
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }> | { [key: string]: string | string[] | undefined }
+}) {
+  // Soportar Next.js 14 (Objeto) y Next.js 15+ (Promesa)
+  const resolvedParams = await Promise.resolve(searchParams);
 
-  // Estado de imágenes
-  const [images, setImages] = useState<any[]>([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [errorStatus, setErrorStatus] = useState<string | null>(null)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const storeParam = (typeof resolvedParams.store === 'string' ? resolvedParams.store : 'ALL').toUpperCase()
+  const screenParam = parseInt(typeof resolvedParams.screen === 'string' ? resolvedParams.screen : '1', 10) || 1
 
-  // 1. Leer los parámetros directamente del navegador nativo 
-  //    (Evita componentes atorados de Next.js en teles viejas)
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const params = new URLSearchParams(window.location.search)
-        const store = params.get('store')?.toUpperCase() || 'ALL'
-        const screen = parseInt(params.get('screen') || '1', 10)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  // Usamos el SERVICE_KEY para brincarnos cualquier regla estructural en el Server Component y asegurar la lectura
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = createClient(supabaseUrl, supabaseKey)
 
-        setStoreParam(store)
-        setScreenParam(isNaN(screen) ? 1 : screen)
-        setParamsLoaded(true)
-      } catch (e) {
-        console.error("Error leyendo URL", e)
-        setParamsLoaded(true)
-      }
-    }
-  }, [])
+  let activeImage = null
+  let errorStatus = null
 
-  const fetchActiveMenu = useCallback(async () => {
-    if (!paramsLoaded) return
+  try {
+    const { data: imgs, error: imgsError } = await supabase
+      .from('tv_images')
+      .select('*')
+      .eq('screen_number', screenParam)
+      .order('sort_order', { ascending: true })
 
-    try {
-      setLoading(true)
+    if (imgsError) throw imgsError
 
-      // Obtener todas las imágenes de ESTA PANTALLA
-      const { data: imgs, error: imgsError } = await supabase
-        .from('tv_images')
-        .select('*')
-        .eq('screen_number', screenParam)
-        .order('sort_order', { ascending: true })
-
-      if (imgsError) throw imgsError
-
-      if (!imgs || imgs.length === 0) {
-        setImages([])
-        setErrorStatus('No hay imágenes configuradas para esta pantalla (TV ' + screenParam + ')')
-        setLoading(false)
-        return
-      }
-
-      setErrorStatus(null)
-
-      // Regla 1: Hay una imagen de "Variación" asignada a esta tienda
+    if (!imgs || imgs.length === 0) {
+      errorStatus = 'No hay imágenes configuradas para la pantalla ' + screenParam
+    } else {
+      // Regla 1: Hay una imagen de "Variación" asignada específicamente a ESTA tienda
       const variationImages = imgs.filter(img =>
         img.is_universal === false &&
         Array.isArray(img.store_assignments) &&
         img.store_assignments.includes(storeParam)
       )
 
-      // Regla 2: Variación default universal
+      // Regla 2: Toma la Primera imagen Universal
       const universalImages = imgs.filter(img => img.is_universal === true)
 
       if (variationImages.length > 0) {
-        setImages(variationImages)
+        // Siempre usamos la primera que encuentre, ignorando rotaciones porque la tele es estática
+        activeImage = variationImages[0]
       } else if (universalImages.length > 0) {
-        setImages(universalImages)
+        activeImage = universalImages[0]
       } else {
-        setImages([])
-        setErrorStatus('Menú Vacio - Sube un Menú a la TV ' + screenParam)
+        errorStatus = 'Menú no asignado para esta tienda.'
       }
-
-      setCurrentIndex(0)
-
-    } catch (err) {
-      console.error('Error fetching TV menu:', err)
-      setErrorStatus('Error de conexión a la base de datos')
-    } finally {
-      setLoading(false)
     }
-  }, [storeParam, screenParam, paramsLoaded])
-
-  // Fetch initial
-  useEffect(() => {
-    if (paramsLoaded) {
-      fetchActiveMenu()
-    }
-  }, [fetchActiveMenu, paramsLoaded])
-
-  // Lógica de Supabase Realtime para actualización instantánea
-  useEffect(() => {
-    if (!paramsLoaded) return
-
-    const channelImages = supabase.channel('schema-db-changes-images')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tv_images' }, () => {
-        fetchActiveMenu()
-      })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channelImages)
-    }
-  }, [fetchActiveMenu, paramsLoaded])
-
-  // Lógica de Rotación
-  useEffect(() => {
-    if (images.length <= 1) return
-
-    const currentImage = images[currentIndex]
-    const durationMs = (currentImage?.duration_seconds || 15) * 1000
-
-    timerRef.current = setTimeout(() => {
-      setCurrentIndex((prevIndex) => (prevIndex + 1) % images.length)
-    }, durationMs)
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [currentIndex, images])
-
-
-  // PANTALLAS DE CARGA Y ERRORES
-  if (!paramsLoaded) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center text-white">
-        <p>Leyendo dirección...</p>
-      </div>
-    )
+  } catch (err) {
+    console.error('Error fetching TV menu:', err)
+    errorStatus = 'Error de conexión a la base de datos'
   }
 
-  if (loading && images.length === 0) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    )
-  }
-
-  if (images.length === 0) {
-    return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white p-8 text-center">
-        <h1 className="text-4xl font-black mb-4">TV Menús (Pantalla {screenParam} / {storeParam})</h1>
-        <p className="text-xl text-gray-400 max-w-2xl">{errorStatus || 'Esperando imágenes...'}</p>
-      </div>
-    )
-  }
-
-  const activeImage = images[currentIndex]
-  if (!activeImage) return null
-
-  // RENDER FINAL DE IMAGEN
   return (
-    <div className="min-h-screen w-full h-screen bg-black overflow-hidden m-0 p-0 fixed inset-0">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        key={activeImage.id}
-        src={activeImage.storage_path}
-        alt="Menu TV"
-        className="w-full h-full object-contain animate-in fade-in duration-1000"
-      />
+    <div className="min-h-screen w-full h-screen bg-black overflow-hidden m-0 p-0 fixed inset-0 flex flex-col items-center justify-center text-white text-center">
+
+      {/* 
+              LA MAGIA SUCEDE AQUÍ:
+              Bloque de Vanilla JavaScript crudo. Obliga a Samsung Tizen o LG WebOS a refrescar
+              toda la pestaña suavemente cada 60 segundos. Si en tu panel Admin cambias la foto...
+              en menos de 1 minuto la TV lo detecta y lo jala, ¡SIN USAR REACT!
+            */}
+      <script dangerouslySetInnerHTML={{
+        __html: `
+                setTimeout(function() {
+                    window.location.reload(true);
+                }, 60000);
+            `}} />
+
+      {activeImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={activeImage.storage_path}
+          alt="Menu TV"
+          className="w-full h-full object-contain"
+        />
+      ) : (
+        <div className="p-8">
+          <h1 className="text-4xl font-black mb-4 text-red-500">
+            Error en TV {screenParam} / Sucursal {storeParam}
+          </h1>
+          <p className="text-xl text-gray-400 max-w-2xl">{errorStatus}</p>
+        </div>
+      )}
     </div>
   )
 }
