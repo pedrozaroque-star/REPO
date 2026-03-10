@@ -11,10 +11,8 @@ export async function uploadImageNewAction(
     formData: FormData,
     sortOrder: number,
     screenNumber: number,
-    isAlways: boolean,
-    startTime: string | null,
-    endTime: string | null,
-    customSchedules: any[]
+    isUniversal: boolean,
+    storeAssignments: string[]
 ) {
     const file = formData.get('file') as File
     if (!file) throw new Error("No file provided")
@@ -41,9 +39,6 @@ export async function uploadImageNewAction(
         .from('tv_menus')
         .getPublicUrl(filePath)
 
-    // Convert empty schedules array to valid JSON array
-    const cleanSchedules = customSchedules || []
-
     const { error: dbError } = await supabaseAdmin
         .from('tv_images')
         .insert([{
@@ -51,10 +46,8 @@ export async function uploadImageNewAction(
             sort_order: sortOrder,
             duration_seconds: 15,
             screen_number: screenNumber,
-            is_always: isAlways,
-            start_time: startTime || null,
-            end_time: endTime || null,
-            custom_schedules: cleanSchedules
+            is_universal: isUniversal,
+            store_assignments: storeAssignments
         }])
 
     if (dbError) {
@@ -86,14 +79,13 @@ export async function deleteImageNewAction(id: string, storagePath: string) {
     return true
 }
 
-export async function updateImageSchedulesAction(id: string, customSchedules: any[]) {
+export async function updateImageStoresAction(id: string, storeAssignments: string[]) {
     const { error } = await supabaseAdmin
         .from('tv_images')
-        .update({ custom_schedules: customSchedules })
+        .update({ store_assignments: storeAssignments })
         .eq('id', id)
 
     if (error) {
-        console.error("Action Error updateImageSchedulesAction:", error)
         throw new Error(error.message)
     }
     return true

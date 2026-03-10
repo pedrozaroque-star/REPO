@@ -478,6 +478,8 @@ function run() {
                     <th>Categoría</th>
                     <th>Producto</th>
                     <th>Precio Actual</th>
+                    <th style="background-color: #17a2b8; color: white;">Motivo de Ajuste (V4)</th>
+                    <th style="background-color: #17a2b8; color: white;">Nuevo Escenario V4 (Sólo Taco Protegido)</th>
                     <th style="background-color: #27ae60; color: white;">Aumento Plano Directo (+5%)</th>
                     <th style="background-color: #27ae60; color: white;">Pronóstico 6 Meses (Plano +5% y otro +5%)</th>
                     <th>Motivo de Ajuste (V2)</th>
@@ -485,8 +487,6 @@ function run() {
                     ${is3rdPartyOutput ? '<th style="background-color: #8e44ad;">In-Store + 25% (Referencia)</th>' : ''}
                     <th style="background-color: #d35400; color: white;">Motivo de Ajuste (V3)</th>
                     <th style="background-color: #d35400; color: white;">Nuevo Escenario V3 (Sin Tope en Burritos)</th>
-                    <th style="background-color: #17a2b8; color: white;">Motivo de Ajuste (V4)</th>
-                    <th style="background-color: #17a2b8; color: white;">Nuevo Escenario V4 (Sólo Taco Protegido)</th>
                 </tr>
             </thead>
             <tbody>`;
@@ -517,6 +517,8 @@ function run() {
                     <td>${item.category}</td>
                     <td>${isTacoStar}${item.name}</td>
                     <td>${item.currentPrice === 0 ? 'N/A' : '$' + item.currentPrice.toFixed(2)}</td>
+                    <td style="color: #17a2b8; font-weight: bold;">${item.adjustmentTagV4}</td>
+                    <td style="font-size: 1.1em; color: #20c997;"><strong>$${item.hookStrategyPriceV4.toFixed(2)}</strong></td>
                     <td style="font-weight: bold; color: #27ae60;">${plano5}</td>
                     <td style="font-weight: bold; color: #1abc9c;">${plano5_next6m}</td>
                     <td style="color: #2980b9; font-weight: bold;">${item.adjustmentTag}</td>
@@ -524,8 +526,6 @@ function run() {
                     ${inStorePlus25}
                     <td style="color: #d35400; font-weight: bold;">${item.adjustmentTagV3}</td>
                     <td style="font-size: 1.1em; color: #e67e22;"><strong>$${item.hookStrategyPriceV3.toFixed(2)}</strong></td>
-                    <td style="color: #17a2b8; font-weight: bold;">${item.adjustmentTagV4}</td>
-                    <td style="font-size: 1.1em; color: #20c997;"><strong>$${item.hookStrategyPriceV4.toFixed(2)}</strong></td>
                 </tr>`;
         }
 

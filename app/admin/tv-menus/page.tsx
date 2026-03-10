@@ -2,11 +2,17 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, Monitor, Clock, FileImage, Trash2, Calendar as CalendarIcon, Save, LockIcon } from 'lucide-react'
+import { ShieldCheck, Monitor, FileImage, Trash2, MapPin, Save, LockIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import ImageDropzone from '@/components/ui/ImageDropzone'
-import { uploadImageNewAction, deleteImageNewAction, updateImageSchedulesAction } from './actions'
+import { uploadImageNewAction, deleteImageNewAction, updateImageStoresAction } from './actions'
+
+const STORES = [
+  'AZUSA', 'BELL', 'DOWNEY', 'HOLLYWOOD', 'HUNTINGTON PARK',
+  'LA BROADWAY', 'LA CENTRAL', 'LA PUENTE', 'LYNWOOD', 'NORWALK',
+  'RIALTO', 'SANTA ANA', 'SLAUSON', 'SOUTH GATE', 'WEST COVINA'
+]
 
 export default function TvMenusAdminPage() {
   const [images, setImages] = useState<any[]>([])
@@ -17,15 +23,10 @@ export default function TvMenusAdminPage() {
   const screens = [1, 2, 3, 4, 5, 6]
 
   // Form state for Uploader
-  const [isAlways, setIsAlways] = useState(true)
-  const [uploadStart, setUploadStart] = useState('06:00')
-  const [uploadEnd, setUploadEnd] = useState('11:00')
+  const [isUniversal, setIsUniversal] = useState(true)
 
-  // Modals & Scheduling
+  // Modals & Assignments
   const [editingImage, setEditingImage] = useState<any>(null)
-  const [exceptionStore, setExceptionStore] = useState('LYNWOOD')
-  const [exceptionStart, setExceptionStart] = useState('06:00')
-  const [exceptionEnd, setExceptionEnd] = useState('11:00')
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -64,10 +65,7 @@ export default function TvMenusAdminPage() {
         const formData = new FormData()
         formData.append('file', file)
 
-        const start = isAlways ? null : uploadStart
-        const end = isAlways ? null : uploadEnd
-
-        await uploadImageNewAction(formData, currentSort, activeTab, isAlways, start, end, [])
+        await uploadImageNewAction(formData, currentSort, activeTab, isUniversal, [])
         currentSort++
       } catch (err) {
         console.error('Error uploading file:', err)
@@ -78,7 +76,7 @@ export default function TvMenusAdminPage() {
   }
 
   const deleteImage = async (id: string, storagePath: string) => {
-    if (!confirm('¿Seguro que deseas eliminar esta imagen?')) return
+    if (!confirm('¿Seguro que deseas eliminar esta imagen permanentemente?')) return
 
     try {
       await deleteImageNewAction(id, storagePath)
@@ -89,42 +87,30 @@ export default function TvMenusAdminPage() {
     }
   }
 
-  const formatTime = (timeInfo: string) => {
-    if (!timeInfo) return '--:--'
-    const [hours, minutes] = timeInfo.split(':')
-    let h = parseInt(hours)
-    const ampm = h >= 12 ? 'PM' : 'AM'
-    h = h % 12 || 12
-    return `${h}:${minutes} ${ampm}`
-  }
-
-  const addException = async () => {
+  const toggleStoreSelection = async (store: string) => {
     if (!editingImage) return
-    const newSchedule = { store_id: exceptionStore, start_time: exceptionStart, end_time: exceptionEnd }
-    const currentSchedules = editingImage.custom_schedules || []
-    const existing = currentSchedules.filter((s: any) => s.store_id !== exceptionStore)
-    const updated = [...existing, newSchedule]
 
-    try {
-      await updateImageSchedulesAction(editingImage.id, updated)
-      setEditingImage({ ...editingImage, custom_schedules: updated })
-      setImages(images.map(img => img.id === editingImage.id ? { ...img, custom_schedules: updated } : img))
-    } catch (e) {
-      alert('Error al guardar horario excepcional')
+    const currentAssignments = Array.isArray(editingImage.store_assignments) ? editingImage.store_assignments : []
+    let newAssignments
+
+    if (currentAssignments.includes(store)) {
+      newAssignments = currentAssignments.filter((s: string) => s !== store)
+    } else {
+      newAssignments = [...currentAssignments, store]
     }
-  }
 
-  const removeException = async (storeId: string) => {
-    if (!editingImage) return
-    const currentSchedules = editingImage.custom_schedules || []
-    const updated = currentSchedules.filter((s: any) => s.store_id !== storeId)
+    // Optimistic update for speedy UI
+    setEditingImage({ ...editingImage, store_assignments: newAssignments })
+    setImages(images.map(img => img.id === editingImage.id ? { ...img, store_assignments: newAssignments } : img))
 
     try {
-      await updateImageSchedulesAction(editingImage.id, updated)
-      setEditingImage({ ...editingImage, custom_schedules: updated })
-      setImages(images.map(img => img.id === editingImage.id ? { ...img, custom_schedules: updated } : img))
+      await updateImageStoresAction(editingImage.id, newAssignments)
     } catch (e) {
-      alert('Error al eliminar horario excepcional')
+      console.error(e)
+      alert('Error al guardar sucursal')
+      // Revert changes on error
+      setEditingImage({ ...editingImage, store_assignments: currentAssignments })
+      setImages(images.map(img => img.id === editingImage.id ? { ...img, store_assignments: currentAssignments } : img))
     }
   }
 
@@ -146,7 +132,7 @@ export default function TvMenusAdminPage() {
             <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600 dark:text-indigo-400">
               <LockIcon size={40} />
             </div>
-            <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-1">Menús TV</h1>
+            <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-1">Menús TV Permanentes</h1>
             <p className="text-gray-500 dark:text-slate-400 font-medium tracking-tight">Acceso Restringido</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-5">
@@ -170,8 +156,8 @@ export default function TvMenusAdminPage() {
   }
 
   const activeImages = images.filter(i => i.screen_number === activeTab)
-  const alwaysImages = activeImages.filter(i => i.is_always)
-  const scheduledImages = activeImages.filter(i => !i.is_always)
+  const universalImages = activeImages.filter(i => i.is_universal === true)
+  const specificImages = activeImages.filter(i => i.is_universal !== true)
 
   return (
     <div className="min-h-screen bg-transparent dark:bg-neutral-900 font-sans pt-20 lg:pt-0 relative">
@@ -185,8 +171,8 @@ export default function TvMenusAdminPage() {
               <Monitor size={18} />
             </div>
             <div>
-              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Menús Digitales TV</h1>
-              <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wider">Gestión por Pantalla</p>
+              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">Visor Directo de TVs</h1>
+              <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wider">Gestión Permanentemente por Pantalla</p>
             </div>
           </div>
         </div>
@@ -208,40 +194,25 @@ export default function TvMenusAdminPage() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-          {/* LEFT COL: UPLOADER & CURRENT SETTINGS */}
+          {/* LEFT COL: UPLOADER */}
           <div className="col-span-1 space-y-6">
             <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm sticky top-24">
               <h3 className="text-lg font-black text-gray-900 dark:text-white mb-4">Añadir a Pantalla {activeTab}</h3>
 
               <div className="mb-6 space-y-4 bg-gray-50 dark:bg-slate-900 p-4 rounded-2xl">
                 <label className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
-                  <input type="radio" checked={isAlways} onChange={() => setIsAlways(true)} className="w-4 h-4 text-indigo-600" />
+                  <input type="radio" checked={isUniversal} onChange={() => setIsUniversal(true)} className="w-4 h-4 text-indigo-600" />
                   <div>
-                    <p className="text-sm font-bold text-gray-900 dark:text-white">Se Muestra Siempre</p>
-                    <p className="text-xs text-gray-500">La imagen estará visible todo el tiempo.</p>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">Menú Universal</p>
+                    <p className="text-[10px] text-gray-500 leading-tight mt-0.5">La mayoría de las sucursales usarán esta foto permanentemente.</p>
                   </div>
                 </label>
-                <label className="flex flex-col gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <input type="radio" checked={!isAlways} onChange={() => setIsAlways(false)} className="w-4 h-4 text-indigo-600" />
-                    <div>
-                      <p className="text-sm font-bold text-gray-900 dark:text-white">Horario Específico</p>
-                      <p className="text-xs text-gray-500">Ej: Solo para Desayunos.</p>
-                    </div>
+                <label className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
+                  <input type="radio" checked={!isUniversal} onChange={() => setIsUniversal(false)} className="w-4 h-4 text-indigo-600" />
+                  <div>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">Menú Excepcional (Variación)</p>
+                    <p className="text-[10px] text-gray-500 leading-tight mt-0.5">Versión especial solo para tiendas específicas (lo configuras más abajo una vez que se suba).</p>
                   </div>
-
-                  {!isAlways && (
-                    <div className="flex gap-2 mt-2 pt-3 border-t border-gray-100 dark:border-slate-700">
-                      <div className="flex-1">
-                        <label className="text-xs font-bold text-gray-400">De (Hora):</label>
-                        <input type="time" value={uploadStart} onChange={e => setUploadStart(e.target.value)} className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1 text-sm outline-none" />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-xs font-bold text-gray-400">A (Hora):</label>
-                        <input type="time" value={uploadEnd} onChange={e => setUploadEnd(e.target.value)} className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1 text-sm outline-none" />
-                      </div>
-                    </div>
-                  )}
                 </label>
               </div>
 
@@ -251,86 +222,28 @@ export default function TvMenusAdminPage() {
 
           {/* RIGHT COL: IMAGES GALLERY */}
           <div className="col-span-1 xl:col-span-2 space-y-8">
-            {/* SCHEDULED IMAGES (BREAKFAST ETC) */}
+
+            {/* UNIVERSAL IMAGE */}
             <div className="space-y-4">
               <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-                <Clock className="text-orange-500" /> Imágenes por Horario (Prioridad Alta)
+                <FileImage className="text-indigo-500" /> Versión Universal (Default)
               </h2>
-              <p className="text-sm text-gray-500 dark:text-slate-400">Estas imágenes reemplazarán a las imágenes "Fijas" durante las horas establecidas.</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Si un restaurante no tiene asignada una "Variación", su TV {activeTab} mostrará SIEMPRE esta imagen.</p>
 
-              {scheduledImages.length === 0 ? (
-                <div className="p-8 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-3xl text-center text-gray-400">
-                  No hay imágenes programadas en esta pantalla.
+              {universalImages.length === 0 ? (
+                <div className="p-8 border-2 border-dashed border-gray-200 dark:border-slate-700 bg-red-50/20 rounded-3xl text-center text-red-400 font-medium">
+                  ¡Atención! No has subido el menú Universal. La TV estará negra en las sucursales sin asignación específica.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {scheduledImages.map(img => (
-                    <div key={img.id} className={`bg-white dark:bg-slate-800 border ${editingImage?.id === img.id ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-gray-200 dark:border-slate-700'} rounded-2xl overflow-hidden shadow-sm transition-all`}>
-                      <div className="aspect-video relative group bg-gray-100 dark:bg-slate-900">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {universalImages.map((img, idx) => (
+                    <div key={img.id} className="bg-white dark:bg-slate-800 border-2 border-indigo-100 dark:border-indigo-900/40 rounded-xl overflow-hidden shadow-md group relative">
+                      <div className="aspect-video bg-gray-100 dark:bg-slate-900">
                         <img src={img.storage_path} className="w-full h-full object-cover" />
-                        <button onClick={() => deleteImage(img.id, img.storage_path)} className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16} /></button>
                       </div>
-                      <div className="p-4">
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs font-black uppercase px-2 py-1 rounded-md">
-                            {formatTime(img.start_time)} - {formatTime(img.end_time)}
-                          </span>
-                          <button onClick={() => setEditingImage(editingImage?.id === img.id ? null : img)} className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline">
-                            {editingImage?.id === img.id ? 'Ocultar Tiendas' : 'Ajustar x Tienda'}
-                          </button>
-                        </div>
-
-                        <div className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-                          {(img.custom_schedules || []).length > 0
-                            ? <span className="text-indigo-500 font-bold">{(img.custom_schedules).length} excepción(es) de tienda</span>
-                            : 'Aplica igual para todas las tiendas.'}
-                        </div>
-
-                        {/* Edit Matrix for Exceptions */}
-                        <AnimatePresence>
-                          {editingImage?.id === img.id && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                              <div className="mt-4 pt-4 border-t border-gray-100 dark:border-slate-700">
-                                <h4 className="text-[10px] font-black uppercase text-gray-400 mb-2">Ajustar horario en otra sucursal:</h4>
-                                <div className="space-y-2 mb-4">
-                                  {(editingImage.custom_schedules || []).map((s: any, i: number) => (
-                                    <div key={i} className="flex justify-between items-center text-xs bg-gray-50 dark:bg-slate-900 p-2 rounded-lg">
-                                      <span className="font-bold">{s.store_id}</span>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-gray-500">{formatTime(s.start_time)} - {formatTime(s.end_time)}</span>
-                                        <button onClick={() => removeException(s.store_id)} className="text-red-500"><Trash2 size={14} /></button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                  <select value={exceptionStore} onChange={e => setExceptionStore(e.target.value)} className="text-xs p-2 rounded border dark:bg-slate-900 border-gray-200 dark:border-slate-700 outline-none w-full">
-                                    <option value="AZUSA">Azusa</option>
-                                    <option value="BELL">Bell</option>
-                                    <option value="DOWNEY">Downey</option>
-                                    <option value="HOLLYWOOD">Hollywood</option>
-                                    <option value="HUNTINGTON PARK">Huntington Park</option>
-                                    <option value="LA BROADWAY">LA Broadway</option>
-                                    <option value="LA CENTRAL">LA Central</option>
-                                    <option value="LA PUENTE">La Puente</option>
-                                    <option value="LYNWOOD">Lynwood</option>
-                                    <option value="NORWALK">Norwalk</option>
-                                    <option value="RIALTO">Rialto</option>
-                                    <option value="SANTA ANA">Santa Ana</option>
-                                    <option value="SLAUSON">Slauson</option>
-                                    <option value="SOUTH GATE">South Gate</option>
-                                    <option value="WEST COVINA">West Covina</option>
-                                  </select>
-                                  <div className="flex gap-2">
-                                    <input type="time" value={exceptionStart} onChange={e => setExceptionStart(e.target.value)} className="w-1/2 text-xs p-2 rounded border border-gray-200 dark:border-slate-700 dark:bg-slate-900 outline-none" />
-                                    <input type="time" value={exceptionEnd} onChange={e => setExceptionEnd(e.target.value)} className="w-1/2 text-xs p-2 rounded border border-gray-200 dark:border-slate-700 dark:bg-slate-900 outline-none" />
-                                  </div>
-                                  <button onClick={addException} className="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 py-2 rounded-lg text-xs font-bold transition-colors">Vincular a Sucursal</button>
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                      <div className="p-3 bg-indigo-50 dark:bg-indigo-900/10 flex justify-between items-center">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400">Default Company Wide</span>
+                        <button onClick={() => deleteImage(img.id, img.storage_path)} className="bg-red-500/10 text-red-600 hover:bg-red-500 hover:text-white dark:text-red-400 p-1.5 rounded-lg transition-colors"><Trash2 size={16} /></button>
                       </div>
                     </div>
                   ))}
@@ -338,30 +251,79 @@ export default function TvMenusAdminPage() {
               )}
             </div>
 
-            {/* ALWAYS ON IMAGES */}
+            {/* SPECIFIC STORE IMAGES */}
             <div className="space-y-4 pt-8 border-t border-gray-200 dark:border-slate-800">
               <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-                <FileImage className="text-indigo-500" /> Imágenes Siempre Visibles (Fijas)
+                <MapPin className="text-orange-500" /> Variaciones (Solo para tiendas seleccionadas)
               </h2>
-              <p className="text-sm text-gray-500 dark:text-slate-400">Este es el menú base. Se muestra siempre que no haya un horario especial activo.</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Estas imágenes reemplazarán la Versión Universal permanentemente en las tiendas que tú palomees abajo.</p>
 
-              {alwaysImages.length === 0 ? (
-                <div className="p-8 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-3xl text-center text-gray-400">
-                  No hay imágenes fijas en esta pantalla. (La pantalla se quedará en negro si no hay menú base).
+              {specificImages.length === 0 ? (
+                <div className="p-8 border-2 border-dashed border-gray-100 dark:border-slate-800 rounded-3xl text-center text-gray-400">
+                  No has creado variaciones. Todas las tiendas de la compañía comparten el Menú Universal.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {alwaysImages.map((img, idx) => (
-                    <div key={img.id} className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm group relative">
-                      <div className="aspect-video bg-gray-100 dark:bg-slate-900">
-                        <img src={img.storage_path} className="w-full h-full object-cover" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {specificImages.map(img => {
+                    const assignedStores = Array.isArray(img.store_assignments) ? img.store_assignments : []
+                    return (
+                      <div key={img.id} className={`bg-white dark:bg-slate-800 border ${editingImage?.id === img.id ? 'border-orange-500 ring-4 ring-orange-500/10' : 'border-gray-200 dark:border-slate-700'} rounded-2xl overflow-hidden shadow-sm transition-all flex flex-col`}>
+                        <div className="aspect-video relative group bg-gray-100 dark:bg-slate-900">
+                          <img src={img.storage_path} className="w-full h-full object-cover" />
+                          <button onClick={() => deleteImage(img.id, img.storage_path)} className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"><Trash2 size={16} /></button>
+                        </div>
+                        <div className="p-4 flex flex-col flex-1">
+                          <div className="flex justify-between items-center mb-3">
+                            <span className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs font-black uppercase px-2 py-1 rounded-md">
+                              Variación Limitada
+                            </span>
+                            <button onClick={() => setEditingImage(editingImage?.id === img.id ? null : img)} className="text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-wider hover:underline flex items-center gap-1">
+                              <MapPin size={12} /> {editingImage?.id === img.id ? 'Cerrar Plantilla' : 'Asignar Sucursales'}
+                            </button>
+                          </div>
+
+                          {!editingImage || editingImage.id !== img.id ? (
+                            <div className="text-xs text-gray-600 dark:text-slate-400 font-medium">
+                              {assignedStores.length > 0
+                                ? <div>
+                                  Visible exclusivamente en: <span className="font-bold text-gray-900 dark:text-white capitalize">{assignedStores.join(', ').toLowerCase()}</span>
+                                </div>
+                                : <span className="text-red-500 font-bold flex items-center gap-1">¡Advertencia! No has asignado tiendas a esta variación. Jamás se mostrará.</span>}
+                            </div>
+                          ) : null}
+
+                          {/* Edit Matrix for Exceptions */}
+                          <AnimatePresence>
+                            {editingImage?.id === img.id && (
+                              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                                <div className="mt-2 pt-4 border-t border-gray-100 dark:border-slate-700">
+                                  <h4 className="text-[10px] items-center gap-2 font-black uppercase text-gray-400 mb-3 flex bg-gray-50 dark:bg-slate-900 p-2 rounded-lg"><Monitor size={14} /> Palomea en cuáles sucursales se mostrará esta variante:</h4>
+
+                                  <div className="grid grid-cols-2 gap-2 h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                    {STORES.map((storeOption) => {
+                                      const isChecked = assignedStores.includes(storeOption)
+                                      return (
+                                        <label key={storeOption} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors border text-xs font-bold ${isChecked ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-800/50 dark:text-indigo-300' : 'bg-white border-gray-100 text-gray-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 hover:border-indigo-300'}`}>
+                                          <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => toggleStoreSelection(storeOption)}
+                                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                                          />
+                                          <span className="capitalize">{storeOption.toLowerCase()}</span>
+                                        </label>
+                                      )
+                                    })}
+                                  </div>
+
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
                       </div>
-                      <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md text-white px-2 py-0.5 rounded text-[10px] font-bold">
-                        Fija - {idx + 1}
-                      </div>
-                      <button onClick={() => deleteImage(img.id, img.storage_path)} className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
