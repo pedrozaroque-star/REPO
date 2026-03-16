@@ -105,6 +105,8 @@ export async function POST(req: Request) {
         let accessToken;
         let fromEmail;
 
+        let fallbackUsed = false;
+
         try {
             const creds = await getTransporter(sender_user_id)
             accessToken = creds.accessToken
@@ -118,7 +120,15 @@ export async function POST(req: Request) {
                     const fallbackCreds = await getTransporter(carlosUser.id)
                     accessToken = fallbackCreds.accessToken
                     fromEmail = fallbackCreds.fromEmail
+                    fallbackUsed = true;
                     console.log(`✅ [API] Fallback exitoso. Usando cuenta de Carlos: ${fromEmail}`)
+
+                    // Invalidate manager's account so they are forced to reconnect next time
+                    if (sender_user_id && sender_user_id !== carlosUser.id) {
+                        console.log(`🧹 [API] Limpiando credenciales caducadas del manager: ${sender_user_id}`)
+                        await supabase.from('users').update({ google_email_connected: null, google_refresh_token: null }).eq('id', sender_user_id)
+                    }
+
                 } catch (fallbackError) {
                     console.error('❌ [API] Fallback también falló.', fallbackError)
                     throw error // Lanza el error original para que la UI reaccione correctamente
