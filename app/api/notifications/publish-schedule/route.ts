@@ -102,7 +102,31 @@ export async function POST(req: Request) {
         }
 
         // 1. Init Credentials
-        const { accessToken, fromEmail } = await getTransporter(sender_user_id)
+        let accessToken;
+        let fromEmail;
+
+        try {
+            const creds = await getTransporter(sender_user_id)
+            accessToken = creds.accessToken
+            fromEmail = creds.fromEmail
+        } catch (error: any) {
+            console.warn(`⚠️ [API] Falló la cuenta principal (${error.message}). Intentando fallback a carlos@tacosgavilan.com de emergencia.`)
+            const { data: carlosUser } = await supabase.from('users').select('id').eq('email', 'carlos@tacosgavilan.com').single()
+            
+            if (carlosUser) {
+                try {
+                    const fallbackCreds = await getTransporter(carlosUser.id)
+                    accessToken = fallbackCreds.accessToken
+                    fromEmail = fallbackCreds.fromEmail
+                    console.log(`✅ [API] Fallback exitoso. Usando cuenta de Carlos: ${fromEmail}`)
+                } catch (fallbackError) {
+                    console.error('❌ [API] Fallback también falló.', fallbackError)
+                    throw error // Lanza el error original para que la UI reaccione correctamente
+                }
+            } else {
+                throw error
+            }
+        }
 
         // 2. Fetch Published Shifts
         let query = supabase
