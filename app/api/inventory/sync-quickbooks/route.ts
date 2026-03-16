@@ -4,6 +4,10 @@ import { getSupabaseAdminClient } from '@/lib/supabase';
 import { authClient } from '@/lib/quickbooks';
 import QuickBooks from 'node-quickbooks';
 
+export async function GET() {
+    return POST();
+}
+
 export async function POST() {
     try {
         const supabase = await getSupabaseAdminClient();
@@ -89,12 +93,10 @@ export async function POST() {
                 continue;
             }
 
-            // Case B: Not mapped, try to find a FREE internal item
+            // Case B: Not mapped, try to find a FREE internal item by Name exactly
             let internal = internalItems.find(i =>
-                !usedInternalIds.has(i.id) && (
-                    (i.sku?.trim().toUpperCase() === qbItem.Sku?.trim().toUpperCase()) ||
-                    (i.name.toLowerCase().trim() === qbItem.Name.toLowerCase().trim())
-                )
+                !usedInternalIds.has(i.id) &&
+                (i.name.toLowerCase().trim() === qbItem.Name.toLowerCase().trim())
             );
 
             if (!internal) {
@@ -104,7 +106,8 @@ export async function POST() {
                     sku: qbItem.Sku || null,
                     category_id: DEFAULT_CATEGORY_ID,
                     purchase_unit_cost: rate,
-                    unit_type: 'Unit'
+                    unit_type: 'Unit',
+                    is_bodega: true
                 }).select().single();
 
                 if (createError) continue;

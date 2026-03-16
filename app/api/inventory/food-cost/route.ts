@@ -118,11 +118,37 @@ export async function GET(request: NextRequest) {
 
         if (recipeError) throw recipeError
 
-        const { data: inventoryData, error: invError } = await supabase
+        let { data: inventoryData, error: invError } = await supabase
             .from('inventory_items')
             .select('*')
 
         if (invError) throw invError
+
+        // --- SCENARIO B: HISTORICAL PRICES O "LA MÁQUINA DEL TIEMPO" ---
+        // Buscamos cuál era el precio de los insumos exáctamente el último día de este reporte (endDate)
+        const targetDate = `${endDate}T23:59:59.999Z`
+        const { data: historyData } = await supabase
+            .from('inventory_price_history')
+            .select('inventory_item_id, purchase_unit_cost, effective_date')
+            .lte('effective_date', targetDate)
+            .order('effective_date', { ascending: false })
+            
+        if (historyData && inventoryData) {
+            const latestValidPrices = new Map<string, number>()
+            historyData.forEach(h => {
+                // Al estar ordenado Descendente, el primer registro que leamos es el correcto para la fecha
+                if (!latestValidPrices.has(h.inventory_item_id)) {
+                    latestValidPrices.set(h.inventory_item_id, h.purchase_unit_cost)
+                }
+            })
+            
+            inventoryData = inventoryData.map(item => ({
+                ...item,
+                purchase_unit_cost: latestValidPrices.has(item.id) ? latestValidPrices.get(item.id)! : item.purchase_unit_cost
+            }))
+            console.log(`[FoodCostAPI] 🕰️ Historical Pricing Applied for date: ${targetDate}`)
+        }
+        // --- FIN SCENARIO B ---
 
         // 3. Map Recipes by GUID
         // recipesData is array of ingredients: { toast_menu_item_guid, inventory_item_id, quantity, unit }
@@ -188,6 +214,147 @@ export async function GET(request: NextRequest) {
                 }
             }
 
+            let skipModCostCalculation = false;
+
+            // --- HEURISTIC RECIPE GENERATOR FOR PARTY TRAYS ---
+            const parentNameLower = item.name.toLowerCase();
+            const isPartyTray15 = parentNameLower.includes('15') && parentNameLower.includes('20') && parentNameLower.includes('people');
+            const isPartyTray20 = parentNameLower.includes('20') && parentNameLower.includes('25') && parentNameLower.includes('people');
+            const isPartyTray25 = parentNameLower.includes('25') && parentNameLower.includes('30') && parentNameLower.includes('people');
+            const isPartyTray30 = parentNameLower.includes('30') && parentNameLower.includes('40') && parentNameLower.includes('people');
+            const isPartyTray = isPartyTray15 || isPartyTray20 || isPartyTray25 || isPartyTray30;
+
+            if (isPartyTray) {
+                    let meatLbs = 6; let riceLbs = 3; let beanLbs = 3; let salsaR = 12; let salsaV = 12;
+                    let onionLimonPts = 16; let jalapenoOz = 8; let plates = 30; let forks = 15; let spoons = 15;
+                    let cups = 20; let napkins = 1; let cornPk = 2; let flourPk = 5; let aguaGals = 3;
+
+                    if (isPartyTray20) {
+                        meatLbs = 7.5; riceLbs = 4; beanLbs = 4; salsaR = 16; salsaV = 16;
+                        onionLimonPts = 20; jalapenoOz = 12; plates = 35; forks = 15; spoons = 15;
+                        cups = 25; napkins = 1; cornPk = 3; flourPk = 7; aguaGals = 4;
+                    } else if (isPartyTray25) {
+                        meatLbs = 10; riceLbs = 6; beanLbs = 6; salsaR = 20; salsaV = 20;
+                        onionLimonPts = 20; jalapenoOz = 16; plates = 40; forks = 20; spoons = 20;
+                        cups = 30; napkins = 2; cornPk = 4; flourPk = 9; aguaGals = 5;
+                    } else if (isPartyTray30) {
+                        meatLbs = 12; riceLbs = 10; beanLbs = 10; salsaR = 24; salsaV = 24;
+                        onionLimonPts = 30; jalapenoOz = 20; plates = 50; forks = 25; spoons = 25;
+                        cups = 40; napkins = 3; cornPk = 5; flourPk = 12; aguaGals = 6;
+                    }
+
+                    const virtualIngredients: any[] = [];
+                    
+                    // --- DYNAMIC MODIFIER PARSING ---
+                    // Extract modifiers from names like "15 - 20 People (Tamarindo, Jamaica, Piña, Pollo, Maiz, Asada)"
+                    const modsArr = parentNameLower.match(/\(([^)]+)\)/) ? parentNameLower.match(/\(([^)]+)\)/)![1].split(',').map((s: string)=>s.trim()) : [];
+                    
+                    const meatsFound: string[] = [];
+                    const aguasFound: string[] = [];
+                    const meatMapOpts: Record<string, string> = {
+                        'asada': 'fab9d589-8ae8-4381-87da-85f836068996',
+                        'pollo': '4ea7ef9c-986e-4fc1-a363-7200ca558aab',
+                        'pastor': 'ad7e3703-2701-4a05-aa97-77866c8c717e',
+                        'carnit': '14990e85-0d90-467c-ad9d-362e6ed4f1cd', 
+                        'buche': 'baac1d41-3b80-4f80-acfc-7a19f46e03c2',
+                        'cabeza': '511e341b-ca42-44ed-89df-a4a84b51a619',
+                        'lengua': '0fb87578-1185-41a9-a318-97428db20a5d',
+                        'chorizo': '1e4c43b6-4e1b-4e51-8617-e127b89467f1'
+                    };
+                    const aguaMapOpts: Record<string, string> = {
+                        'tamarindo': 'b6f3f5de-c554-4650-b0df-09dd5d3ca053',
+                        'horchata': '085ecb0d-c711-4134-ae1a-f7630a22759c',
+                        'piña': '9851a32c-dc35-4653-a1e4-b2cf7bac9009',
+                        'pina': '9851a32c-dc35-4653-a1e4-b2cf7bac9009',
+                        'jamaica': '6051e960-7564-41f6-9a52-ff79ed7c6353'
+                    };
+
+                    let exclusiveMeatId: string | null = null;
+                    let exclusiveAguaId: string | null = null;
+                    const exclusivePrefixes = ['todo', 'toda', 'solo', 'pura', 'puro', 'only', 'all'];
+
+                    if (modsArr.length > 0) {
+                        modsArr.forEach((mod: string) => {
+                            // Detect exclusive intent (e.g. "todo asada", "solo carnitas")
+                            exclusivePrefixes.forEach(prefix => {
+                                Object.keys(meatMapOpts).forEach(meatKey => {
+                                    if (mod.includes(`${prefix} ${meatKey}`) || mod.includes(`${prefix}${meatKey}`) || mod.includes(`${prefix} de ${meatKey}`)) {
+                                        exclusiveMeatId = meatMapOpts[meatKey];
+                                    }
+                                });
+                                Object.keys(aguaMapOpts).forEach(aguaKey => {
+                                    if (mod.includes(`${prefix} ${aguaKey}`) || mod.includes(`${prefix}${aguaKey}`) || mod.includes(`${prefix} de ${aguaKey}`)) {
+                                        exclusiveAguaId = aguaMapOpts[aguaKey];
+                                    }
+                                });
+                            });
+                            
+                            Object.keys(meatMapOpts).forEach(k => { if (mod.includes(k)) meatsFound.push(meatMapOpts[k]); });
+                            Object.keys(aguaMapOpts).forEach(k => { if (mod.includes(k)) aguasFound.push(aguaMapOpts[k]); });
+                        });
+                    }
+
+                    if (exclusiveMeatId) {
+                        meatsFound.length = 0; // Override any mixed selection
+                        meatsFound.push(exclusiveMeatId);
+                    }
+                    if (exclusiveAguaId) {
+                        aguasFound.length = 0; // Override any mixed selection
+                        aguasFound.push(exclusiveAguaId);
+                    }
+
+                    // Fallbacks to default blended average if nothing found in name
+                    if (meatsFound.length === 0) meatsFound.push(...['fab9d589-8ae8-4381-87da-85f836068996', '4ea7ef9c-986e-4fc1-a363-7200ca558aab', 'ad7e3703-2701-4a05-aa97-77866c8c717e', '14990e85-0d90-467c-ad9d-362e6ed4f1cd', 'baac1d41-3b80-4f80-acfc-7a19f46e03c2', '511e341b-ca42-44ed-89df-a4a84b51a619', '0fb87578-1185-41a9-a318-97428db20a5d', '1e4c43b6-4e1b-4e51-8617-e127b89467f1']);
+                    if (aguasFound.length === 0) aguasFound.push(...['b6f3f5de-c554-4650-b0df-09dd5d3ca053', '085ecb0d-c711-4134-ae1a-f7630a22759c', '9851a32c-dc35-4653-a1e4-b2cf7bac9009', '6051e960-7564-41f6-9a52-ff79ed7c6353']);
+
+                    // Append proportions based on exactly how many choices were made
+                    meatsFound.forEach(mId => {
+                        virtualIngredients.push({ inventory_item_id: mId, quantity: meatLbs / meatsFound.length, unit: 'lb', type: 'cooked' });
+                    });
+                    aguasFound.forEach(aId => {
+                        virtualIngredients.push({ inventory_item_id: aId, quantity: aguaGals / aguasFound.length, unit: 'gal', type: 'raw' });
+                    });
+
+                    // Core Ingredients
+                    virtualIngredients.push({ inventory_item_id: 'a1bbc13a-a481-4b7f-a5c6-8a44a96ad562', quantity: riceLbs, unit: 'lb', type: 'raw' }); // Arroz
+                    virtualIngredients.push({ inventory_item_id: '557d9414-c769-4399-a6cc-15bb81cba85f', quantity: beanLbs, unit: 'lb', type: 'raw' }); // Frijol Molido
+                    virtualIngredients.push({ inventory_item_id: 'a639ad41-81bf-4de6-8dbc-0291005654ad', quantity: salsaR, unit: 'pza', type: 'raw' }); // Salsa Roja Pack
+                    virtualIngredients.push({ inventory_item_id: '6c0a3378-8309-48c9-a438-15313cabd9d8', quantity: salsaV, unit: 'pza', type: 'raw' }); // Salsa Verde Pack
+                    virtualIngredients.push({ inventory_item_id: '90fb17e3-6ba7-4545-b5a1-94df4f6a9fcb', quantity: onionLimonPts, unit: 'pza', type: 'raw' }); // 1 oz Bolsa de Mixta
+                    virtualIngredients.push({ inventory_item_id: 'f73fe7a6-105c-4624-a87b-07d5f78c09ea', quantity: onionLimonPts, unit: 'pza', type: 'raw' }); // Lima Bolsita
+                    virtualIngredients.push({ inventory_item_id: 'd56d8df8-d30c-4964-a425-9aa25d962364', quantity: jalapenoOz / 16.0, unit: 'lb', type: 'raw' }); // Rajas y Zanahorias
+                    
+                    const hasMaiz = parentNameLower.includes('maiz');
+                    const hasHarina = parentNameLower.includes('harina');
+                    
+                    if (hasMaiz && hasHarina) {
+                        virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: (cornPk * 60) / 2, unit: 'pza', type: 'raw' }); // Corn Tortilla 60CT
+                        virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: (flourPk * 12) / 2, unit: 'pza', type: 'raw' }); // Flour Tortilla
+                    } else if (hasHarina) {
+                        virtualIngredients.push({ inventory_item_id: '55798c3c-a86e-469d-ab70-24e0f1af0c2b', quantity: flourPk * 12, unit: 'pza', type: 'raw' }); // Flour Tortilla
+                    } else {
+                        virtualIngredients.push({ inventory_item_id: 'dcd79433-e97c-46dc-80c0-8429401e0fa0', quantity: cornPk * 60, unit: 'pza', type: 'raw' }); // Corn Tortilla 60CT (Default)
+                    }
+                    
+                    // Paperworks
+                    virtualIngredients.push({ inventory_item_id: 'ca959b14-fcef-4900-ae71-2388e4ac023c', quantity: plates, unit: 'pza', type: 'raw' }); // 9" Plate
+                    virtualIngredients.push({ inventory_item_id: 'd920800f-e0ca-4799-8434-fea7712f7e98', quantity: forks, unit: 'pza', type: 'raw' }); // Fork
+                    virtualIngredients.push({ inventory_item_id: 'd11c55da-7bd1-4133-883c-f28eb9a31936', quantity: spoons, unit: 'pza', type: 'raw' }); // Spoon
+                    virtualIngredients.push({ inventory_item_id: 'e26ad6ed-e91d-4dc5-8c1f-a8a89e977af5', quantity: cups, unit: 'pza', type: 'raw' }); // Cup 22oz
+                    virtualIngredients.push({ inventory_item_id: '5ea5a92a-fb41-4237-aa91-f006b13c8cc4', quantity: napkins, unit: 'pza', type: 'raw' }); // Napkins Dispenser
+
+                    recipe = {
+                        id: 'virtual-party-tray',
+                        toast_menu_item_guid: item.guid,
+                        ingredients: virtualIngredients
+                    };
+                    
+                    skipModCostCalculation = true;
+                    console.log(`[FoodCostAPI] 🛠️ Virtual Recipe Generated for Party Tray: "${item.name}"`)
+            } else if (!recipe) {
+                // If it's not a party tray, and we still have no recipe
+            }
+
             // Helper to get base portion for meat (in ounces)
             const getMeatBaseOz = (name: string): number => {
                 const lower = name.toLowerCase()
@@ -231,7 +398,6 @@ export async function GET(request: NextRequest) {
             }
 
             // Let's extract half names from the parent item name itself because Toast appends them: "Super Burrito Asada (Con cebolla, Half Pastor...)"
-            const parentNameLower = item.name.toLowerCase()
             const hasHalfMod = parentNameLower.includes('half asada') || parentNameLower.includes('half pollo') ||
                 parentNameLower.includes('half pastor') || parentNameLower.includes('half carnitas') ||
                 parentNameLower.includes('half buche') || parentNameLower.includes('half cabeza') ||
@@ -326,7 +492,7 @@ export async function GET(request: NextRequest) {
 
             // 3. Calculate Modifiers Cost
             // Skip "Half Meat" modifiers since we've already accounted for them in the batch delta
-            if (item.modifier_guids && item.modifier_guids.length > 0) {
+            if (!skipModCostCalculation && item.modifier_guids && item.modifier_guids.length > 0) {
                 const halfGuids = [
                     'ed889228-98e7-4c49-bc46-8e0718ec1fcf', 'b52ffce5-cc66-4930-bb96-70891c41643e',
                     'ac491d8e-07a9-4d1d-b8dc-9b4bbe2c0ed3', '443938bb-ec20-4a64-9fa3-91d4f89de0a5',

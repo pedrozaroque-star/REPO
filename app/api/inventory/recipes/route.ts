@@ -29,6 +29,7 @@ export async function GET(request: Request) {
             id,
             quantity,
             unit,
+            type,
             inventory_item:inventory_items (
                 id,
                 name,
@@ -101,7 +102,8 @@ export async function POST(request: Request) {
             toast_menu_item_guid: toast_guid,
             inventory_item_id: ing.inventory_item_id,
             quantity: ing.quantity,
-            unit: ing.unit
+            unit: ing.unit,
+            type: ing.type || 'food'
         }))
 
         const { error: insertError } = await supabase

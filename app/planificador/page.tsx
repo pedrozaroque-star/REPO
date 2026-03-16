@@ -1058,7 +1058,19 @@ export default function SchedulePlanner() {
                     sender_user_id: user?.id // CRITICAL: Identify WHO is publishing to use their Gmail token
                 })
             })
+            
             const notifyData = await notifyRes.json()
+
+            if (!notifyRes.ok) {
+                if (notifyData.error && notifyData.error.includes('GMAIL_AUTH_FAILED')) {
+                    // Update state to disconnected and force modal
+                    setGoogleConnected(false)
+                    setGoogleEmail('')
+                    setIsGmailModalOpen(true)
+                    throw new Error(t('planner.toasts.gmail_auth_failed') || 'Tu conexión a Gmail ha expirado o fue revocada. Por favor, vuelve a conectarlo para enviar los correos.')
+                }
+                throw new Error(notifyData.error || 'Error al enviar notificaciones')
+            }
 
             // SAVE BUDGET SNAPSHOT
             // 🛡️ VALIDATION: Ensure projections have all 7 days before saving

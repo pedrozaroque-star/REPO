@@ -220,11 +220,14 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
                         // Collect GUIDs if bundling
                         if (bundleModifiers && mod.item?.guid) {
-                            modGuids.push(mod.item.guid)
+                            const modQty = Math.max(1, Number(mod.quantity || qty))
+                            for (let i = 0; i < modQty; i++) {
+                                modGuids.push(mod.item.guid)
+                            }
                             // Detect "Half" meat modifiers (e.g. "Half Pollo", "Half Pastor")
                             // Each Half means the main meat portion should be halved
                             if (mod.displayName && /^half /i.test(mod.displayName)) {
-                                halfMeatCount++
+                                halfMeatCount += modQty
                             }
                         }
 

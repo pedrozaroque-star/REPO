@@ -79,7 +79,8 @@ export async function POST(request: Request) {
             category_id: body.category_id,
             purchase_unit_cost: body.cost || null,
             yield_percent: body.yield_percent || 100,
-            alert_threshold: body.alert_threshold || null
+            alert_threshold: body.alert_threshold || null,
+            is_bodega: body.is_bodega || false
         })
         .select()
         .single()
@@ -110,7 +111,8 @@ export async function PUT(request: Request) {
             category_id: body.category_id,
             purchase_unit_cost: body.cost || null,
             yield_percent: body.yield_percent || 100,
-            alert_threshold: body.alert_threshold || null
+            alert_threshold: body.alert_threshold || null,
+            is_bodega: body.is_bodega || false
         })
         .eq('id', body.id)
         .select()

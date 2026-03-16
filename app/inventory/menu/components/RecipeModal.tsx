@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, Plus, Trash2, Save, Search, AlertCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
 
 interface RecipeModalProps {
     isOpen: boolean
@@ -11,28 +12,7 @@ interface RecipeModalProps {
     onSaveSuccess: () => void
 }
 
-// Helper for unit conversion (duplicated from page.tsx for safety)
-function getConversionFactor(rUnit: string, iUnit: string): number {
-    rUnit = rUnit?.toLowerCase()?.trim() || ''
-    iUnit = iUnit?.toLowerCase()?.trim() || ''
-    if (rUnit === iUnit) return 1
-
-    // Weight
-    if (rUnit === 'oz' && iUnit === 'lb') return 1 / 16
-    if (rUnit === 'lb' && iUnit === 'oz') return 16
-    if (rUnit === 'g' && iUnit === 'kg') return 1 / 1000
-    if (rUnit === 'kg' && iUnit === 'g') return 1000
-    // Volume
-    if (rUnit === 'ml' && iUnit === 'l') return 1 / 1000
-    if (rUnit === 'l' && iUnit === 'ml') return 1000
-    if ((rUnit === 'gal' || rUnit === 'gallon') && (iUnit === 'oz' || iUnit === 'fl oz')) return 128
-    if ((rUnit === 'oz' || rUnit === 'fl oz') && (iUnit === 'gal' || iUnit === 'gallon')) return 1 / 128
-
-    // Count
-    if (rUnit === 'dz' && (iUnit === 'pza' || iUnit === 'unit')) return 12
-
-    return 1
-}
+// Helper removed in favor of calculateIngredientCost from recipe-calculations
 
 export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModalProps) {
     const [loading, setLoading] = useState(true)
@@ -57,7 +37,9 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             // 1. Load available inventory items
             const resItems = await fetch('/api/inventory/items')
             const dataItems = await resItems.json()
-            setAvailableItems(dataItems.items || [])
+            const allItems = dataItems.items || []
+            // Filter out Bodega items so they can't be used in restaurant recipes
+            setAvailableItems(allItems.filter((i: any) => !i.is_bodega))
 
             // 2. Load existing recipe
             const resRecipe = await fetch(`/api/inventory/recipes?guid=${item?.guid}`)
@@ -70,20 +52,36 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             setIsNa(!!meta.recipe_na)
 
             // Map to local state
-            const loadedIngredients = (recipeList || []).map((r: any) => ({
-                inventory_item_id: r.inventory_item.id,
-                name: r.inventory_item.name,
-                unit_type: r.inventory_item.unit_type,
-                quantity: r.quantity,
-                unit: r.unit,
-                // Cost Data
-                purchase_unit_cost: r.inventory_item.purchase_unit_cost,
-                quantity_per_unit: r.inventory_item.quantity_per_unit,
-                unit_measure: r.inventory_item.unit_measure,
-                yield_percent: r.inventory_item.yield_percent
-            }))
-
-            setIngredients(loadedIngredients)
+            const map = new Map<string, any>()
+            ;(recipeList || []).forEach((r: any) => {
+                const id = r.inventory_item.id
+                if (!map.has(id)) {
+                    map.set(id, {
+                        inventory_item_id: id,
+                        name: r.inventory_item.name,
+                        unit_type: r.inventory_item.unit_type,
+                        quantity: r.quantity,
+                        unit: r.unit,
+                        purchase_unit_cost: r.inventory_item.purchase_unit_cost,
+                        quantity_per_unit: r.inventory_item.quantity_per_unit,
+                        unit_measure: r.inventory_item.unit_measure,
+                        yield_percent: r.inventory_item.yield_percent,
+                        is_packaging: r.type && r.type !== 'food',
+                        channels: {
+                            dine_in: r.type === 'cogs_dine_in',
+                            takeout: r.type === 'cogs_takeout',
+                            delivery: r.type === 'cogs_delivery'
+                        }
+                    })
+                } else {
+                    const itemConf = map.get(id)
+                    if (r.type !== 'food') itemConf.is_packaging = true
+                    if (r.type === 'cogs_dine_in') itemConf.channels.dine_in = true
+                    if (r.type === 'cogs_takeout') itemConf.channels.takeout = true
+                    if (r.type === 'cogs_delivery') itemConf.channels.delivery = true
+                }
+            })
+            setIngredients(Array.from(map.values()))
 
         } catch (e) {
             console.error(e)
@@ -96,9 +94,8 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
     function addIngredient(invItem: any) {
         if (isNa) return // Prevent adding if N/A
 
-        // Check if already exists
         if (ingredients.find(i => i.inventory_item_id === invItem.id)) {
-            alert('Este ingrediente ya está en la receta.')
+            alert('Este insumo ya está en la receta.')
             return
         }
 
@@ -112,33 +109,57 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             purchase_unit_cost: invItem.purchase_unit_cost,
             quantity_per_unit: invItem.quantity_per_unit,
             unit_measure: invItem.unit_measure,
-            yield_percent: invItem.yield_percent
+            yield_percent: invItem.yield_percent,
+            is_packaging: false,
+            channels: { dine_in: false, takeout: false, delivery: false }
         }])
         setSearchTerm('')
     }
 
-    function removeIngredient(index: number) {
-        const newIngs = [...ingredients]
-        newIngs.splice(index, 1)
-        setIngredients(newIngs)
+    function removeIngredient(invId: string) {
+        setIngredients(ingredients.filter(i => i.inventory_item_id !== invId))
     }
 
-    function updateIngredient(index: number, field: string, value: any) {
-        const newIngs = [...ingredients]
-        newIngs[index] = { ...newIngs[index], [field]: value }
-        setIngredients(newIngs)
+    function updateIngredient(invId: string, field: string, value: any) {
+        setIngredients(ingredients.map(i => i.inventory_item_id === invId ? { ...i, [field]: value } : i))
+    }
+
+    function updateIngredientChannel(invId: string, channel: string, value: boolean) {
+        setIngredients(ingredients.map(i => i.inventory_item_id === invId ? {
+            ...i,
+            channels: { ...i.channels, [channel]: value }
+        } : i))
     }
 
     async function handleSave() {
         setSaving(true)
         try {
+            const flatIngredients: any[] = []
+            
+            ingredients.forEach(ing => {
+                 if (!ing.is_packaging) {
+                     flatIngredients.push({
+                         inventory_item_id: ing.inventory_item_id,
+                         quantity: Number(ing.quantity),
+                         unit: ing.unit,
+                         type: 'food' 
+                     })
+                 } else {
+                     if (ing.channels.dine_in) {
+                         flatIngredients.push({ inventory_item_id: ing.inventory_item_id, quantity: Number(ing.quantity), unit: ing.unit, type: 'cogs_dine_in' })
+                     }
+                     if (ing.channels.takeout) {
+                         flatIngredients.push({ inventory_item_id: ing.inventory_item_id, quantity: Number(ing.quantity), unit: ing.unit, type: 'cogs_takeout' })
+                     }
+                     if (ing.channels.delivery) {
+                         flatIngredients.push({ inventory_item_id: ing.inventory_item_id, quantity: Number(ing.quantity), unit: ing.unit, type: 'cogs_delivery' })
+                     }
+                 }
+            })
+
             const payload = {
                 toast_guid: item?.guid,
-                ingredients: ingredients.map(i => ({
-                    inventory_item_id: i.inventory_item_id,
-                    quantity: Number(i.quantity),
-                    unit: i.unit
-                })),
+                ingredients: flatIngredients,
                 recipe_na: isNa
             }
 
@@ -167,6 +188,142 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
     const searchResults = searchTerm
         ? availableItems.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()))
         : []
+
+    function renderIngredientRow(ing: any) {
+        // Smart Unit Logic
+        const purchaseUnit = ing.unit_type?.toLowerCase() || ''
+        let unitOptions = [ing.unit_type]
+
+        if (purchaseUnit.includes('lb') || purchaseUnit.includes('oz') || purchaseUnit.includes('kg') || purchaseUnit.includes('g') || (purchaseUnit.includes('bag') && (purchaseUnit.includes('lb') || purchaseUnit.includes('oz')))) {
+            unitOptions = [...new Set([ing.unit_type, 'lb', 'oz', 'pza'])]
+        } else if (purchaseUnit.includes('gal') || purchaseUnit.includes('l') || purchaseUnit.includes('ml')) {
+            unitOptions = [...new Set([ing.unit_type, 'gal', 'fl oz', 'pza'])]
+        } else {
+            unitOptions = [...new Set([ing.unit_type, 'pza'])]
+        }
+
+        const recipeCost = calculateIngredientCost(ing.quantity, ing.unit, ing)
+
+        return (
+            <div key={ing.inventory_item_id} className={`p-4 rounded-xl border shadow-sm mb-3 ${ing.is_packaging ? 'bg-indigo-50/30 border-indigo-200' : 'bg-white dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'}`}>
+                <div className="flex gap-4 items-start">
+                    <div className="flex-1">
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <p className="font-bold text-slate-800 dark:text-white text-base">{ing.name}</p>
+                                <div className="flex gap-4 mt-1">
+                                    <p className="text-xs text-slate-500">
+                                        Costo Insumo: <span className="font-mono text-slate-700 dark:text-slate-300 font-medium">${ing.purchase_unit_cost?.toFixed(2)}</span> / {ing.unit_type}
+                                    </p>
+                                    {ing.yield_percent < 100 && (
+                                        <p className="text-xs text-amber-600 dark:text-amber-500">
+                                            Merma: {100 - ing.yield_percent}%
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => removeIngredient(ing.inventory_item_id)}
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors cursor-pointer"
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        </div>
+
+                        {/* ROW 2: TOGGLE TIPO & CANTIDAD */}
+                        <div className="flex flex-wrap items-center gap-4 mt-3 bg-slate-50/50 p-3 rounded-lg border border-slate-100 dark:bg-slate-900/30 dark:border-slate-800">
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Uso</label>
+                                <select 
+                                    value={ing.is_packaging ? 'packaging' : 'food'} 
+                                    onChange={e => updateIngredient(ing.inventory_item_id, 'is_packaging', e.target.value === 'packaging')}
+                                    className="px-3 py-1.5 bg-white border border-slate-300 dark:bg-slate-800 dark:border-slate-600 rounded-md text-sm font-medium focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    <option value="food">🍽️ Comida</option>
+                                    <option value="packaging">📦 Empaque</option>
+                                </select>
+                            </div>
+
+                            <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
+
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Cant</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    value={ing.quantity}
+                                    onChange={e => updateIngredient(ing.inventory_item_id, 'quantity', e.target.value)}
+                                    className="w-20 px-2 py-1.5 bg-white border border-slate-300 dark:bg-slate-800 dark:border-slate-600 rounded-md text-right font-mono text-sm focus:ring-2 focus:ring-indigo-500"
+                                />
+                                <select
+                                    value={ing.unit}
+                                    onChange={e => updateIngredient(ing.inventory_item_id, 'unit', e.target.value)}
+                                    className="max-w-[120px] px-2 py-1.5 bg-white border border-slate-300 dark:bg-slate-800 dark:border-slate-600 rounded-md text-sm cursor-pointer"
+                                >
+                                    {unitOptions.map(u => (
+                                        <option key={u} value={u}>{u}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="ml-auto">
+                                 <p className="text-sm font-mono font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-md border border-indigo-100 dark:border-indigo-800/50">
+                                    = ${recipeCost.toFixed(3)}
+                                 </p>
+                            </div>
+                        </div>
+
+                        {/* ROW 3: CHANNELS (IF PACKAGING) */}
+                        <AnimatePresence>
+                            {ing.is_packaging && (
+                                <motion.div 
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    className="mt-3 overflow-hidden"
+                                >
+                                    <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium mb-2 flex items-center gap-1">📍 Selecciona en qué canales aplica el cobro de este empaque:</p>
+                                    <div className="flex flex-wrap gap-3">
+                                        <label className={`flex items-center gap-1.5 text-sm border px-3 py-1.5 rounded-full cursor-pointer shadow-sm transition-colors ${ing.channels.dine_in ? 'bg-indigo-50 border-indigo-300 text-indigo-800 dark:bg-indigo-900/40 dark:border-indigo-500/50 dark:text-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300'}`}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={ing.channels.dine_in} 
+                                                onChange={e => updateIngredientChannel(ing.inventory_item_id, 'dine_in', e.target.checked)} 
+                                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 bg-transparent"
+                                            />
+                                            <span>🏠 For Here</span>
+                                        </label>
+                                        <label className={`flex items-center gap-1.5 text-sm border px-3 py-1.5 rounded-full cursor-pointer shadow-sm transition-colors ${ing.channels.takeout ? 'bg-indigo-50 border-indigo-300 text-indigo-800 dark:bg-indigo-900/40 dark:border-indigo-500/50 dark:text-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300'}`}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={ing.channels.takeout} 
+                                                onChange={e => updateIngredientChannel(ing.inventory_item_id, 'takeout', e.target.checked)} 
+                                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 bg-transparent"
+                                            />
+                                            <span>🛍️ To Go</span>
+                                        </label>
+                                        <label className={`flex items-center gap-1.5 text-sm border px-3 py-1.5 rounded-full cursor-pointer shadow-sm transition-colors ${ing.channels.delivery ? 'bg-indigo-50 border-indigo-300 text-indigo-800 dark:bg-indigo-900/40 dark:border-indigo-500/50 dark:text-indigo-200' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300'}`}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={ing.channels.delivery} 
+                                                onChange={e => updateIngredientChannel(ing.inventory_item_id, 'delivery', e.target.checked)} 
+                                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 bg-transparent"
+                                            />
+                                            <span>🛵 Uber/DD</span>
+                                        </label>
+                                    </div>
+                                    {ing.is_packaging && !ing.channels.dine_in && !ing.channels.takeout && !ing.channels.delivery && (
+                                        <p className="text-xs text-red-500 mt-2 font-medium">⚠️ Debes seleccionar al menos un canal para que se guarde este empaque.</p>
+                                    )}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                </div>
+            </div>
+        )
+    }
 
     if (!isOpen || !item) return null
 
@@ -215,147 +372,52 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
 
                             {/* Search Box (Conditionall hidden if NA) */}
                             {!isNa && (
-                                <div className="relative">
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Agregar Insumo</label>
+                                <div className="space-y-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative z-20">
                                     <div className="relative">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wide">Buscar Insumo</label>
+                                        <Search className="absolute left-3 top-[32px] text-slate-400" size={18} />
                                         <input
                                             type="text"
-                                            placeholder="Buscar insumo (ej: Carne, Tomate)..."
+                                            placeholder="Buscar ingrediente o empaque (ej: Carne, Tomate, Charola)..."
                                             value={searchTerm}
                                             onChange={e => setSearchTerm(e.target.value)}
-                                            className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:outline-none text-sm font-medium transition-colors"
                                         />
+                                            
+                                        {/* Autocomplete Results */}
+                                        {searchResults.length > 0 && (
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/50">
+                                                {searchResults.map(res => (
+                                                    <button
+                                                        key={res.id}
+                                                        onClick={() => addIngredient(res)}
+                                                        className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 flex justify-between items-center group transition-colors"
+                                                    >
+                                                        <span className="font-medium text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{res.name}</span>
+                                                        <span className="text-xs text-slate-400 bg-slate-100 dark:bg-slate-900 px-2 py-1 rounded">{res.unit_type}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-
-                                    {/* Autocomplete Results */}
-                                    {searchResults.length > 0 && (
-                                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/50">
-                                            {searchResults.map(res => (
-                                                <button
-                                                    key={res.id}
-                                                    onClick={() => addIngredient(res)}
-                                                    className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 flex justify-between items-center group"
-                                                >
-                                                    <span className="font-medium text-slate-700 dark:text-slate-200">{res.name}</span>
-                                                    <span className="text-xs text-slate-400 group-hover:text-slate-500">{res.unit_type}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
                             )}
 
                             {/* Ingredient List */}
-                            <div className="space-y-3">
-                                <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-700/50">
-                                    <h3 className="font-bold text-slate-700 dark:text-slate-300 text-sm">Ingredientes Seleccionados ({ingredients.length})</h3>
-                                    {ingredients.length === 0 && !isNa && <span className="text-xs text-amber-500 flex items-center gap-1"><AlertCircle size={12} /> Receta vacía</span>}
-                                </div>
-
+                            <div className="space-y-4 relative z-10">
                                 {isNa ? (
                                     <div className="bg-slate-50 border border-slate-200 dark:bg-slate-900/50 dark:border-slate-700 rounded-lg p-6 text-center">
                                         <p className="text-slate-500 text-sm italic">Receta marcada como N/A. No se calculará costo.</p>
                                     </div>
                                 ) : ingredients.length === 0 ? (
                                     <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center text-slate-400">
-                                        <p>Usa el buscador para agregar ingredientes.</p>
+                                        <p>Agrega ingredientes o empaques buscando arriba ☝️</p>
                                     </div>
                                 ) : (
-                                    ingredients.map((ing, idx) => {
-                                        // Smart Unit Logic
-                                        const purchaseUnit = ing.unit_type?.toLowerCase() || ''
-                                        let unitOptions = [ing.unit_type]
-
-                                        if (purchaseUnit.includes('lb') || purchaseUnit.includes('oz') || purchaseUnit.includes('kg') || purchaseUnit.includes('g') || (purchaseUnit.includes('bag') && (purchaseUnit.includes('lb') || purchaseUnit.includes('oz')))) {
-                                            // Detected Weight (Restricted to Imperial per user request)
-                                            unitOptions = [...new Set([ing.unit_type, 'lb', 'oz', 'pza'])]
-                                        } else if (purchaseUnit.includes('gal') || purchaseUnit.includes('l') || purchaseUnit.includes('ml')) {
-                                            // Detected Volume (Restricted to Imperial)
-                                            unitOptions = [...new Set([ing.unit_type, 'gal', 'fl oz', 'pza'])]
-                                        } else {
-                                            // Generic / Count
-                                            unitOptions = [...new Set([ing.unit_type, 'pza'])]
-                                        }
-
-                                        // Cost Calculation
-                                        let iUnit = ing.unit_measure?.toLowerCase()?.trim() || ''
-
-                                        // Smart Fallback: If inventory unit is 'pza' or 'unit', try to detect real unit from the description string (unit_type)
-                                        if (iUnit === 'pza' || iUnit === 'unit') {
-                                            if (purchaseUnit.includes('gallon') || purchaseUnit.includes('gal')) iUnit = 'gal'
-                                            else if (purchaseUnit.includes('lb')) iUnit = 'lb'
-                                            else if (purchaseUnit.includes('oz')) iUnit = 'oz'
-                                            else if (purchaseUnit.includes('kg')) iUnit = 'kg'
-                                            else if (purchaseUnit.includes('l') && !purchaseUnit.includes('gal')) iUnit = 'l'
-                                            else if (purchaseUnit.includes('ml')) iUnit = 'ml'
-                                        }
-
-                                        const costPerUnit = (ing.purchase_unit_cost || 0) / (ing.quantity_per_unit || 1)
-                                        const yieldFactor = (ing.yield_percent || 100) / 100
-
-                                        let conversion = getConversionFactor(ing.unit, iUnit)
-
-                                        // SPECIAL CASE: If calling for 'pza'/'unit' on a Weight/Volume item,
-                                        // assume '1 pza' = '1 Whole Purchase Unit' (e.g. 1 bag of 3.9oz)
-                                        if ((ing.unit === 'pza' || ing.unit === 'unit') && iUnit !== 'pza' && iUnit !== 'unit') {
-                                            conversion = ing.quantity_per_unit || 1
-                                        }
-
-                                        const recipeCost = (costPerUnit * (Number(ing.quantity) || 0) * conversion) / yieldFactor
-
-                                        // Total Calc Helper
-                                        // We can't update a variable here easily for the total, so we'll do it separately or inline.
-                                        // Better to calculate total before mapping.
-
-                                        return (
-                                            <div key={idx} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                                                <div className="flex-1">
-                                                    <p className="font-bold text-slate-800 dark:text-white text-sm">{ing.name}</p>
-                                                    <div className="flex gap-4 mt-1">
-                                                        <p className="text-xs text-slate-500">
-                                                            Costo Insumo: <span className="font-mono text-slate-700 dark:text-slate-300 font-medium">${ing.purchase_unit_cost?.toFixed(2)}</span> / {ing.unit_type}
-                                                        </p>
-                                                        {ing.yield_percent < 100 && (
-                                                            <p className="text-xs text-amber-600 dark:text-amber-500">
-                                                                Merma: {100 - ing.yield_percent}%
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex flex-col items-end gap-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <input
-                                                            type="number"
-                                                            value={ing.quantity}
-                                                            onChange={e => updateIngredient(idx, 'quantity', e.target.value)}
-                                                            className="w-20 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-right font-mono text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                                        />
-                                                        <select
-                                                            value={ing.unit}
-                                                            onChange={e => updateIngredient(idx, 'unit', e.target.value)}
-                                                            className="max-w-[120px] px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                                        >
-                                                            {unitOptions.map(u => (
-                                                                <option key={u} value={u}>{u}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                    <p className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                                        = ${recipeCost.toFixed(3)}
-                                                    </p>
-                                                </div>
-
-                                                <button
-                                                    onClick={() => removeIngredient(idx)}
-                                                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors ml-2"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        )
-                                    })
+                                    <div>
+                                        {/* List all items unified */}
+                                        {ingredients.map((ing) => renderIngredientRow(ing))}
+                                    </div>
                                 )}
                             </div>
 
@@ -365,28 +427,7 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                     <span className="font-semibold text-indigo-900 dark:text-indigo-200">Costo Total Receta:</span>
                                     <span className="text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">
                                         ${ingredients.reduce((sum, ing) => {
-                                            const purchaseUnit = ing.unit_type?.toLowerCase() || ''
-                                            let iUnit = ing.unit_measure?.toLowerCase()?.trim() || ''
-
-                                            if (iUnit === 'pza' || iUnit === 'unit') {
-                                                if (purchaseUnit.includes('gallon') || purchaseUnit.includes('gal')) iUnit = 'gal'
-                                                else if (purchaseUnit.includes('lb')) iUnit = 'lb'
-                                                else if (purchaseUnit.includes('oz')) iUnit = 'oz'
-                                                else if (purchaseUnit.includes('kg')) iUnit = 'kg'
-                                                else if (purchaseUnit.includes('l') && !purchaseUnit.includes('gal')) iUnit = 'l'
-                                                else if (purchaseUnit.includes('ml')) iUnit = 'ml'
-                                            }
-
-                                            const costPerUnit = (ing.purchase_unit_cost || 0) / (ing.quantity_per_unit || 1)
-                                            const yieldFactor = (ing.yield_percent || 100) / 100
-
-                                            let conversion = getConversionFactor(ing.unit, iUnit)
-                                            // SPECIAL CASE: 1 pza = 1 Whole Purchase Unit (e.g. 1 bag of 3.9oz)
-                                            if ((ing.unit === 'pza' || ing.unit === 'unit') && iUnit !== 'pza' && iUnit !== 'unit') {
-                                                conversion = ing.quantity_per_unit || 1
-                                            }
-
-                                            const cost = (costPerUnit * (Number(ing.quantity) || 0) * conversion) / yieldFactor
+                                            const cost = calculateIngredientCost(ing.quantity, ing.unit, ing)
                                             return sum + cost
                                         }, 0).toFixed(3)}
                                     </span>

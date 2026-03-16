@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { X, ChefHat, DollarSign, TrendingDown, Sparkles, AlertTriangle, Package } from 'lucide-react'
+import { X, ChefHat, DollarSign, TrendingDown, Sparkles, AlertTriangle, Package, Receipt, FileText } from 'lucide-react'
 
 interface RecipeBreakdownItem {
     itemName: string
@@ -32,10 +32,13 @@ interface ProductItem {
 
 interface ProductDetailModalProps {
     item: ProductItem | null
+    storeId?: string
+    startDate?: string
+    endDate?: string
     onClose: () => void
 }
 
-export default function ProductDetailModal({ item, onClose }: ProductDetailModalProps) {
+export default function ProductDetailModal({ item, storeId, startDate, endDate, onClose }: ProductDetailModalProps) {
     const [recipeData, setRecipeData] = useState<{
         has_recipe: boolean
         breakdown: RecipeBreakdownItem[]
@@ -44,6 +47,11 @@ export default function ProductDetailModal({ item, onClose }: ProductDetailModal
         missing_prices: number
     } | null>(null)
     const [loading, setLoading] = useState(false)
+
+    // Tickets feature
+    const [activeTab, setActiveTab] = useState<'summary' | 'tickets'>('summary')
+    const [tickets, setTickets] = useState<{date: string, orderNumber: string, quantity: number}[] | null>(null)
+    const [loadingTickets, setLoadingTickets] = useState(false)
 
     useEffect(() => {
         if (!item) return
@@ -56,6 +64,9 @@ export default function ProductDetailModal({ item, onClose }: ProductDetailModal
         if (item.modifier_guids && item.modifier_guids.length > 0) {
             params.append('modifiers', item.modifier_guids.join(','))
         }
+        if (item.group_name) {
+            params.append('dining_option', item.group_name)
+        }
 
         fetch(`/api/inventory/recipe-detail?${params.toString()}`)
             .then(r => r.json())
@@ -63,6 +74,29 @@ export default function ProductDetailModal({ item, onClose }: ProductDetailModal
             .catch(() => setRecipeData(null))
             .finally(() => setLoading(false))
     }, [item])
+
+    // Fetch tickets on demand
+    useEffect(() => {
+        if (activeTab === 'tickets' && !tickets && item && storeId && startDate && endDate) {
+            setLoadingTickets(true)
+            const params = new URLSearchParams()
+            params.append('storeId', storeId)
+            params.append('startDate', startDate)
+            params.append('endDate', endDate)
+            params.append('guid', item.guid)
+            params.append('name', item.name)
+            if (item.group_name) params.append('group_name', item.group_name)
+
+            fetch(`/api/inventory/item-tickets?${params.toString()}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.tickets) setTickets(data.tickets)
+                    else setTickets([])
+                })
+                .catch(() => setTickets([]))
+                .finally(() => setLoadingTickets(false))
+        }
+    }, [activeTab, item, storeId, startDate, endDate, tickets])
 
     if (!item) return null
 
@@ -92,21 +126,41 @@ export default function ProductDetailModal({ item, onClose }: ProductDetailModal
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="bg-gradient-to-r from-slate-800 to-slate-900 dark:from-slate-800 dark:to-slate-950 px-5 py-4 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                        <h2 className="font-bold text-white text-base md:text-lg leading-tight truncate">{item.name}</h2>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded">{item.group_name || 'N/A'}</span>
-                            <span className="text-[10px] text-slate-500 font-mono">{item.guid.slice(0, 8)}</span>
+                <div className="bg-gradient-to-r from-slate-800 to-slate-900 dark:from-slate-800 dark:to-slate-950 px-5 pt-4 pb-0 flex flex-col gap-3 shrink-0">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <h2 className="font-bold text-white text-base md:text-lg leading-tight truncate">{item.name}</h2>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded">{item.group_name || 'N/A'}</span>
+                                <span className="text-[10px] text-slate-500 font-mono">{item.guid.slice(0, 8)}</span>
+                            </div>
                         </div>
+                        <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors shrink-0 mt-0.5">
+                            <X size={20} />
+                        </button>
                     </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors shrink-0 mt-0.5">
-                        <X size={20} />
-                    </button>
+
+                    {/* Tabs */}
+                    <div className="flex items-center gap-6 mt-2">
+                        <button 
+                            onClick={() => setActiveTab('summary')}
+                            className={`pb-3 text-sm font-semibold transition-colors flex items-center gap-2 border-b-2 ${activeTab === 'summary' ? 'text-white border-blue-500' : 'text-slate-400 border-transparent hover:text-slate-300'}`}
+                        >
+                            <FileText size={16} /> Resumen
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('tickets')}
+                            className={`pb-3 text-sm font-semibold transition-colors flex items-center gap-2 border-b-2 ${activeTab === 'tickets' ? 'text-white border-blue-500' : 'text-slate-400 border-transparent hover:text-slate-300'}`}
+                        >
+                            <Receipt size={16} /> Órdenes ({item.quantity})
+                        </button>
+                    </div>
                 </div>
 
                 {/* Scrollable Body */}
                 <div className="overflow-y-auto flex-1 styled-scrollbar">
+                    {activeTab === 'summary' ? (
+                        <>
                     {/* ═══ Revenue Section ═══ */}
                     <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3 flex items-center gap-1.5">
@@ -234,15 +288,21 @@ export default function ProductDetailModal({ item, onClose }: ProductDetailModal
                                 </p>
                             </div>
                             {/* Cost % */}
-                            <div className={`rounded-xl p-3 border ${costPercent > 40
+                            <div className={`rounded-xl p-3 border ${item.net_sales <= 0 && item.total_cost > 0 ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20' : costPercent > 40
                                 ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20'
                                 : costPercent > 30
                                     ? 'bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/20'
                                     : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20'
                                 }`}>
                                 <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500/70">Food Cost %</span>
-                                <p className={`font-mono font-bold text-lg mt-0.5 ${costPercent > 40 ? 'text-rose-700 dark:text-rose-400' : costPercent > 30 ? 'text-yellow-700 dark:text-yellow-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
-                                    {costPercent.toFixed(1)}%
+                                <p className={`font-mono font-bold mt-0.5 ${item.net_sales <= 0 && item.total_cost > 0 ? 'text-rose-500 text-sm uppercase' : (costPercent > 40 ? 'text-rose-700 dark:text-rose-400 text-lg' : costPercent > 30 ? 'text-yellow-700 dark:text-yellow-400 text-lg' : 'text-emerald-700 dark:text-emerald-400 text-lg')}`}>
+                                    {item.net_sales > 0 ? (
+                                        `${costPercent.toFixed(1)}%`
+                                    ) : item.total_cost > 0 ? (
+                                        'Zero Sales'
+                                    ) : (
+                                        '-'
+                                    )}
                                 </p>
                             </div>
                         </div>
@@ -263,6 +323,46 @@ export default function ProductDetailModal({ item, onClose }: ProductDetailModal
                             </div>
                         )}
                     </div>
+                </>
+                    ) : (
+                        <div className="p-5">
+                            <div className="bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                                <div className="grid grid-cols-3 gap-2 px-4 py-3 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 font-semibold text-xs tracking-wider uppercase text-slate-500">
+                                    <div>Fecha / Hora</div>
+                                    <div># Orden</div>
+                                    <div className="text-right">Cantidad</div>
+                                </div>
+                                <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[50vh] overflow-y-auto styled-scrollbar">
+                                    {loadingTickets ? (
+                                        <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+                                            <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin mb-3"></div>
+                                            <span className="text-sm">Buscando tickets en el TPV...</span>
+                                            <span className="text-xs opacity-70 mt-1">Esto puede tomar unos segundos</span>
+                                        </div>
+                                    ) : !tickets || tickets.length === 0 ? (
+                                        <div className="py-10 text-center text-sm text-slate-500">
+                                            No se encontraron tickets en periodo
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {tickets.map((t, i) => (
+                                                <div key={i} className="grid grid-cols-3 gap-2 px-4 py-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                                    <div className="text-slate-600 dark:text-slate-300">{t.date}</div>
+                                                    <div className="font-mono text-slate-500">{t.orderNumber}</div>
+                                                    <div className="text-right font-semibold text-slate-700 dark:text-slate-200">{t.quantity}</div>
+                                                </div>
+                                            ))}
+                                            {tickets.length === 250 && (
+                                                <div className="px-4 py-3 text-center text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/10 dark:text-amber-400">
+                                                    Mostrando los primeros 250 resultados para evitar lentitud.
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

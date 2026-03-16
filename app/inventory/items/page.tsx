@@ -25,7 +25,8 @@ export default function InventoryItemsPage() {
         unit_measure: 'pza',
         cost: '',
         yield_percent: '100',
-        alert_threshold: ''
+        alert_threshold: '',
+        is_bodega: false
     })
 
     const supabase = createBrowserClient(
@@ -90,7 +91,7 @@ export default function InventoryItemsPage() {
             // Success
             setIsModalOpen(false)
             setNewItem({
-                id: '', name: '', sku: '', category_id: '', unit_type: 'Case', quantity_per_unit: '1', unit_measure: 'pza', cost: '', yield_percent: '100', alert_threshold: ''
+                id: '', name: '', sku: '', category_id: '', unit_type: 'Case', quantity_per_unit: '1', unit_measure: 'pza', cost: '', yield_percent: '100', alert_threshold: '', is_bodega: false
             })
             fetchData() // Refresh list
         } catch (e: any) {
@@ -156,7 +157,6 @@ export default function InventoryItemsPage() {
             : <ArrowDown size={14} className="ml-1 text-indigo-500" />
     }
 
-    // Edit Handler
     const openEdit = (item: any) => {
         setNewItem({
             id: item.id,
@@ -168,14 +168,15 @@ export default function InventoryItemsPage() {
             unit_measure: item.unit_measure || 'pza',
             cost: item.purchase_unit_cost || '',
             yield_percent: item.yield_percent || '100',
-            alert_threshold: item.alert_threshold || ''
+            alert_threshold: item.alert_threshold || '',
+            is_bodega: item.is_bodega || false
         })
         setIsModalOpen(true)
     }
 
     const openCreate = () => {
         setNewItem({
-            id: '', name: '', sku: '', category_id: '', unit_type: 'Case', quantity_per_unit: '1', unit_measure: 'pza', cost: '', yield_percent: '100', alert_threshold: ''
+            id: '', name: '', sku: '', category_id: '', unit_type: 'Case', quantity_per_unit: '1', unit_measure: 'pza', cost: '', yield_percent: '100', alert_threshold: '', is_bodega: false
         })
         setIsModalOpen(true)
     }
@@ -245,6 +246,12 @@ export default function InventoryItemsPage() {
                                     <div className="flex items-center">Presentación <SortIcon columnKey="unit_type" /></div>
                                 </th>
                                 <th
+                                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
+                                    onClick={() => requestSort('is_bodega')}
+                                >
+                                    <div className="flex items-center">Tipo <SortIcon columnKey="is_bodega" /></div>
+                                </th>
+                                <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-right"
                                     onClick={() => requestSort('purchase_unit_cost')}
                                 >
@@ -294,6 +301,17 @@ export default function InventoryItemsPage() {
                                         </td>
                                         <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
                                             {item.quantity_per_unit || 1} {item.unit_measure || 'pza'} <span className="text-slate-400">({item.unit_type})</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            {item.is_bodega ? (
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800 uppercase tracking-widest">
+                                                    Bodega
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800 uppercase tracking-widest">
+                                                    Restaurante
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="px-4 py-3 text-right font-medium text-slate-700 dark:text-slate-200">
                                             ${Number(item.purchase_unit_cost || 0).toFixed(2)}
@@ -353,8 +371,8 @@ export default function InventoryItemsPage() {
                                 />
                             </div>
 
-                            {/* Category & SKU */}
-                            <div className="grid grid-cols-2 gap-4">
+                            {/* Category & SKU & Bodega */}
+                            <div className="grid grid-cols-3 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoría *</label>
                                     <select
@@ -377,6 +395,20 @@ export default function InventoryItemsPage() {
                                         placeholder="Código Proveedor"
                                         className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Propósito del Insumo</label>
+                                    <label className="flex items-center gap-3 p-2 mt-1 border border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={newItem.is_bodega}
+                                            onChange={e => setNewItem({ ...newItem, is_bodega: e.target.checked })}
+                                            className="w-5 h-5 rounded border-slate-300 text-amber-600 focus:ring-amber-600"
+                                        />
+                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            {newItem.is_bodega ? '📦 Insumo de Bodega' : '🍽️ Insumo de Restaurante'}
+                                        </span>
+                                    </label>
                                 </div>
                             </div>
 

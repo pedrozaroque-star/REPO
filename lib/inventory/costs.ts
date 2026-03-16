@@ -1,5 +1,6 @@
 import { InventoryItem, Recipe, RecipeIngredient } from '@/types/inventory'
-import { calculateRawUsage, normalizeToLbs, calculateInventoryUsage } from './conversions'
+import { calculateRawUsage, normalizeToLbs } from './conversions'
+import { calculateIngredientCost } from './recipe-calculations'
 
 export interface CostBreakdown {
     inventoryItemId: string
@@ -39,6 +40,8 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
 
         // This returns the amount of RAW product needed in the RECIPE'S unit
         // e.g. Recipe needs 1.5 oz Cooked -> Returns 2.46 oz Raw
+        // We STILL call calculateRawUsage ONLY to show in the breakdown UI what the raw "quantity requirement" is.
+        // But for COST, we use the central calculator directly.
         const rawUsage = calculateRawUsage(
             ing.quantity,
             ing.unit,
@@ -46,36 +49,19 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
             ing.type // 'raw' or 'cooked'
         )
 
-        let cost = 0
         let isMissingPrice = false
         const unitCost = Number(item.purchase_unit_cost || 0)
 
-        if (unitCost <= 0) {
-            isMissingPrice = true
-            missingPrices++
-        } else {
-            // 2. Calculate Inventory Usage Fraction
-            // How much of the "Purchase Unit" (e.g. "10 lb bag") is used?
-            // e.g. Need 0.5 lb Raw. Inventory Item is "10 lb". Usage is 0.05.
+        // Calculate Cost Using Central Logic
+        const cost = calculateIngredientCost(ing.quantity, ing.unit, item, ing.type)
 
-            try {
-                const inventoryUsage = calculateInventoryUsage(
-                    rawUsage.quantity, // Amount needed (Raw)
-                    rawUsage.unit,     // Unit of amount needed
-                    item.unit_type,    // "10 lb", "25 pza", etc.
-                    item.quantity_per_unit
-                )
-
-                // Cost = Usage * Cost of Inventory Item
-                cost = inventoryUsage * unitCost
-
-            } catch (e: unknown) {
-                console.error("Error calculating usage fraction", e)
-                // Fallback or explicit failure
-                // For now, if conversion fails (e.g. incompatible units), cost is 0
+        if (unitCost <= 0 || cost === 0 && ing.quantity > 0) {
+             // If calculation fails entirely due to missing data or unit cost is missing
+             if (unitCost <= 0) { // Only increment missing price if the unit cost is genuinely 0
                 isMissingPrice = true
-            }
-        }
+                missingPrices++
+             }
+         }
 
         breakdown.push({
             inventoryItemId: item.id,

@@ -533,6 +533,9 @@ export default function StoreFoodCostDetail() {
             {/* Product Detail Modal */}
             <ProductDetailModal
                 item={selectedProduct}
+                storeId={storeIdParam}
+                startDate={startDate}
+                endDate={endDate}
                 onClose={() => setSelectedProduct(null)}
             />
         </div>

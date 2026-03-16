@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { RecipeModal } from './components/RecipeModal'
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
 
 export default function MenuCatalogPage() {
     const [items, setItems] = useState<any[]>([])
@@ -42,6 +43,7 @@ export default function MenuCatalogPage() {
                 toast_menu_item_guid,
                 quantity,
                 unit,
+                type,
                 inventory_items (
                     purchase_unit_cost,
                     quantity_per_unit,
@@ -57,61 +59,33 @@ export default function MenuCatalogPage() {
         if (recipes && recipes.length > 0) console.log("Sample Recipe:", recipes[0])
 
         // Calculate Costs per Item
-        const itemCosts: Record<string, number> = {}
-        const ingredientCounts: Record<string, number> = {}
+        const itemCosts: Record<string, number> = {} // Only Food
+        const cogsDineIn: Record<string, number> = {}
+        const cogsTakeout: Record<string, number> = {}
+        const cogsDelivery: Record<string, number> = {}
+        const ingredientCounts: Record<string, number> = {} // Only Food
 
         let calculatedCount = 0
         recipes?.forEach((r: any) => {
             const guid = r.toast_menu_item_guid
-            ingredientCounts[guid] = (ingredientCounts[guid] || 0) + 1
-
-            // Cost Calculation
+            
             const inv = r.inventory_items
             if (inv) {
-                // Unit Conversion Logic
-                const rUnit = r.unit?.toLowerCase()?.trim() || ''
-                let iUnit = inv.unit_measure?.toLowerCase()?.trim() || ''
+                const ingredientCost = calculateIngredientCost(r.quantity, r.unit, inv)
+                const type = r.type || 'food'
 
-                // Smart Fallback: If inventory unit is 'pza' or 'unit', try to detect real unit from the description string (unit_type)
-                if (iUnit === 'pza' || iUnit === 'unit') {
-                    const desc = inv.unit_type?.toLowerCase() || ''
-                    if (desc.includes('gallon') || desc.includes('gal')) iUnit = 'gal'
-                    else if (desc.includes('lb')) iUnit = 'lb'
-                    else if (desc.includes('oz')) iUnit = 'oz'
-                    else if (desc.includes('kg')) iUnit = 'kg'
-                    else if (desc.includes('l') && !desc.includes('gal')) iUnit = 'l'
-                    else if (desc.includes('ml')) iUnit = 'ml'
+                if (type === 'food') {
+                    ingredientCounts[guid] = (ingredientCounts[guid] || 0) + 1
+                    itemCosts[guid] = (itemCosts[guid] || 0) + ingredientCost
+                } else if (type === 'cogs_dine_in') {
+                    cogsDineIn[guid] = (cogsDineIn[guid] || 0) + ingredientCost
+                } else if (type === 'cogs_takeout') {
+                    cogsTakeout[guid] = (cogsTakeout[guid] || 0) + ingredientCost
+                } else if (type === 'cogs_delivery') {
+                    cogsDelivery[guid] = (cogsDelivery[guid] || 0) + ingredientCost
                 }
 
-                let conversionFactor = 1
-
-                if (rUnit !== iUnit) {
-                    // Weight
-                    if (rUnit === 'oz' && iUnit === 'lb') conversionFactor = 1 / 16
-                    else if (rUnit === 'lb' && iUnit === 'oz') conversionFactor = 16
-                    else if (rUnit === 'g' && iUnit === 'kg') conversionFactor = 1 / 1000
-                    else if (rUnit === 'kg' && iUnit === 'g') conversionFactor = 1000
-                    // Volume
-                    else if (rUnit === 'ml' && iUnit === 'l') conversionFactor = 1 / 1000
-                    else if (rUnit === 'l' && iUnit === 'ml') conversionFactor = 1000
-                    else if ((rUnit === 'gal' || rUnit === 'gallon') && (iUnit === 'oz' || iUnit === 'fl oz')) conversionFactor = 128
-                    else if ((rUnit === 'oz' || rUnit === 'fl oz') && (iUnit === 'gal' || iUnit === 'gallon')) conversionFactor = 1 / 128
-                    // Count
-                    else if (rUnit === 'dz' && (iUnit === 'pza' || iUnit === 'unit')) conversionFactor = 12
-                }
-
-                const quantityInInvUnits = (r.quantity || 0) * conversionFactor
-
-                const costPerUnit = (inv.purchase_unit_cost || 0) / (inv.quantity_per_unit || 1)
-                const yieldFactor = (inv.yield_percent || 100) / 100
-
-                const ingredientCost = (costPerUnit * quantityInInvUnits) / yieldFactor
-
-                itemCosts[guid] = (itemCosts[guid] || 0) + ingredientCost
                 calculatedCount++
-            } else {
-                // Debug missing inventories periodically
-                if (Math.random() < 0.001) console.warn("Missing Inventory for Recipe:", r)
             }
         })
         console.log(`Calculated costs for ${Object.keys(itemCosts).length} items (Total ingredients procesed: ${calculatedCount})`)
@@ -123,10 +97,15 @@ export default function MenuCatalogPage() {
                 const price = i.price || 0
                 const isNa = !!i.recipe_na
 
-                // Only calculate metrics if we have a valid cost (recipe exists) AND not N/A
-                const margin = (price > 0 && cost > 0 && !isNa) ? ((price - cost) / price) * 100 : null
-                const foodCostPercent = (price > 0 && cost > 0 && !isNa) ? (cost / price) * 100 : null
-                const netProfit = (price > 0 && cost > 0 && !isNa) ? (price - cost) : null
+                // To measure global baseline profitability without over-complicating this specific table, 
+                // we'll calculate the 'blended' UI display using ONLY pure food cost first. 
+                // But let's expose the worst-case (Uber delivery) to show if an item is bleeding money.
+                const worstCogs = Math.max(cogsDineIn[i.guid] || 0, cogsTakeout[i.guid] || 0, cogsDelivery[i.guid] || 0)
+                const totalWorstCost = cost + worstCogs
+
+                const margin = (price > 0 && cost > 0 && !isNa) ? ((price - totalWorstCost) / price) * 100 : null
+                const foodCostPercent = (price > 0 && cost > 0 && !isNa) ? (totalWorstCost / price) * 100 : null
+                const netProfit = (price > 0 && cost > 0 && !isNa) ? (price - totalWorstCost) : null
 
                 return {
                     ...i,
@@ -134,6 +113,9 @@ export default function MenuCatalogPage() {
                     isNa,
                     ingredientCount: ingredientCounts[i.guid] || 0,
                     recipeCost: cost,
+                    cogsDineIn: cogsDineIn[i.guid] || 0,
+                    cogsTakeout: cogsTakeout[i.guid] || 0,
+                    cogsDelivery: cogsDelivery[i.guid] || 0,
                     marginPercent: margin, // can be null
                     foodCostPercent,      // can be null
                     netProfit             // can be null
@@ -268,6 +250,9 @@ export default function MenuCatalogPage() {
                                 >
                                     <div className="flex items-center justify-end">Costo <SortIcon columnKey="recipeCost" /></div>
                                 </th>
+                                <th className="px-4 py-3 text-right">
+                                    <div className="flex items-center justify-end">Empaques</div>
+                                </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('foodCostPercent')}
@@ -327,6 +312,25 @@ export default function MenuCatalogPage() {
                                             ) : item.recipeCost > 0 ? (
                                                 `$${item.recipeCost.toFixed(2)}`
                                             ) : '-'}
+                                        </td>
+
+                                        {/* Costo COGS */}
+                                        <td className="px-4 py-3 text-right text-slate-500 text-xs">
+                                            {item.isNa ? (
+                                                <span className="text-xs text-slate-400 italic">N/A</span>
+                                            ) : (item.cogsDineIn > 0 || item.cogsTakeout > 0 || item.cogsDelivery > 0) ? (
+                                                <div className="flex flex-col items-end gap-1">
+                                                    <div className="flex flex-wrap justify-end gap-1">
+                                                        {item.cogsDineIn > 0 && <span className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 text-[10px] px-1.5 py-0.5 rounded shadow-sm border border-slate-200 dark:border-slate-700 font-mono" title="For Here">🏠 ${item.cogsDineIn.toFixed(2)}</span>}
+                                                        {item.cogsTakeout > 0 && <span className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 text-[10px] px-1.5 py-0.5 rounded shadow-sm border border-slate-200 dark:border-slate-700 font-mono" title="To Go">🛍️ ${item.cogsTakeout.toFixed(2)}</span>}
+                                                    </div>
+                                                    <div>
+                                                        {item.cogsDelivery > 0 && <span className="bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 text-[10px] px-1.5 py-0.5 rounded shadow-sm border border-indigo-200 dark:border-indigo-800 font-mono font-bold" title="Uber/DD">🛵 ${item.cogsDelivery.toFixed(2)}</span>}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <span className="text-slate-300">-</span>
+                                            )}
                                         </td>
 
                                         {/* Costo % */}

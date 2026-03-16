@@ -700,7 +700,7 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
             const startStr = formatDateISO(weekStart)
             const endStr = formatDateISO(addDays(weekStart, 6))
 
-            await fetch('/api/notifications/publish-schedule', {
+            const res = await fetch('/api/notifications/publish-schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -712,6 +712,18 @@ Resultado: Se han generado ${data.count} turnos optimizados listos para tu revis
                     sender_user_id: user?.id // CRITICAL: Identify WHO is publishing to use their Gmail token
                 })
             })
+
+            if (!res.ok) {
+                const data = await res.json()
+                if (data.error && data.error.includes('GMAIL_AUTH_FAILED')) {
+                    // Update state to disconnected and force modal
+                    setGoogleConnected(false)
+                    setGoogleEmail('')
+                    setIsGmailModalOpen(true)
+                    throw new Error('Tu conexión a Gmail ha expirado o fue revocada. Por favor, vuelve a conectarlo para enviar los correos.')
+                }
+                throw new Error(data.error || 'Error al enviar notificaciones')
+            }
 
             // SAVE BUDGET SNAPSHOT
             const { error: budgetError } = await supabase.from('weekly_budgets').upsert({
