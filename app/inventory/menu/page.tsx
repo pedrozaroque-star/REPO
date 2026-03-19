@@ -338,7 +338,7 @@ export default function MenuCatalogPage() {
                                             {item.isNa ? (
                                                 <span className="text-xs text-slate-400 italic">N/A</span>
                                             ) : item.recipeCost > 0 && item.price > 0 ? (
-                                                <span className={`font-mono text-xs ${item.foodCostPercent > 35 ? 'text-red-500 font-bold' : 'text-slate-600'}`}>
+                                                <span className={`font-mono text-xs font-bold ${item.foodCostPercent > 32 ? 'text-red-500' : item.foodCostPercent > 30 ? 'text-yellow-500' : 'text-emerald-600'}`}>
                                                     {item.foodCostPercent.toFixed(1)}%
                                                 </span>
                                             ) : '-'}
@@ -349,7 +349,7 @@ export default function MenuCatalogPage() {
                                             {item.isNa ? (
                                                 <span className="text-xs text-slate-400 italic">N/A</span>
                                             ) : item.recipeCost > 0 && item.price > 0 && item.marginPercent !== null ? (
-                                                <span className={`font-bold text-xs ${item.marginPercent < 65 ? 'text-red-500' : 'text-emerald-600'}`}>
+                                                <span className={`font-bold text-xs ${item.marginPercent < 68 ? 'text-red-500' : item.marginPercent < 70 ? 'text-yellow-500' : 'text-emerald-600'}`}>
                                                     {item.marginPercent.toFixed(1)}%
                                                 </span>
                                             ) : '-'}

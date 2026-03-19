@@ -372,7 +372,7 @@ export default function FoodCostPage() {
                             {/* ═══════════════════════════════════════════════════ */}
                             <div className="md:hidden divide-y divide-black/5 dark:divide-slate-800">
                                 {storeTableData.map((item, idx) => {
-                                    const costColor = item.costPercent > 40 ? 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20'
+                                    const costColor = item.costPercent > 32 ? 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/20'
                                         : item.costPercent > 30 ? 'text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-500/10 border-yellow-200 dark:border-yellow-500/20'
                                             : 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20'
                                     return (
@@ -435,7 +435,7 @@ export default function FoodCostPage() {
                                                 Subtotal ({storeTableData.length})
                                             </span>
                                             {summaryData.totalSales > 0 && (
-                                                <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono border ${(summaryData.totalCost / summaryData.totalSales * 100) > 40 ? 'text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-500/10 dark:border-rose-500/20'
+                                                <span className={`px-2 py-0.5 rounded text-xs font-bold font-mono border ${(summaryData.totalCost / summaryData.totalSales * 100) > 32 ? 'text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-400 dark:bg-rose-500/10 dark:border-rose-500/20'
                                                     : (summaryData.totalCost / summaryData.totalSales * 100) > 30 ? 'text-yellow-700 bg-yellow-50 border-yellow-200 dark:text-yellow-400 dark:bg-yellow-500/10 dark:border-yellow-500/20'
                                                         : 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-500/10 dark:border-emerald-500/20'
                                                     }`}>
@@ -565,7 +565,7 @@ export default function FoodCostPage() {
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right">
                                                     {item.totalSales > 0 ? (
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${item.costPercent > 40 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20' :
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${item.costPercent > 32 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20' :
                                                             item.costPercent > 30 ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20' :
                                                                 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
                                                             }`}>
@@ -614,7 +614,7 @@ export default function FoodCostPage() {
                                                 </td>
                                                 <td className="px-3 py-3 md:px-4 md:py-4 text-right">
                                                     {summaryData && summaryData.totalSales > 0 ? (
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${(summaryData.totalCost / summaryData.totalSales * 100) > 40 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20' :
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold font-mono border ${(summaryData.totalCost / summaryData.totalSales * 100) > 32 ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20' :
                                                             (summaryData.totalCost / summaryData.totalSales * 100) > 30 ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-400 dark:border-yellow-500/20' :
                                                                 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
                                                             }`}>
