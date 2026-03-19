@@ -5,6 +5,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import { RecipeModal } from './components/RecipeModal'
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
+import { useLanguage } from '@/lib/i18n'
 
 export default function MenuCatalogPage() {
     const [items, setItems] = useState<any[]>([])
@@ -13,6 +14,8 @@ export default function MenuCatalogPage() {
     const [filter, setFilter] = useState('')
     const [selectedItem, setSelectedItem] = useState<any>(null)
     const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'foodCostPercent', direction: 'desc' })
+
+    const { t } = useLanguage()
 
     const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -197,8 +200,8 @@ export default function MenuCatalogPage() {
         <div className="p-8">
             <div className="flex justify-between items-center mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Catálogo de Menú (Toast)</h1>
-                    <p className="text-slate-500">Items sincronizados desde el POS. Mapea estos items a recetas.</p>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{t('menu_catalog.title')}</h1>
+                    <p className="text-slate-500">{t('menu_catalog.subtitle')}</p>
                 </div>
                 <div className="flex gap-4">
                     <button
@@ -206,7 +209,7 @@ export default function MenuCatalogPage() {
                         disabled={syncing}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded shadow flex items-center gap-2 disabled:opacity-50"
                     >
-                        {syncing ? 'Sincronizando...' : '🔄 Sincronizar Ahora'}
+                        {syncing ? t('menu_catalog.syncing_btn') : `🔄 ${t('menu_catalog.sync_btn')}`}
                     </button>
                 </div>
             </div>
@@ -215,7 +218,7 @@ export default function MenuCatalogPage() {
                 <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
                     <input
                         type="text"
-                        placeholder="Buscar por nombre o grupo..."
+                        placeholder={t('menu_catalog.search_placeholder') as string}
                         className="w-full max-w-md px-3 py-2 border rounded-md dark:bg-slate-800 dark:border-slate-700"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -230,67 +233,67 @@ export default function MenuCatalogPage() {
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group"
                                     onClick={() => requestSort('group_name')}
                                 >
-                                    <div className="flex items-center">Grupo <SortIcon columnKey="group_name" /></div>
+                                    <div className="flex items-center">{t('menu_catalog.columns.group')} <SortIcon columnKey="group_name" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group"
                                     onClick={() => requestSort('name')}
                                 >
-                                    <div className="flex items-center">Item (Toast Name) <SortIcon columnKey="name" /></div>
+                                    <div className="flex items-center">{t('menu_catalog.columns.item')} <SortIcon columnKey="name" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('price')}
                                 >
-                                    <div className="flex items-center justify-end">Precio <SortIcon columnKey="price" /></div>
+                                    <div className="flex items-center justify-end">{t('menu_catalog.columns.price')} <SortIcon columnKey="price" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('recipeCost')}
                                 >
-                                    <div className="flex items-center justify-end">Costo <SortIcon columnKey="recipeCost" /></div>
+                                    <div className="flex items-center justify-end">{t('menu_catalog.columns.cost')} <SortIcon columnKey="recipeCost" /></div>
                                 </th>
                                 <th className="px-4 py-3 text-right">
-                                    <div className="flex items-center justify-end">Empaques</div>
+                                    <div className="flex items-center justify-end">{t('menu_catalog.columns.packaging')}</div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('foodCostPercent')}
                                 >
-                                    <div className="flex items-center justify-end">Costo % <SortIcon columnKey="foodCostPercent" /></div>
+                                    <div className="flex items-center justify-end">{t('menu_catalog.columns.cost_percent')} <SortIcon columnKey="foodCostPercent" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('marginPercent')}
                                 >
-                                    <div className="flex items-center justify-end">Utilidad % <SortIcon columnKey="marginPercent" /></div>
+                                    <div className="flex items-center justify-end">{t('menu_catalog.columns.margin_percent')} <SortIcon columnKey="marginPercent" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-right"
                                     onClick={() => requestSort('netProfit')}
                                 >
-                                    <div className="flex items-center justify-end">Utilidad ($) <SortIcon columnKey="netProfit" /></div>
+                                    <div className="flex items-center justify-end">{t('menu_catalog.columns.profit')} <SortIcon columnKey="netProfit" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-center"
                                     onClick={() => requestSort('ingredientCount')}
                                 >
-                                    <div className="flex items-center justify-center">Insumos <SortIcon columnKey="ingredientCount" /></div>
+                                    <div className="flex items-center justify-center">{t('menu_catalog.columns.inputs')} <SortIcon columnKey="ingredientCount" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 group text-center"
                                     onClick={() => requestSort('hasRecipe')}
                                 >
-                                    <div className="flex items-center justify-center">Estado <SortIcon columnKey="hasRecipe" /></div>
+                                    <div className="flex items-center justify-center">{t('menu_catalog.columns.status')} <SortIcon columnKey="hasRecipe" /></div>
                                 </th>
-                                <th className="px-4 py-3 text-right">Acción</th>
+                                <th className="px-4 py-3 text-right">{t('menu_catalog.columns.action')}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                             {loading ? (
-                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">Cargando catálogo...</td></tr>
+                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">{t('menu_catalog.status.loading')}</td></tr>
                             ) : sortedItems.length === 0 ? (
-                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">No hay items sincronizados. Pulsa "Sincronizar Ahora".</td></tr>
+                                <tr><td colSpan={10} className="p-8 text-center text-slate-500">{t('menu_catalog.status.empty')}</td></tr>
                             ) : (
                                 sortedItems.map(item => (
                                     <tr key={item.guid} className="hover:bg-slate-50 dark:hover:bg-slate-750">
@@ -395,7 +398,7 @@ export default function MenuCatalogPage() {
                                                 onClick={() => setSelectedItem(item)}
                                                 className="text-indigo-600 hover:text-indigo-900 font-semibold text-xs border border-indigo-200 hover:border-indigo-400 bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded transition-colors"
                                             >
-                                                Editar Receta
+                                                {t('menu_catalog.edit_recipe')}
                                             </button>
                                         </td>
                                     </tr>
@@ -405,7 +408,7 @@ export default function MenuCatalogPage() {
                     </table>
                 </div>
                 <div className="p-2 text-xs text-center text-slate-400 border-t border-slate-200 dark:border-slate-700">
-                    Mostrando (filtrados y ordenados) {sortedItems.length} items.
+                    {(t('menu_catalog.footer_stats') as string).replace('{n}', sortedItems.length.toString())}
                 </div>
             </div>
 

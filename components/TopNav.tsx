@@ -114,11 +114,11 @@ export default function TopNav() {
             ]
         },
         {
-            title: 'FOOD COST',
+            title: t('sections.food_cost'),
             id: 'food_cost',
             items: [
-                { name: 'Reporte General', path: '/admin/food-cost', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: 'Análisis de Carnes', path: '/admin/food-cost/meats', icon: <TrendingUp size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.food_cost_report'), path: '/admin/food-cost', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.food_cost_meats'), path: '/admin/food-cost/meats', icon: <TrendingUp size={20} />, roles: ['admin', 'manager', 'supervisor'] },
             ]
         }
     ]

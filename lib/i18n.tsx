@@ -26,6 +26,7 @@ const dictionaries: Record<Language, any> = {
             kiosks: 'KIOSKS QR',
             team: 'EQUIPO',
             inventory: 'INVENTARIO',
+            food_cost: 'FOOD COST',
         },
         // ITEMS
         items: {
@@ -49,6 +50,8 @@ const dictionaries: Record<Language, any> = {
             menu_catalog: 'Catálogo (Menú)',
             ingredients: 'Insumos',
             food_costs: 'Costos (Food Cost)',
+            food_cost_report: 'Reporte General',
+            food_cost_meats: 'Análisis de Carnes',
         },
         // LOGIN
         login: {
@@ -278,6 +281,38 @@ const dictionaries: Record<Language, any> = {
                     sunday: "Domingo"
                 }
             }
+        },
+        // MENU CATALOG
+        menu_catalog: {
+            title: 'Catálogo de Menú (Toast)',
+            subtitle: 'Items sincronizados desde el POS. Mapea estos items a recetas.',
+            sync_btn: 'Sincronizar Ahora',
+            syncing_btn: 'Sincronizando...',
+            search_placeholder: 'Buscar por nombre o grupo...',
+            columns: {
+                group: 'Grupo',
+                item: 'Item (Toast Name)',
+                price: 'Precio',
+                cost: 'Costo',
+                packaging: 'Empaques',
+                cost_percent: 'Costo %',
+                margin_percent: 'Utilidad %',
+                profit: 'Utilidad ($)',
+                inputs: 'Insumos',
+                status: 'Estado',
+                action: 'Acción'
+            },
+            status: {
+                loading: 'Cargando catálogo...',
+                empty: 'No hay items sincronizados. Pulsa "Sincronizar Ahora".'
+            },
+            badges: {
+                na: 'N/A',
+                ready: '✅',
+                empty: '-'
+            },
+            edit_recipe: 'Editar Receta',
+            footer_stats: 'Mostrando (filtrados y ordenados)'
         },
         // CHECKLISTS
         checklists: {
@@ -893,6 +928,7 @@ const dictionaries: Record<Language, any> = {
             kiosks: 'QR KIOSKS',
             team: 'TEAM',
             inventory: 'INVENTORY',
+            food_cost: 'FOOD COST',
         },
         // ITEMS
         items: {
@@ -916,6 +952,8 @@ const dictionaries: Record<Language, any> = {
             menu_catalog: 'Menu Catalog',
             ingredients: 'Ingredients',
             food_costs: 'Food Costs',
+            food_cost_report: 'General Report',
+            food_cost_meats: 'Meats Analysis',
         },
         // LOGIN
         login: {
@@ -1145,6 +1183,38 @@ const dictionaries: Record<Language, any> = {
                     sunday: "Sunday"
                 }
             }
+        },
+        // MENU CATALOG
+        menu_catalog: {
+            title: 'Menu Catalog (Toast)',
+            subtitle: 'Active POS items. Map these items to recipes for costing.',
+            sync_btn: 'Sync Now',
+            syncing_btn: 'Syncing...',
+            search_placeholder: 'Search by name or group...',
+            columns: {
+                group: 'Group',
+                item: 'Item (Toast Name)',
+                price: 'Price',
+                cost: 'Cost',
+                packaging: 'Packaging',
+                cost_percent: 'Cost %',
+                margin_percent: 'Margin %',
+                profit: 'Profit ($)',
+                inputs: 'Inputs',
+                status: 'Status',
+                action: 'Action'
+            },
+            status: {
+                loading: 'Loading catalog...',
+                empty: 'No synced items. Click "Sync Now".'
+            },
+            badges: {
+                na: 'N/A',
+                ready: '✅',
+                empty: '-'
+            },
+            edit_recipe: 'Edit Recipe',
+            footer_stats: 'Showing (filtered & sorted)'
         },
         // CHECKLISTS
         checklists: {

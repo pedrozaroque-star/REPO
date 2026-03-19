@@ -3,6 +3,8 @@ import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseClient } from '@/lib/supabase'
 import { InventoryItem } from '@/types/inventory'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams
