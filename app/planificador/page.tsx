@@ -283,8 +283,11 @@ export default function SchedulePlanner() {
             if (!res.ok) {
                 // Interceptar error de Gmail y abrir modal de conexión en lugar de solo lanzar el error
                 if (resData.error && resData.error.includes('GMAIL_AUTH_FAILED')) {
-                   setIsGmailModalOpen(true);
-                   throw new Error(t('planner.toasts.gmail_expired') || 'Fallo de sesión en Gmail. Por favor reconecta tu cuenta.');
+                   setViolationModal(prev => ({ ...prev, isOpen: false }))
+                   setGoogleConnected(false)
+                   setGoogleEmail('')
+                   setIsGmailModalOpen(true)
+                   throw new Error('Tu conexión a Gmail ha expirado o fue revocada. Por favor, vuelve a conectarlo para enviar los correos.');
                 }
                 throw new Error(resData.error || 'Failed to send notifications')
             }
