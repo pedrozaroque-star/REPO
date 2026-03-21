@@ -281,6 +281,11 @@ export default function SchedulePlanner() {
             const resData = await res.json()
 
             if (!res.ok) {
+                // Interceptar error de Gmail y abrir modal de conexión en lugar de solo lanzar el error
+                if (resData.error && resData.error.includes('GMAIL_AUTH_FAILED')) {
+                   setIsGmailModalOpen(true);
+                   throw new Error(t('planner.toasts.gmail_expired') || 'Fallo de sesión en Gmail. Por favor reconecta tu cuenta.');
+                }
                 throw new Error(resData.error || 'Failed to send notifications')
             }
 
