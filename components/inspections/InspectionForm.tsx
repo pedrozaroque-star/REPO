@@ -411,24 +411,58 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
           try {
             const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin')
             let recipients = admins ? admins.map(a => a.id) : []
+            
+            // Obtener managers de la tienda siempre para poder enviarles las notificaciones de comentarios
+            const { data: managers } = await supabase.from('users').select('id').eq('store_id', payload.store_id).in('role', ['manager', 'gerente'])
+            const managerIds = managers ? managers.map(m => m.id) : []
 
             if (overall < 87) {
-              const { data: managers } = await supabase.from('users').select('id').eq('store_id', payload.store_id).in('role', ['manager', 'gerente'])
-              if (managers) recipients = [...new Set([...recipients, ...managers.map(m => m.id)])]
+              recipients = [...new Set([...recipients, ...managerIds])]
             }
 
+            const storeName = stores.find(s => s.id.toString() === formData.store_id)?.name || 'Tienda'
+            const notifs: any[] = []
+
             if (recipients.length > 0) {
-              const storeName = stores.find(s => s.id.toString() === formData.store_id)?.name || 'Tienda'
-              const notifs = recipients.map(uid => ({
-                user_id: uid,
-                title: overall < 87 ? `⚠️ Alerta: ${storeName}` : `Nueva Inspección: ${storeName}`,
-                message: `El supervisor ${payload.supervisor_name} completó una auditoría con ${overall}%`,
-                type: overall < 87 ? 'alert' : 'info',
-                link: '/inspecciones',
-                reference_id: savedData?.[0]?.id,
-                reference_type: 'supervisor_inspection'
-              }))
-              supabase.from('notifications').insert(notifs).then(() => console.log('Notifs sent'))
+              recipients.forEach(uid => {
+                notifs.push({
+                  user_id: uid,
+                  title: overall < 87 ? `⚠️ Alerta: ${storeName}` : `Nueva Inspección: ${storeName}`,
+                  message: `El supervisor ${payload.supervisor_name} completó una auditoría con ${overall}%`,
+                  type: overall < 87 ? 'alert' : 'info',
+                  link: '/inspecciones',
+                  reference_id: savedData?.[0]?.id,
+                  reference_type: 'supervisor_inspection'
+                })
+              })
+            }
+
+            // Notificaciones de comentarios para los Managers
+            const questionsWithComments = allQuestions.filter(q => questionComments[q.id] && questionComments[q.id].trim() !== '')
+            
+            if (questionsWithComments.length > 0 && managerIds.length > 0) {
+              const totalComments = questionsWithComments.length;
+              let combinedMessage = `Se dejaron ${totalComments} comentarios detallados:\n`;
+              questionsWithComments.forEach((q, idx) => {
+                const safeText = q.text || 'Pregunta sin texto';
+                combinedMessage += `${idx + 1}. ${safeText.substring(0, 50)}${safeText.length > 50 ? '...' : ''}: "${questionComments[q.id]}"\n`;
+              });
+
+              managerIds.forEach(managerId => {
+                notifs.push({
+                  user_id: managerId,
+                  title: `Comentarios en Inspección: ${formatStoreName(storeName)}`,
+                  message: combinedMessage.trim(),
+                  type: 'observacion_supervisor',
+                  link: '/inspecciones',
+                  reference_id: savedData?.[0]?.id,
+                  reference_type: 'supervisor_inspection'
+                })
+              })
+            }
+
+            if (notifs.length > 0) {
+              supabase.from('notifications').insert(notifs).then(() => console.log('Notifs sent including comments'))
             }
           } catch (notifErr) { console.warn("Notif error ignored", notifErr) }
 
