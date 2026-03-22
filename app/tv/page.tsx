@@ -58,7 +58,24 @@ export default async function TvViewerPage({
   }
 
   return (
-    <div className="min-h-screen w-full h-screen bg-black overflow-hidden m-0 p-0 fixed inset-0 flex flex-col items-center justify-center text-white text-center">
+    <div 
+            style={{ 
+                position: 'fixed', 
+                top: 0, left: 0, right: 0, bottom: 0, 
+                width: '100vw', height: '100vh', 
+                backgroundColor: '#000000', 
+                margin: 0, padding: 0, 
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 9999
+            }}
+        >
+            <style dangerouslySetInnerHTML={{__html: `
+                body, html { margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; background-color: #000000 !important; overflow: hidden !important; }
+            `}} />
 
       {/* 
               LA MAGIA SUCEDE AQUÍ:
@@ -73,14 +90,14 @@ export default async function TvViewerPage({
                 }, 60000);
             `}} />
 
-      {activeImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={activeImage.storage_path}
-          alt="Menu TV"
-          className="w-full h-full object-fill block"
-        />
-      ) : (
+            {activeImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                    src={activeImage.storage_path}
+                    alt="Menu TV"
+                    style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }}
+                />
+            ) : (
         <div className="p-8">
           <h1 className="text-4xl font-black mb-4 text-red-500">
             Error en TV {screenParam} / Sucursal {storeParam}
