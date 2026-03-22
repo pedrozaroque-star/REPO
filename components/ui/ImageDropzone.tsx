@@ -6,64 +6,6 @@ interface ImageDropzoneProps {
     disabled?: boolean
 }
 
-// Compresor inteligente del lado del cliente para esquivar el límite de 4MB de Vercel
-const compressImage = async (file: File): Promise<File> => {
-    // Si la imagen ya pesa menos de 1.5MB y es JPG, pasa directo intacta
-    if (file.size < 1.5 * 1024 * 1024 && file.type === 'image/jpeg') return file;
-
-    return new Promise((resolve) => {
-        const img = new window.Image();
-        const reader = new FileReader();
-
-        reader.onload = (e) => {
-            img.src = e.target?.result as string;
-        };
-
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-
-            // Limitar a máximo 4K (3840x2160)
-            const MAX_WIDTH = 3840;
-            const MAX_HEIGHT = 2160;
-
-            if (width > MAX_WIDTH) {
-                height = Math.round((height * MAX_WIDTH) / width);
-                width = MAX_WIDTH;
-            }
-            if (height > MAX_HEIGHT) {
-                width = Math.round((width * MAX_HEIGHT) / height);
-                height = MAX_HEIGHT;
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            
-            if (ctx) {
-                // Rellenar fondo negro por si era PNG transparente
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(0, 0, width, height);
-                ctx.drawImage(img, 0, 0, width, height);
-            }
-            
-            // 85% a 90% es visualmente idéntico pero quita el 70% del peso en MB
-            canvas.toBlob((blob) => {
-                if (blob) {
-                    const newFileName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
-                    resolve(new File([blob], newFileName, { type: 'image/jpeg' }));
-                } else {
-                    resolve(file); // Fallback si falla
-                }
-            }, 'image/jpeg', 0.88); 
-        };
-
-        reader.onerror = () => resolve(file);
-        reader.readAsDataURL(file);
-    });
-};
-
 export default function ImageDropzone({ onUpload, disabled }: ImageDropzoneProps) {
     const [isDragActive, setIsDragActive] = useState(false)
     const [isUploading, setIsUploading] = useState(false)
@@ -94,9 +36,7 @@ export default function ImageDropzone({ onUpload, disabled }: ImageDropzoneProps
             if (files.length > 0) {
                 setIsUploading(true)
                 try {
-                    // Procesar todas las imágenes antes de mandarlas
-                    const compressedFiles = await Promise.all(files.map(compressImage))
-                    await onUpload(compressedFiles)
+                    await onUpload(files)
                 } finally {
                     setIsUploading(false)
                 }
@@ -115,8 +55,7 @@ export default function ImageDropzone({ onUpload, disabled }: ImageDropzoneProps
             if (files.length > 0) {
                 setIsUploading(true)
                 try {
-                    const compressedFiles = await Promise.all(files.map(compressImage))
-                    await onUpload(compressedFiles)
+                    await onUpload(files)
                 } finally {
                     setIsUploading(false)
                 }

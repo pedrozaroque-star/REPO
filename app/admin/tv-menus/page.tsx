@@ -6,7 +6,7 @@ import { ShieldCheck, Monitor, FileImage, Trash2, MapPin, Save, LockIcon, Link a
 import { supabase } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import ImageDropzone from '@/components/ui/ImageDropzone'
-import { uploadImageNewAction, deleteImageNewAction, updateImageStoresAction } from './actions'
+import { getSignedUploadUrlAction, saveDbRecordAction, deleteImageNewAction, updateImageStoresAction } from './actions'
 
 const STORES = [
   'AZUSA', 'BELL', 'DOWNEY', 'HOLLYWOOD', 'HUNTINGTON PARK',
@@ -62,10 +62,26 @@ export default function TvMenusAdminPage() {
 
     for (const file of files) {
       try {
-        const formData = new FormData()
-        formData.append('file', file)
-
-        await uploadImageNewAction(formData, currentSort, activeTab, isUniversal, [])
+        const fileExt = file.name.split('.').pop() || 'jpg'
+        
+        // 1. Obtener boleto de abordaje (Signed URL) del servidor esquivando límites de Vercel
+        const { signedUrl, path } = await getSignedUploadUrlAction(activeTab, fileExt)
+        
+        // 2. Subir la FOTO EN BRUTO DIRECTAMENTE desde tu PC a Supabase Storage
+        const uploadRes = await fetch(signedUrl, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': file.type || 'image/jpeg',
+            },
+            body: file
+        })
+        
+        if (!uploadRes.ok) {
+            throw new Error(`Fallo subir la imagen: ${uploadRes.statusText}`)
+        }
+        
+        // 3. Registrar el éxito en la tabla (Base de datos)
+        await saveDbRecordAction(path, currentSort, activeTab, isUniversal, [])
         currentSort++
       } catch (err) {
         console.error('Error uploading file:', err)

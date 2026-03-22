@@ -7,34 +7,35 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 
-export async function uploadImageNewAction(
-    formData: FormData,
+export async function getSignedUploadUrlAction(
+    screenNumber: number,
+    fileExt: string
+) {
+    const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`
+    const filePath = `screen_${screenNumber}/${fileName}`
+
+    const { data, error } = await supabaseAdmin.storage
+        .from('tv_menus')
+        .createSignedUploadUrl(filePath)
+
+    if (error) {
+        throw new Error(error.message)
+    }
+
+    return {
+        signedUrl: data.signedUrl,
+        path: data.path,
+        token: data.token
+    }
+}
+
+export async function saveDbRecordAction(
+    filePath: string,
     sortOrder: number,
     screenNumber: number,
     isUniversal: boolean,
     storeAssignments: string[]
 ) {
-    const file = formData.get('file') as File
-    if (!file) throw new Error("No file provided")
-
-    const fileExt = file.name.split('.').pop()
-    const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`
-    const filePath = `screen_${screenNumber}/${fileName}`
-
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-
-    const { error: uploadError } = await supabaseAdmin.storage
-        .from('tv_menus')
-        .upload(filePath, buffer, {
-            contentType: file.type,
-            upsert: false
-        })
-
-    if (uploadError) {
-        throw new Error(uploadError.message)
-    }
-
     const { data: { publicUrl } } = supabaseAdmin.storage
         .from('tv_menus')
         .getPublicUrl(filePath)
@@ -51,7 +52,7 @@ export async function uploadImageNewAction(
         }])
 
     if (dbError) {
-        console.error("Action Error uploadImageNewAction:", dbError)
+        console.error("Action Error saveDbRecordAction:", dbError)
         throw new Error(dbError.message)
     }
 
