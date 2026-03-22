@@ -78,7 +78,7 @@ export default async function TvViewerPage({
         <img
           src={activeImage.storage_path}
           alt="Menu TV"
-          className="w-full h-full object-contain"
+          className="w-full h-full object-fill block"
         />
       ) : (
         <div className="p-8">
