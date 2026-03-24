@@ -90,34 +90,41 @@ export default async function TvViewerPage({
         <>
           <div dangerouslySetInnerHTML={{
             __html: `
-              <button id="fs-btn" onclick="
+              <button id="fs-btn" onclick='
                 var doc = document.documentElement;
                 var req = doc.requestFullscreen || doc.webkitRequestFullscreen || doc.mozRequestFullscreen || doc.msRequestFullscreen;
-                if (req) {
-                    req.call(doc).catch(function(err){ console.log(err); });
-                }
-                this.style.display = 'none';
+                try {
+                    if (req) {
+                        var p = req.call(doc);
+                        if (p && typeof p.catch === "function") {
+                            p.catch(function(err){});
+                        }
+                    }
+                } catch(e) {}
+                this.style.display = "none";
                 
                 if (!window.tvSilentUpdateStarted) {
                     window.tvSilentUpdateStarted = true;
                     setInterval(function() {
-                        fetch(window.location.href, { cache: 'no-store' })
-                            .then(function(res) { return res.text(); })
-                            .then(function(html) {
-                                var match = html.match(/id=\\"tv-image\\".*?src=\\"([^\\"]+)\\"/);
-                                if (match && match[1]) {
-                                    var img = document.getElementById('tv-image');
-                                    if (img && img.src !== match[1]) {
-                                        img.src = match[1];
+                        try {
+                            fetch(window.location.href, { cache: "no-store" })
+                                .then(function(res) { return res.text(); })
+                                .then(function(html) {
+                                    var match = html.match(/id="tv-image".*?src="([^"]+)"/);
+                                    if (match && match[1]) {
+                                        var img = document.getElementById("tv-image");
+                                        if (img && img.src !== match[1]) {
+                                            img.src = match[1];
+                                        }
                                     }
-                                }
-                            })
-                            .catch(function(e) { console.log('Update err', e); });
+                                })
+                                .catch(function(e) {});
+                        } catch(e) {}
                     }, 60000);
                 }
-              " style="position: absolute; z-index: 10000; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 1.5rem 3rem; font-size: 2rem; font-weight: bold; background: #4F46E5; color: #fff; border: none; border-radius: 1rem; cursor: pointer; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
+              ' style="position: absolute; z-index: 10000; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 1.5rem 3rem; font-size: 2rem; font-weight: bold; background: #4F46E5; color: #fff; border: none; border-radius: 1rem; cursor: pointer; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
                   Iniciar Pantalla Completa
-                  <div style="font-size: 1rem; margin-top: 10px; opacity: 0.8">Oprima el botón 'OK' en el control remoto para remover la barra</div>
+                  <div style="font-size: 1rem; margin-top: 10px; opacity: 0.8">Oprima el botón &apos;OK&apos; en el control remoto para remover la barra</div>
               </button>
             `
           }} />
