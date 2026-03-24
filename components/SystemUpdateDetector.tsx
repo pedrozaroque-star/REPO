@@ -4,11 +4,18 @@
 import React, { useState, useEffect } from 'react'
 import { useSystemUpdate } from '@/hooks/useSystemUpdate'
 import { RefreshCcw, Zap, CheckCircle2 } from 'lucide-react'
+import { usePathname } from 'next/navigation'
 
 export function SystemUpdateDetector() {
+    const pathname = usePathname()
+    // Apaga el detector silenciosamente si estamos en modo TV
+    const isTvMode = pathname?.startsWith('/tv') || pathname?.startsWith('/t/')
+
     // Check every 2 minutes
-    const { hasUpdate, updateMessage, triggerUpdate } = useSystemUpdate(1000 * 60 * 2)
+    const { hasUpdate, updateMessage, triggerUpdate } = useSystemUpdate(isTvMode ? undefined : 1000 * 60 * 2)
     const [showSuccess, setShowSuccess] = useState(false)
+
+    if (isTvMode) return null;
 
     useEffect(() => {
         // Check if we just updated
