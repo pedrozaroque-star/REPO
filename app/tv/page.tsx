@@ -83,6 +83,7 @@ export default async function TvViewerPage({
         >
             <style dangerouslySetInnerHTML={{__html: `
                 body, html { margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; background-color: #000000 !important; overflow: hidden !important; }
+                body.hide-cursor, body.hide-cursor * { cursor: none !important; }
             `}} />
 
       {/* BOTON BRUTO Y AUTO-UPDATER */}
@@ -102,6 +103,8 @@ export default async function TvViewerPage({
                     }
                 } catch(e) {}
                 this.style.display = "none";
+                document.body.classList.add("hide-cursor");
+                document.documentElement.style.cursor = "none";
                 
                 if (!window.tvSilentUpdateStarted) {
                     window.tvSilentUpdateStarted = true;
