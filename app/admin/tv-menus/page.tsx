@@ -355,14 +355,24 @@ export default function TvMenusAdminPage() {
             Para que la <strong className="font-black">PANTALLA {activeTab}</strong> muestre su menú, abre el navegador web de cada televisión, escribe exactamente la dirección de su respectiva sucursal, y ponla en pantalla completa:
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 h-48 md:h-auto overflow-y-auto custom-scrollbar pr-2">
-            {STORES.map(store => (
-              <div key={store} className="bg-white dark:bg-slate-900 border border-indigo-100 dark:border-indigo-800/50 p-3 rounded-xl flex flex-col justify-center shadow-sm">
-                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{store.toLowerCase()}</span>
-                <code className="text-xs font-bold text-indigo-600 dark:text-indigo-400 break-all select-all mt-0.5" title="Haz clic para seleccionar y copiar">
-                  https://tacosgavilan.vercel.app/tv?store={encodeURIComponent(store)}&screen={activeTab}
-                </code>
-              </div>
-            ))}
+            {STORES.map(store => {
+              const STORE_CODES: Record<string, string> = {
+                "AZUSA": "AZ", "BELL": "BE", "DOWNEY": "DO", "HOLLYWOOD": "HO",
+                "HUNTINGTON PARK": "HP", "LA BROADWAY": "BW", "LA CENTRAL": "CE",
+                "LA PUENTE": "LP", "LYNWOOD": "LY", "NORWALK": "NO", "RIALTO": "RI",
+                "SANTA ANA": "SA", "SLAUSON": "SL", "SOUTH GATE": "SG", "WEST COVINA": "WC"
+              }
+              const shortCode = STORE_CODES[store] || store.toLowerCase().replace(/\s+/g, '')
+
+              return (
+                <div key={store} className="bg-white dark:bg-slate-900 border border-indigo-100 dark:border-indigo-800/50 p-3 rounded-xl flex flex-col justify-center shadow-sm">
+                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{store.toLowerCase()}</span>
+                  <code className="text-xs font-bold text-indigo-600 dark:text-indigo-400 break-all select-all mt-0.5" title="Haz clic para seleccionar y copiar">
+                    https://tacosgavilan.vercel.app/t/{activeTab}/{shortCode.toLowerCase()}
+                  </code>
+                </div>
+              )
+            })}
           </div>
         </div>
 

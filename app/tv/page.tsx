@@ -10,7 +10,15 @@ export default async function TvViewerPage({
   // Soportar Next.js 14 (Objeto) y Next.js 15+ (Promesa)
   const resolvedParams = await Promise.resolve(searchParams);
 
-  const storeParam = (typeof resolvedParams.store === 'string' ? resolvedParams.store : 'ALL').toUpperCase()
+  const STORE_CODES: Record<string, string> = {
+    "AZ": "AZUSA", "BE": "BELL", "DO": "DOWNEY", "HO": "HOLLYWOOD",
+    "HP": "HUNTINGTON PARK", "BW": "LA BROADWAY", "CE": "LA CENTRAL",
+    "LP": "LA PUENTE", "LY": "LYNWOOD", "NO": "NORWALK", "RI": "RIALTO",
+    "SA": "SANTA ANA", "SL": "SLAUSON", "SG": "SOUTH GATE", "WC": "WEST COVINA"
+  }
+
+  const rawStore = typeof resolvedParams.store === 'string' ? resolvedParams.store.toUpperCase() : 'ALL'
+  const storeParam = STORE_CODES[rawStore] || rawStore
   const screenParam = parseInt(typeof resolvedParams.screen === 'string' ? resolvedParams.screen : '1', 10) || 1
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!

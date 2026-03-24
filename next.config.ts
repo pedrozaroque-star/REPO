@@ -8,6 +8,14 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '15mb',
     },
   },
+  async rewrites() {
+    return [
+      {
+        source: '/t/:screen/:store',
+        destination: '/tv?screen=:screen&store=:store'
+      }
+    ]
+  }
 };
 
 export default nextConfig;
