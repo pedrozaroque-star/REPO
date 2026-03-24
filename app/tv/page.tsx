@@ -110,20 +110,19 @@ export default async function TvViewerPage({
                     window.tvSilentUpdateStarted = true;
                     setInterval(function() {
                         try {
-                            fetch(window.location.href, { cache: "no-store" })
-                                .then(function(res) { return res.text(); })
-                                .then(function(html) {
-                                    var match = html.match(/id="tv-image".*?src="([^"]+)"/);
-                                    if (match && match[1]) {
+                            fetch("/api/tv-update?screen=" + ${screenParam} + "&store=${storeParam}", { cache: "no-store", keepalive: true })
+                                .then(function(res) { return res.json(); })
+                                .then(function(data) {
+                                    if (data && data.url) {
                                         var img = document.getElementById("tv-image");
-                                        if (img && img.src !== match[1]) {
-                                            img.src = match[1];
+                                        if (img && img.src !== data.url) {
+                                            img.src = data.url;
                                         }
                                     }
                                 })
                                 .catch(function(e) {});
                         } catch(e) {}
-                    }, 60000);
+                    }, 120000); // Check cada 2 minutos en vez de 1 para ahorrar RAM a la TV
                 }
               ' style="position: absolute; z-index: 10000; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 1.5rem 3rem; font-size: 2rem; font-weight: bold; background: #4F46E5; color: #fff; border: none; border-radius: 1rem; cursor: pointer; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
                   Iniciar Pantalla Completa
