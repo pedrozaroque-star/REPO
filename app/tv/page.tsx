@@ -85,28 +85,65 @@ export default async function TvViewerPage({
                 body, html { margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; background-color: #000000 !important; overflow: hidden !important; }
             `}} />
 
-      {/* 
-              LA MAGIA SUCEDE AQUÍ:
-              Bloque de Vanilla JavaScript crudo. Obliga a Samsung Tizen o LG WebOS a refrescar
-              toda la pestaña suavemente cada 60 segundos. Si en tu panel Admin cambias la foto...
-              en menos de 1 minuto la TV lo detecta y lo jala, ¡SIN USAR REACT!
-            */}
+      {/* SCRIPT NATIVO DE PANTALLA COMPLETA Y AUTO-UPDATER */}
       <script dangerouslySetInnerHTML={{
         __html: `
-                setTimeout(function() {
-                    window.location.reload(true);
-                }, 60000);
+                // Boton de activación de fullscreen
+                var btn = document.getElementById('fs-btn');
+                if (btn) {
+                    btn.onclick = function() {
+                        var doc = document.documentElement;
+                        var req = doc.requestFullscreen || doc.webkitRequestFullscreen || doc.mozRequestFullscreen || doc.msRequestFullscreen;
+                        if (req) {
+                            req.call(doc).catch(function(err){ console.log(err); });
+                        }
+                        btn.style.display = 'none';
+
+                        // Iniciar actualizador silencioso SOLO despues de dar clic
+                        // Esto revisa si hay fotos nuevas cada 60 segundos SIN recargar la pagina
+                        setInterval(function() {
+                            fetch(window.location.href, { cache: 'no-store' })
+                                .then(function(res) { return res.text(); })
+                                .then(function(html) {
+                                    var match = html.match(/id="tv-image".*?src="([^"]+)"/);
+                                    if (match && match[1]) {
+                                        var img = document.getElementById('tv-image');
+                                        if (img && img.src !== match[1]) {
+                                            img.src = match[1];
+                                        }
+                                    }
+                                })
+                                .catch(function(e) { console.log('Update check failed', e); });
+                        }, 60000);
+                    };
+                }
             `}} />
 
             {activeImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                    src={activeImage.storage_path}
-                    alt="Menu TV"
-                    style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }}
-                />
+                <>
+                    <button 
+                        id="fs-btn" 
+                        style={{
+                            position: 'absolute', zIndex: 10000, top: '50%', left: '50%', 
+                            transform: 'translate(-50%, -50%)', padding: '1.5rem 3rem',
+                            fontSize: '2rem', fontWeight: 'bold', background: '#4F46E5', color: '#fff',
+                            border: 'none', borderRadius: '1rem', cursor: 'pointer',
+                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+                        }}
+                    >
+                        Iniciar Pantalla Completa
+                        <div style={{fontSize: '1rem', marginTop: '10px', opacity: 0.8}}>Oprima el botón 'OK' en el control remoto para remover la barra</div>
+                    </button>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                        id="tv-image"
+                        src={activeImage.storage_path}
+                        alt="Menu TV"
+                        style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }}
+                    />
+                </>
             ) : (
-        <div className="p-8">
+        <div className="p-8 text-center" style={{zIndex: 9999}}>
           <h1 className="text-4xl font-black mb-4 text-red-500">
             Error en TV {screenParam} / Sucursal {storeParam}
           </h1>
