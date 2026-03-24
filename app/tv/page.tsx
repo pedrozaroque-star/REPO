@@ -106,6 +106,22 @@ export default async function TvViewerPage({
                 document.body.classList.add("hide-cursor");
                 document.documentElement.style.cursor = "none";
                 
+                if (!window.tvFullscreenListener) {
+                    window.tvFullscreenListener = true;
+                    var exitHandler = function() {
+                        if (!document.fullscreenElement && !document.webkitIsFullScreen && !document.mozFullScreen && !document.msFullscreenElement) {
+                            document.body.classList.remove("hide-cursor");
+                            document.documentElement.style.cursor = "auto";
+                            var btn = document.getElementById("fs-btn");
+                            if (btn) btn.style.display = "block";
+                        }
+                    };
+                    document.addEventListener("fullscreenchange", exitHandler);
+                    document.addEventListener("webkitfullscreenchange", exitHandler);
+                    document.addEventListener("mozfullscreenchange", exitHandler);
+                    document.addEventListener("MSFullscreenChange", exitHandler);
+                }
+                
                 if (!window.tvSilentUpdateStarted) {
                     window.tvSilentUpdateStarted = true;
                     setInterval(function() {
