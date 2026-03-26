@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, Monitor, FileImage, Trash2, MapPin, Save, LockIcon, Link as LinkIcon } from 'lucide-react'
+import { ShieldCheck, Monitor, FileImage, Trash2, MapPin, Save, Link as LinkIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import ImageDropzone from '@/components/ui/ImageDropzone'
@@ -28,16 +28,9 @@ export default function TvMenusAdminPage() {
   // Modals & Assignments
   const [editingImage, setEditingImage] = useState<any>(null)
 
-  // Auth state
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [password, setPassword] = useState('')
-  const ADMIN_PASSWORD = 'admin123'
-
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchImages()
-    }
-  }, [isAuthenticated])
+    fetchImages()
+  }, [])
 
   const fetchImages = async () => {
     try {
@@ -130,38 +123,7 @@ export default function TvMenusAdminPage() {
     }
   }
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true)
-    } else {
-      alert('Incorrect password')
-    }
-  }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 w-full max-w-md border border-gray-100 dark:border-slate-800 relative z-10">
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600 dark:text-indigo-400">
-              <LockIcon size={40} />
-            </div>
-            <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-1">Permanent TV Menus</h1>
-            <p className="text-gray-500 dark:text-slate-400 font-medium tracking-tight">Restricted Access</p>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label htmlFor="password" className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-3">Password</label>
-              <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-3.5 bg-gray-50 dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-2xl text-gray-900 dark:text-white font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" placeholder="••••••••" required />
-            </div>
-            <button type="submit" className="w-full bg-gray-900 dark:bg-slate-100 dark:text-slate-900 text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase tracking-widest">LOGIN</button>
-          </form>
-        </motion.div>
-      </div>
-    )
-  }
 
   if (loading) {
     return (
@@ -201,10 +163,11 @@ export default function TvMenusAdminPage() {
             <button
               key={screen}
               onClick={() => { setActiveTab(screen); setEditingImage(null); }}
-              className={`flex-1 min-w-[100px] py-3 px-4 rounded-xl font-black text-center transition-all ${activeTab === screen ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
+              className={`flex-1 min-w-[100px] py-3 px-2 rounded-xl font-black text-center transition-all flex flex-col items-center justify-center ${activeTab === screen ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
             >
-              <Monitor size={16} className="mx-auto mb-1 opacity-60" />
-              SCREEN {screen}
+              <Monitor size={16} className="mb-1 opacity-60" />
+              <span>SCREEN {screen}</span>
+              {screen >= 5 && <span className="text-[9px] opacity-80 uppercase tracking-widest mt-1 bg-white/20 px-2 rounded-md">Vertical</span>}
             </button>
           ))}
         </div>
@@ -212,7 +175,14 @@ export default function TvMenusAdminPage() {
           {/* LEFT COL: UPLOADER */}
           <div className="col-span-1 space-y-6">
             <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm sticky top-24">
-              <h3 className="text-lg font-black text-gray-900 dark:text-white mb-4">Upload to Screen {activeTab}</h3>
+              <h3 className="text-lg font-black text-gray-900 dark:text-white mb-2">Upload to Screen {activeTab}</h3>
+              
+              {activeTab >= 5 && (
+                <div className="mb-4 bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 text-xs font-bold p-3 rounded-xl border border-orange-200 dark:border-orange-800/50 flex flex-col gap-1 shadow-sm">
+                  <span>⚠️ Required Format: Vertical (Portrait)</span>
+                  <span className="text-[10px] font-medium opacity-80">Outside Drive-Thru Model: LH55OHFPVBC/GO</span>
+                </div>
+              )}
 
               <div className="mb-6 space-y-4 bg-gray-50 dark:bg-slate-900 p-4 rounded-2xl">
                 <label className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
@@ -253,7 +223,7 @@ export default function TvMenusAdminPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {universalImages.map((img, idx) => (
                     <div key={img.id} className="bg-white dark:bg-slate-800 border-2 border-indigo-100 dark:border-indigo-900/40 rounded-xl overflow-hidden shadow-md group relative">
-                      <div className="aspect-video bg-gray-100 dark:bg-slate-900">
+                      <div className={`bg-gray-100 dark:bg-slate-900 ${activeTab >= 5 ? 'aspect-[9/16] w-1/2 mx-auto border-x border-dashed border-gray-200 dark:border-slate-700' : 'aspect-video'}`}>
                         <img src={img.storage_path} className="w-full h-full object-cover" />
                       </div>
                       <div className="p-3 bg-indigo-50 dark:bg-indigo-900/10 flex justify-between items-center">
@@ -283,7 +253,7 @@ export default function TvMenusAdminPage() {
                     const assignedStores = Array.isArray(img.store_assignments) ? img.store_assignments : []
                     return (
                       <div key={img.id} className={`bg-white dark:bg-slate-800 border ${editingImage?.id === img.id ? 'border-orange-500 ring-4 ring-orange-500/10' : 'border-gray-200 dark:border-slate-700'} rounded-2xl overflow-hidden shadow-sm transition-all flex flex-col`}>
-                        <div className="aspect-video relative group bg-gray-100 dark:bg-slate-900">
+                        <div className={`relative group bg-gray-100 dark:bg-slate-900 ${activeTab >= 5 ? 'aspect-[9/16] w-1/2 mx-auto border-x border-dashed border-gray-200 dark:border-slate-700' : 'aspect-video'}`}>
                           <img src={img.storage_path} className="w-full h-full object-cover" />
                           <button onClick={() => deleteImage(img.id, img.storage_path)} className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"><Trash2 size={16} /></button>
                         </div>
