@@ -297,8 +297,8 @@ export default function TopNav() {
                         ))}
                     </div>
 
-                    {/* Botón Especial TV Menus (Solo Admin) */}
-                    {['admin', 'superadmin'].includes((user?.role || user?.user_type || '').toLowerCase()) && (
+                    {/* Botón Especial TV Menus (Admins & Supervisors) */}
+                    {['admin', 'superadmin', 'supervisor'].includes((user?.role || user?.user_type || '').toLowerCase()) && (
                         <div className="hidden md:flex items-center ml-2 pl-2 md:pl-4 border-l border-gray-200 dark:border-slate-800 shrink-0">
                             <Link 
                                 href="/admin/tv-menus" 
@@ -448,7 +448,7 @@ export default function TopNav() {
                                 })}
 
                                 {/* Mobile Special TV Menus Button */}
-                                {['admin', 'superadmin'].includes((user?.role || user?.user_type || '').toLowerCase()) && (
+                                {['admin', 'superadmin', 'supervisor'].includes((user?.role || user?.user_type || '').toLowerCase()) && (
                                     <div className="pt-2">
                                         <Link 
                                             href="/admin/tv-menus" 
