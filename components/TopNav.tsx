@@ -6,7 +6,7 @@ import NotificationBell from './NotificationBell'
 import ThemeToggle from './ThemeToggle'
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
-import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog, Monitor } from 'lucide-react'
+import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog, Monitor, ChefHat } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 
@@ -85,6 +85,7 @@ export default function TopNav() {
                 { name: t('items.ingredients'), path: '/inventory/items', icon: <Store size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.menu_catalog'), path: '/inventory/menu', icon: <ClipboardList size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.food_costs'), path: '/inventory/costs', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
+                { name: 'Preparador', path: '/inventory/preparador', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
             ]
         },
         {
