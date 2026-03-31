@@ -13,18 +13,24 @@ interface MeatData {
     samples: number
 }
 
+const C1 = 'bg-emerald-200 border-emerald-300 text-emerald-900 hover:bg-emerald-300 dark:bg-emerald-800 dark:border-emerald-700 dark:text-emerald-50'
+const C2 = 'bg-orange-200 border-orange-300 text-orange-900 hover:bg-orange-300 dark:bg-orange-800 dark:border-orange-700 dark:text-orange-50'
+const C3 = 'bg-sky-200 border-sky-300 text-sky-900 hover:bg-sky-300 dark:bg-sky-800 dark:border-sky-700 dark:text-sky-50'
+const C4 = 'bg-rose-200 border-rose-300 text-rose-900 hover:bg-rose-300 dark:bg-rose-800 dark:border-rose-700 dark:text-rose-50'
+const C5 = 'bg-amber-200 border-amber-300 text-amber-900 hover:bg-amber-300 dark:bg-amber-800 dark:border-amber-700 dark:text-amber-50'
+
 const ALIMENTOS = [
-    'Queso cotija', 'Queso Jack', 'Queso nachos', 'Crema', 'Guacamole', 'Mayonesa', 
-    'Mulitas', 'Quesadillas', 'Milanesa', 'Salchicha', 'Jamon', 'Huevos', 'Salsa verde', 
-    'Salsa roja', 'Frijol molido', 'Frijol de la Olla', 'Arroz', 'Cebolla y cilantro', 
-    'Cabeza', 'Lengua', 'Asada', 'Pastor', 'Pollo', 'Carnitas', 'Buche', 'Chorizo', 
-    'Chips', 'Tortillas Harina', 'Tortillas Maiz', 'Teleras', 'Papelitos', 'Manteca'
+    { name: 'Guacamole', color: C1 }, { name: 'Crema', color: C1 }, { name: 'Mayonesa', color: C1 }, { name: 'Mulitas', color: C1 }, { name: 'Quesadillas', color: C1 },
+    { name: 'Arroz', color: C2 }, { name: 'Cabeza', color: C2 }, { name: 'Lengua', color: C2 }, { name: 'Frijol molido', color: C2 },
+    { name: 'Milaneza', color: C3 }, { name: 'Salchicha', color: C3 }, { name: 'Jamon', color: C3 }, { name: 'Huevos', color: C3 }, { name: 'Papelitos', color: C3 }, { name: 'Queso Jack', color: C3 }, { name: 'Queso cotija', color: C3 }, { name: 'Queso Nachos', color: C3 }, { name: 'Cebolla y cilantro', color: C3 }, { name: 'Salsa verde', color: C3 }, { name: 'Salsa roja', color: C3 },
+    { name: 'Asada', color: C4 }, { name: 'Pastor', color: C4 }, { name: 'Pollo', color: C4 }, { name: 'Carnitas', color: C4 }, { name: 'Chorizo', color: C4 }, { name: 'Buche', color: C4 }, { name: 'Frijoles de la Olla', color: C4 },
+    { name: 'Tortillas de maiz', color: C5 }, { name: 'Tortillas Burritos', color: C5 }, { name: 'Teleras', color: C5 }, { name: 'Chips', color: C5 }, { name: 'Manteca', color: C5 }
 ]
 
 const DESECHABLES = [
     'Cover tacos', 'Papel tortas', 'Platos blancos', 'Platos nachos', 'Platos (3)', 
     'Platos sopes', 'Charolas rojas', 'Vasos 4oz', 'Vasos 8oz'
-]
+].map(n => ({ name: n, color: 'bg-slate-700 hover:bg-slate-800 text-white dark:bg-slate-800 dark:hover:bg-slate-700' }))
 
 export default function PreparadorLineaPage() {
     const { user, loading: authLoading } = useAuth()
@@ -132,7 +138,9 @@ export default function PreparadorLineaPage() {
                 const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${dow}`)
                 const json = await res.json()
                 if (Array.isArray(json)) {
-                    setMeatData(json)
+                    // Pre-filtro: La tablet 1 excluye CAFE y CHAMPURRADO
+                    const tablet1Proteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
+                    setMeatData(json.filter(m => tablet1Proteins.includes(m.meat_type)))
                 }
             } catch (err) {
                 console.error(err)
@@ -357,20 +365,26 @@ export default function PreparadorLineaPage() {
                     {/* BOTONES LISTA */}
                     <div className="flex-1 overflow-y-auto p-4">
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                            {(activeTab === 'alimentos' ? ALIMENTOS : DESECHABLES).map(item => {
-                                const cartItem = cart.find(c => c.name === item)
+                            {(activeTab === 'alimentos' ? ALIMENTOS : DESECHABLES).map(itemObj => {
+                                const cartItem = cart.find(c => c.name === itemObj.name)
                                 const isSelected = !!cartItem
+                                
+                                const baseStyle = isSelected 
+                                    ? `ring-[3px] ring-offset-2 ring-slate-800 dark:ring-white dark:ring-offset-slate-900 scale-[0.97] opacity-100 shadow-[inset_0_8px_15px_rgba(0,0,0,0.2)] dark:shadow-[inset_0_8px_15px_rgba(0,0,0,0.6)] brightness-95 saturate-150 blur-[0.2px] ${itemObj.color}` 
+                                    : `border border-black/5 dark:border-white/5 hover:scale-[1.02] shadow-sm ${itemObj.color}`
+                                
                                 return (
                                 <button
-                                    key={item}
-                                    onClick={() => addToCart(item)}
-                                    className={`relative h-20 md:h-24 rounded-2xl flex flex-col items-center justify-center p-2 active:scale-95 transition-all outline-none ${isSelected ? 'bg-blue-50 border-2 border-blue-500 shadow-md dark:bg-blue-900/30 dark:border-blue-400' : 'bg-white border border-slate-200 shadow-sm hover:bg-blue-50 hover:border-blue-400 dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-700'}`}
+                                    key={itemObj.name}
+                                    onClick={() => addToCart(itemObj.name)}
+                                    className={`relative h-20 md:h-24 rounded-2xl flex flex-col items-center justify-center p-2 active:scale-90 transition-all outline-none ${baseStyle} overflow-hidden`}
                                 >
-                                    <span className={`font-bold text-center text-sm md:text-base leading-tight font-sans tracking-tight ${isSelected ? 'text-blue-700 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
-                                        {item}
+                                    
+                                    <span className={`relative text-center text-sm md:text-base leading-tight font-sans tracking-tight z-10 ${isSelected ? 'font-black scale-105' : 'font-bold'}`}>
+                                        {itemObj.name}
                                     </span>
-                                    {cartItem && cartItem.qty > 1 && (
-                                        <div className="absolute top-2 right-2 bg-blue-500 text-white text-[11px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-sm animate-in zoom-in duration-200">
+                                    {cartItem && cartItem.qty >= 1 && (
+                                        <div className="absolute top-2 right-2 bg-slate-900 text-white text-[11px] md:text-xs w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded-full font-black shadow-xl animate-in zoom-in duration-200 ring-2 ring-white/50 dark:ring-black/50 z-20">
                                             {cartItem.qty}
                                         </div>
                                     )}
