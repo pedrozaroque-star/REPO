@@ -94,14 +94,17 @@ export default function BodegaPWA() {
                 
             if (data) {
                 setPendingRequests(data)
-                if (data.length > 0 && !isMuted) playAlarm()
-                else stopAlarm()
             }
         }
         
         fetchPending()
 
-        // Realtime Subscription
+        // 1. RECOVERY POLLER: Las cocinas pierden WiFi. Un "latido" cada 20 segundos asegura que nunca se quede trabado si el Websocket falla.
+        const fallbackSafetyNet = setInterval(() => {
+            fetchPending()
+        }, 20000)
+
+        // 2. REALTIME WEBSOCKET
         const channel = supabase.channel('schema-db-changes')
             .on(
                 'postgres_changes',
@@ -112,9 +115,8 @@ export default function BodegaPWA() {
                     filter: `store_id=eq.${storeId}`
                 },
                 (payload) => {
-                    console.log("🔥 ALARMA ENTRANTE:", payload.new)
-                    setPendingRequests(prev => [...prev, payload.new as PrepRequest])
-                    if (!isMuted) playAlarm()
+                    console.log("🔥 ALARMA ENTRANTE (WS):", payload.new)
+                    fetchPending() // Fetch full truth for safety rather than mutating array
                 }
             )
             .on(
@@ -126,19 +128,22 @@ export default function BodegaPWA() {
                     filter: `store_id=eq.${storeId}`
                 },
                 (payload) => {
-                    const updated = payload.new as PrepRequest
-                    if (updated.status === 'ACKNOWLEDGED') {
-                        setPendingRequests(prev => prev.filter(p => p.id !== updated.id))
-                    }
+                    fetchPending()
                 }
             )
-            .subscribe()
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    // Si el internet regresó y el websocket vuelve a revivir, descarga los perdidos de inmediato
+                    fetchPending()
+                }
+            })
 
         return () => {
+            clearInterval(fallbackSafetyNet)
             supabase.removeChannel(channel)
             stopAlarm()
         }
-    }, [storeId, systemStarted, isMuted])
+    }, [storeId, systemStarted]) // Nota: isMuted fue removido de la dependencia para no tumbar la conexión cada vez que mutean
 
     useEffect(() => {
         // Trigger alarm state based on pending list length

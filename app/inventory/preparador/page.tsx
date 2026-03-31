@@ -46,6 +46,38 @@ export default function PreparadorLineaPage() {
     const [activeTab, setActiveTab] = useState<'alimentos'|'desechables'>('alimentos')
     const [cart, setCart] = useState<{name: string, qty: number}[]>([])
     const [sending, setSending] = useState(false)
+    const [showDayModal, setShowDayModal] = useState(false)
+
+    // Agrupación de datos para el Modal
+    const getHourlyData = () => {
+        const validData = meatData.filter(m => m.meat_type !== 'CARNITAS')
+        const hourlyMap = new Map<string, { ASADA: number, CABEZA: number, LENGUA: number, PASTOR: number, POLLO: number }>()
+        const dayTotals = { ASADA: 0, CABEZA: 0, LENGUA: 0, PASTOR: 0, POLLO: 0 }
+        let grandTotal = 0
+
+        validData.forEach(m => {
+            const hourPrefix = m.interval_start.split(':')[0] + ':00'
+            if (!hourlyMap.has(hourPrefix)) {
+                hourlyMap.set(hourPrefix, { ASADA: 0, CABEZA: 0, LENGUA: 0, PASTOR: 0, POLLO: 0 })
+            }
+            const hourData = hourlyMap.get(hourPrefix)!
+            const key = m.meat_type as keyof typeof dayTotals
+            if (key in hourData) {
+                hourData[key] += m.avg_lbs
+                dayTotals[key] += m.avg_lbs
+                grandTotal += m.avg_lbs
+            }
+        })
+
+        const sortedHours = Array.from(hourlyMap.keys()).sort((a,b) => {
+            let ha = parseInt(a.split(':')[0], 10)
+            let hb = parseInt(b.split(':')[0], 10)
+            if (ha < 6) ha += 24
+            if (hb < 6) hb += 24
+            return ha - hb
+        })
+        return { sortedHours, hourlyMap, dayTotals, grandTotal }
+    }
     // Fullscreen Mode
     const containerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
@@ -238,12 +270,17 @@ export default function PreparadorLineaPage() {
                 
                 {/* LADO IZQUIERDO: PROYECCIÓN (48% de la pantalla) */}
                 <div className="w-[48%] border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 xl:p-8 flex flex-col overflow-y-auto hidden md:flex">
-                    <div className="flex items-center gap-3 mb-6 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <Clock className="w-8 h-8 text-blue-500 shrink-0" />
-                        <div>
-                            <h2 className="font-bold text-slate-800 dark:text-white uppercase tracking-wider text-sm">Ritmo de Cocción</h2>
-                            <p className="text-xs text-slate-500 font-medium">Promedio histórico del día actual (últimos 3 años)</p>
+                    <div className="flex justify-between items-center mb-6 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center gap-3">
+                            <Clock className="w-8 h-8 text-blue-500 shrink-0" />
+                            <div>
+                                <h2 className="font-bold text-slate-800 dark:text-white uppercase tracking-wider text-sm">Ritmo de Cocción</h2>
+                                <p className="text-xs text-slate-500 font-medium hidden lg:block">Promedio histórico (últimos 3 años)</p>
+                            </div>
                         </div>
+                        <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-3 py-2 rounded-lg text-xs font-black transition-colors shrink-0 shadow-sm ml-2">
+                            VER DÍA
+                        </button>
                     </div>
 
                     {fetchingMeat ? (
@@ -268,7 +305,7 @@ export default function PreparadorLineaPage() {
                                         .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
                                         .map(m => (
                                         <div key={m.meat_type} className={`bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-100 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/30 py-5' : ''}`}>
-                                            <span className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{m.meat_type}</span>
+                                            <span className="text-sm md:text-base font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-1">{m.meat_type}</span>
                                             <span className={`${m.meat_type === 'ASADA' ? 'text-4xl text-blue-700 dark:text-blue-400' : 'text-2xl text-slate-800 dark:text-white'} font-black`}>{m.avg_lbs} <span className="text-sm font-medium opacity-50 text-slate-500">lbs</span></span>
                                         </div>
                                     )) : <p className="col-span-2 text-center text-sm font-medium text-slate-500 opacity-70">No data para este intervalo</p>}
@@ -286,7 +323,7 @@ export default function PreparadorLineaPage() {
                                         .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
                                         .map(m => (
                                         <div key={m.meat_type} className={`bg-white dark:bg-slate-900 p-3 rounded-xl flex flex-col items-center justify-center border border-slate-100 dark:border-slate-800 ${m.meat_type === 'ASADA' ? 'col-span-2 bg-slate-100 dark:bg-slate-800/50 py-4' : ''}`}>
-                                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{m.meat_type}</span>
+                                            <span className="text-xs md:text-sm font-bold uppercase tracking-widest text-slate-500 mb-1">{m.meat_type}</span>
                                             <span className={`${m.meat_type === 'ASADA' ? 'text-3xl text-slate-600 dark:text-slate-400' : 'text-xl text-slate-700 dark:text-slate-300'} font-black`}>{m.avg_lbs} <span className="text-xs font-medium opacity-50 text-slate-500">lbs</span></span>
                                         </div>
                                     )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400">No data</p>}
@@ -383,6 +420,83 @@ export default function PreparadorLineaPage() {
                 </div>
 
             </div>
+            {/* Modal de Proyección del Día */}
+            {showDayModal && (() => {
+                const { sortedHours, hourlyMap, dayTotals, grandTotal } = getHourlyData()
+                return (
+                    <div className="fixed inset-0 z-[99999] bg-slate-900/80 backdrop-blur-sm flex justify-center items-center p-4 xl:p-10 transition-all">
+                        <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-full max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800">
+                            {/* Header */}
+                            <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 shrink-0">
+                                <div>
+                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">Proyección del Día</h2>
+                                    <p className="text-slate-500 font-medium text-sm">Consumo promedio histórico esperado por hora (Libras Crudas)</p>
+                                </div>
+                                <button onClick={() => setShowDayModal(false)} className="bg-slate-200 hover:bg-red-500 hover:text-white cursor-pointer dark:bg-slate-800 dark:hover:bg-red-600 text-slate-700 dark:text-slate-300 p-2 rounded-full transition-colors active:scale-95 shadow-sm">
+                                    <X size={28} />
+                                </button>
+                            </div>
+                            
+                            {/* Body (Tabla) */}
+                            <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-950">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-white dark:bg-slate-800 sticky top-0 shadow-sm z-10">
+                                        <tr>
+                                            <th className="p-4 font-bold text-slate-400 text-sm tracking-widest pl-6">HORA</th>
+                                            <th className="p-4 font-black text-blue-600 dark:text-blue-400 tracking-wider">ASADA</th>
+                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">CABEZA</th>
+                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">LENGUA</th>
+                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">PASTOR</th>
+                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">POLLO</th>
+                                            <th className="p-4 font-black text-slate-800 dark:text-white tracking-widest pr-6 text-right">HORA TOTAL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedHours.map(hour => {
+                                            const data = hourlyMap.get(hour)!
+                                            const hrTotal = data.ASADA + data.CABEZA + data.LENGUA + data.PASTOR + data.POLLO
+                                            if (hrTotal === 0) return null;
+                                            return (
+                                                <tr key={hour} className="border-b border-slate-200 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-900 transition-colors">
+                                                    <td className="p-4 font-black text-slate-600 dark:text-slate-300 pl-6 text-lg">{hour}</td>
+                                                    <td className="p-4 font-black text-blue-700 dark:text-blue-400 text-xl">{data.ASADA > 0 ? data.ASADA.toFixed(1) : '-'}</td>
+                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.CABEZA > 0 ? data.CABEZA.toFixed(1) : '-'}</td>
+                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.LENGUA > 0 ? data.LENGUA.toFixed(1) : '-'}</td>
+                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.PASTOR > 0 ? data.PASTOR.toFixed(1) : '-'}</td>
+                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.POLLO > 0 ? data.POLLO.toFixed(1) : '-'}</td>
+                                                    <td className="p-4 font-black text-slate-800 dark:text-white text-right pr-6">{hrTotal.toFixed(1)} <span className="text-xs opacity-50 font-bold ml-1">lbs</span></td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Footer (Totales) */}
+                            <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-6 flex flex-wrap gap-4 justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.05)] shrink-0 z-20">
+                                <div className="flex gap-3 overflow-x-auto pb-2 md:pb-0">
+                                    <div className="bg-blue-50 dark:bg-blue-900/30 px-6 py-3 flex flex-col items-center justify-center rounded-2xl border border-blue-200 dark:border-blue-800 shrink-0">
+                                        <span className="text-xs uppercase font-bold text-blue-600 dark:text-blue-400">Total Asada</span>
+                                        <span className="font-black text-blue-700 dark:text-blue-300 text-3xl">{dayTotals.ASADA.toFixed(1)} <span className="text-sm font-bold opacity-50">lbs</span></span>
+                                    </div>
+                                    {['CABEZA', 'LENGUA', 'PASTOR', 'POLLO'].map(meat => (
+                                        <div key={meat} className="bg-slate-50 dark:bg-slate-800 px-5 py-3 flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 shrink-0">
+                                            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{meat}</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-300 text-xl">{dayTotals[meat as keyof typeof dayTotals].toFixed(1)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                <div className="bg-slate-800 text-white dark:bg-white dark:text-slate-900 px-8 py-4 rounded-2xl flex flex-col items-center justify-center shadow-lg shrink-0">
+                                    <span className="text-xs uppercase font-bold text-blue-200 dark:text-blue-700 tracking-widest">Ritmo Diario Total</span>
+                                    <span className="font-black text-4xl">{grandTotal.toFixed(1)} <span className="text-sm opacity-60 ml-1">LBS</span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            })()}
+
         </div>
     )
 }
