@@ -236,8 +236,8 @@ export default function PreparadorLineaPage() {
             {/* Split Screen Container */}
             <div className="flex flex-1 overflow-hidden">
                 
-                {/* LADO IZQUIERDO: PROYECCIÓN (40% de la pantalla) */}
-                <div className="w-[40%] border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 flex flex-col overflow-y-auto hidden md:flex">
+                {/* LADO IZQUIERDO: PROYECCIÓN (48% de la pantalla) */}
+                <div className="w-[48%] border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 xl:p-8 flex flex-col overflow-y-auto hidden md:flex">
                     <div className="flex items-center gap-3 mb-6 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                         <Clock className="w-8 h-8 text-blue-500 shrink-0" />
                         <div>
@@ -263,10 +263,13 @@ export default function PreparadorLineaPage() {
                                     <span className="text-xs font-bold text-blue-600 bg-blue-100 dark:bg-blue-900/50 px-2 py-1 rounded-md">Libras Crudas</span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
-                                    {currentTimeData.length > 0 ? currentTimeData.map(m => (
-                                        <div key={m.meat_type} className="bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm">
+                                    {currentTimeData.length > 0 ? currentTimeData
+                                        .filter(m => m.meat_type !== 'CARNITAS')
+                                        .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
+                                        .map(m => (
+                                        <div key={m.meat_type} className={`bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-100 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/30 py-5' : ''}`}>
                                             <span className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{m.meat_type}</span>
-                                            <span className="text-2xl font-black text-slate-800 dark:text-white">{m.avg_lbs} <span className="text-sm font-medium opacity-50">lbs</span></span>
+                                            <span className={`${m.meat_type === 'ASADA' ? 'text-4xl text-blue-700 dark:text-blue-400' : 'text-2xl text-slate-800 dark:text-white'} font-black`}>{m.avg_lbs} <span className="text-sm font-medium opacity-50 text-slate-500">lbs</span></span>
                                         </div>
                                     )) : <p className="col-span-2 text-center text-sm font-medium text-slate-500 opacity-70">No data para este intervalo</p>}
                                 </div>
@@ -278,10 +281,13 @@ export default function PreparadorLineaPage() {
                                     SIGUIENTE ({nextBucketLabel})
                                 </h3>
                                 <div className="grid grid-cols-2 gap-3 opacity-80">
-                                    {nextTimeData.length > 0 ? nextTimeData.map(m => (
-                                        <div key={m.meat_type} className="bg-white dark:bg-slate-900 p-3 rounded-xl flex flex-col items-center justify-center border border-slate-100 dark:border-slate-800">
+                                    {nextTimeData.length > 0 ? nextTimeData
+                                        .filter(m => m.meat_type !== 'CARNITAS')
+                                        .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
+                                        .map(m => (
+                                        <div key={m.meat_type} className={`bg-white dark:bg-slate-900 p-3 rounded-xl flex flex-col items-center justify-center border border-slate-100 dark:border-slate-800 ${m.meat_type === 'ASADA' ? 'col-span-2 bg-slate-100 dark:bg-slate-800/50 py-4' : ''}`}>
                                             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{m.meat_type}</span>
-                                            <span className="text-xl font-black text-slate-700 dark:text-slate-300">{m.avg_lbs} <span className="text-xs font-medium opacity-50">lbs</span></span>
+                                            <span className={`${m.meat_type === 'ASADA' ? 'text-3xl text-slate-600 dark:text-slate-400' : 'text-xl text-slate-700 dark:text-slate-300'} font-black`}>{m.avg_lbs} <span className="text-xs font-medium opacity-50 text-slate-500">lbs</span></span>
                                         </div>
                                     )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400">No data</p>}
                                 </div>
@@ -314,17 +320,25 @@ export default function PreparadorLineaPage() {
                     {/* BOTONES LISTA */}
                     <div className="flex-1 overflow-y-auto p-4">
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                            {(activeTab === 'alimentos' ? ALIMENTOS : DESECHABLES).map(item => (
+                            {(activeTab === 'alimentos' ? ALIMENTOS : DESECHABLES).map(item => {
+                                const cartItem = cart.find(c => c.name === item)
+                                const isSelected = !!cartItem
+                                return (
                                 <button
                                     key={item}
                                     onClick={() => addToCart(item)}
-                                    className="h-20 md:h-24 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center p-2 hover:bg-blue-50 hover:border-blue-400 dark:hover:bg-slate-700 active:scale-95 transition-all outline-none"
+                                    className={`relative h-20 md:h-24 rounded-2xl flex flex-col items-center justify-center p-2 active:scale-95 transition-all outline-none ${isSelected ? 'bg-blue-50 border-2 border-blue-500 shadow-md dark:bg-blue-900/30 dark:border-blue-400' : 'bg-white border border-slate-200 shadow-sm hover:bg-blue-50 hover:border-blue-400 dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-700'}`}
                                 >
-                                    <span className="font-bold text-slate-800 dark:text-slate-200 text-center text-sm md:text-base leading-tight font-sans tracking-tight">
+                                    <span className={`font-bold text-center text-sm md:text-base leading-tight font-sans tracking-tight ${isSelected ? 'text-blue-700 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
                                         {item}
                                     </span>
+                                    {cartItem && cartItem.qty > 1 && (
+                                        <div className="absolute top-2 right-2 bg-blue-500 text-white text-[11px] w-5 h-5 flex items-center justify-center rounded-full font-black shadow-sm animate-in zoom-in duration-200">
+                                            {cartItem.qty}
+                                        </div>
+                                    )}
                                 </button>
-                            ))}
+                            )})}
                         </div>
                     </div>
 

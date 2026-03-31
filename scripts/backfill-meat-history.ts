@@ -105,26 +105,48 @@ async function run() {
 
     for (const dateStr of dates) {
         const businessDate = dateStr.replace(/-/g, '')
+        console.log(`\n📅 Procesando fecha en PARALELO (15 Tiendas al mismo tiempo): ${dateStr}`)
         
-        for (const store of stores) {
-            if (!store.external_id) continue
-            console.log(`📡 Fetcheando ${dateStr} para ${store.name}...`)
+        await Promise.all(stores.map(async (store) => {
+            if (!store.external_id) return
             
             // MAPA DE BUCKETS PARA ESE DÍA: [Intervalo_Hora_Meat] -> Raw Lbs
             const buckets = new Map<string, number>()
             
             let page = 1
             let hasMore = true
+            let maxRetries = 3
             
             while (hasMore) {
-                const res = await fetch(`${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`, {
-                    headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.external_id }
-                })
+                let res;
+                try {
+                    res = await fetch(`${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`, {
+                        headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.external_id }
+                    })
+                } catch (err: any) {
+                    console.error(`Error Red en ${store.name}: ${err.message}`);
+                    break;
+                }
+                
+                if (res.status === 429) {
+                    if (maxRetries > 0) {
+                        maxRetries--;
+                        // Toast Rate Limit hit, wait randomly 2-5 seconds
+                        await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
+                        continue;
+                    } else {
+                        console.error(`Rate Limit Toast superado para ${store.name}`);
+                        break;
+                    }
+                }
                 
                 if (!res.ok) {
-                    console.error(`Error Toast API: ${res.status}`)
+                    console.error(`Error Toast API ${store.name}: ${res.status}`)
                     break
                 }
+                
+                // Reset retries on success
+                maxRetries = 3
                 
                 const entries = await res.json() as any[]
                 if (!Array.isArray(entries) || entries.length === 0) {
@@ -202,13 +224,11 @@ async function run() {
                     onConflict: 'store_id,business_date,interval_start,meat_type'
                 })
                 if (error) console.error("Error inserting:", error.message)
-                else console.log(`✅ Guardados ${inserts.length} buckets para ${store.name}`)
-            } else {
-                console.log(`⚠️ 0 buckets encontrados para ${store.name}`)
+                else process.stdout.write(`+${store.name} `)
             }
-        }
+        }))
     }
-    console.log("🏁 Proceso Terminado.")
+    console.log("\n🏁 Proceso Terminado.")
 }
 
 run().catch(console.error)
