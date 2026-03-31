@@ -222,7 +222,7 @@ export default function PreparadorLineaPage() {
 
     if (!mounted || authLoading) return <div className="p-8 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
 
-    if (!user || !['admin', 'manager'].includes(user.role?.toLowerCase() || '')) {
+    if (!user || !['admin', 'manager', 'supervisor'].includes(user.role?.toLowerCase() || '')) {
         return <div className="p-8 text-center text-red-500 text-2xl font-bold">🚫 ACCESO DENEGADO</div>
     }
 
