@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize } from 'lucide-react'
+import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase-client'
         
 
@@ -14,6 +15,13 @@ interface PrepRequest {
     created_at: string
 }
 
+interface MeatData {
+    interval_start: string
+    meat_type: string
+    avg_lbs: number
+    samples: number
+}
+
 export default function BodegaPWA() {
     const supabase = createClient()
 
@@ -21,6 +29,7 @@ export default function BodegaPWA() {
     const [systemStarted, setSystemStarted] = useState(false)
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
+    const [businessDow, setBusinessDow] = useState<number | null>(null)
     
     // Alarma
     const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -28,7 +37,28 @@ export default function BodegaPWA() {
     
     // Pending Queue
     const [pendingRequests, setPendingRequests] = useState<PrepRequest[]>([])
+    // Meat Historial Data (Cabeza, Lengua)
+    const [meatData, setMeatData] = useState<MeatData[]>([])
+    const [fetchingMeat, setFetchingMeat] = useState(false)
+    const [carouselBuckets, setCarouselBuckets] = useState<{id: string, label: string, data: MeatData[], isCurrent: boolean}[]>([])
+    const [activeIndex, setActiveIndex] = useState(0)
     
+    // Touch handlers for carousel swipe
+    const [touchStart, setTouchStart] = useState<number | null>(null)
+    const [touchEnd, setTouchEnd] = useState<number | null>(null)
+    const [showInfoModal, setShowInfoModal] = useState(false)
+
+    // Snap back timer: si mueves el carrusel, a los 5 seg regresa solito a AHORA
+    useEffect(() => {
+        let timer: NodeJS.Timeout
+        if (activeIndex !== 0) {
+            timer = setTimeout(() => {
+                setActiveIndex(0)
+            }, 5000)
+        }
+        return () => clearTimeout(timer)
+    }, [activeIndex])
+
     // Fullscreen Mode
     const containerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
@@ -67,6 +97,112 @@ export default function BodegaPWA() {
         }
         fetchStores()
     }, [supabase])
+
+    // Track Business DOW dynamically (rolls over at 6:00 AM LA time)
+    useEffect(() => {
+        const updateBusinessDow = () => {
+            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+            const laDate = new Date(laTimeStr)
+            
+            // Regla de Tacos Gavilan: El día cambia a las 6:00 AM, no a la medianoche.
+            if (laDate.getHours() < 6) {
+                laDate.setDate(laDate.getDate() - 1)
+            }
+            
+            const dayNum = laDate.getDay() // 0 = Sunday
+            const currentDow = dayNum === 0 ? 7 : dayNum // 1-7 format mapping
+            
+            setBusinessDow(prev => {
+                if (prev !== currentDow) return currentDow
+                return prev
+            })
+        }
+        
+        updateBusinessDow()
+        const interval = setInterval(updateBusinessDow, 60000)
+        return () => clearInterval(interval)
+    }, [])
+
+    // Load Meat Historial (Solo Cabeza y Lengua para la Bodega)
+    useEffect(() => {
+        if (!storeId || businessDow === null) return
+        const fetchHistory = async () => {
+            setFetchingMeat(true)
+            try {
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}`)
+                const json = await res.json()
+                if (Array.isArray(json)) {
+                    // Pre-filtro: La bodega proyecta Lentos y Bebidas
+                    const allowedTypes = ['CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO', 'AGUACATE', 'FRIJOL MOLIDO', 'ARROZ']
+                    const filtered = json.filter(m => allowedTypes.includes(m.meat_type))
+                    setMeatData(filtered)
+                }
+            } catch (err) {
+                console.error(err)
+            } finally {
+                setFetchingMeat(false)
+            }
+        }
+        fetchHistory()
+    }, [storeId, businessDow])
+
+    // Clock Bucket Updater
+    useEffect(() => {
+        const updateBuckets = () => {
+            const d = new Date()
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false
+            });
+            let timeParts = formatter.format(d).split(':')
+            let h = parseInt(timeParts[0], 10)
+            let m = parseInt(timeParts[1], 10)
+            if (h === 24) h = 0;
+            
+            // Current Bucket
+            let curM = m >= 30 ? 30 : 0
+            
+            const formatTime12 = (hr: number, min: number) => {
+                const p = hr >= 12 ? 'pm' : 'am'
+                let h12 = hr % 12
+                if (h12 === 0) h12 = 12
+                return `${h12}:${min.toString().padStart(2, '0')}${p}`
+            }
+            
+            const arr = []
+            let curHStr = h.toString().padStart(2, '0')
+            let curMStr = curM.toString().padStart(2, '0')
+            let tempH = h
+            let tempM = curM
+            
+            // Generate next 10 buckets for the carousel
+            for (let i = 0; i < 10; i++) {
+                let hrStr = tempH.toString().padStart(2, '0')
+                let minStr = tempM.toString().padStart(2, '0')
+                let bucketId = `${hrStr}:${minStr}:00`
+                
+                let nxtM = tempM === 0 ? 30 : 0
+                let nxtH = tempM === 30 ? (tempH + 1) % 24 : tempH
+                
+                let label = `${formatTime12(tempH, tempM)} a ${formatTime12(nxtH, nxtM)}`
+                
+                let data: MeatData[] = []
+                if (meatData.length > 0) {
+                    data = meatData.filter(m => m.interval_start === bucketId)
+                }
+                
+                arr.push({ id: bucketId, label, isCurrent: i === 0, data })
+                
+                tempH = nxtH
+                tempM = nxtM
+            }
+
+            setCarouselBuckets(arr)
+        }
+        
+        updateBuckets()
+        const int = setInterval(updateBuckets, 60000)
+        return () => clearInterval(int)
+    }, [meatData])
 
     const startSystem = () => {
         // Unlock audio context trick
@@ -257,10 +393,159 @@ export default function BodegaPWA() {
             {/* Main Alert Area */}
             <div className="flex-1 overflow-y-auto p-4 md:p-8 flex items-center justify-center">
                 {!hasAlert ? (
-                    <div className="text-center opacity-30 animate-pulse flex flex-col items-center">
-                        <CheckCircle2 size={120} className="text-white mb-6" />
-                        <h2 className="text-3xl font-black text-white tracking-widest">SISTEMA EN ESPERA</h2>
-                        <p className="text-xl text-white/70 mt-4">No hay pedidos pendientes de línea.</p>
+                    <div className="w-full h-full flex flex-col md:flex-row gap-8 items-stretch justify-center max-w-[1600px] mx-auto animate-in fade-in duration-500 py-4">
+                        {/* LADO IZQUIERDO: RITMO DE COCCIÓN (Cabeza y Lengua) */}
+                        <div className="md:w-1/2 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden">
+                            {/* Decorative glow */}
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
+                            
+                            <div className="flex items-center gap-4 mb-8 shrink-0">
+                                <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500" />
+                                <div>
+                                    <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-wider">Ritmo de Cocción</h2>
+                                    <p className="text-slate-400 font-medium md:text-lg">Proyección Histórica (Bodega)</p>
+                                </div>
+                            </div>
+
+                            {fetchingMeat ? (
+                                <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4">
+                                    <Loader2 className="w-12 h-12 animate-spin text-blue-500" />
+                                    <p className="font-bold text-lg">Calculando proyecciones...</p>
+                                </div>
+                            ) : (
+                                <div 
+                                    className="flex-1 flex flex-col items-center gap-6 xl:gap-8 overflow-hidden touch-none py-4 px-2 [perspective:1200px]"
+                                    onWheel={(e) => {
+                                        if (e.deltaY > 0 && activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
+                                        if (e.deltaY < 0 && activeIndex > 0) setActiveIndex(prev => prev - 1)
+                                    }}
+                                    onTouchStart={(e) => {
+                                        setTouchEnd(null)
+                                        setTouchStart(e.targetTouches[0].clientY)
+                                    }}
+                                    onTouchMove={(e) => {
+                                        setTouchEnd(e.targetTouches[0].clientY)
+                                    }}
+                                    onTouchEnd={() => {
+                                        if (!touchStart || !touchEnd) return
+                                        const distance = touchStart - touchEnd
+                                        const isSwipeUp = distance > 50
+                                        const isSwipeDown = distance < -50
+                                        
+                                        if (isSwipeUp && activeIndex < carouselBuckets.length - 2) {
+                                            setActiveIndex(prev => prev + 1)
+                                        }
+                                        if (isSwipeDown && activeIndex > 0) {
+                                            setActiveIndex(prev => prev - 1)
+                                        }
+                                    }}
+                                >
+                                    <AnimatePresence mode="popLayout">
+                                    {carouselBuckets.slice(activeIndex, activeIndex + 2).map((bucket, localIndex) => {
+                                        const isTop = localIndex === 0;
+                                        const isRealCurrent = bucket.isCurrent;
+                                        
+                                        return (
+                                            <motion.div 
+                                                key={bucket.id}
+                                                layout
+                                                initial={{ opacity: 0, rotateX: -60, y: 150, z: -300 }}
+                                                animate={{ opacity: 1, rotateX: 0, y: 0, z: 0 }}
+                                                exit={{ opacity: 0, rotateX: 60, y: -150, z: -300 }}
+                                                transition={{ duration: 0.6, type: 'spring', bounce: 0.2 }}
+                                                className="w-full shrink-0 origin-center select-none"
+                                                style={{ transformStyle: 'preserve-3d' }}
+                                            >
+                                                <div 
+                                                    onClick={() => { if (isTop) setShowInfoModal(true) }}
+                                                    className={`rounded-3xl border border-slate-700 p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
+                                                    isTop 
+                                                        ? 'bg-slate-800/80 shadow-inner cursor-pointer hover:ring-2 hover:ring-blue-500/50' 
+                                                        : 'bg-slate-900/50 border-dashed opacity-60'
+                                                }`}>
+                                                    
+                                                    <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-700/50">
+                                                        <div className={`font-black tracking-tight flex items-center gap-3 ${isTop ? 'text-blue-400' : 'text-slate-500'}`}>
+                                                            {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
+                                                            <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
+                                                                <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
+                                                                    {isRealCurrent && isTop ? 'AHORA' : (!isTop && activeIndex === 0 ? 'SIGUIENTE' : 'PROYECCIÓN')}
+                                                                    {isTop && <HelpCircle size={20} className="text-blue-500/50" />}
+                                                                </span>
+                                                                <span className={`text-base md:text-xl font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
+                                                                    {bucket.label}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                                                                   {(() => {
+                                                        const renderMeatCard = (meatKey: string) => {
+                                                            const m = bucket.data.find((d: any) => d.meat_type === meatKey) || { meat_type: meatKey, avg_lbs: 0 };
+                                                            let val = m.avg_lbs;
+                                                            let unitLab = 'lbs';
+                                                            let typeLab = m.meat_type;
+                                                            
+                                                            if (m.meat_type === 'CAFE') {
+                                                                val = m.avg_lbs / 4;
+                                                                unitLab = 'cafeteras';
+                                                                typeLab = 'CAFÉ';
+                                                            } else if (m.meat_type === 'CHAMPURRADO') {
+                                                                val = m.avg_lbs / 20;
+                                                                unitLab = 'porciones';
+                                                            } else if (m.meat_type === 'AGUACATE') {
+                                                                val = m.avg_lbs / 2;
+                                                                unitLab = 'bolsas';
+                                                                typeLab = 'GUACAMOLE';
+                                                            } else if (m.meat_type === 'FRIJOL MOLIDO') {
+                                                                unitLab = 'lbs';
+                                                                typeLab = 'FRIJOL MOLIDO';
+                                                            } else if (m.meat_type === 'ARROZ') {
+                                                                unitLab = 'lbs';
+                                                                typeLab = 'ARROZ';
+                                                            }
+
+                                                            return (
+                                                            <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800'}`}>
+                                                                <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${isTop ? 'text-[10px] xl:text-sm text-slate-400' : 'text-[9px] md:text-xs text-slate-600'}`}>{typeLab}</span>
+                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
+                                                                    {val.toFixed(1)} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
+                                                                </span>
+                                                            </div>
+                                                        )};
+
+                                                        return (
+                                                            <div className="flex flex-col gap-3 lg:gap-4">
+                                                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+                                                                    {['CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO'].map(renderMeatCard)}
+                                                                </div>
+                                                                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+                                                                    {['AGUACATE', 'FRIJOL MOLIDO', 'ARROZ'].map(renderMeatCard)}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            </motion.div>
+                                        )
+                                    })}
+                                    </AnimatePresence>
+                                    
+                                    {/* Pagination Indicators */}
+                                    <div className="absolute top-0 right-0 h-full w-8 flex flex-col items-center justify-center gap-1 opacity-30 z-10 pointer-events-none hidden md:flex">
+                                        {carouselBuckets.map((b, i) => (
+                                            <div key={b.id} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-500 scale-150' : i === activeIndex + 1 ? 'bg-slate-600' : 'bg-slate-800'}`} />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* LADO DERECHO: ESTADO SISTEMA (ESPERA) */}
+                        <div className="md:w-1/2 flex flex-col items-center justify-center opacity-30 animate-pulse">
+                            <CheckCircle2 size={160} className="text-white mb-6 md:mb-10 w-32 h-32 md:w-40 md:h-40" />
+                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">SISTEMA EN ESPERA</h2>
+                            <p className="text-xl md:text-2xl text-white/70 mt-4 md:mt-6 text-center">No hay pedidos pendientes de línea.</p>
+                        </div>
                     </div>
                 ) : (
                     // Multiple alerts can exist, but we show the oldest (index 0) huge
@@ -308,6 +593,120 @@ export default function BodegaPWA() {
             {hasAlert && (
                 <div className="absolute inset-0 pointer-events-none bg-red-500 opacity-20 animate-[pulse_1s_ease-in-out_infinite]" />
             )}
+
+            {/* Info Modal */}
+            <AnimatePresence>
+                {showInfoModal && (
+                    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+                            onClick={() => setShowInfoModal(false)}
+                        />
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-slate-900 border border-slate-700 w-full max-w-[95vw] 2xl:max-w-7xl rounded-[32px] p-6 md:p-10 shadow-2xl relative z-10 max-h-[95vh] flex flex-col"
+                        >
+                            <button 
+                                onClick={() => setShowInfoModal(false)}
+                                className="absolute top-6 right-6 p-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <X size={24} />
+                            </button>
+                            
+                            <h2 className="text-2xl md:text-3xl font-black text-white mb-2 tracking-tight">
+                                Proyecciones de Bodega
+                            </h2>
+                            <p className="text-slate-400 mb-6 md:mb-8 border-b border-slate-800 pb-4 md:pb-6 text-sm md:text-base shrink-0">
+                                Cómo el sistema de Inteligencia Artificial calcula estas cantidades históricas para tu tienda:
+                            </p>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-slate-300 overflow-y-auto shrink pb-2">
+                                <div className="bg-slate-800/40 p-5 md:p-6 rounded-3xl border border-slate-700/50 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-full blur-3xl" />
+                                    <h3 className="text-xl md:text-2xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
+                                        <span className="text-2xl">☕</span> Bebidas Lentas
+                                    </h3>
+                                    <p className="mb-5 text-slate-400 font-medium">
+                                        Las bebidas calientes no se calculan de manera individual, sino en <b className="text-white">lotes exactos de producción</b> para indicarte directamente cuántas ollas necesitas rellenar y poner a hervir.
+                                    </p>
+                                    <ul className="list-inside space-y-4 font-medium">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-500 mt-1">✔</span> 
+                                            <span><b className="text-orange-400">Cafeteras:</b> Histórico Vendido / 4.<br/><span className="text-sm text-slate-500">Significa que si se vendieran 4 vasos, la pantalla te indicará <b className="text-white line-through opacity-50 mx-1">4 Vasos</b> 👉 <b className="text-white font-black bg-slate-700 px-2 py-0.5 rounded">1 Cafetera</b> entera a preparar.</span></span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-500 mt-1">✔</span> 
+                                            <span><b className="text-orange-400">Ollas de Champurrado:</b> Histórico Vendido / 20.<br/><span className="text-sm text-slate-500">Significa que cada 20 ventas equivalen a <b className="text-white font-black bg-slate-700 px-2 py-0.5 rounded">1 Olla Central</b> de preparación.</span></span>
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <div className="bg-slate-800/40 p-5 md:p-6 rounded-3xl border border-slate-700/50 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl" />
+                                    <h3 className="text-xl md:text-2xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
+                                        <span className="text-2xl">🥩</span> Alimentos Lentos
+                                    </h3>
+                                    <p className="mb-5 text-slate-400 font-medium text-sm md:text-base">
+                                        Para Carnes y Acompañamientos (Frijol/Arroz/Guaca), los números representan la demanda proyectada.
+                                    </p>
+                                    <ul className="list-inside space-y-4 font-medium text-sm md:text-base">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-500 mt-1">✔</span> 
+                                            <span><b>Aguacate (Guacamole):</b> Se calcula la demanda total en onzas, se convierte a libras y se divide <b className="text-white">entre 2</b> para indicarte directamente el número de <b>Bolsas de 2lb</b>.</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-500 mt-1">✔</span> 
+                                            <span><b>Frijol y Arroz:</b> Se incluye tanto lo servido en platillos como lo vendido extra en Sides (Libras directas).</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-500 mt-1">✔</span> 
+                                            <span><b>Carnes:</b> Aplica la merma estándar de Tacos Gavilan hacia atrás para darte Libras Crudas que sacarás de congelador.</span>
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <div className="bg-slate-800/40 p-5 md:p-6 rounded-3xl border border-slate-700/50 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl" />
+                                    <h3 className="text-xl md:text-2xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
+                                        <span className="text-2xl">📅</span> Promedio Histórico
+                                    </h3>
+                                    <p className="mb-5 text-slate-400 font-medium">
+                                        ¿De dónde saca la IA estos números que me pide descongelar o hervir?
+                                    </p>
+                                    <ul className="list-inside space-y-4 font-medium">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-blue-400 mt-1">✔</span> 
+                                            <span>El sistema lee automáticamente todas las ventas de los últimos <b>años</b> de tu tienda.</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-blue-400 mt-1">✔</span> 
+                                            <span>Busca un patrón aislando <b>este mismo día de la semana</b> (si hoy es Lunes, promedia todos los Lunes pasados).</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-blue-400 mt-1">✔</span> 
+                                            <span>Filtra específicamente <b>este bloque de 30 minutos</b> para reaccionar a tu hora pico (Rush) de la manera más exacta posible en tiempo real sin obligarte a adivinar.</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-6 md:mt-8 pt-6 border-t border-slate-800 shrink-0">
+                                <button 
+                                    onClick={() => setShowInfoModal(false)}
+                                    className="w-full bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-black uppercase md:text-xl tracking-widest py-4 rounded-2xl transition-all shadow-[0_0_20px_rgba(37,99,235,0.4)]"
+                                >
+                                    ¡Comprendido!
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     )
 }

@@ -154,16 +154,27 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             url.searchParams.append('pageSize', String(pageSize))
             url.searchParams.append('page', String(page))
 
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 60000)
+
             const res = await fetch(url.toString(), {
+                signal: controller.signal,
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Toast-Restaurant-External-ID': storeId
                 }
             })
+            clearTimeout(timeoutId)
 
             if (!res.ok) {
-                console.warn(`Failed fetching orders for ${dateStr}: ${res.status}`)
-                break
+                const errTxt = await res.text().catch(() => '')
+                console.error(`[PMIX] Error ${res.status}: ${errTxt}`)
+                if (res.status === 429) {
+                    console.warn(`[Toast API] Rate limited on PMIX page ${page}, waiting 5s...`)
+                    await new Promise(r => setTimeout(r, 5000))
+                    continue // retry the same page
+                }
+                throw new Error(`Toast API Error (${storeId}): ${res.status}`)
             }
 
             const entries = await res.json()

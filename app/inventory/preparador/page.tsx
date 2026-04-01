@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize } from 'lucide-react'
+import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -40,6 +40,7 @@ export default function PreparadorLineaPage() {
     const [mounted, setMounted] = useState(false)
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
+    const [businessDow, setBusinessDow] = useState<number | null>(null)
     
     // Meat Historial Data
     const [meatData, setMeatData] = useState<MeatData[]>([])
@@ -50,6 +51,7 @@ export default function PreparadorLineaPage() {
     // Touch handlers for Carousel
     const [touchStart, setTouchStart] = useState<number | null>(null)
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
+    const [showInfoModal, setShowInfoModal] = useState(false)
 
     // Inactivity Reset Effect (Aero snap-back)
     useEffect(() => {
@@ -136,20 +138,38 @@ export default function PreparadorLineaPage() {
         fetchStores()
     }, [supabase])
 
+    // Track Business DOW dynamically (rolls over at 6:00 AM LA time)
+    useEffect(() => {
+        const updateBusinessDow = () => {
+            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+            const laDate = new Date(laTimeStr)
+            
+            // Regla de Tacos Gavilan: El día cambia a las 6:00 AM, no a la medianoche.
+            if (laDate.getHours() < 6) {
+                laDate.setDate(laDate.getDate() - 1)
+            }
+            
+            const dayNum = laDate.getDay() // 0 = Sunday
+            const currentDow = dayNum === 0 ? 7 : dayNum // 1-7 format mapping
+            
+            setBusinessDow(prev => {
+                if (prev !== currentDow) return currentDow
+                return prev
+            })
+        }
+        
+        updateBusinessDow()
+        const interval = setInterval(updateBusinessDow, 60000)
+        return () => clearInterval(interval)
+    }, [])
+
     // Load Meat Historial
     useEffect(() => {
-        if (!storeId) return
+        if (!storeId || businessDow === null) return
         const fetchHistory = async () => {
             setFetchingMeat(true)
             try {
-                // Get LA ISODOW
-                const d = new Date()
-                const options: Intl.DateTimeFormatOptions = { timeZone: 'America/Los_Angeles', weekday: 'short' } // Mon, Tue...
-                // Quick hack for dow 1-7 (Mon=1, Sun=7)
-                let dayNum = d.getDay() // 0=Sun, 1=Mon
-                let dow = dayNum === 0 ? 7 : dayNum
-                
-                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${dow}`)
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}`)
                 const json = await res.json()
                 if (Array.isArray(json)) {
                     // Pre-filtro: La tablet 1 excluye CAFE y CHAMPURRADO
@@ -163,7 +183,7 @@ export default function PreparadorLineaPage() {
             }
         }
         fetchHistory()
-    }, [storeId])
+    }, [storeId, businessDow])
 
     // Clock Bucket Updater
     useEffect(() => {
@@ -310,15 +330,15 @@ export default function PreparadorLineaPage() {
                 
                 {/* LADO IZQUIERDO: PROYECCIÓN (48% de la pantalla) */}
                 <div className="w-[48%] border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 xl:p-8 flex flex-col overflow-y-auto hidden md:flex">
-                    <div className="flex justify-between items-center mb-6 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center gap-3">
-                            <Clock className="w-8 h-8 text-blue-500 shrink-0" />
+                    <div className="flex justify-between items-center mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center gap-4">
+                            <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
                             <div>
-                                <h2 className="font-bold text-slate-800 dark:text-white uppercase tracking-wider text-sm">Ritmo de Cocción</h2>
-                                <p className="text-xs text-slate-500 font-medium hidden lg:block">Promedio histórico (últimos 3 años)</p>
+                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg md:text-2xl">Ritmo de Cocción</h2>
+                                <p className="text-sm md:text-base text-slate-500 font-medium hidden lg:block">Promedio histórico (últimos 3 años)</p>
                             </div>
                         </div>
-                        <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-3 py-2 rounded-lg text-xs font-black transition-colors shrink-0 shadow-sm ml-2">
+                        <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-6 py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm ml-2">
                             VER DÍA
                         </button>
                     </div>
@@ -372,24 +392,29 @@ export default function PreparadorLineaPage() {
                                         className="w-full max-w-[95%] md:max-w-md shrink-0 origin-center select-none"
                                         style={{ transformStyle: 'preserve-3d' }}
                                     >
-                                        <div className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
+                                        <div 
+                                            onClick={() => { if (isTop) setShowInfoModal(true) }}
+                                            className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
                                             isTop 
-                                                ? 'bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30' 
+                                                ? 'bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30 cursor-pointer hover:ring-2 hover:ring-blue-500/50' 
                                                 : 'bg-white/95 dark:bg-slate-800/95 backdrop-blur-md scale-[0.98] opacity-90'
                                         }`}>
                                             <div className="absolute inset-0 bg-gradient-to-tl from-white/10 to-transparent pointer-events-none" />
                                             
                                             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
-                                                <h3 className={`font-black tracking-tight flex items-center gap-2 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
-                                                    {isRealCurrent && <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
-                                                    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-3">
-                                                        <span className="uppercase">{isRealCurrent && isTop ? 'AHORA' : (!isTop && activeIndex === 0 ? 'SIGUIENTE' : 'PROYECCIÓN')}</span>
-                                                        <span className={`text-xs md:text-sm font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
+                                                <div className={`font-black tracking-tight flex items-center gap-3 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
+                                                    {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
+                                                    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
+                                                        <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
+                                                            {isRealCurrent && isTop ? 'AHORA' : (!isTop && activeIndex === 0 ? 'SIGUIENTE' : 'PROYECCIÓN')}
+                                                            {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
+                                                        </span>
+                                                        <span className={`text-base md:text-xl font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
                                                             {bucket.label}
                                                         </span>
                                                     </div>
-                                                </h3>
-                                                {isRealCurrent && <span className="text-[10px] md:text-xs font-bold text-blue-700 bg-blue-100/80 dark:bg-blue-900/50 px-2 py-1 rounded shadow-sm">Libras Crudas</span>}
+                                                </div>
+                                                {isRealCurrent && <span className="text-xs md:text-sm font-bold text-blue-700 bg-blue-100/80 dark:bg-blue-900/50 px-3 py-1.5 rounded-lg shadow-sm hidden sm:block">Libras Crudas</span>}
                                             </div>
                                             
                                             <div className="grid grid-cols-2 gap-3 xl:gap-5">
@@ -588,6 +613,101 @@ export default function PreparadorLineaPage() {
                 )
             })()}
 
+            <audio id="audio-tick" src="/sounds/tick.mp3" preload="auto" />
+
+            {/* Info Modal */}
+            <AnimatePresence>
+                {showInfoModal && (
+                    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }} 
+                            animate={{ opacity: 1 }} 
+                            exit={{ opacity: 0 }} 
+                            className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm"
+                            onClick={() => setShowInfoModal(false)}
+                        />
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 w-full max-w-[95vw] md:max-w-5xl rounded-3xl p-6 md:p-10 shadow-2xl relative z-10 max-h-[95vh] flex flex-col"
+                        >
+                            <button 
+                                onClick={() => setShowInfoModal(false)}
+                                className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors"
+                            >
+                                <X size={24} />
+                            </button>
+                            
+                            <h2 className="text-2xl md:text-3xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">
+                                Proyección de Carnes
+                            </h2>
+                            <p className="text-slate-500 mb-6 md:mb-8 border-b border-slate-200 dark:border-slate-800 pb-4 md:pb-6 text-sm md:text-base shrink-0">
+                                Cómo la Inteligencia Artificial calcula estas libras históricas para la mesa de línea:
+                            </p>
+                            
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-slate-600 dark:text-slate-300 overflow-y-auto shrink pb-2">
+                                <div className="bg-slate-50 dark:bg-slate-800/50 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 dark:bg-red-500/10 rounded-full blur-3xl" />
+                                    <h3 className="text-xl md:text-2xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
+                                        🥩 LIBRAS CRUDAS
+                                    </h3>
+                                    <p className="mb-5 font-medium">
+                                        Para Asada, Pastor, Pollo, Cabeza y Lengua, los números gigantes representan la demanda física proyectada en <b className="text-red-600 dark:text-red-400">Libras Crudas (No Cocidas)</b>.
+                                    </p>
+                                    <ul className="list-inside space-y-4 font-medium text-sm md:text-base">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-600 dark:text-emerald-500 mt-1">1.</span> 
+                                            <span>El sistema extrae el número de mulitas, tacos, burritos, etc., vendidos a esta hora a lo largo de los años.</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-600 dark:text-emerald-500 mt-1">2.</span> 
+                                            <span>Multiplica cada platillo por su peso de receta en onzas y luego aplica la <b className="text-slate-800 dark:text-white">merma de cocción (Yield)</b> en reversa para saber cuánto pesaba la carne cruda original.</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-emerald-600 dark:text-emerald-500 mt-1">3.</span> 
+                                            <span><b>Explicación final:</b> El número en pantalla es exactamente la cantidad de carne cruda que el preparador o taquero deberá sacer y poner a la lumbre o plancha para sostener el ritmo de esa media hora, sin que le falte ni le sobre demasiado.</span>
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <div className="bg-slate-50 dark:bg-slate-800/50 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl" />
+                                    <h3 className="text-xl md:text-2xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
+                                        📅 PROMEDIO HISTÓRICO
+                                    </h3>
+                                    <p className="mb-5 font-medium">
+                                        ¿De dónde saca la IA estos números que me pide cocinar?
+                                    </p>
+                                    <ul className="list-inside space-y-4 font-medium text-sm md:text-base">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
+                                            <span>El sistema lee el historial analítico de transacciones de los últimos <b>años</b> de esta misma sucursal.</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
+                                            <span>Busca específicamente <b>este día de la semana</b> (ej. si hoy es Lunes, promedia todos los últimos Lunes).</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
+                                            <span>Promedia exclusivamente <b>este bloque de media hora</b>, garantizando que el Ritmo de Cocción siga fielmente la hora pico local de la tienda sin que tengas que adivinar.</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-6 md:mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 shrink-0">
+                                <button 
+                                    onClick={() => setShowInfoModal(false)}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-xl tracking-widest py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30"
+                                >
+                                    ¡Comprendido!
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     )
 }

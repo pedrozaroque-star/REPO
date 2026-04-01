@@ -13,7 +13,8 @@ const CLIENT_ID = process.env.TOAST_CLIENT_ID
 const CLIENT_SECRET = process.env.TOAST_CLIENT_SECRET
 
 async function getToastToken() {
-    const res = await fetch(`${TOAST_API_HOST}/authentication/v1/authentication/login`, {
+    try {
+        const res = await fetch(`${TOAST_API_HOST}/authentication/v1/authentication/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -22,8 +23,12 @@ async function getToastToken() {
             userAccessType: 'TOAST_MACHINE_CLIENT'
         })
     })
-    const data = await res.json() as any
-    return data.token.accessToken
+        const data = await res.json() as any
+        return data.token.accessToken
+    } catch (e) {
+        console.error("Error Obteniendo Token:", e)
+        return null
+    }
 }
 
 function get30MinBucket(isoDateStr: string): string {
@@ -55,7 +60,8 @@ function get30MinBucket(isoDateStr: string): string {
 
 async function run() {
     console.log("🚀 Iniciando Backfill de Consumo de Carne...")
-    const token = await getToastToken()
+    let token = await getToastToken()
+    let tokenTime = Date.now()
     if (!token) throw new Error("No Toast Token")
 
     // 1. Extraer recetas de carne y costs
@@ -65,7 +71,7 @@ async function run() {
 
     if (!inventoryData || !recipesData || !stores) throw new Error("Error obteniendo datos base de Supabase")
 
-    const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
+    const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO', 'AGUACATE', 'GUACAMOLE', 'FRIJOL MOLIDO', 'ARROZ']
     const meatItems = inventoryData.filter(i => {
         const name = i.name.toUpperCase()
         return targetProteins.some(p => name.includes(p)) && !name.includes('SALSA')
@@ -88,8 +94,7 @@ async function run() {
         }
     })
 
-    // Rango de Fechas a extraer (Recomendamos hacerlo por meses para no crashear)
-    // Ejemplo: Últimos 10 días para empezar
+    // Rango de Fechas a extraer
     const startDateStr = process.argv[2] || '2026-03-01'
     const endDateStr = process.argv[3] || '2026-03-29'
     
@@ -103,47 +108,68 @@ async function run() {
         cur.setDate(cur.getDate() + 1)
     }
 
-    for (const dateStr of dates) {
-        const businessDate = dateStr.replace(/-/g, '')
-        console.log(`\n📅 Procesando fecha en PARALELO (15 Tiendas al mismo tiempo): ${dateStr}`)
+    // Helper for Concurrency Limit
+    const limit = 3; 
+    let activePromises = 0;
+    const processStore = async (store: any, dateStr: string, businessDate: string) => {
+        if (!store.external_id) return
         
-        await Promise.all(stores.map(async (store) => {
-            if (!store.external_id) return
+        // Regla Cero Diferencias: Borrar Data Previa por Fecha/Store
+        await supabase.from('meat_consumption_history')
+            .delete()
+            .eq('business_date', dateStr)
+            .eq('store_id', store.id);
+
+        const buckets = new Map<string, number>()
+        
+        let page = 1
+        let hasMore = true
+        let maxRetries = 5
+        
+        while (hasMore) {
+            // Check token expiration
+            if (Date.now() - tokenTime > 1000 * 60 * 45) {
+                console.log("Renovando Token Toast (Expired)...")
+                token = await getToastToken()
+                tokenTime = Date.now()
+            }
+
+            let res;
+            try {
+                res = await fetch(`${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`, {
+                    headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.external_id }
+                })
+            } catch (err: any) {
+                console.error(`Error Red en ${store.name}: ${err.message}`);
+                break;
+            }
             
-            // MAPA DE BUCKETS PARA ESE DÍA: [Intervalo_Hora_Meat] -> Raw Lbs
-            const buckets = new Map<string, number>()
-            
-            let page = 1
-            let hasMore = true
-            let maxRetries = 3
-            
-            while (hasMore) {
-                let res;
-                try {
-                    res = await fetch(`${TOAST_API_HOST}/orders/v2/ordersBulk?businessDate=${businessDate}&pageSize=100&page=${page}`, {
-                        headers: { 'Authorization': `Bearer ${token}`, 'Toast-Restaurant-External-ID': store.external_id }
-                    })
-                } catch (err: any) {
-                    console.error(`Error Red en ${store.name}: ${err.message}`);
+            if (res.status === 401) {
+                console.log(`Token Inválido (401) en ${store.name}. Refrescando...`);
+                token = await getToastToken()
+                tokenTime = Date.now()
+                continue; // retry logic
+            }
+
+            if (res.status === 429) {
+                if (maxRetries > 0) {
+                    maxRetries--;
+                    const waitTime = (6 - maxRetries) * 3000 + Math.random() * 2000;
+                    console.warn(`[429] Rate Limit en ${store.name}. Esperando ${Math.round(waitTime/1000)}s...`);
+                    await new Promise(r => setTimeout(r, waitTime));
+                    continue;
+                } else {
+                    console.error(`Rate Limit Toast superado para ${store.name} tras varios reintentos.`);
                     break;
                 }
-                
-                if (res.status === 429) {
-                    if (maxRetries > 0) {
-                        maxRetries--;
-                        // Toast Rate Limit hit, wait randomly 2-5 seconds
-                        await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
-                        continue;
-                    } else {
-                        console.error(`Rate Limit Toast superado para ${store.name}`);
-                        break;
-                    }
-                }
-                
-                if (!res.ok) {
-                    console.error(`Error Toast API ${store.name}: ${res.status}`)
-                    break
-                }
+            }
+            
+            if (!res.ok) {
+                console.error(`Error Toast API ${store.name}: ${res.status}`)
+                break
+            }
+            
+            maxRetries = 5
                 
                 // Reset retries on success
                 maxRetries = 3
@@ -181,6 +207,7 @@ async function run() {
                                     else if (unit === 'lb') lbs = total
                                     else if (unit === 'g') lbs = total * 0.00220462
                                     else if (unit === 'kg') lbs = total * 2.20462
+                                    else if (rData.meat_type === 'CAFE' || rData.meat_type === 'CHAMPURRADO') lbs = total
                                     
                                     const rawLbs = lbs / yieldPct
                                     
@@ -218,15 +245,34 @@ async function run() {
                 })
             }
             
+            
             if (inserts.length > 0) {
-                // Upsert to handle re-runs
-                const { error } = await supabase.from('meat_consumption_history').upsert(inserts, {
-                    onConflict: 'store_id,business_date,interval_start,meat_type'
-                })
+                const { error } = await supabase.from('meat_consumption_history').insert(inserts)
                 if (error) console.error("Error inserting:", error.message)
-                else process.stdout.write(`+${store.name} `)
+                else process.stdout.write(`✅ `)
             }
-        }))
+    }
+
+    for (const dateStr of dates) {
+        const businessDate = dateStr.replace(/-/g, '')
+        console.log(`\n📅 Procesando fecha: ${dateStr}`)
+        
+        const promises = []
+        for (const store of stores) {
+            if (!store.external_id) continue;
+            
+            while(activePromises >= limit) {
+                await new Promise(r => setTimeout(r, 500))
+            }
+            
+            activePromises++
+            const p = processStore(store, dateStr, businessDate).finally(() => {
+                activePromises--
+            })
+            promises.push(p)
+        }
+        
+        await Promise.all(promises)
     }
     console.log("\n🏁 Proceso Terminado.")
 }

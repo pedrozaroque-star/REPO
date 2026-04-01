@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
         
         if (!inventoryData || !recipesData || !stores) throw new Error("Missing db dependencies")
 
-        const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
+        const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO']
         const recipeLookup = new Map<string, any>()
         const itemLookup = new Map<string, any>()
         
@@ -115,6 +115,7 @@ export async function GET(request: NextRequest) {
                                     else if (rData.unit === 'lb') lbs = total
                                     else if (rData.unit === 'g') lbs = total * 0.00220462
                                     else if (rData.unit === 'kg') lbs = total * 2.20462
+                                    else if (rData.meat_type === 'CAFE' || rData.meat_type === 'CHAMPURRADO') lbs = total // Guardar unidades (vasos) directamente
                                     
                                     const rawLbs = lbs / yieldPct
                                     if (rawLbs > 0) {
