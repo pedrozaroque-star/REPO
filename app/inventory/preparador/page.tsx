@@ -131,12 +131,21 @@ export default function PreparadorLineaPage() {
             const { data } = await supabase.from('stores').select('id, name, external_id').eq('is_active', true).order('name')
             if (data) {
                 setStores(data)
-                // Default Norwalk o el de user
-                setStoreId(data[0].id)
+                
+                // Si el usuario no es admin/supervisor y tiene tienda asignada, fijamos su tienda automáticamente
+                const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
+                if (user && !isSuper && user.store_id) {
+                    setStoreId(user.store_id)
+                } else {
+                    // Si es admin, recordamos su última selección en la tableta o tomamos la primera
+                    const saved = localStorage.getItem('teg_preparador_store')
+                    if (saved && data.find(s => s.id === saved)) setStoreId(saved)
+                    else setStoreId(data[0].id)
+                }
             }
         }
-        fetchStores()
-    }, [supabase])
+        if (user !== undefined) fetchStores()
+    }, [supabase, user])
 
     // Track Business DOW dynamically (rolls over at 6:00 AM LA time)
     useEffect(() => {
@@ -316,13 +325,22 @@ export default function PreparadorLineaPage() {
                         <span className="hidden md:inline">{isFullscreen ? 'SALIR' : 'TABLETA'}</span>
                     </button>
                     
-                    <select 
-                        value={storeId} 
-                        onChange={e => setStoreId(e.target.value)}
-                        className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg p-2 font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-red-500 outline-none cursor-pointer relative z-50"
-                    >
-                        {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    {(() => {
+                        const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
+                        return (
+                            <select 
+                                value={storeId} 
+                                onChange={e => {
+                                    setStoreId(e.target.value)
+                                    localStorage.setItem('teg_preparador_store', e.target.value)
+                                }}
+                                disabled={!isSuper}
+                                className={`border-none rounded-lg p-2 font-bold focus:ring-2 focus:ring-red-500 outline-none relative z-50 ${!isSuper ? 'bg-slate-200 dark:bg-slate-900 text-slate-500 dark:text-slate-600 cursor-not-allowed' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer'}`}
+                            >
+                                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        )
+                    })()}
                     
                     <a href="/inventory/preparador/bodega" target="_blank" className="flex items-center gap-2 bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-slate-900/20">
                         <BellRing size={16} className="animate-pulse" />

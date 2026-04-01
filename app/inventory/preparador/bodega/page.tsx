@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase-client'
-        
+import { useAuth } from '@/components/ProtectedRoute'
 
 interface PrepRequest {
     id: string
@@ -83,20 +83,28 @@ export default function BodegaPWA() {
         }
     }
 
+    const { user } = useAuth()
+    
     // Fetch Stores
     useEffect(() => {
         const fetchStores = async () => {
             const { data } = await supabase.from('stores').select('id, name').eq('is_active', true).order('name')
             if (data) {
                 setStores(data)
-                // Use localStorage for persistence on tablets
-                const saved = localStorage.getItem('teg_bodega_store')
-                if (saved && data.find(s => s.id === saved)) setStoreId(saved)
-                else setStoreId(data[0].id)
+                // Forzar tienda si el usuario no es admin/supervisor y tiene tienda asignada
+                const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
+                if (user && !isSuper && user.store_id) {
+                    setStoreId(user.store_id)
+                } else {
+                    // Recordar o default si es supervisor/admin
+                    const saved = localStorage.getItem('teg_bodega_store')
+                    if (saved && data.find(s => s.id === saved)) setStoreId(saved)
+                    else setStoreId(data[0].id)
+                }
             }
         }
-        fetchStores()
-    }, [supabase])
+        if (user !== undefined) fetchStores()
+    }, [supabase, user])
 
     // Track Business DOW dynamically (rolls over at 6:00 AM LA time)
     useEffect(() => {
@@ -361,13 +369,22 @@ export default function BodegaPWA() {
                     <div className="bg-black/20 p-2 rounded-xl border border-white/10 text-white">
                         <Store size={20} />
                     </div>
-                    <select 
-                        value={storeId} 
-                        onChange={e => setStoreId(e.target.value)}
-                        className="bg-transparent border-none font-black text-xl text-white focus:ring-4 focus:ring-white/20 outline-none rounded-lg cursor-pointer hover:bg-white/5 py-1"
-                    >
-                        {stores.map(s => <option key={s.id} value={s.id} className="text-slate-900">{s.name}</option>)}
-                    </select>
+                    {(() => {
+                        const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
+                        return (
+                            <select 
+                                value={storeId} 
+                                onChange={e => {
+                                    setStoreId(e.target.value)
+                                    localStorage.setItem('teg_bodega_store', e.target.value)
+                                }}
+                                disabled={!isSuper}
+                                className={`border-none font-black text-xl focus:ring-4 focus:ring-white/20 outline-none rounded-lg py-1 ${!isSuper ? 'bg-transparent text-slate-400 cursor-not-allowed opacity-80' : 'bg-transparent text-white cursor-pointer hover:bg-white/5'}`}
+                            >
+                                {stores.map(s => <option key={s.id} value={s.id} className="text-slate-900">{s.name}</option>)}
+                            </select>
+                        )
+                    })()}
                 </div>
 
                 <div className="flex items-center gap-6">
