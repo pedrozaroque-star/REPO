@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
+import { motion, AnimatePresence } from 'framer-motion'
         
 
 interface MeatData {
@@ -43,10 +44,23 @@ export default function PreparadorLineaPage() {
     // Meat Historial Data
     const [meatData, setMeatData] = useState<MeatData[]>([])
     const [fetchingMeat, setFetchingMeat] = useState(false)
-    const [currentTimeData, setCurrentTimeData] = useState<MeatData[]>([])
-    const [nextTimeData, setNextTimeData] = useState<MeatData[]>([])
-    const [currentBucketLabel, setCurrentBucketLabel] = useState('')
-    const [nextBucketLabel, setNextBucketLabel] = useState('')
+    const [carouselBuckets, setCarouselBuckets] = useState<{ id: string, label: string, isCurrent: boolean, data: MeatData[] }[]>([])
+    const [activeIndex, setActiveIndex] = useState(0)
+
+    // Touch handlers for Carousel
+    const [touchStart, setTouchStart] = useState<number | null>(null)
+    const [touchEnd, setTouchEnd] = useState<number | null>(null)
+
+    // Inactivity Reset Effect (Aero snap-back)
+    useEffect(() => {
+        if (activeIndex === 0) return;
+        
+        const timer = setTimeout(() => {
+            setActiveIndex(0) // Snap back to current time bucket
+        }, 5000)
+        
+        return () => clearTimeout(timer)
+    }, [activeIndex])
 
     // Request Cart
     const [activeTab, setActiveTab] = useState<'alimentos'|'desechables'>('alimentos')
@@ -165,24 +179,42 @@ export default function PreparadorLineaPage() {
             
             // Current Bucket
             let curM = m >= 30 ? 30 : 0
-            let curHStr = h.toString().padStart(2, '0')
-            let curMStr = curM.toString().padStart(2, '0')
-            const currentBucket = `${curHStr}:${curMStr}:00`
             
-            // Next Bucket
-            let nxtM = curM === 0 ? 30 : 0
-            let nxtH = curM === 30 ? (h + 1) % 24 : h
-            let nxtHStr = nxtH.toString().padStart(2, '0')
-            let nxtMStr = nxtM.toString().padStart(2, '0')
-            const nextBucket = `${nxtHStr}:${nxtMStr}:00`
-            
-            setCurrentBucketLabel(`${curHStr}:${curMStr}`)
-            setNextBucketLabel(`${nxtHStr}:${nxtMStr}`)
-
-            if (meatData.length > 0) {
-                setCurrentTimeData(meatData.filter(m => m.interval_start === currentBucket))
-                setNextTimeData(meatData.filter(m => m.interval_start === nextBucket))
+            const formatTime12 = (hr: number, min: number) => {
+                const p = hr >= 12 ? 'pm' : 'am'
+                let h12 = hr % 12
+                if (h12 === 0) h12 = 12
+                return `${h12}:${min.toString().padStart(2, '0')}${p}`
             }
+            
+            const arr = []
+            let tempH = h // FIXED: using `h` instead of the undefined `curH`
+            let tempM = curM
+            
+            // Generate next 10 buckets for the carousel
+            for (let i = 0; i < 10; i++) {
+                let hrStr = tempH.toString().padStart(2, '0')
+                let minStr = tempM.toString().padStart(2, '0')
+                let bucketId = `${hrStr}:${minStr}:00`
+                
+                let nxtM = tempM === 0 ? 30 : 0
+                let nxtH = tempM === 30 ? (tempH + 1) % 24 : tempH
+                
+                let label = `${formatTime12(tempH, tempM)} a ${formatTime12(nxtH, nxtM)}`
+                
+                let data: MeatData[] = []
+                if (meatData.length > 0) {
+                    data = meatData.filter(m => m.interval_start === bucketId && m.meat_type !== 'CARNITAS')
+                        .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
+                }
+                
+                arr.push({ id: bucketId, label, isCurrent: i === 0, data })
+                
+                tempH = nxtH
+                tempM = nxtM
+            }
+
+            setCarouselBuckets(arr)
         }
         
         updateBuckets()
@@ -248,7 +280,7 @@ export default function PreparadorLineaPage() {
                     </div>
                 </div>
                 
-                <div className="flex items-center gap-2 md:gap-4 overflow-x-auto">
+                <div className="flex items-center gap-2 md:gap-4 flex-wrap md:flex-nowrap">
                     <button 
                         onClick={toggleFullscreen}
                         className="flex items-center gap-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-3 py-2 rounded-lg font-bold text-sm transition-colors"
@@ -261,7 +293,7 @@ export default function PreparadorLineaPage() {
                     <select 
                         value={storeId} 
                         onChange={e => setStoreId(e.target.value)}
-                        className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg p-2 font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-red-500 outline-none"
+                        className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg p-2 font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-red-500 outline-none cursor-pointer relative z-50"
                     >
                         {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
@@ -297,45 +329,90 @@ export default function PreparadorLineaPage() {
                             <p className="font-bold">Calculando Histórico...</p>
                         </div>
                     ) : (
-                        <div className="space-y-6 flex-1">
-                            {/* BLOQUE ACTUAL */}
-                            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/10 rounded-2xl border border-blue-200 dark:border-blue-800/50 p-5 shadow-inner">
-                                <div className="flex justify-between items-center mb-4 border-b border-blue-200 dark:border-blue-800/50 pb-2">
-                                    <h3 className="font-black text-blue-900 dark:text-blue-300 flex items-center gap-2">
-                                        <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" /> 
-                                        AHORA ({currentBucketLabel})
-                                    </h3>
-                                    <span className="text-xs font-bold text-blue-600 bg-blue-100 dark:bg-blue-900/50 px-2 py-1 rounded-md">Libras Crudas</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {currentTimeData.length > 0 ? currentTimeData
-                                        .filter(m => m.meat_type !== 'CARNITAS')
-                                        .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
-                                        .map(m => (
-                                        <div key={m.meat_type} className={`bg-white/80 dark:bg-slate-800/80 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-100 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/30 py-5' : ''}`}>
-                                            <span className="text-sm md:text-base font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-1">{m.meat_type}</span>
-                                            <span className={`${m.meat_type === 'ASADA' ? 'text-4xl text-blue-700 dark:text-blue-400' : 'text-2xl text-slate-800 dark:text-white'} font-black`}>{m.avg_lbs} <span className="text-sm font-medium opacity-50 text-slate-500">lbs</span></span>
+                        <div 
+                            className="flex-1 flex flex-col items-center gap-6 xl:gap-8 overflow-hidden touch-none py-4 px-2 [perspective:1200px]"
+                            onWheel={(e) => {
+                                if (e.deltaY > 0 && activeIndex < carouselBuckets.length - 2) setActiveIndex(prev => prev + 1)
+                                if (e.deltaY < 0 && activeIndex > 0) setActiveIndex(prev => prev - 1)
+                            }}
+                            onTouchStart={(e) => {
+                                setTouchEnd(null)
+                                setTouchStart(e.targetTouches[0].clientY)
+                            }}
+                            onTouchMove={(e) => {
+                                setTouchEnd(e.targetTouches[0].clientY)
+                            }}
+                            onTouchEnd={() => {
+                                if (!touchStart || !touchEnd) return
+                                const distance = touchStart - touchEnd
+                                const isSwipeUp = distance > 50
+                                const isSwipeDown = distance < -50
+                                
+                                if (isSwipeUp && activeIndex < carouselBuckets.length - 2) {
+                                    setActiveIndex(prev => prev + 1)
+                                }
+                                if (isSwipeDown && activeIndex > 0) {
+                                    setActiveIndex(prev => prev - 1)
+                                }
+                            }}
+                        >
+                            <AnimatePresence mode="popLayout">
+                            {carouselBuckets.slice(activeIndex, activeIndex + 2).map((bucket, localIndex) => {
+                                const isTop = localIndex === 0;
+                                const isRealCurrent = bucket.isCurrent;
+                                
+                                return (
+                                    <motion.div 
+                                        key={bucket.id}
+                                        layout
+                                        initial={{ opacity: 0, rotateX: -60, y: 150, z: -300 }}
+                                        animate={{ opacity: 1, rotateX: 0, y: 0, z: 0 }}
+                                        exit={{ opacity: 0, rotateX: 60, y: -150, z: -300 }}
+                                        transition={{ duration: 0.6, type: 'spring', bounce: 0.2 }}
+                                        className="w-full max-w-[95%] md:max-w-md shrink-0 origin-center select-none"
+                                        style={{ transformStyle: 'preserve-3d' }}
+                                    >
+                                        <div className={`rounded-3xl border border-slate-200/50 dark:border-slate-700/50 p-6 xl:p-8 shadow-2xl transition-all duration-500 overflow-hidden relative ${
+                                            isTop 
+                                                ? 'bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/40 dark:to-indigo-900/30' 
+                                                : 'bg-white/95 dark:bg-slate-800/95 backdrop-blur-md scale-[0.98] opacity-90'
+                                        }`}>
+                                            <div className="absolute inset-0 bg-gradient-to-tl from-white/10 to-transparent pointer-events-none" />
+                                            
+                                            <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
+                                                <h3 className={`font-black tracking-tight flex items-center gap-2 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
+                                                    {isRealCurrent && <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
+                                                    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-3">
+                                                        <span className="uppercase">{isRealCurrent && isTop ? 'AHORA' : (!isTop && activeIndex === 0 ? 'SIGUIENTE' : 'PROYECCIÓN')}</span>
+                                                        <span className={`text-xs md:text-sm font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
+                                                            {bucket.label}
+                                                        </span>
+                                                    </div>
+                                                </h3>
+                                                {isRealCurrent && <span className="text-[10px] md:text-xs font-bold text-blue-700 bg-blue-100/80 dark:bg-blue-900/50 px-2 py-1 rounded shadow-sm">Libras Crudas</span>}
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-2 gap-3 xl:gap-5">
+                                                {bucket.data.length > 0 ? bucket.data.map(m => (
+                                                    <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-4 xl:p-6 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-8 xl:py-10' : 'border border-slate-100 dark:border-slate-800'}`}>
+                                                        <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-sm md:text-lg font-black'}`}>{m.meat_type}</span>
+                                                        <span className={`font-black tracking-tighter ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-8xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-800 dark:text-white'}`}>
+                                                            {m.avg_lbs} <span className="text-base md:text-xl font-medium opacity-50 text-slate-500 tracking-normal">lbs</span>
+                                                        </span>
+                                                    </div>
+                                                )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-10 opacity-70">No hay proyectado</p>}
+                                            </div>
                                         </div>
-                                    )) : <p className="col-span-2 text-center text-sm font-medium text-slate-500 opacity-70">No data para este intervalo</p>}
-                                </div>
-                            </div>
-
-                            {/* BLOQUE PRÓXIMO */}
-                            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-5">
-                                <h3 className="font-bold text-slate-600 dark:text-slate-400 mb-4 border-b border-slate-200 dark:border-slate-700 pb-2 flex items-center gap-2">
-                                    SIGUIENTE ({nextBucketLabel})
-                                </h3>
-                                <div className="grid grid-cols-2 gap-3 opacity-80">
-                                    {nextTimeData.length > 0 ? nextTimeData
-                                        .filter(m => m.meat_type !== 'CARNITAS')
-                                        .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
-                                        .map(m => (
-                                        <div key={m.meat_type} className={`bg-white dark:bg-slate-900 p-3 rounded-xl flex flex-col items-center justify-center border border-slate-100 dark:border-slate-800 ${m.meat_type === 'ASADA' ? 'col-span-2 bg-slate-100 dark:bg-slate-800/50 py-4' : ''}`}>
-                                            <span className="text-xs md:text-sm font-bold uppercase tracking-widest text-slate-500 mb-1">{m.meat_type}</span>
-                                            <span className={`${m.meat_type === 'ASADA' ? 'text-3xl text-slate-600 dark:text-slate-400' : 'text-xl text-slate-700 dark:text-slate-300'} font-black`}>{m.avg_lbs} <span className="text-xs font-medium opacity-50 text-slate-500">lbs</span></span>
-                                        </div>
-                                    )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400">No data</p>}
-                                </div>
+                                    </motion.div>
+                                )
+                            })}
+                            </AnimatePresence>
+                            
+                            {/* Pagination Indicators - Hint of remaining buckets */}
+                            <div className="absolute top-0 right-0 h-full w-8 flex flex-col items-center justify-center gap-1 opacity-30 z-10 pointer-events-none hidden md:flex">
+                                {carouselBuckets.map((b, i) => (
+                                    <div key={b.id} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-blue-600 scale-150' : i === activeIndex + 1 ? 'bg-slate-600' : 'bg-slate-300'}`} />
+                                ))}
                             </div>
                         </div>
                     )}
