@@ -252,8 +252,14 @@ export default function PreparadorLineaPage() {
         })
     }
 
-    const removeItem = (item: string) => {
-        setCart(prev => prev.filter(p => p.name !== item))
+    const decreaseItem = (item: string) => {
+        setCart(prev => {
+            const existing = prev.find(p => p.name === item)
+            if (existing && existing.qty > 1) {
+                return prev.map(p => p.name === item ? { ...p, qty: p.qty - 1 } : p)
+            }
+            return prev.filter(p => p.name !== item)
+        })
     }
 
     const sendRequest = async () => {
@@ -502,17 +508,20 @@ export default function PreparadorLineaPage() {
                                 {/* CART ITEMS */}
                                 <div className="flex-1 flex gap-2 overflow-x-auto py-2 shrink-0">
                                     {cart.map(c => (
-                                        <div key={c.name} className="relative bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 px-4 py-3 rounded-xl flex items-center gap-3 shrink-0 group shadow-sm">
-                                            <span className="bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-black w-8 h-8 rounded-full flex items-center justify-center text-sm shadow-sm">
+                                        <div 
+                                            key={c.name} 
+                                            onClick={() => decreaseItem(c.name)}
+                                            className="relative bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 px-4 py-3 md:px-5 md:py-4 rounded-xl flex items-center gap-3 shrink-0 group shadow-sm cursor-pointer select-none active:scale-95 transition-transform"
+                                        >
+                                            <span className="bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-black w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-lg shadow-sm">
                                                 {c.qty}
                                             </span>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200 text-sm whitespace-nowrap pr-2">{c.name}</span>
-                                            <button 
-                                                onClick={() => removeItem(c.name)}
-                                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
-                                            >
-                                                <X size={14} strokeWidth={3} />
-                                            </button>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 text-sm md:text-base whitespace-nowrap pr-2">{c.name}</span>
+                                            
+                                            {/* El ícono de menos/borrar gigante para asegurar visibilidad en pantalla normal y touch */}
+                                            <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 border-2 border-white dark:border-slate-900 shadow-md transition-colors opacity-100">
+                                                <X size={14} strokeWidth={4} />
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
