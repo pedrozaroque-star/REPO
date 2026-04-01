@@ -488,7 +488,7 @@ export default function PreparadorLineaPage() {
                                     className={`relative h-20 md:h-24 rounded-2xl flex flex-col items-center justify-center p-2 active:scale-90 transition-all outline-none ${baseStyle} overflow-hidden`}
                                 >
                                     
-                                    <span className={`relative text-center text-sm md:text-base leading-tight font-sans tracking-tight z-10 ${isSelected ? 'font-black scale-105' : 'font-bold'}`}>
+                                    <span className={`relative w-full px-1 text-center text-base md:text-xl lg:text-2xl leading-tight md:leading-snug font-sans tracking-tighter z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>
                                         {itemObj.name}
                                     </span>
                                     {cartItem && cartItem.qty >= 1 && (
