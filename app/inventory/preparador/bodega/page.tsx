@@ -238,12 +238,19 @@ export default function BodegaPWA() {
             const currentH = now.getHours()
             const currentM = now.getMinutes()
             
-            // Limit fractions to 15 min chunks to match exactly 15 min intervals tracking
-            const currentMinRounded = Math.floor(currentM / 15) * 15
-            const currentTimeInMins = currentH * 60 + currentMinRounded
+            let evalH = currentH
+            if (evalH < 6) evalH += 24
             
-            // Reset daily counters at 6:00 AM LA Time
-            const dayStr = currentH < 6 ? `${now.getDate() - 1}` : `${now.getDate()}`
+            // Evaluamos el minuto exacto considerando el shift de madrugada (24+)
+            const currentTimeInMins = evalH * 60 + currentM
+            
+            // Reset daily counters at 6:00 AM LA Time (safe for month roll-over)
+            const businessNow = new Date(now.getTime())
+            if (businessNow.getHours() < 6) {
+                businessNow.setDate(businessNow.getDate() - 1)
+            }
+            const dayStr = `${businessNow.getFullYear()}-${businessNow.getMonth()}-${businessNow.getDate()}`
+            
             const savedDate = localStorage.getItem('teg_bev_date')
             if (savedDate !== dayStr) {
                 localStorage.setItem('teg_bev_date', dayStr)
@@ -251,25 +258,30 @@ export default function BodegaPWA() {
                 localStorage.setItem('teg_galones_ack', '0')
             }
             
-            const getCumulativeSales = (meatType: string) => {
+            // Calculamos asomándonos offsetMins en el futuro
+            const getCumulativeSales = (meatType: string, offsetMins: number) => {
                 let totalExpected = 0
+                const evaluateTimeInMins = currentTimeInMins + offsetMins
+                
                 meatData.forEach(m => {
                     if (m.meat_type !== meatType) return
                     let [hh, mm] = m.interval_start.split(':').map(Number)
                     if (hh < 6) hh += 24
                     const bucketStartMins = hh * 60 + mm
-                    if (bucketStartMins + 30 <= currentTimeInMins) {
+                    if (bucketStartMins + 30 <= evaluateTimeInMins) {
                         totalExpected += m.avg_lbs
-                    } else if (bucketStartMins < currentTimeInMins) {
-                        const passedMins = currentTimeInMins - bucketStartMins
+                    } else if (bucketStartMins < evaluateTimeInMins) {
+                        const passedMins = evaluateTimeInMins - bucketStartMins
                         totalExpected += m.avg_lbs * (passedMins / 30)
                     }
                 })
                 return totalExpected
             }
 
-            const totalCafe = getCumulativeSales('CAFE')
-            const totalChamp = getCumulativeSales('CHAMPURRADO')
+            // Café: Asomarse 4 minutos en el futuro
+            const totalCafe = getCumulativeSales('CAFE', 4)
+            // Champurrado: Asomarse 15 minutos en el futuro
+            const totalChamp = getCumulativeSales('CHAMPURRADO', 15)
             
             // Cuotas: 1 Cafetera = 4 cafés (alerta al 75% = >= 3). 1 Galón = 20 champurrados (alerta al 75% = >= 15)
             const reqCafeteras = Math.floor(totalCafe / 4) + (totalCafe % 4 >= 3 ? 1 : 0)
@@ -765,16 +777,16 @@ export default function BodegaPWA() {
                                         <span className="text-2xl">☕</span> Bebidas Lentas
                                     </h3>
                                     <p className="mb-5 text-slate-400 font-medium leading-relaxed">
-                                        El sistema <b className="text-white">monitorea en segundo plano</b> las proyecciones de ventas cada 15 minutos en lugar de mostrar decimales. Al alcanzar una cuota, dispara una alerta de producción.
+                                        El sistema <b className="text-white">monitorea en tiempo real</b> las proyecciones y se adelanta al futuro según el tiempo de preparación de cada bebida. Al alcanzar una cuota, dispara una alerta de producción con suficiente anticipación.
                                     </p>
                                     <ul className="list-inside space-y-4 font-medium">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b className="text-orange-400">1 Cafetera (4 vasos):</b> El sistema acumula ventas y cuando proyecta que se necesitará el <b>75% (3 cafés)</b>, dispara una alerta Naranja pidiéndote <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 CAFETERA</b> extra.</span>
+                                            <span><b className="text-orange-400">1 Cafetera (4 vasos):</b> Se asoma <b className="text-white bg-slate-700 px-2 py-0.5 rounded">4 minutos</b> al futuro. Cuando proyecta que se necesitará el <b>75% (3 cafés)</b>, pide <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 CAFETERA</b> extra.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b className="text-orange-400">1 Galón (20 Champurrados):</b> Cuando matemáticamente se proyecte la venta de <b>15 porciones (75%)</b>, la tableta disparará el pedido de <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 GALÓN</b> automáticamente.</span>
+                                            <span><b className="text-orange-400">1 Galón (20 Champurrados):</b> Se asoma <b className="text-white bg-slate-700 px-2 py-0.5 rounded">15 minutos</b> al futuro. Al proyectar matemáticamente <b>15 porciones (75%)</b>, dispara el pedido de <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 GALÓN</b> automáticamente.</span>
                                         </li>
                                     </ul>
                                 </div>
