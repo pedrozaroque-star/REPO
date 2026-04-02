@@ -304,9 +304,9 @@ export default function PreparadorLineaPage() {
     return (
         <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100vh-64px)]'}`}>
             {/* Header / Config Bar */}
-            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 flex justify-between items-center shadow-sm shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="bg-gradient-to-r from-red-600 to-orange-500 p-2 rounded-lg text-white shadow-md">
+            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 flex flex-col md:flex-row gap-4 justify-between items-center shadow-sm shrink-0">
+                <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
+                    <div className="bg-gradient-to-r from-red-600 to-orange-500 p-2 rounded-lg text-white shadow-md shrink-0">
                         <ChefHat size={24} />
                     </div>
                     <div>
@@ -315,14 +315,14 @@ export default function PreparadorLineaPage() {
                     </div>
                 </div>
                 
-                <div className="flex items-center gap-2 md:gap-4 flex-wrap md:flex-nowrap">
+                <div className="flex items-center justify-center gap-2 md:gap-4 flex-wrap w-full md:w-auto">
                     <button 
                         onClick={toggleFullscreen}
                         className="flex items-center gap-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-3 py-2 rounded-lg font-bold text-sm transition-colors"
                         title="Modo Tableta (Pantalla Completa)"
                     >
                         {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                        <span className="hidden md:inline">{isFullscreen ? 'SALIR' : 'TABLETA'}</span>
+                        <span className="hidden sm:inline">{isFullscreen ? 'SALIR' : 'TABLETA'}</span>
                     </button>
                     
                     {(() => {
@@ -344,25 +344,25 @@ export default function PreparadorLineaPage() {
                     
                     <a href="/inventory/preparador/bodega" target="_blank" className="flex items-center gap-2 bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-slate-900/20">
                         <BellRing size={16} className="animate-pulse" />
-                        ABRIR MODO BODEGA
+                        <span className="hidden sm:inline">ABRIR BODEGA</span>
                     </a>
                 </div>
             </div>
 
             {/* Split Screen Container */}
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-col lg:flex-row flex-1 overflow-y-auto lg:overflow-hidden">
                 
-                {/* LADO IZQUIERDO: PROYECCIÓN (48% de la pantalla) */}
-                <div className="w-[48%] border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 xl:p-8 flex flex-col overflow-y-auto hidden md:flex">
+                {/* LADO IZQUIERDO: PROYECCIÓN (oculta en md pero visible apilada en movil/tablet portrait si ajustamos breakpoints. Usaremos lg para side-by-side) */}
+                <div className="w-full lg:w-[48%] border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 md:p-6 xl:p-8 flex flex-col shrink-0 lg:shrink lg:overflow-y-auto">
                     <div className="flex justify-between items-center mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                         <div className="flex items-center gap-4">
                             <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
                             <div>
-                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg md:text-2xl">Ritmo de Cocción</h2>
-                                <p className="text-sm md:text-base text-slate-500 font-medium hidden lg:block">Promedio histórico (últimos 3 años)</p>
+                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg lg:text-2xl">Ritmo de Cocción</h2>
+                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">Promedio histórico esperado</p>
                             </div>
                         </div>
-                        <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-6 py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm ml-2">
+                        <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 md:px-6 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm ml-2">
                             VER DÍA
                         </button>
                     </div>
@@ -470,8 +470,8 @@ export default function PreparadorLineaPage() {
                     )}
                 </div>
 
-                {/* LADO DERECHO: TABLETA REQUESTS (60% de la pantalla) */}
-                <div className="flex-1 flex flex-col bg-slate-100 dark:bg-slate-950">
+                {/* LADO DERECHO: GRID DE SOLICITUDES */}
+                <div className="w-full lg:flex-1 flex flex-col bg-slate-100 dark:bg-slate-950 shrink-0 lg:shrink min-h-[600px]">
                     
                     {/* TABS */}
                     <div className="flex p-4 gap-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm shrink-0">

@@ -364,8 +364,8 @@ export default function BodegaPWA() {
             <audio ref={audioRef} src="/sounds/alarm.mp3" preload="auto" className="hidden" />
 
             {/* Header / StatusBar */}
-            <div className={`p-4 flex justify-between items-center transition-colors ${hasAlert ? 'bg-red-900 border-b border-red-800' : 'bg-slate-900 border-b border-slate-800'}`}>
-                <div className="flex items-center gap-4">
+            <div className={`p-4 flex flex-col md:flex-row gap-4 justify-between items-center transition-colors shadow-sm shrink-0 ${hasAlert ? 'bg-red-900 border-b border-red-800' : 'bg-slate-900 border-b border-slate-800'}`}>
+                <div className="flex items-center gap-4 w-full md:w-auto justify-center md:justify-start">
                     <div className="bg-black/20 p-2 rounded-xl border border-white/10 text-white">
                         <Store size={20} />
                     </div>
@@ -387,7 +387,7 @@ export default function BodegaPWA() {
                     })()}
                 </div>
 
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4 md:gap-6 w-full md:w-auto justify-center md:justify-end">
                     <button 
                         onClick={toggleFullscreen}
                         className={`p-3 rounded-full transition-colors ${isFullscreen ? 'bg-white/20 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
@@ -410,9 +410,9 @@ export default function BodegaPWA() {
             {/* Main Alert Area */}
             <div className="flex-1 overflow-y-auto p-4 md:p-8 flex items-center justify-center">
                 {!hasAlert ? (
-                    <div className="w-full h-full flex flex-col md:flex-row gap-8 items-stretch justify-center max-w-[1600px] mx-auto animate-in fade-in duration-500 py-4">
+                    <div className="w-full h-full flex flex-col lg:flex-row gap-8 items-stretch justify-center max-w-[1600px] mx-auto animate-in fade-in duration-500 py-4">
                         {/* LADO IZQUIERDO: RITMO DE COCCIÓN (Cabeza y Lengua) */}
-                        <div className="md:w-1/2 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden">
+                        <div className="w-full lg:w-1/2 bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 flex flex-col shadow-2xl relative overflow-hidden shrink-0 lg:shrink">
                             {/* Decorative glow */}
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
                             
@@ -558,8 +558,8 @@ export default function BodegaPWA() {
                         </div>
 
                         {/* LADO DERECHO: ESTADO SISTEMA (ESPERA) */}
-                        <div className="md:w-1/2 flex flex-col items-center justify-center opacity-30 animate-pulse">
-                            <CheckCircle2 size={160} className="text-white mb-6 md:mb-10 w-32 h-32 md:w-40 md:h-40" />
+                        <div className="w-full lg:w-1/2 flex flex-col items-center justify-center opacity-30 animate-pulse py-10 lg:py-0 shrink-0 lg:shrink">
+                            <CheckCircle2 size={160} className="text-white mb-6 md:mb-10 w-32 h-32 md:w-40 md:h-40 shrink-0" />
                             <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">SISTEMA EN ESPERA</h2>
                             <p className="text-xl md:text-2xl text-white/70 mt-4 md:mt-6 text-center">No hay pedidos pendientes de línea.</p>
                         </div>
