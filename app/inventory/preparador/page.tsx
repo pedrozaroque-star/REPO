@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle } from 'lucide-react'
+import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -69,6 +69,12 @@ export default function PreparadorLineaPage() {
     const [cart, setCart] = useState<{name: string, qty: number}[]>([])
     const [sending, setSending] = useState(false)
     const [showDayModal, setShowDayModal] = useState(false)
+    
+    // Alarma de Cocción
+    const [showCookAlert, setShowCookAlert] = useState(false)
+    const [nextBlockLabel, setNextBlockLabel] = useState('')
+    const cookAlarmRef = useRef<HTMLAudioElement | null>(null)
+    const lastCookAlertRef = useRef<string | null>(null)
 
     // Agrupación de datos para el Modal
     const getHourlyData = () => {
@@ -244,6 +250,23 @@ export default function PreparadorLineaPage() {
             }
 
             setCarouselBuckets(arr)
+
+            // Trigger Alert 6 minutes before the hour/half-hour (at :24 or :54)
+            if ((m === 24 || m === 54) && arr.length > 1) {
+                const signature = `${h}-${m}`
+                if (lastCookAlertRef.current !== signature) {
+                    lastCookAlertRef.current = signature
+                    setNextBlockLabel(arr[1].label)
+                    setShowCookAlert(true)
+                    // Play sound if available
+                    if (cookAlarmRef.current) {
+                        // Reset audio and play
+                        cookAlarmRef.current.currentTime = 0
+                        cookAlarmRef.current.volume = 1.0
+                        cookAlarmRef.current.play().catch(e => console.error("Audio block:", e))
+                    }
+                }
+            }
         }
         
         updateBuckets()
@@ -303,6 +326,49 @@ export default function PreparadorLineaPage() {
 
     return (
         <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100vh-64px)]'}`}>
+            <audio ref={cookAlarmRef} src="/sounds/alarm1.mp3" preload="auto" className="hidden" />
+
+            {/* Modal Alerta de Cocción (6 minutos antes del bloque) */}
+            <AnimatePresence>
+                {showCookAlert && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[99999] bg-red-950/90 backdrop-blur-md flex items-center justify-center p-4 xl:p-10"
+                    >
+                        <motion.div 
+                            initial={{ scale: 0.9, y: 50 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.9, y: 50 }}
+                            className="bg-slate-900 border-2 border-red-500 max-w-4xl w-full rounded-[40px] shadow-[0_0_150px_rgba(239,68,68,0.4)] p-8 md:p-16 flex flex-col items-center text-center"
+                        >
+                            <BellRing size={120} className="text-red-500 animate-bounce mb-8" />
+                            <h2 className="text-4xl md:text-6xl font-black text-white px-4 leading-tight uppercase mb-6 tracking-tighter">
+                                ¡PREPARA EL SIGUIENTE BLOQUE!
+                            </h2>
+                            <p className="text-red-200 font-medium text-2xl md:text-4xl mb-12 uppercase tracking-wide bg-red-950/50 py-4 px-8 rounded-2xl border border-red-500/30">
+                                SIGUIENTE HORARIO:<br/>
+                                <span className="text-white font-black">{nextBlockLabel}</span>
+                            </p>
+                            <button 
+                                onClick={() => {
+                                    setShowCookAlert(false)
+                                    if (cookAlarmRef.current) {
+                                        cookAlarmRef.current.pause()
+                                        cookAlarmRef.current.currentTime = 0
+                                    }
+                                }}
+                                className="w-full md:w-[400px] bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-3xl px-10 py-8 rounded-3xl shadow-[0_0_50px_rgba(16,185,129,0.3)] transition-transform active:scale-95 border-b-8 border-emerald-700 flex flex-col items-center justify-center"
+                            >
+                                <CheckCircle2 size={40} className="mb-2" />
+                                ENTENDIDO
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Header / Config Bar */}
             <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 flex flex-col md:flex-row gap-4 justify-between items-center shadow-sm shrink-0">
                 <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
@@ -428,30 +494,29 @@ export default function PreparadorLineaPage() {
                                             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-200/50 dark:border-slate-700/50">
                                                 <div className={`font-black tracking-tight flex items-center gap-3 ${isTop ? 'text-blue-900 dark:text-blue-300' : 'text-slate-800 dark:text-slate-200'}`}>
                                                     {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
-                                                    <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
-                                                        <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
-                                                            {isRealCurrent && isTop ? 'AHORA' : (!isTop && activeIndex === 0 ? 'SIGUIENTE' : 'PROYECCIÓN')}
-                                                            {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
-                                                        </span>
-                                                        <span className={`text-base md:text-xl font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
-                                                            {bucket.label}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                {isRealCurrent && <span className="text-xs md:text-sm font-bold text-blue-700 bg-blue-100/80 dark:bg-blue-900/50 px-3 py-1.5 rounded-lg shadow-sm hidden sm:block">Libras Crudas</span>}
-                                            </div>
-                                            
-                                            <div className="grid grid-cols-2 gap-3 xl:gap-5">
-                                                {bucket.data.length > 0 ? bucket.data.map(m => (
-                                                    <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-4 xl:p-6 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-8 xl:py-10' : 'border border-slate-100 dark:border-slate-800 py-6 xl:py-8'}`}>
-                                                        <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-2 md:mb-4 ${m.meat_type === 'ASADA' ? 'text-xl md:text-3xl font-black text-blue-800 dark:text-blue-300' : 'text-lg md:text-2xl font-black'}`}>{m.meat_type}</span>
-                                                        <div className="flex flex-col items-center justify-center leading-none">
-                                                            <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-[7rem] text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-6xl xl:text-7xl text-slate-800 dark:text-white'}`}>
-                                                                {m.avg_lbs}
-                                                            </span>
-                                                            <span className="text-base md:text-xl font-black text-black dark:text-white tracking-widest uppercase mt-2 xl:mt-4">lbs</span>
+                                                            <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
+                                                                <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
+                                                                    {isRealCurrent && isTop ? 'AHORA' : (!isTop && activeIndex === 0 ? 'SIGUIENTE' : 'PROYECCIÓN')}
+                                                                    {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
+                                                                </span>
+                                                                <span className={`text-2xl md:text-4xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
+                                                                    {bucket.label}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
+                                                    
+                                                    <div className="grid grid-cols-2 gap-3 xl:gap-5">
+                                                        {bucket.data.length > 0 ? bucket.data.map(m => (
+                                                            <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-4 xl:p-6 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-8 xl:py-10' : 'border border-slate-100 dark:border-slate-800 py-6 xl:py-8'}`}>
+                                                                <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-2 md:mb-4 ${m.meat_type === 'ASADA' ? 'text-xl md:text-3xl font-black text-blue-800 dark:text-blue-300' : 'text-lg md:text-2xl font-black'}`}>{m.meat_type}</span>
+                                                                <div className="flex flex-col items-center justify-center leading-none">
+                                                                    <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-[7rem] text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-6xl xl:text-7xl text-slate-800 dark:text-white'}`}>
+                                                                        {m.avg_lbs}
+                                                                    </span>
+                                                                    <span className="text-xl md:text-2xl font-black text-black dark:text-white tracking-widest lowercase mt-2 xl:mt-4">lbs</span>
+                                                                </div>
+                                                            </div>
                                                 )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-10 opacity-70">No hay proyectado</p>}
                                             </div>
                                         </div>
@@ -506,7 +571,7 @@ export default function PreparadorLineaPage() {
                                 <button
                                     key={itemObj.name}
                                     onClick={() => addToCart(itemObj.name)}
-                                    className={`relative h-20 md:h-24 rounded-2xl flex flex-col items-center justify-center p-2 active:scale-90 transition-all outline-none ${baseStyle} overflow-hidden`}
+                                    className={`relative h-16 md:h-20 lg:h-[84px] rounded-2xl flex flex-col items-center justify-center p-2 active:scale-95 transition-all outline-none ${baseStyle} overflow-hidden`}
                                 >
                                     
                                     <span className={`relative w-full px-1 text-center text-base md:text-xl lg:text-2xl leading-tight md:leading-snug font-sans tracking-tighter z-10 ${isSelected ? 'font-black scale-105 drop-shadow-sm' : 'font-bold'}`}>

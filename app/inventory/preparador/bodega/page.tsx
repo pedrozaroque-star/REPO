@@ -565,15 +565,12 @@ export default function BodegaPWA() {
                         </div>
                     </div>
                 ) : (
-                    // Multiple alerts can exist, but we show the oldest (index 0) huge
-                    <div className="w-full max-w-6xl mx-auto flex flex-col gap-6 animate-in zoom-in-95 duration-300">
+                    // Render all alerts as fully visible, actionable cards in a scrollable list
+                    <div className="w-full max-w-6xl mx-auto flex flex-col gap-6 lg:gap-10 animate-in zoom-in-95 duration-300 pb-20">
                         {pendingRequests.map((req, idx) => (
                             <div 
                                 key={req.id} 
-                                className={`rounded-[40px] border flex flex-col md:flex-row overflow-hidden shadow-2xl transition-all
-                                    ${idx === 0 
-                                        ? 'bg-red-600 border-red-400 ring-8 ring-red-500/50 shadow-[0_0_100px_rgba(220,38,38,0.8)] scale-100 z-10' 
-                                        : 'bg-red-900 border-red-800 scale-95 opacity-80 mt-[-20px] -z-10 blur-[1px]'}`}
+                                className={`rounded-[40px] border flex flex-col lg:flex-row overflow-hidden shadow-2xl shrink-0 transition-transform hover:scale-[1.01] bg-red-600 border-red-400 ${idx === 0 ? 'ring-8 ring-red-500/50 shadow-[0_0_100px_rgba(220,38,38,0.6)]' : 'shadow-[0_20px_50px_rgba(220,38,38,0.3)]'}`}
                             >
                                 {/* Peticiones (Items) */}
                                 <div className="flex-1 p-8 md:p-14 flex flex-col justify-center text-white">
