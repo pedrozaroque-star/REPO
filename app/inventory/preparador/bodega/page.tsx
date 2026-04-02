@@ -37,6 +37,8 @@ export default function BodegaPWA() {
     
     // Pending Queue
     const [pendingRequests, setPendingRequests] = useState<PrepRequest[]>([])
+    const [beverageAlerts, setBeverageAlerts] = useState<any[]>([])
+    
     // Meat Historial Data (Cabeza, Lengua)
     const [meatData, setMeatData] = useState<MeatData[]>([])
     const [fetchingMeat, setFetchingMeat] = useState(false)
@@ -224,6 +226,114 @@ export default function BodegaPWA() {
     }
 
     // Main Logic: Load existing pending & Listen for Realtime inserts
+    
+    // --- LÓGICA DE CUOTAS DE BEBIDAS (15 MINUTOS) ---
+    useEffect(() => {
+        if (!systemStarted || meatData.length === 0) return
+
+        const checkBeverages = () => {
+            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+            const now = new Date(laTimeStr)
+            
+            const currentH = now.getHours()
+            const currentM = now.getMinutes()
+            
+            // Limit fractions to 15 min chunks to match exactly 15 min intervals tracking
+            const currentMinRounded = Math.floor(currentM / 15) * 15
+            const currentTimeInMins = currentH * 60 + currentMinRounded
+            
+            // Reset daily counters at 6:00 AM LA Time
+            const dayStr = currentH < 6 ? `${now.getDate() - 1}` : `${now.getDate()}`
+            const savedDate = localStorage.getItem('teg_bev_date')
+            if (savedDate !== dayStr) {
+                localStorage.setItem('teg_bev_date', dayStr)
+                localStorage.setItem('teg_cafeteras_ack', '0')
+                localStorage.setItem('teg_galones_ack', '0')
+            }
+            
+            const getCumulativeSales = (meatType: string) => {
+                let totalExpected = 0
+                meatData.forEach(m => {
+                    if (m.meat_type !== meatType) return
+                    let [hh, mm] = m.interval_start.split(':').map(Number)
+                    if (hh < 6) hh += 24
+                    const bucketStartMins = hh * 60 + mm
+                    if (bucketStartMins + 30 <= currentTimeInMins) {
+                        totalExpected += m.avg_lbs
+                    } else if (bucketStartMins < currentTimeInMins) {
+                        const passedMins = currentTimeInMins - bucketStartMins
+                        totalExpected += m.avg_lbs * (passedMins / 30)
+                    }
+                })
+                return totalExpected
+            }
+
+            const totalCafe = getCumulativeSales('CAFE')
+            const totalChamp = getCumulativeSales('CHAMPURRADO')
+            
+            // Cuotas: 1 Cafetera = 4 cafés (alerta al 75% = >= 3). 1 Galón = 20 champurrados (alerta al 75% = >= 15)
+            const reqCafeteras = Math.floor(totalCafe / 4) + (totalCafe % 4 >= 3 ? 1 : 0)
+            const reqGalones = Math.floor(totalChamp / 20) + (totalChamp % 20 >= 15 ? 1 : 0)
+            
+            const ackCafeteras = parseInt(localStorage.getItem('teg_cafeteras_ack') || '0', 10)
+            const ackGalones = parseInt(localStorage.getItem('teg_galones_ack') || '0', 10)
+            
+            let newAlerts: any[] = []
+            
+            if (reqCafeteras > ackCafeteras) {
+                const diff = reqCafeteras - ackCafeteras
+                for (let i = 0; i < diff; i++) {
+                    newAlerts.push({ 
+                        id: `SYS_CAFE_${ackCafeteras + i + 1}`, 
+                        items: ['1 CAFETERA'], 
+                        type: 'CAFE', 
+                        number: ackCafeteras + i + 1,
+                        created_at: now.toISOString(),
+                        is_sys: true
+                    })
+                }
+            }
+            
+            if (reqGalones > ackGalones) {
+                const diff = reqGalones - ackGalones
+                for (let i = 0; i < diff; i++) {
+                    newAlerts.push({ 
+                        id: `SYS_CHAMP_${ackGalones + i + 1}`, 
+                        items: ['1 GALON CHAMPURRADO'], 
+                        type: 'CHAMP', 
+                        number: ackGalones + i + 1,
+                        created_at: now.toISOString(),
+                        is_sys: true
+                    })
+                }
+            }
+            
+            setBeverageAlerts(prev => {
+                if (newAlerts.length > prev.length) {
+                    if (audioRef.current && !isMuted) {
+                        audioRef.current.currentTime = 0
+                        audioRef.current.play().catch(()=>{})
+                    }
+                }
+                return newAlerts
+            })
+        }
+
+        checkBeverages()
+        const int = setInterval(checkBeverages, 60000)
+        return () => clearInterval(int)
+    }, [systemStarted, meatData, isMuted])
+
+    const handleAcknowledgeBeverage = (alert: any) => {
+        if (alert.type === 'CAFE') {
+            localStorage.setItem('teg_cafeteras_ack', alert.number.toString())
+        } else {
+            localStorage.setItem('teg_galones_ack', alert.number.toString())
+        }
+        setBeverageAlerts(prev => prev.filter(a => a.id !== alert.id))
+    }
+    // --- FIN LÓGICA DE BEBIDAS ---
+
     useEffect(() => {
         if (!storeId || !systemStarted) return
         localStorage.setItem('teg_bodega_store', storeId)
@@ -357,7 +467,8 @@ export default function BodegaPWA() {
         )
     }
 
-    const hasAlert = pendingRequests.length > 0
+    const allAlerts = [...pendingRequests, ...beverageAlerts].sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    const hasAlert = allAlerts.length > 0
 
     return (
         <div ref={containerRef} className={`flex flex-col overflow-hidden transition-colors duration-500 ${hasAlert ? 'bg-red-950' : 'bg-slate-950'} ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-screen'}`}>
@@ -532,8 +643,8 @@ export default function BodegaPWA() {
 
                                                         return (
                                                             <div className="flex flex-col gap-3 lg:gap-4">
-                                                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-                                                                    {['CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO'].map(renderMeatCard)}
+                                                                <div className="grid grid-cols-2 lg:grid-cols-2 gap-3 lg:gap-4">
+                                                                    {['CABEZA', 'LENGUA'].map(renderMeatCard)}
                                                                 </div>
                                                                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
                                                                     {['AGUACATE', 'FRIJOL MOLIDO', 'ARROZ'].map(renderMeatCard)}
@@ -567,30 +678,38 @@ export default function BodegaPWA() {
                 ) : (
                     // Render all alerts as fully visible, actionable cards in a scrollable list
                     <div className="w-full max-w-6xl mx-auto flex flex-col gap-6 lg:gap-10 animate-in zoom-in-95 duration-300 pb-20">
-                        {pendingRequests.map((req, idx) => (
+                        {allAlerts.map((req, idx) => (
                             <div 
                                 key={req.id} 
-                                className={`rounded-[40px] border flex flex-col lg:flex-row overflow-hidden shadow-2xl shrink-0 transition-transform hover:scale-[1.01] bg-red-600 border-red-400 ${idx === 0 ? 'ring-8 ring-red-500/50 shadow-[0_0_100px_rgba(220,38,38,0.6)]' : 'shadow-[0_20px_50px_rgba(220,38,38,0.3)]'}`}
+                                className={`rounded-[40px] border flex flex-col lg:flex-row overflow-hidden shadow-2xl shrink-0 transition-transform hover:scale-[1.01] ${(req as any).is_sys ? 'bg-orange-600 border-orange-400' : 'bg-red-600 border-red-400'} ${idx === 0 ? `ring-8 ${(req as any).is_sys ? 'ring-orange-500/50 shadow-[0_0_100px_rgba(234,88,12,0.6)]' : 'ring-red-500/50 shadow-[0_0_100px_rgba(220,38,38,0.6)]'}` : `shadow-[0_20px_50px_${(req as any).is_sys ? 'rgba(234,88,12,0.3)' : 'rgba(220,38,38,0.3)'}]`}`}
                             >
                                 {/* Peticiones (Items) */}
                                 <div className="flex-1 p-8 md:p-14 flex flex-col justify-center text-white">
-                                    <h3 className="text-red-200 font-bold tracking-widest uppercase text-sm md:text-xl mb-6">FALTA EN LÍNEA:</h3>
+                                    <h3 className={`${(req as any).is_sys ? 'text-orange-200' : 'text-red-200'} font-bold tracking-widest uppercase text-sm md:text-xl mb-6`}>
+                                        {(req as any).is_sys ? 'CUOTA ALCANZADA (PROYECCIÓN):' : 'FALTA EN LÍNEA:'}
+                                    </h3>
                                     <div className="flex flex-wrap gap-4 md:gap-6">
-                                        {req.items.map((item, i) => (
-                                            <span key={i} className="inline-block bg-white text-red-700 font-black text-3xl md:text-6xl px-6 py-4 rounded-3xl shadow-lg uppercase leading-none">
+                                        {req.items.map((item: string, i: number) => (
+                                            <span key={i} className={`inline-block bg-white ${(req as any).is_sys ? 'text-orange-700' : 'text-red-700'} font-black text-3xl md:text-6xl px-6 py-4 rounded-3xl shadow-lg uppercase leading-none`}>
                                                 {item}
                                             </span>
                                         ))}
                                     </div>
-                                    <p className="mt-8 text-red-200/60 font-medium text-lg flex items-center gap-2">
-                                        <Clock size={20} /> Pedido {new Date(req.created_at).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
+                                    <p className={`mt-8 ${(req as any).is_sys ? 'text-orange-200/60' : 'text-red-200/60'} font-medium text-lg flex items-center gap-2`}>
+                                        <Clock size={20} /> {(req as any).is_sys ? 'Alerta ' : 'Pedido '} {new Date(req.created_at).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
                                     </p>
                                 </div>
 
                                 {/* Accion */}
                                 <div className="bg-black/20 p-8 md:p-14 flex items-center justify-center md:w-[400px]">
                                     <button 
-                                        onClick={() => handleAcknowledge(req.id)}
+                                        onClick={() => {
+                                            if ((req as any).is_sys) {
+                                                handleAcknowledgeBeverage(req)
+                                            } else {
+                                                handleAcknowledge(req.id)
+                                            }
+                                        }}
                                         className="w-full h-full min-h-[150px] md:min-h-full rounded-3xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 border-4 border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.5)] flex flex-col items-center justify-center gap-4 text-white hover:scale-[1.02] transition-transform active:scale-95"
                                     >
                                         <CheckCircle2 size={80} strokeWidth={3} />
@@ -645,17 +764,17 @@ export default function BodegaPWA() {
                                     <h3 className="text-xl md:text-2xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
                                         <span className="text-2xl">☕</span> Bebidas Lentas
                                     </h3>
-                                    <p className="mb-5 text-slate-400 font-medium">
-                                        Las bebidas calientes no se calculan de manera individual, sino en <b className="text-white">lotes exactos de producción</b> para indicarte directamente cuántas ollas necesitas rellenar y poner a hervir.
+                                    <p className="mb-5 text-slate-400 font-medium leading-relaxed">
+                                        El sistema <b className="text-white">monitorea en segundo plano</b> las proyecciones de ventas cada 15 minutos en lugar de mostrar decimales. Al alcanzar una cuota, dispara una alerta de producción.
                                     </p>
                                     <ul className="list-inside space-y-4 font-medium">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b className="text-orange-400">Cafeteras:</b> Histórico Vendido / 4.<br/><span className="text-sm text-slate-500">Significa que si se vendieran 4 vasos, la pantalla te indicará <b className="text-white line-through opacity-50 mx-1">4 Vasos</b> 👉 <b className="text-white font-black bg-slate-700 px-2 py-0.5 rounded">1 Cafetera</b> entera a preparar.</span></span>
+                                            <span><b className="text-orange-400">1 Cafetera (4 vasos):</b> El sistema acumula ventas y cuando proyecta que se necesitará el <b>75% (3 cafés)</b>, dispara una alerta Naranja pidiéndote <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 CAFETERA</b> extra.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b className="text-orange-400">Ollas de Champurrado:</b> Histórico Vendido / 20.<br/><span className="text-sm text-slate-500">Significa que cada 20 ventas equivalen a <b className="text-white font-black bg-slate-700 px-2 py-0.5 rounded">1 Olla Central</b> de preparación.</span></span>
+                                            <span><b className="text-orange-400">1 Galón (20 Champurrados):</b> Cuando matemáticamente se proyecte la venta de <b>15 porciones (75%)</b>, la tableta disparará el pedido de <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 GALÓN</b> automáticamente.</span>
                                         </li>
                                     </ul>
                                 </div>
