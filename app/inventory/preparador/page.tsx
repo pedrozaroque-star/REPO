@@ -233,7 +233,7 @@ export default function PreparadorLineaPage() {
                 
                 let data: MeatData[] = []
                 if (meatData.length > 0) {
-                    data = meatData.filter(m => m.interval_start === bucketId && m.meat_type !== 'CARNITAS')
+                    data = meatData.filter(m => m.interval_start === bucketId && !['CARNITAS', 'CABEZA', 'LENGUA'].includes(m.meat_type))
                         .sort((a,b) => a.meat_type === 'ASADA' ? -1 : b.meat_type === 'ASADA' ? 1 : a.meat_type.localeCompare(b.meat_type))
                 }
                 
@@ -443,11 +443,14 @@ export default function PreparadorLineaPage() {
                                             
                                             <div className="grid grid-cols-2 gap-3 xl:gap-5">
                                                 {bucket.data.length > 0 ? bucket.data.map(m => (
-                                                    <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-4 xl:p-6 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-8 xl:py-10' : 'border border-slate-100 dark:border-slate-800'}`}>
-                                                        <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-sm md:text-lg font-black'}`}>{m.meat_type}</span>
-                                                        <span className={`font-black tracking-tighter ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-8xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-800 dark:text-white'}`}>
-                                                            {m.avg_lbs} <span className="text-base md:text-xl font-medium opacity-50 text-slate-500 tracking-normal">lbs</span>
-                                                        </span>
+                                                    <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-4 xl:p-6 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-8 xl:py-10' : 'border border-slate-100 dark:border-slate-800 py-6 xl:py-8'}`}>
+                                                        <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-2 md:mb-4 ${m.meat_type === 'ASADA' ? 'text-xl md:text-3xl font-black text-blue-800 dark:text-blue-300' : 'text-lg md:text-2xl font-black'}`}>{m.meat_type}</span>
+                                                        <div className="flex flex-col items-center justify-center leading-none">
+                                                            <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-7xl xl:text-[7rem] text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-6xl xl:text-7xl text-slate-800 dark:text-white'}`}>
+                                                                {m.avg_lbs}
+                                                            </span>
+                                                            <span className="text-base md:text-xl font-black text-black dark:text-white tracking-widest uppercase mt-2 xl:mt-4">lbs</span>
+                                                        </div>
                                                     </div>
                                                 )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-10 opacity-70">No hay proyectado</p>}
                                             </div>
