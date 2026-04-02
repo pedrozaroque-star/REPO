@@ -326,7 +326,7 @@ export default function PreparadorLineaPage() {
 
     return (
         <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100vh-64px)]'}`}>
-            <audio ref={cookAlarmRef} src="/sounds/alarm1.mp3" preload="auto" className="hidden" />
+            <audio ref={cookAlarmRef} src="/sounds/alarm.mp3" preload="auto" className="hidden" />
 
             {/* Modal Alerta de Cocción (6 minutos antes del bloque) */}
             <AnimatePresence>
