@@ -327,7 +327,7 @@ export default function PreparadorLineaPage() {
 
     return (
         <div ref={containerRef} className={`flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : 'h-[calc(100vh-64px)]'}`}>
-            <audio ref={cookAlarmRef} src="/sounds/alarm.mp3" preload="auto" className="hidden" />
+            <audio ref={cookAlarmRef} src="/sounds/alarm.mp3" preload="auto" loop className="hidden" />
 
             {/* Modal Alerta de Cocción (6 minutos antes del bloque) */}
             <AnimatePresence>
@@ -656,10 +656,10 @@ export default function PreparadorLineaPage() {
                                         <tr>
                                             <th className="p-4 font-bold text-slate-400 text-sm tracking-widest pl-6">HORA</th>
                                             <th className="p-4 font-black text-blue-600 dark:text-blue-400 tracking-wider">ASADA</th>
+                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">POLLO</th>
+                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">PASTOR</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">CABEZA</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">LENGUA</th>
-                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">PASTOR</th>
-                                            <th className="p-4 font-bold text-slate-500 dark:text-slate-400">POLLO</th>
                                             <th className="p-4 font-black text-slate-800 dark:text-white tracking-widest pr-6 text-right">HORA TOTAL</th>
                                         </tr>
                                     </thead>
@@ -672,10 +672,10 @@ export default function PreparadorLineaPage() {
                                                 <tr key={hour} className="border-b border-slate-200 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-900 transition-colors">
                                                     <td className="p-4 font-black text-slate-600 dark:text-slate-300 pl-6 text-lg">{hour}</td>
                                                     <td className="p-4 font-black text-blue-700 dark:text-blue-400 text-xl">{data.ASADA > 0 ? data.ASADA.toFixed(1) : '-'}</td>
+                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.POLLO > 0 ? data.POLLO.toFixed(1) : '-'}</td>
+                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.PASTOR > 0 ? data.PASTOR.toFixed(1) : '-'}</td>
                                                     <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.CABEZA > 0 ? data.CABEZA.toFixed(1) : '-'}</td>
                                                     <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.LENGUA > 0 ? data.LENGUA.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.PASTOR > 0 ? data.PASTOR.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.POLLO > 0 ? data.POLLO.toFixed(1) : '-'}</td>
                                                     <td className="p-4 font-black text-slate-800 dark:text-white text-right pr-6">{hrTotal.toFixed(1)} <span className="text-xs opacity-50 font-bold ml-1">lbs</span></td>
                                                 </tr>
                                             )
@@ -691,7 +691,7 @@ export default function PreparadorLineaPage() {
                                         <span className="text-xs uppercase font-bold text-blue-600 dark:text-blue-400">Total Asada</span>
                                         <span className="font-black text-blue-700 dark:text-blue-300 text-3xl">{dayTotals.ASADA.toFixed(1)} <span className="text-sm font-bold opacity-50">lbs</span></span>
                                     </div>
-                                    {['CABEZA', 'LENGUA', 'PASTOR', 'POLLO'].map(meat => (
+                                    {['POLLO', 'PASTOR', 'CABEZA', 'LENGUA'].map(meat => (
                                         <div key={meat} className="bg-slate-50 dark:bg-slate-800 px-5 py-3 flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 shrink-0">
                                             <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{meat}</span>
                                             <span className="font-bold text-slate-700 dark:text-slate-300 text-xl">{dayTotals[meat as keyof typeof dayTotals].toFixed(1)}</span>

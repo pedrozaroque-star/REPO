@@ -320,15 +320,7 @@ export default function BodegaPWA() {
                 }
             }
             
-            setBeverageAlerts(prev => {
-                if (newAlerts.length > prev.length) {
-                    if (audioRef.current && !isMuted) {
-                        audioRef.current.currentTime = 0
-                        audioRef.current.play().catch(()=>{})
-                    }
-                }
-                return newAlerts
-            })
+            setBeverageAlerts(newAlerts)
         }
 
         checkBeverages()
@@ -412,16 +404,16 @@ export default function BodegaPWA() {
     }, [storeId, systemStarted]) // Nota: isMuted fue removido de la dependencia para no tumbar la conexión cada vez que mutean
 
     useEffect(() => {
-        // Trigger alarm state based on pending list length
-        if (pendingRequests.length === 0) {
+        // Trigger alarm state based on TOTAL pending list length (both line requests and system beverages)
+        if (pendingRequests.length === 0 && beverageAlerts.length === 0) {
             stopAlarm()
         } else if (!isMuted && systemStarted) {
             playAlarm()
         }
-    }, [pendingRequests.length, isMuted, systemStarted])
+    }, [pendingRequests.length, beverageAlerts.length, isMuted, systemStarted])
 
     const playAlarm = () => {
-        if (audioRef.current && pendingRequests.length > 0) {
+        if (audioRef.current && (pendingRequests.length > 0 || beverageAlerts.length > 0)) {
             audioRef.current.loop = true
             const playPromise = audioRef.current.play()
             if (playPromise !== undefined) {
