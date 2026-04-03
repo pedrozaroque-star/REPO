@@ -107,7 +107,7 @@ export async function GET(request: Request) {
         
         console.log(`📅 [CRON] Procesando fecha: ${dateStr}`)
 
-        const results = []
+        const results: any[] = []
 
         const limit = 3; 
         let activePromises = 0;
