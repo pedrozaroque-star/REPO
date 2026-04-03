@@ -262,9 +262,15 @@ export default function PreparadorLineaPage() {
                     // Play sound if available
                     if (cookAlarmRef.current) {
                         // Reset audio and play
-                        cookAlarmRef.current.currentTime = 0
-                        cookAlarmRef.current.volume = 1.0
-                        cookAlarmRef.current.play().catch(e => console.error("Audio block:", e))
+                        try {
+                            cookAlarmRef.current.src = "/sounds/alarm.mp3"
+                            cookAlarmRef.current.muted = false
+                            cookAlarmRef.current.volume = 1.0
+                            const playPromise = cookAlarmRef.current.play()
+                            if (playPromise !== undefined) {
+                                playPromise.catch(e => console.error("Audio block:", e))
+                            }
+                        } catch(err) {}
                     }
                 }
             }
@@ -356,8 +362,13 @@ export default function PreparadorLineaPage() {
                                 onClick={() => {
                                     setShowCookAlert(false)
                                     if (cookAlarmRef.current) {
-                                        cookAlarmRef.current.pause()
-                                        cookAlarmRef.current.currentTime = 0
+                                        try {
+                                            cookAlarmRef.current.muted = true
+                                            cookAlarmRef.current.volume = 0
+                                            cookAlarmRef.current.pause()
+                                            cookAlarmRef.current.removeAttribute('src')
+                                            cookAlarmRef.current.load()
+                                        } catch(e) {}
                                     }
                                 }}
                                 className="w-full md:w-[400px] bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-3xl px-10 py-8 rounded-3xl shadow-[0_0_50px_rgba(16,185,129,0.3)] transition-transform active:scale-95 border-b-8 border-emerald-700 flex flex-col items-center justify-center"
