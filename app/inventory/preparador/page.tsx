@@ -275,8 +275,8 @@ export default function PreparadorLineaPage() {
 
             setCarouselBuckets(arr)
 
-            // Trigger Alert 6 minutes before the hour/half-hour (at :24 or :54)
-            if ((m === 24 || m === 54) && arr.length > 1) {
+            // Trigger Alert 10 minutes before the hour/half-hour (at :20 or :50)
+            if ((m === 20 || m === 50) && arr.length > 1) {
                 const signature = `${h}-${m}`
                 if (lastCookAlertRef.current !== signature) {
                     lastCookAlertRef.current = signature

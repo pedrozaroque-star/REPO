@@ -142,8 +142,8 @@ export default function BodegaPWA() {
                 const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}`)
                 const json = await res.json()
                 if (Array.isArray(json)) {
-                    // Pre-filtro: La bodega proyecta Lentos y Bebidas
-                    const allowedTypes = ['CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO', 'AGUACATE', 'FRIJOL MOLIDO', 'ARROZ']
+                    // Pre-filtro: La bodega proyecta Lentos y Bebidas (se requirió remover CAFE)
+                    const allowedTypes = ['CABEZA', 'LENGUA', 'CHAMPURRADO', 'AGUACATE', 'FRIJOL MOLIDO', 'ARROZ']
                     const filtered = json.filter(m => allowedTypes.includes(m.meat_type))
                     setMeatData(filtered)
                 }
@@ -282,7 +282,6 @@ export default function BodegaPWA() {
             const savedDate = localStorage.getItem('teg_bev_date')
             if (savedDate !== dayStr) {
                 localStorage.setItem('teg_bev_date', dayStr)
-                localStorage.setItem('teg_cafeteras_ack', '0')
                 localStorage.setItem('teg_galones_ack', '0')
             }
             
@@ -306,33 +305,17 @@ export default function BodegaPWA() {
                 return totalExpected
             }
 
-            // Café: Asomarse 4 minutos en el futuro
-            const totalCafe = getCumulativeSales('CAFE', 4)
-            // Champurrado: Asomarse 15 minutos en el futuro
-            const totalChamp = getCumulativeSales('CHAMPURRADO', 15)
+            // Champurrado: Asomarse 6 HORAS (360 minutos) en el futuro según su vida útil.
+            const baseChamp = getCumulativeSales('CHAMPURRADO', 360)
+            const totalChamp = baseChamp * intelligenceAcelerador
             
-            // Cuotas: 1 Cafetera = 4 cafés (alerta al 75% = >= 3). 1 Galón = 20 champurrados (alerta al 75% = >= 15)
-            const reqCafeteras = Math.floor(totalCafe / 4) + (totalCafe % 4 >= 3 ? 1 : 0)
-            const reqGalones = Math.floor(totalChamp / 20) + (totalChamp % 20 >= 15 ? 1 : 0)
+            // Regla Tacos Gavilan: 1 Galón = 20 vasos. No se piden mitades. Redondeamos hacia arriba para no fallar.
+            // Siempre números enteros = Math.ceil.
+            const reqGalones = Math.ceil(totalChamp / 20)
             
-            const ackCafeteras = parseInt(localStorage.getItem('teg_cafeteras_ack') || '0', 10)
             const ackGalones = parseInt(localStorage.getItem('teg_galones_ack') || '0', 10)
             
             let newAlerts: any[] = []
-            
-            if (reqCafeteras > ackCafeteras) {
-                const diff = reqCafeteras - ackCafeteras
-                for (let i = 0; i < diff; i++) {
-                    newAlerts.push({ 
-                        id: `SYS_CAFE_${ackCafeteras + i + 1}`, 
-                        items: ['1 CAFETERA'], 
-                        type: 'CAFE', 
-                        number: ackCafeteras + i + 1,
-                        created_at: now.toISOString(),
-                        is_sys: true
-                    })
-                }
-            }
             
             if (reqGalones > ackGalones) {
                 const diff = reqGalones - ackGalones
@@ -354,12 +337,10 @@ export default function BodegaPWA() {
         checkBeverages()
         const int = setInterval(checkBeverages, 60000)
         return () => clearInterval(int)
-    }, [systemStarted, meatData, isMuted])
+    }, [systemStarted, meatData, isMuted, intelligenceAcelerador])
 
     const handleAcknowledgeBeverage = (alert: any) => {
-        if (alert.type === 'CAFE') {
-            localStorage.setItem('teg_cafeteras_ack', alert.number.toString())
-        } else {
+        if (alert.type === 'CHAMP') {
             localStorage.setItem('teg_galones_ack', alert.number.toString())
         }
         setBeverageAlerts(prev => prev.filter(a => a.id !== alert.id))
@@ -652,11 +633,7 @@ export default function BodegaPWA() {
                                                             let unitLab = 'lbs';
                                                             let typeLab = m.meat_type;
                                                             
-                                                            if (m.meat_type === 'CAFE') {
-                                                                val = m.avg_lbs / 4;
-                                                                unitLab = 'cafeteras';
-                                                                typeLab = 'CAFÉ';
-                                                            } else if (m.meat_type === 'CHAMPURRADO') {
+                                                            if (m.meat_type === 'CHAMPURRADO') {
                                                                 val = m.avg_lbs / 20;
                                                                 unitLab = 'porciones';
                                                             } else if (m.meat_type === 'AGUACATE') {
@@ -809,11 +786,7 @@ export default function BodegaPWA() {
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b className="text-orange-400">1 Cafetera (4 vasos):</b> Se asoma <b className="text-white bg-slate-700 px-2 py-0.5 rounded">4 minutos</b> al futuro. Cuando proyecta que se necesitará el <b>75% (3 cafés)</b>, pide <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 CAFETERA</b> extra.</span>
-                                        </li>
-                                        <li className="flex items-start gap-2">
-                                            <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b className="text-orange-400">1 Galón (20 Champurrados):</b> Se asoma <b className="text-white bg-slate-700 px-2 py-0.5 rounded">15 minutos</b> al futuro. Al proyectar matemáticamente <b>15 porciones (75%)</b>, dispara el pedido de <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">1 GALÓN</b> automáticamente.</span>
+                                            <span><b className="text-orange-400">Champurrado (6 horas):</b> La IA suma toda la demanda de las próximas 6 horas de vida del producto. Si requiere 2.2 Galones, pide <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">3 GALONES ENTEROS</b> garantizando abasto sin cocinar decimales imposibles.</span>
                                         </li>
                                     </ul>
                                 </div>
