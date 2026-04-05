@@ -46,6 +46,8 @@ export default function PreparadorLineaPage() {
     const [meatData, setMeatData] = useState<MeatData[]>([])
     const [fetchingMeat, setFetchingMeat] = useState(false)
     const [carouselBuckets, setCarouselBuckets] = useState<{ id: string, label: string, isCurrent: boolean, data: MeatData[] }[]>([])
+    const [intelligenceAcelerador, setIntelligenceAcelerador] = useState(1.0)
+    const [weatherAlert, setWeatherAlert] = useState(false)
     const [activeIndex, setActiveIndex] = useState(0)
 
     // Touch handlers for Carousel
@@ -199,6 +201,27 @@ export default function PreparadorLineaPage() {
         }
         fetchHistory()
     }, [storeId, businessDow])
+
+    // Intelligence Fetcher (Opción 2 - Proyección Dinámica viva)
+    useEffect(() => {
+        if (!storeId) return
+        const fetchIntelligence = async () => {
+            try {
+                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}`)
+                if (res.ok) {
+                    const data = await res.json()
+                    setIntelligenceAcelerador(data.growth_factor || 1.0)
+                    setWeatherAlert(data.weather_adjustment || false)
+                }
+            } catch (err) {
+                console.error("Intelligence error:", err)
+            }
+        }
+        fetchIntelligence()
+        // Reconsultamos al motor cada 30 minutos para ver si aumentó el ritmo o si empezó a llover
+        const int = setInterval(fetchIntelligence, 30 * 60 * 1000)
+        return () => clearInterval(int)
+    }, [storeId])
 
     // Clock Bucket Updater
     useEffect(() => {
@@ -436,8 +459,15 @@ export default function PreparadorLineaPage() {
                         <div className="flex items-center gap-4">
                             <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
                             <div>
-                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg lg:text-2xl">Ritmo de Cocción</h2>
-                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">Promedio histórico esperado</p>
+                                <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg lg:text-2xl flex items-center gap-2">
+                                    Ritmo de Cocción
+                                    {intelligenceAcelerador !== 1.0 && (
+                                        <span className={`text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
+                                            Ritmo {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
+                                        </span>
+                                    )}
+                                </h2>
+                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">Proyección viva (Promedio x Ritmo de hoy)</p>
                             </div>
                         </div>
                         <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 md:px-6 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm ml-2">
@@ -524,9 +554,12 @@ export default function PreparadorLineaPage() {
                                                                 <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 md:mb-2 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
                                                                 <div className="flex flex-col items-center justify-center leading-none">
                                                                     <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-[5.5rem] text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-5xl xl:text-6xl text-slate-800 dark:text-white'}`}>
-                                                                        {m.avg_lbs}
+                                                                        {(m.avg_lbs * intelligenceAcelerador).toFixed(1)}
                                                                     </span>
                                                                     <span className="text-lg md:text-xl font-black text-black dark:text-white tracking-widest lowercase mt-1 xl:mt-2">lbs</span>
+                                                                </div>
+                                                                <div className="mt-1 flex flex-col items-center opacity-80">
+                                                                    <span className="text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider">PROMEDIO: {m.avg_lbs.toFixed(1)}</span>
                                                                 </div>
                                                             </div>
                                                 )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">No hay proyectado</p>}
@@ -737,7 +770,7 @@ export default function PreparadorLineaPage() {
                             initial={{ opacity: 0, scale: 0.95, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 w-full max-w-[95vw] md:max-w-5xl rounded-3xl p-6 md:p-10 shadow-2xl relative z-10 max-h-[95vh] flex flex-col"
+                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 w-[96vw] h-[96vh] rounded-3xl p-6 md:p-10 shadow-2xl relative z-10 flex flex-col"
                         >
                             <button 
                                 onClick={() => setShowInfoModal(false)}
@@ -746,23 +779,23 @@ export default function PreparadorLineaPage() {
                                 <X size={24} />
                             </button>
                             
-                            <h2 className="text-2xl md:text-3xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">
+                            <h2 className="text-3xl md:text-5xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">
                                 Proyección de Carnes
                             </h2>
-                            <p className="text-slate-500 mb-6 md:mb-8 border-b border-slate-200 dark:border-slate-800 pb-4 md:pb-6 text-sm md:text-base shrink-0">
+                            <p className="text-slate-500 mb-6 md:mb-8 border-b border-slate-200 dark:border-slate-800 pb-4 md:pb-6 text-lg md:text-2xl shrink-0">
                                 Cómo la Inteligencia Artificial calcula estas libras históricas para la mesa de línea:
                             </p>
                             
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-slate-600 dark:text-slate-300 overflow-y-auto shrink pb-2">
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8 text-slate-600 dark:text-slate-300 overflow-y-auto shrink pb-2 pr-2">
+                                <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 dark:bg-red-500/10 rounded-full blur-3xl" />
-                                    <h3 className="text-xl md:text-2xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
+                                    <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
                                         🥩 LIBRAS CRUDAS
                                     </h3>
-                                    <p className="mb-5 font-medium">
+                                    <p className="mb-6 font-medium text-lg md:text-2xl">
                                         Para Asada, Pastor, Pollo, Cabeza y Lengua, los números gigantes representan la demanda física proyectada en <b className="text-red-600 dark:text-red-400">Libras Crudas (No Cocidas)</b>.
                                     </p>
-                                    <ul className="list-inside space-y-4 font-medium text-sm md:text-base">
+                                    <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-600 dark:text-emerald-500 mt-1">1.</span> 
                                             <span>El sistema extrae el número de mulitas, tacos, burritos, etc., vendidos a esta hora a lo largo de los años.</span>
@@ -778,15 +811,15 @@ export default function PreparadorLineaPage() {
                                     </ul>
                                 </div>
 
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
+                                <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl" />
-                                    <h3 className="text-xl md:text-2xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
+                                    <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
                                         📅 PROMEDIO HISTÓRICO
                                     </h3>
-                                    <p className="mb-5 font-medium">
+                                    <p className="mb-6 font-medium text-lg md:text-2xl">
                                         ¿De dónde saca la IA estos números que me pide cocinar?
                                     </p>
-                                    <ul className="list-inside space-y-4 font-medium text-sm md:text-base">
+                                    <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
                                             <span>El sistema lee el historial analítico de transacciones de los últimos <b>años</b> de esta misma sucursal.</span>
@@ -801,12 +834,36 @@ export default function PreparadorLineaPage() {
                                         </li>
                                     </ul>
                                 </div>
+                                
+                                <div className="xl:col-span-2 bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 dark:bg-amber-500/10 rounded-full blur-3xl" />
+                                    <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
+                                        ⏱️ RITMO EN VIVO (IA INTRADAY)
+                                    </h3>
+                                    <p className="mb-6 font-medium text-lg md:text-2xl">
+                                        ¿Cómo te protege el algoritmo de un desabasto sorpresivo hoy?
+                                    </p>
+                                    <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
+                                            <span><b>Detección de Picos:</b> Cada 30 minutos, la IA se conecta directamente a Toast para sumar todo el dinero en efectivo y tarjetas que ha entrado a tu caja registradora <b>HOY</b> desde que abriste.</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
+                                            <span><b>El Acelerador:</b> Si la IA detecta que hoy ha entrado un 20% más dinero de lo que "debería" haber entrado a esta hora, concluye que la tienda está sufriendo un pico (por ejemplo, un evento local) y genera un <b>Acelerador (+20%)</b>.</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
+                                            <span><b>Ajuste Automático:</b> Inmediatamente, la tableta multiplicará ese +20% a tus "Libras Crudas" de manera agresiva para exigirte más carne a la plancha, previniendo que se te agote el inventario cocinado en la siguiente media hora.</span>
+                                        </li>
+                                    </ul>
+                                </div>
                             </div>
                             
                             <div className="mt-6 md:mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 shrink-0">
                                 <button 
                                     onClick={() => setShowInfoModal(false)}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-xl tracking-widest py-4 rounded-xl transition-all shadow-lg shadow-blue-500/30"
+                                    className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-2xl tracking-widest py-5 md:py-6 rounded-2xl transition-all shadow-xl shadow-blue-500/30"
                                 >
                                     ¡Comprendido!
                                 </button>
