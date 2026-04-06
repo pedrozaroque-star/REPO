@@ -153,6 +153,9 @@ export default function InventoryOrdersPage() {
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
     
+    const isLynwood = stores.find(s => s.id === storeId)?.name?.toLowerCase().includes('lynwood') ?? false;
+    const IS_CURRENT_WEEK = activeMonday === getMonday(new Date()) && isLynwood;
+    
     // Tabs simulando el Excel
     const [activeTab, setActiveTab] = useState<'BASE' | 'ORDERS'>('BASE')
     
@@ -318,6 +321,7 @@ export default function InventoryOrdersPage() {
             const newCounts = { ...itemCounts };
             delete newCounts[dateStr];
             setCounts({ ...counts, [itemId]: newCounts })
+            await updateDailyLeftover(storeId, itemId, dateStr, null)
             return;
         }
         const numVal = parseFloat(value) || 0;
@@ -342,13 +346,32 @@ export default function InventoryOrdersPage() {
         return '';
     }
 
-    // Color de alerta para el TAB BASE (Sobrante físico) (Formatos 1 y 2)
-    function checkSobranteFormat(par: number, usePercent: number | null, isWeekend: boolean) {
+    // Navegación de grid al estilo Excel
+    function handleGridKeyDown(e: React.KeyboardEvent<HTMLInputElement>, r: number, c: number) {
+        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+            e.preventDefault();
+            const next = document.getElementById(`input_${r + 1}_${c}`);
+            if (next) next.focus();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prev = document.getElementById(`input_${r - 1}_${c}`);
+            if (prev) prev.focus();
+        } else if (e.key === 'ArrowRight') {
+            const next = document.getElementById(`input_${r}_${c + 1}`);
+            if (next) next.focus();
+        } else if (e.key === 'ArrowLeft') {
+            const prev = document.getElementById(`input_${r}_${c - 1}`);
+            if (prev) prev.focus();
+        }
+    }
+
+    // Color de alerta para el TAB BASE (Alerta de uso excesivo/carencia en la Base IDEAL) (Formatos 1 y 2)
+    function checkBaseFormat(par: number, usePercent: number | null, isWeekend: boolean) {
         if (par > 0 && usePercent !== null) {
             if (!isWeekend) {
-                if (par >= 9 && (usePercent < 10 || usePercent > 50)) return 'bg-red-200 text-red-900 border-red-500';
+                if (par >= 9 && (usePercent < 10 || usePercent > 50)) return 'bg-yellow-100 border-yellow-400';
             } else {
-                if (par >= 8 && (usePercent < 10 || usePercent > 30)) return 'bg-red-200 text-red-900 border-red-500';
+                if (par >= 8 && (usePercent < 10 || usePercent > 30)) return 'bg-yellow-100 border-yellow-400';
             }
         }
         return '';
@@ -421,11 +444,11 @@ export default function InventoryOrdersPage() {
                         {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     
-                    <button className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-100 px-3 py-2 rounded-lg font-semibold" onClick={() => setActiveMonday(getMonday(new Date(addDays(activeMonday, -7))))}>
+                    <button className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-100 px-3 py-2 rounded-lg font-semibold" onClick={() => setActiveMonday(addDays(activeMonday, -7))}>
                         <ArrowLeft className="w-4 h-4" /> SEMANA ANT.
                     </button>
                     <span className="font-bold px-2">{activeMonday}</span>
-                    <button className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-100 px-3 py-2 rounded-lg font-semibold" onClick={() => setActiveMonday(getMonday(new Date(addDays(activeMonday, 7))))}>
+                    <button className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-100 px-3 py-2 rounded-lg font-semibold" onClick={() => setActiveMonday(addDays(activeMonday, 7))}>
                         SEMANA SIG. <ArrowRight className="w-4 h-4" />
                     </button>
                     
@@ -512,7 +535,7 @@ export default function InventoryOrdersPage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {EXCEL_ITEMS.map((excelName) => {
+                            {EXCEL_ITEMS.map((excelName, rowIndex) => {
                                 // Buscar si hay algún item de la base de datos vinculado a este nombre
                                 const linkedItem = dbItems.find(i => i.excel_reference === excelName);
                                 
@@ -542,7 +565,7 @@ export default function InventoryOrdersPage() {
                                 // Fila VINCULADA (Renderizar Inputs)
                                 const item = linkedItem;
                                 const b = bases[item.id];
-                                const defaultPars = EXCEL_PARS[excelName] || {};
+                                const defaultPars = isLynwood ? (EXCEL_PARS[excelName] || {}) : {};
                                 
                                 const itemC = counts[item.id] || {};
 
@@ -558,19 +581,34 @@ export default function InventoryOrdersPage() {
                                         {activeTab === 'BASE' && (
                                             <>
                                                 {/* Celdas BASES (Inputs) */}
-                                                {weekDays.map(d => {
+                                                {weekDays.map((d, colIndex) => {
                                                     const exactVal = b ? (b as any)[d.baseField] : undefined;
                                                     const defVal = defaultPars[d.key];
-                                                    const valToDisplay = exactVal !== undefined ? exactVal : defVal;
+                                                    const pVal = exactVal !== undefined ? exactVal : (defVal || 0);
+
+                                                    // Determinar el Sobrante para el formato Alerta
+                                                    const sValExact = itemC[d.dateStr];
+                                                    const sValDef = IS_CURRENT_WEEK ? EXCEL_SOBRANTES[excelName]?.[d.key] : undefined;
+                                                    const currentSobrante = sValExact !== undefined ? sValExact : sValDef;
                                                     
+                                                    let usePercent: number | null = null;
+                                                    if (currentSobrante !== undefined && currentSobrante !== '' && pVal > 0) {
+                                                        usePercent = (Number(currentSobrante) / pVal) * 100;
+                                                    }
+                                                    
+                                                    const isWeekend = ['fri', 'sat', 'sun'].includes(d.key);
+                                                    const alertColor = checkBaseFormat(pVal, usePercent, isWeekend);
+
                                                     return (
-                                                        <td key={`bc_${item.id}_${d.key}`} className="border border-emerald-100 bg-emerald-50/20 p-0">
+                                                        <td key={`bc_${item.id}_${d.key}`} className={`border p-0 ${alertColor ? alertColor : 'border-emerald-100 bg-emerald-50/20'}`}>
                                                             <input 
+                                                                id={`input_${rowIndex}_${colIndex}`}
                                                                 type="number" 
                                                                 placeholder={defVal ? String(defVal) : '-'}
-                                                                className="w-full h-full p-3 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300"
+                                                                className={`w-full h-full p-3 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium ${alertColor ? 'text-yellow-900 font-bold' : 'text-slate-800'} placeholder:text-slate-300`}
                                                                 value={exactVal !== undefined ? exactVal : (defVal || '')} 
                                                                 onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
+                                                                onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
                                                             />
                                                         </td>
                                                     )
@@ -579,36 +617,22 @@ export default function InventoryOrdersPage() {
                                                 <td className="bg-slate-50 border-y"></td>
 
                                                 {/* Celdas SOBRANTE (Inputs) */}
-                                                {weekDays.map(d => {
+                                                {weekDays.map((d, colOffset) => {
                                                     const sVal = itemC[d.dateStr];
-                                                    const defSob = EXCEL_SOBRANTES[excelName]?.[d.key];
-                                                    const currentSobrante = sVal !== undefined ? sVal : defSob;
-                                                    
-                                                    // Determinar Par de Hoy para el formato Alerta
-                                                    const exactVal = b ? (b as any)[d.baseField] : undefined;
-                                                    const defVal = defaultPars[d.key];
-                                                    const pVal = exactVal !== undefined ? exactVal : (defVal || 0);
-
-                                                    let usePercent: number | null = null;
-                                                    if (currentSobrante !== undefined && currentSobrante !== '' && pVal > 0) {
-                                                        const numSob = Number(currentSobrante);
-                                                        // "Use" = Base - Sobrante según la lógica de % del Excel de la fila Use
-                                                        usePercent = (numSob / pVal) * 100;
-                                                    }
-
-                                                    const isWeekend = ['fri', 'sat', 'sun'].includes(d.key);
-                                                    const alertColor = checkSobranteFormat(pVal, usePercent, isWeekend);
-
+                                                    const defSob = IS_CURRENT_WEEK ? EXCEL_SOBRANTES[excelName]?.[d.key] : undefined;
                                                     const displayVal = sVal !== undefined ? (sVal !== null ? sVal : '') : (defSob !== undefined ? defSob : '');
+                                                    const colIndex = 7 + colOffset;
 
                                                     return (
-                                                        <td key={`sc_${item.id}_${d.key}`} className={`border border-orange-100 bg-orange-50/20 p-0 ${alertColor}`}>
+                                                        <td key={`sc_${item.id}_${d.key}`} className="border border-orange-100 bg-orange-50/20 p-0">
                                                             <input 
+                                                                id={`input_${rowIndex}_${colIndex}`}
                                                                 type="number" 
                                                                 placeholder="-" 
-                                                                className={`w-full h-full p-3 text-center outline-none bg-transparent focus:bg-white font-bold focus:ring-2 focus:ring-orange-400 placeholder:font-medium placeholder:text-orange-900/30 ${alertColor ? '!text-red-900' : 'text-orange-900'}`}
+                                                                className="w-full h-full p-3 text-center outline-none bg-transparent focus:bg-white font-bold focus:ring-2 focus:ring-orange-400 placeholder:font-medium placeholder:text-orange-900/30 text-orange-900"
                                                                 value={displayVal} 
                                                                 onChange={e => handleCountChange(item.id, d.dateStr, e.target.value)}
+                                                                onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
                                                             />
                                                         </td>
                                                     )
@@ -621,7 +645,7 @@ export default function InventoryOrdersPage() {
                                                 {/* Celdas ORDERS (Calculadas y Coloreadas) */}
                                                 {weekDays.map((d, i) => {
                                                     const exactSobrante = itemC[d.dateStr];
-                                                    const defSobrante = EXCEL_SOBRANTES[excelName]?.[d.key];
+                                                    const defSobrante = IS_CURRENT_WEEK ? EXCEL_SOBRANTES[excelName]?.[d.key] : undefined;
                                                     const currentSobrante = exactSobrante !== undefined ? exactSobrante : defSobrante;
 
                                                     let nextBaseVal = 0;

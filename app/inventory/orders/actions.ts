@@ -103,8 +103,18 @@ export async function updateWeeklyBase(storeId: number | string, itemId: string,
     if (error) console.error("Error update base", error);
 }
 
-// Guardar o actualizar Sobrante Diario
-export async function updateDailyLeftover(storeId: string, itemId: string, dateStr: string, value: number) {
+// Guardar, actualizar, o borrar Sobrante Diario
+export async function updateDailyLeftover(storeId: string | number, itemId: string, dateStr: string, value: number | null) {
+    if (value === null) {
+        // Borrar el registro si el usuario vacía la celda
+        const { error } = await supabase
+            .from('inventory_counts')
+            .delete()
+            .match({ store_id: storeId, inventory_item_id: itemId, count_date: dateStr });
+        if (error) console.error("Error deleting count", error);
+        return;
+    }
+
     const { error } = await supabase
         .from('inventory_counts')
         .upsert({
