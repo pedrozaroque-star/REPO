@@ -178,12 +178,15 @@ export async function GET(request: Request) {
                         order.checks.forEach((check: any) => {
                             if (check.voided || !check.selections) return
                             
-                            const processSel = (sel: any) => {
+                            const processSel = (sel: any, parentQty: number = 1) => {
                                 if (sel.voided) return
+                                const currentQty = Number(sel.quantity || 1)
+                                const effectiveQty = currentQty * parentQty
+                                
                                 const guid = sel.item?.guid
                                 if (guid && recipeLookup.has(guid)) {
                                     const rData = recipeLookup.get(guid)
-                                    const soldQty = Number(sel.quantity || 1)
+                                    const soldQty = effectiveQty
                                     const portionQty = Number(rData.quantity || 0)
                                     const unit = rData.unit
                                     const yieldPct = Number(rData.yield_percent || 100) / 100
@@ -205,11 +208,11 @@ export async function GET(request: Request) {
                                 }
                                 
                                 if (sel.modifiers && Array.isArray(sel.modifiers)) {
-                                    sel.modifiers.forEach((m: any) => processSel(m))
+                                    sel.modifiers.forEach((m: any) => processSel(m, effectiveQty))
                                 }
                             }
                             
-                            check.selections.forEach((sel: any) => processSel(sel))
+                            check.selections.forEach((sel: any) => processSel(sel, 1))
                         })
                     }
                 })

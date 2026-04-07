@@ -49,13 +49,13 @@ export async function POST(request: NextRequest) {
                 // Store the daily total
                 projections[dateStr] = Math.round(forecast.total_sales)
 
-                // Store metadata for debugging/transparency
+                // Store metadata and HOURLY details for the heatmap
                 meta.dailyDetails.push({
                     date: dateStr,
                     total_sales: forecast.total_sales,
                     growth_factor: forecast.growth_factor_applied,
                     weather_adjusted: forecast.weather_adjustment || false,
-                    hourly_breakdown: forecast.hours?.length || 0
+                    hourly_breakdown: forecast.hours || []
                 })
 
                 console.log(`  ✅ ${dateStr}: $${Math.round(forecast.total_sales).toLocaleString()} (growth: ${forecast.growth_factor_applied.toFixed(2)})`)

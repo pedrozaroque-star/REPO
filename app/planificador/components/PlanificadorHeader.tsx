@@ -1,9 +1,10 @@
 
-import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders } from 'lucide-react'
+import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { WeekSelector } from './WeekSelector'
 import { formatStoreName } from '../lib/utils'
 import { useLanguage } from '@/lib/i18n'
+import Link from 'next/link'
 
 export function PlanificadorHeader({
     selectedStoreId,
@@ -53,6 +54,14 @@ export function PlanificadorHeader({
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-4">
+                    <Link 
+                        href={`/descansos?store=${selectedStoreId}&date=${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`} 
+                        className="hidden md:flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white rounded-lg text-xs font-black shadow-md transition-transform hover:scale-105 active:scale-95"
+                    >
+                        <Coffee size={16} />
+                        <span className="drop-shadow-sm">AI Breaks</span>
+                    </Link>
+                    
                     <div className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold uppercase">
                         <Clock size={14} />
                         <span>

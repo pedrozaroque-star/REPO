@@ -202,6 +202,16 @@ export async function POST(req: Request) {
                     const start = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
                     const end = endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
 
+                    let breaksHtml = '';
+                    if (s.breaks_schedule && Array.isArray(s.breaks_schedule) && s.breaks_schedule.length > 0) {
+                        breaksHtml = s.breaks_schedule.map((b: any) => {
+                            const bTime = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' });
+                            const bName = b.type === 'meal_30' ? 'Almuerzo (30m)' : 'Descanso (10m)';
+                            const bColor = b.type === 'meal_30' ? '#d97706' : '#059669';
+                            return `<div style="font-size: 12px; color: ${bColor}; margin-top: 4px;">☕ ${bName}: ${bTime}</div>`
+                        }).join('');
+                    }
+
                     return `
                         <tr>
                             <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #4f46e5; text-transform: capitalize;">
@@ -210,7 +220,8 @@ export async function POST(req: Request) {
                                 <span style="font-size: 12px; color: #6b7280; text-transform: uppercase; margin-left: 4px;">${month}</span>
                             </td>
                             <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 16px; font-weight: 600; color: #1f2937;">
-                                ${start} - ${end}
+                                <div>${start} - ${end}</div>
+                                ${breaksHtml}
                             </td>
                         </tr>
                     `

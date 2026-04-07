@@ -184,7 +184,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             }
 
             // Recursive processor for Selections AND Modifiers
-            const processSelection = (sel: any, parentGroupName?: string, checkId?: string) => {
+            const processSelection = (sel: any, parentGroupName?: string, checkId?: string, parentQty: number = 1) => {
                 if (sel.voided) return
 
                 const guid = sel.item?.guid
@@ -206,7 +206,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                     }
                 }
 
-                const qty = Number(sel.quantity || 1)
+                const currentQty = Number(sel.quantity || 1)
+                const qty = currentQty * parentQty
 
                 let rawPrice = Number(sel.price || 0)
                 let rawTax = Number(sel.tax || 0)
@@ -231,7 +232,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
                         // Collect GUIDs if bundling
                         if (bundleModifiers && mod.item?.guid) {
-                            const modQty = Math.max(1, Number(mod.quantity || qty))
+                            const modBaseQty = Number(mod.quantity || 1)
+                            const modQty = modBaseQty * qty
                             for (let i = 0; i < modQty; i++) {
                                 modGuids.push(mod.item.guid)
                             }
@@ -305,7 +307,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
                 // Recurse ONLY if NOT bundling
                 if (!bundleModifiers && sel.modifiers && Array.isArray(sel.modifiers)) {
-                    sel.modifiers.forEach((mod: any) => processSelection(mod, groupName, checkId))
+                    sel.modifiers.forEach((mod: any) => processSelection(mod, groupName, checkId, qty))
                 }
             }
 
@@ -323,7 +325,7 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
                     order.checks.forEach((check: any) => {
                         if (check.voided) return
                         if (check.selections) {
-                            check.selections.forEach((sel: any) => processSelection(sel, orderDO, check.guid))
+                            check.selections.forEach((sel: any) => processSelection(sel, orderDO, check.guid, 1))
                         }
                     })
                 }
