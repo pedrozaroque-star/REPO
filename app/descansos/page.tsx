@@ -574,7 +574,8 @@ export default function DescansosPage() {
                                                     return (
                                                         <div 
                                                             key={`plan-${idx}`}
-                                                            className={`absolute top-0 bottom-0 rounded border group/break cursor-pointer transition-transform hover:scale-105 ${
+                                                            tabIndex={0}
+                                                            className={`absolute top-0 bottom-0 rounded border group/break cursor-pointer transition-transform hover:scale-105 active:scale-105 focus:outline-none ${
                                                                 isMeal 
                                                                     ? 'bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]' 
                                                                     : 'bg-emerald-500 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
@@ -584,7 +585,7 @@ export default function DescansosPage() {
                                                                 width: `${relativeWidth}%`,
                                                             }}
                                                         >
-                                                            <div className="opacity-0 group-hover/break:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap shadow-lg pointer-events-none z-50">
+                                                            <div className="opacity-0 group-hover/break:opacity-100 group-focus/break:opacity-100 group-active/break:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
                                                                 {isMeal ? 'Almuerzo Planeado' : 'Descanso Planeado'}<br/>
                                                                 {new Date(b.start_time).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})}
                                                             </div>
@@ -621,13 +622,14 @@ export default function DescansosPage() {
                                                     return (
                                                          <div 
                                                             key={`real-${idx}`}
-                                                            className={`absolute top-0 bottom-0 rounded border border-cyan-400 group/rbreak cursor-help ${isRealMeal ? 'bg-cyan-500' : 'bg-teal-400'}`}
+                                                            tabIndex={0}
+                                                            className={`absolute top-0 bottom-0 rounded border border-cyan-400 group/rbreak cursor-help focus:outline-none ${isRealMeal ? 'bg-cyan-500' : 'bg-teal-400'}`}
                                                             style={{ 
                                                                 left: `${relativeLeft}%`, 
                                                                 width: `${relativeWidth}%`,
                                                             }}
                                                         >
-                                                            <div className="opacity-0 group-hover/rbreak:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-cyan-300 text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap shadow-lg pointer-events-none z-50">
+                                                            <div className="opacity-0 group-hover/rbreak:opacity-100 group-focus/rbreak:opacity-100 group-active/rbreak:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-cyan-300 text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
                                                                 {isRealMeal ? 'Lunch Real' : 'Break Real'}: {durationMins.toFixed(0)} min<br/>
                                                                 {new Date(rb.inDate).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})}
                                                             </div>
