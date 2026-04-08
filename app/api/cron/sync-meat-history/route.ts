@@ -78,7 +78,7 @@ export async function GET(request: Request) {
             return targetProteins.some(p => name.includes(p)) && !name.includes('SALSA')
         })
         
-        const recipeLookup = new Map<string, any>()
+        const recipeLookup = new Map<string, any[]>()
         const itemLookup = new Map<string, any>()
         
         meatItems.forEach(i => itemLookup.set(i.id, i))
@@ -90,22 +90,26 @@ export async function GET(request: Request) {
                 targetProteins.forEach(tp => {
                     if (iData.name.toUpperCase().includes(tp)) meatType = tp
                 })
-                recipeLookup.set(r.toast_menu_item_guid, { ...r, yield_percent: iData.yield_percent || 100, meat_type: meatType })
+                const list = recipeLookup.get(r.toast_menu_item_guid) || []
+                list.push({ ...r, yield_percent: iData.yield_percent || 100, meat_type: meatType })
+                recipeLookup.set(r.toast_menu_item_guid, list)
             }
         })
 
-        // Calcular día anterior (ayer)
+        // Regla Gavilán: El día cierra a las 6:00 AM (LA Time)
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        laNow.setDate(laNow.getDate() - 1) // yesterday
+        if (laNow.getHours() < 6) { laNow.setDate(laNow.getDate() - 1) }
         
-        const y = laNow.getFullYear()
-        const m = String(laNow.getMonth() + 1).padStart(2, '0')
-        const day = String(laNow.getDate()).padStart(2, '0')
-        const dateStr = `${y}-${m}-${day}`
-        const businessDate = dateStr.replace(/-/g, '')
+        const laYesterday = new Date(laNow)
+        laYesterday.setDate(laYesterday.getDate() - 1)
         
-        console.log(`📅 [CRON] Procesando fecha: ${dateStr}`)
+        const formatLA = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        const dateStrYest = formatLA(laYesterday)
+        const dateStrToday = formatLA(laNow)
+        
+        const targetDates = [dateStrYest, dateStrToday]
+        console.log(`📅 [CRON] Procesando intraday... Fechas: ${targetDates.join(', ')}`)
 
         const results: any[] = []
 
@@ -114,22 +118,25 @@ export async function GET(request: Request) {
         const processStore = async (store: any) => {
             if (!store.external_id) return
             
-            await supabase.from('meat_consumption_history')
-                .delete()
-                .eq('business_date', dateStr)
-                .eq('store_id', store.id);
+            for (const targetDateStr of targetDates) {
+                const businessDate = targetDateStr.replace(/-/g, '')
+                
+                await supabase.from('meat_consumption_history')
+                    .delete()
+                    .eq('business_date', targetDateStr)
+                    .eq('store_id', store.id);
 
-            const buckets = new Map<string, number>()
-            
-            let page = 1
-            let hasMore = true
-            let maxRetries = 5
-            
-            while (hasMore) {
-                if (Date.now() - tokenTime > 1000 * 60 * 45) {
-                    token = await getToastToken()
-                    tokenTime = Date.now()
-                }
+                const buckets = new Map<string, number>()
+                
+                let page = 1
+                let hasMore = true
+                let maxRetries = 5
+                
+                while (hasMore) {
+                    if (Date.now() - tokenTime > 1000 * 60 * 45) {
+                        token = await getToastToken()
+                        tokenTime = Date.now()
+                    }
 
                 let res;
                 try {
@@ -185,25 +192,28 @@ export async function GET(request: Request) {
                                 
                                 const guid = sel.item?.guid
                                 if (guid && recipeLookup.has(guid)) {
-                                    const rData = recipeLookup.get(guid)
+                                    const rDataList = recipeLookup.get(guid)!
                                     const soldQty = effectiveQty
-                                    const portionQty = Number(rData.quantity || 0)
-                                    const unit = rData.unit
-                                    const yieldPct = Number(rData.yield_percent || 100) / 100
                                     
-                                    let lbs = 0
-                                    let total = soldQty * portionQty
-                                    if (unit === 'oz') lbs = total / 16
-                                    else if (unit === 'lb') lbs = total
-                                    else if (unit === 'g') lbs = total * 0.00220462
-                                    else if (unit === 'kg') lbs = total * 2.20462
-                                    else if (rData.meat_type === 'CAFE' || rData.meat_type === 'CHAMPURRADO') lbs = total
-                                    
-                                    const rawLbs = lbs / yieldPct
-                                    
-                                    if (rawLbs > 0) {
-                                        const bKey = `${bucketTime}_${rData.meat_type}`
-                                        buckets.set(bKey, (buckets.get(bKey) || 0) + rawLbs)
+                                    for (const rData of rDataList) {
+                                        const portionQty = Number(rData.quantity || 0)
+                                        const unit = rData.unit
+                                        const yieldPct = Number(rData.yield_percent || 100) / 100
+                                        
+                                        let lbs = 0
+                                        let total = soldQty * portionQty
+                                        if (unit === 'oz') lbs = total / 16
+                                        else if (unit === 'lb') lbs = total
+                                        else if (unit === 'g') lbs = total * 0.00220462
+                                        else if (unit === 'kg') lbs = total * 2.20462
+                                        else if (rData.meat_type === 'CAFE' || rData.meat_type === 'CHAMPURRADO') lbs = total
+                                        
+                                        const rawLbs = lbs / yieldPct
+                                        
+                                        if (rawLbs > 0) {
+                                            const bKey = `${bucketTime}_${rData.meat_type}`
+                                            buckets.set(bKey, (buckets.get(bKey) || 0) + rawLbs)
+                                        }
                                     }
                                 }
                                 
@@ -219,14 +229,14 @@ export async function GET(request: Request) {
                 
                 if (entries.length < 100) hasMore = false
                 else page++
-            }
+            } // End of Pagination While Loop
             
             const inserts = []
             for (const [key, raw_lbs] of buckets.entries()) {
                 const [interval_start, meat_type] = key.split('_')
                 inserts.push({
                     store_id: store.id,
-                    business_date: dateStr,
+                    business_date: targetDateStr,
                     interval_start: interval_start,
                     meat_type: meat_type,
                     raw_lbs: raw_lbs
@@ -238,6 +248,7 @@ export async function GET(request: Request) {
                 if (error) console.error("Error inserting:", error.message)
                 else results.push({ store: store.name, rows: inserts.length })
             }
+        } // End of For targetDates Loop
         }
 
         const promises = []
@@ -258,7 +269,7 @@ export async function GET(request: Request) {
         await Promise.all(promises)
 
         console.log("✅ [CRON] Terminado.")
-        return NextResponse.json({ success: true, processed_date: dateStr, details: results })
+        return NextResponse.json({ success: true, processed_dates: targetDates, details: results })
 
     } catch (error: any) {
         console.error(`💥 [CRON] Error crítico total:`, error)

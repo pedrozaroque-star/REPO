@@ -156,10 +156,20 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
 
             const hour = bStart.getHours();
             const salesScore = hourScores.get(hour) ?? 1.0;
-            const isPeak = salesScore >= 0.75;
             
-            // Peak penalty is massive (+15,000) so it avoids peak completely.
-            const peakPenalty = isPeak ? 15000 : (salesScore * 100);
+            // Penalización exponencial del Pico de Ventas para que distinga entre "Ocupado" y "Tsunami"
+            let peakPenalty = 0;
+            if (salesScore >= 0.95) {
+                peakPenalty = 500000; // MAX PICO: Prohibido si hay alternativa.
+            } else if (salesScore >= 0.85) {
+                peakPenalty = 100000; // PICO ALTO: Muy doloroso.
+            } else if (salesScore >= 0.75) {
+                peakPenalty = 20000;  // RUSH: Incómodo pero aceptable si la alternativa es empalmar a 2 cajeras.
+            } else if (salesScore >= 0.50) {
+                peakPenalty = 5000;   // ALTO VOLUMEN.
+            } else {
+                peakPenalty = salesScore * 1000; // Normal
+            }
             
             const score = overlapPenalty + peakPenalty;
 
@@ -186,8 +196,8 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         mealsToSchedule.forEach((meal, mealIndex) => {
             // California Law enforced explicitly by user rules:
             // "1 hour after starting" -> 1.0
-            // "Before 6 hours worked" -> 5.8
-            const mealDeadlineHourOffset = mealIndex === 0 ? 5.8 : 9.9;
+            // "Before 5 hours worked" -> 4.9 (Must start before 5th hour completes)
+            const mealDeadlineHourOffset = mealIndex === 0 ? 4.9 : 9.9;
             const windowStart = new Date(start.getTime() + (mealIndex === 0 ? 1.0 : 6) * 3600000); 
             let windowEnd = new Date(start.getTime() + mealDeadlineHourOffset * 3600000);
             if (windowEnd > end) windowEnd = end;

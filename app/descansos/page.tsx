@@ -450,19 +450,43 @@ export default function DescansosPage() {
                                 // Escala de opacidad basada en el volumen (0.0 a 1.0)
                                 const intensity = sales / maxSales;
                                 const isPeak = intensity >= 0.75; // Pico es cuando llega al 75% o más del volumen max
+                                // Escala termal multi-nivel para diferenciar exactamente la fuerza del RUSH
+                                let bgColor = 'transparent';
+                                let peakLabel = null;
+                                let labelColor = '';
+
+                                if (intensity >= 0.95) {
+                                    // MAXIMO PICO (Fuego/Rojo Oscuro)
+                                    bgColor = `rgba(220, 38, 38, 0.35)`; 
+                                    peakLabel = 'MAX';
+                                    labelColor = 'text-red-700';
+                                } else if (intensity >= 0.85) {
+                                    // PICO ALTO (Rojo Intenso)
+                                    bgColor = `rgba(239, 68, 68, 0.20)`;
+                                    peakLabel = 'PICO';
+                                    labelColor = 'text-red-500';
+                                } else if (intensity >= 0.75) {
+                                    // PICO MODERADO (Naranja ardiente)
+                                    bgColor = `rgba(249, 115, 22, 0.20)`;
+                                    peakLabel = 'RUSH';
+                                    labelColor = 'text-orange-600';
+                                } else if (intensity >= 0.50) {
+                                    // ALTO VOLUMEN (Ambar solido - no es regla legal de pico, pero se calienta)
+                                    bgColor = `rgba(251, 191, 36, 0.20)`;
+                                } else if (intensity > 0.05) {
+                                    // FLUJO NORMAL (Amarillo muy suave)
+                                    bgColor = `rgba(253, 230, 138, 0.15)`;
+                                }
 
                                 return (
                                     <div 
                                         key={i} 
                                         className="flex-1 h-full border-r border-slate-200/60 relative transition-colors duration-700"
-                                        style={{ 
-                                            // Si hay volumen, pintamos toda la columna ambar escalando la opacidad, si es casi cero se queda transparente
-                                            backgroundColor: intensity > 0.05 ? `rgba(251, 191, 36, ${intensity * 0.45})` : 'transparent' 
-                                        }}
+                                        style={{ backgroundColor: bgColor }}
                                     >
-                                        {isPeak && (
-                                            <div className="absolute top-0 w-full text-center text-amber-600 font-extrabold text-[9px] uppercase tracking-widest pt-2 drop-shadow-sm/50">
-                                                PICO
+                                        {peakLabel && (
+                                            <div className={`absolute top-0 w-full text-center font-extrabold text-[10px] uppercase tracking-widest pt-2.5 drop-shadow-sm/50 ${labelColor}`}>
+                                                {peakLabel}
                                             </div>
                                         )}
                                     </div>

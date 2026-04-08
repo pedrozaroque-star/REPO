@@ -34,7 +34,7 @@
         },
         {
             "path": "/api/cron/sync-meat-history",
-            "schedule": "0 13 * * *"
+            "schedule": "*/30 * * * *"
         }
     ]
 }

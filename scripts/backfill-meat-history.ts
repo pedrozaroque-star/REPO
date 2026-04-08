@@ -77,7 +77,7 @@ async function run() {
         return targetProteins.some(p => name.includes(p)) && !name.includes('SALSA')
     })
     
-    const recipeLookup = new Map<string, any>() // Toast GUID -> Recipe Data
+    const recipeLookup = new Map<string, any[]>() // Toast GUID -> Array of Recipes
     const itemLookup = new Map<string, any>() // DB Inv ID -> Inv Data
     
     meatItems.forEach(i => itemLookup.set(i.id, i))
@@ -90,7 +90,9 @@ async function run() {
             targetProteins.forEach(tp => {
                 if (iData.name.toUpperCase().includes(tp)) meatType = tp
             })
-            recipeLookup.set(r.toast_menu_item_guid, { ...r, yield_percent: iData.yield_percent || 100, meat_type: meatType })
+            const list = recipeLookup.get(r.toast_menu_item_guid) || []
+            list.push({ ...r, yield_percent: iData.yield_percent || 100, meat_type: meatType })
+            recipeLookup.set(r.toast_menu_item_guid, list)
         }
     })
 
@@ -114,11 +116,17 @@ async function run() {
     const processStore = async (store: any, dateStr: string, businessDate: string) => {
         if (!store.external_id) return
         
-        // Regla Cero Diferencias: Borrar Data Previa por Fecha/Store
-        await supabase.from('meat_consumption_history')
-            .delete()
+        // Reglas de Reanudación: No re-procesar lo que ya existe
+        const { count } = await supabase.from('meat_consumption_history')
+            .select('*', { count: 'exact', head: true })
             .eq('business_date', dateStr)
             .eq('store_id', store.id);
+            
+        if (count && count > 0) {
+            // Ya existe historial guardado para esta tienda en este día, lo saltamos
+            process.stdout.write(` ⏭️ `)
+            return;
+        }
 
         const buckets = new Map<string, number>()
         
@@ -198,25 +206,28 @@ async function run() {
                                 
                                 const guid = sel.item?.guid
                                 if (guid && recipeLookup.has(guid)) {
-                                    const rData = recipeLookup.get(guid)
+                                    const rDataList = recipeLookup.get(guid)!
                                     const soldQty = effectiveQty
-                                    const portionQty = Number(rData.quantity || 0)
-                                    const unit = rData.unit
-                                    const yieldPct = Number(rData.yield_percent || 100) / 100
                                     
-                                    let lbs = 0
-                                    let total = soldQty * portionQty
-                                    if (unit === 'oz') lbs = total / 16
-                                    else if (unit === 'lb') lbs = total
-                                    else if (unit === 'g') lbs = total * 0.00220462
-                                    else if (unit === 'kg') lbs = total * 2.20462
-                                    else if (rData.meat_type === 'CAFE' || rData.meat_type === 'CHAMPURRADO') lbs = total
-                                    
-                                    const rawLbs = lbs / yieldPct
-                                    
-                                    if (rawLbs > 0) {
-                                        const bKey = `${bucketTime}_${rData.meat_type}`
-                                        buckets.set(bKey, (buckets.get(bKey) || 0) + rawLbs)
+                                    for (const rData of rDataList) {
+                                        const portionQty = Number(rData.quantity || 0)
+                                        const unit = rData.unit
+                                        const yieldPct = Number(rData.yield_percent || 100) / 100
+                                        
+                                        let lbs = 0
+                                        let total = soldQty * portionQty
+                                        if (unit === 'oz') lbs = total / 16
+                                        else if (unit === 'lb') lbs = total
+                                        else if (unit === 'g') lbs = total * 0.00220462
+                                        else if (unit === 'kg') lbs = total * 2.20462
+                                        else if (rData.meat_type === 'CAFE' || rData.meat_type === 'CHAMPURRADO') lbs = total
+                                        
+                                        const rawLbs = lbs / yieldPct
+                                        
+                                        if (rawLbs > 0) {
+                                            const bKey = `${bucketTime}_${rData.meat_type}`
+                                            buckets.set(bKey, (buckets.get(bKey) || 0) + rawLbs)
+                                        }
                                     }
                                 }
                                 
