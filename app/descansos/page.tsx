@@ -497,7 +497,7 @@ export default function DescansosPage() {
 
                     {/* Timeline Headers */}
                     <div className="flex border-b border-slate-200 bg-slate-50 relative sticky top-[180px] md:top-[65px] z-30 shadow-sm rounded-t-xl">
-                        <div className="w-48 shrink-0 border-r border-slate-200 p-3 text-xs font-black text-slate-500 uppercase tracking-wider flex items-center bg-slate-50 rounded-tl-xl">
+                        <div className="w-64 shrink-0 border-r border-slate-200 p-3 text-sm font-black text-slate-500 uppercase tracking-wider flex items-center bg-slate-50 rounded-tl-xl">
                             Empleado
                         </div>
                         <div className="flex-1 relative h-10 bg-slate-50 rounded-tr-xl">
@@ -507,7 +507,7 @@ export default function DescansosPage() {
                                     className="absolute top-0 bottom-0 border-l border-slate-200 flex items-center px-1"
                                     style={{ left: `${(i / TOTAL_HOURS) * 100}%` }}
                                 >
-                                    <span className="text-[10px] text-slate-500 font-bold whitespace-nowrap">
+                                    <span className="text-[13px] text-slate-500 font-bold whitespace-nowrap drop-shadow-sm">
                                         {formatHour(START_HOUR + i)}
                                     </span>
                                 </div>
@@ -528,19 +528,19 @@ export default function DescansosPage() {
                             
                             return (
                                 <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group">
-                                    <div className="w-48 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
-                                        <div className="text-sm font-bold text-slate-800 truncate">
+                                    <div className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
+                                        <div className="text-lg leading-tight font-black text-slate-800 truncate">
                                             {emp.first_name} {emp.last_name}
                                         </div>
                                         {isOff ? (
-                                            <div className="text-[10px] text-slate-400 font-bold mt-0.5">DÍA LIBRE (OFF)</div>
+                                            <div className="text-sm text-slate-400 font-bold mt-0.5">DÍA LIBRE (OFF)</div>
                                         ) : (
-                                            <div className="text-[10px] text-slate-500 font-medium">
+                                            <div className="text-sm text-slate-600 font-bold mt-1">
                                                 {new Date(shift.start_time).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})} - {new Date(shift.end_time).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
                                             </div>
                                         )}
                                         {showRealPunches && empPunch && (
-                                            <div className="text-[9px] text-cyan-600 mt-1 uppercase font-bold">
+                                            <div className="text-xs text-cyan-600 mt-1 uppercase font-bold">
                                                 Toast: {new Date(empPunch.clock_in).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
                                             </div>
                                         )}
@@ -585,7 +585,7 @@ export default function DescansosPage() {
                                                                 width: `${relativeWidth}%`,
                                                             }}
                                                         >
-                                                            <div className="opacity-0 group-hover/break:opacity-100 group-focus/break:opacity-100 group-active/break:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
+                                                            <div className="opacity-0 group-hover/break:opacity-100 group-focus/break:opacity-100 group-active/break:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[14px] font-bold px-3 py-1.5 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
                                                                 {isMeal ? 'Almuerzo Planeado' : 'Descanso Planeado'}<br/>
                                                                 {new Date(b.start_time).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})}
                                                             </div>
@@ -629,7 +629,7 @@ export default function DescansosPage() {
                                                                 width: `${relativeWidth}%`,
                                                             }}
                                                         >
-                                                            <div className="opacity-0 group-hover/rbreak:opacity-100 group-focus/rbreak:opacity-100 group-active/rbreak:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-cyan-300 text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
+                                                            <div className="opacity-0 group-hover/rbreak:opacity-100 group-focus/rbreak:opacity-100 group-active/rbreak:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-cyan-300 text-[14px] font-bold px-3 py-1.5 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
                                                                 {isRealMeal ? 'Lunch Real' : 'Break Real'}: {durationMins.toFixed(0)} min<br/>
                                                                 {new Date(rb.inDate).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})}
                                                             </div>
