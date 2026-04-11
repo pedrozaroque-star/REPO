@@ -57,6 +57,7 @@ export default function DescansosPage() {
     const [punches, setPunches] = useState<any[]>([]) 
     const [operatingHours, setOperatingHours] = useState<any[]>([])
     const [smartShifts, setSmartShifts] = useState<Shift[]>([])
+    const [allJobs, setAllJobs] = useState<Job[]>([])
 
     const [showRealPunches, setShowRealPunches] = useState(false)
     const [isRefreshingToast, setIsRefreshingToast] = useState(false)
@@ -159,6 +160,7 @@ export default function DescansosPage() {
 
         const allEmpData = allEmpDataRaw as Employee[] || []
         const jobs = jobsDataRaw as Job[] || []
+        setAllJobs(jobs)
         const weekShifts = weekShiftsData as Shift[] || []
 
         // 3. Reconstruir la lista exacta de empleados activos que usa el planificador (useVisibleEmployees)
@@ -272,8 +274,32 @@ export default function DescansosPage() {
             setOperatingHours(hoursToDraw)
             
             if (todayRawShifts) {
+                // Inyectar contexto de Liderazgo para el algoritmo de Escudo Operativo (Líderes sacrifican su horario para salvar al equipo)
+                const shiftsForAi = todayRawShifts.map(s => {
+                    const emp = allEmpData.find(e => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
+                    
+                    // Unificar Job Title: La UI pinta el título del employee_profile, la IA debe leer el mismo
+                    let extTitle = '';
+                    if (emp && emp.job_references && emp.job_references.length > 0) {
+                        const jobRef = emp.job_references[0];
+                        const job = jobs.find(j => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
+                        if (job) extTitle = job.title;
+                    }
+                    if (!extTitle) {
+                        const shiftJob = jobs.find(j => j.guid === s.job_id || String(j.id) === String(s.job_id));
+                        if (shiftJob) extTitle = shiftJob.title;
+                    }
+                    
+                    const titleLowerCase = extTitle.toLowerCase();
+                    const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
+                    
+                    // Fallback ultra-seguro: Si el job_id falla, buscamos nombres clave o títulos en el nombre para garantizar que los Asistentes nunca se degraden a Cocineros de 9 horas.
+                    const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
+                    return { ...s, is_leader: isLeader, job_title: extTitle };
+                });
+
                 // Generar 100% en vivo con la IA (Ignora el sobre-escrito en DB y usa la proyección más nueva)
-                const augmented = scheduleBreaksWithDemand(todayRawShifts, hoursToDraw);
+                const augmented = scheduleBreaksWithDemand(shiftsForAi, hoursToDraw);
                 setSmartShifts(augmented as Shift[]);
 
                 // Autoguardar silenciosamente si la IA detecta una mejor optimización que la existente
@@ -295,7 +321,24 @@ export default function DescansosPage() {
         } catch (e) {
             console.error("Error generating forecast:", e)
             if (todayRawShifts) {
-                 const augmented = scheduleBreaksWithDemand(todayRawShifts, [])
+                 const shiftsForAi = todayRawShifts.map(s => {
+                    const emp = allEmpData.find(e => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
+                    let extTitle = '';
+                    if (emp && emp.job_references && emp.job_references.length > 0) {
+                        const jobRef = emp.job_references[0];
+                        const job = jobs.find(j => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
+                        if (job) extTitle = job.title;
+                    }
+                    if (!extTitle) {
+                        const shiftJob = jobs.find(j => j.guid === s.job_id || String(j.id) === String(s.job_id));
+                        if (shiftJob) extTitle = shiftJob.title;
+                    }
+                    const titleLowerCase = extTitle.toLowerCase();
+                    const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
+                    const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
+                    return { ...s, is_leader: isLeader, job_title: extTitle };
+                 });
+                 const augmented = scheduleBreaksWithDemand(shiftsForAi, [])
                  setSmartShifts(augmented as Shift[])
             }
         }
@@ -307,7 +350,7 @@ export default function DescansosPage() {
     }, [storeGuid, dateStr])
 
     const START_HOUR = 6 // 6 AM
-    const END_HOUR = 28  // 4 AM Next Day
+    const END_HOUR = 30  // 6 AM Next Day (cubre turnos hasta 5:59 AM, fin de día laboral)
     const TOTAL_HOURS = END_HOUR - START_HOUR
 
     const getTimelinePosition = (isoTimeString: string) => {
@@ -428,7 +471,7 @@ export default function DescansosPage() {
                     
                     {/* Operating Hours Background Chart (HEATMAP) */}
                     {(
-                        <div className="absolute top-10 bottom-0 left-48 right-0 z-[5] flex pointer-events-none overflow-hidden rounded-br-xl">
+                        <div className="absolute top-10 bottom-0 left-64 right-0 z-[5] pointer-events-none overflow-hidden rounded-br-xl">
                             {Array.from({ length: TOTAL_HOURS }).map((_, i) => {
                                 const h = START_HOUR + i;
                                 const hData = operatingHours?.find(o => o.hour === h || o.hour === (h >= 24 ? h - 24 : -1));
@@ -446,43 +489,38 @@ export default function DescansosPage() {
                                     sales = baseMockCurve[h] || 0;
                                     maxSales = 950;
                                 }
-
-                                // Escala de opacidad basada en el volumen (0.0 a 1.0)
-                                const intensity = sales / maxSales;
-                                const isPeak = intensity >= 0.75; // Pico es cuando llega al 75% o más del volumen max
-                                // Escala termal multi-nivel para diferenciar exactamente la fuerza del RUSH
-                                let bgColor = 'transparent';
-                                let peakLabel = null;
+                                const intensity = maxSales > 0 ? sales / maxSales : 0;
+                                let bgColor = '';
+                                let peakLabel = '';
                                 let labelColor = '';
 
                                 if (intensity >= 0.95) {
-                                    // MAXIMO PICO (Fuego/Rojo Oscuro)
                                     bgColor = `rgba(220, 38, 38, 0.35)`; 
                                     peakLabel = 'MAX';
                                     labelColor = 'text-red-700';
                                 } else if (intensity >= 0.85) {
-                                    // PICO ALTO (Rojo Intenso)
                                     bgColor = `rgba(239, 68, 68, 0.20)`;
                                     peakLabel = 'PICO';
                                     labelColor = 'text-red-500';
                                 } else if (intensity >= 0.75) {
-                                    // PICO MODERADO (Naranja ardiente)
                                     bgColor = `rgba(249, 115, 22, 0.20)`;
                                     peakLabel = 'RUSH';
                                     labelColor = 'text-orange-600';
                                 } else if (intensity >= 0.50) {
-                                    // ALTO VOLUMEN (Ambar solido - no es regla legal de pico, pero se calienta)
                                     bgColor = `rgba(251, 191, 36, 0.20)`;
                                 } else if (intensity > 0.05) {
-                                    // FLUJO NORMAL (Amarillo muy suave)
                                     bgColor = `rgba(253, 230, 138, 0.15)`;
                                 }
 
                                 return (
                                     <div 
                                         key={i} 
-                                        className="flex-1 h-full border-r border-slate-200/60 relative transition-colors duration-700"
-                                        style={{ backgroundColor: bgColor }}
+                                        className="absolute top-0 bottom-0 border-l border-slate-200/60 transition-colors duration-700"
+                                        style={{ 
+                                            left: `${(i / TOTAL_HOURS) * 100}%`,
+                                            width: `${(1 / TOTAL_HOURS) * 100}%`,
+                                            backgroundColor: bgColor 
+                                        }}
                                     >
                                         {peakLabel && (
                                             <div className={`absolute top-0 w-full text-center font-extrabold text-[10px] uppercase tracking-widest pt-2.5 drop-shadow-sm/50 ${labelColor}`}>
@@ -527,11 +565,22 @@ export default function DescansosPage() {
                             const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid)
                             
                             return (
-                                <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group">
+                                <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group relative z-10 focus-within:z-50 hover:z-40">
                                     <div className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
                                         <div className="text-lg leading-tight font-black text-slate-800 truncate">
                                             {emp.first_name} {emp.last_name}
                                         </div>
+                                        {(() => {
+                                            // Resolver el título del puesto
+                                            const ref = emp.job_references?.[0];
+                                            const jobMatch = ref ? allJobs.find(j => j.guid === ref.guid || String(j.id) === ref.guid) : null;
+                                            const jobTitle = jobMatch?.title || (shift as any)?.job_title || '';
+                                            return jobTitle ? (
+                                                <div className="text-xs font-bold text-blue-500 truncate mt-0.5 uppercase tracking-wide">
+                                                    {jobTitle}
+                                                </div>
+                                            ) : null;
+                                        })()}
                                         {isOff ? (
                                             <div className="text-sm text-slate-400 font-bold mt-0.5">DÍA LIBRE (OFF)</div>
                                         ) : (
@@ -557,7 +606,7 @@ export default function DescansosPage() {
                                                     width: `${getTimelineWidth(shift.start_time, shift.end_time)}%`,
                                                     transformOrigin: 'left'
                                                 }}
-                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-8 bg-indigo-100 border border-indigo-200 rounded-md flex items-center overflow-visible z-20 hover:z-40 shadow-sm`}
+                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-9 bg-indigo-100 border border-indigo-200 rounded-md flex items-center overflow-visible z-20 hover:z-40 focus-within:z-50 shadow-sm`}
                                             >
                                                 {/* Scheduled Breaks */}
                                                 {shift.breaks_schedule?.map((b: any, idx: number) => {
@@ -603,7 +652,7 @@ export default function DescansosPage() {
                                                     left: `${getTimelinePosition(empPunch.clock_in)}%`, 
                                                     width: `${getTimelineWidth(empPunch.clock_in, empPunch.clock_out)}%`,
                                                 }}
-                                                className="absolute bottom-3 h-4 bg-cyan-900/50 border-b-2 border-cyan-500/50 rounded-sm flex items-center overflow-visible z-10 hover:z-30"
+                                                className="absolute bottom-3 h-4 bg-cyan-900/50 border-b-2 border-cyan-500/50 rounded-sm flex items-center overflow-visible z-10 hover:z-30 focus-within:z-50"
                                             >
                                                 {empPunch.breaks && Array.isArray(empPunch.breaks) && empPunch.breaks.map((rb: any, idx: number) => {
                                                     if (!rb.inDate) return null;

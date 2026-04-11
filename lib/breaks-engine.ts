@@ -29,7 +29,7 @@ export function getRequiredBreaksCA(start: Date, end: Date): Omit<BreakBlock, 's
     
     // Meal Break (30m):
     // => >5h: 1 meal (must start before end of 5th hour)
-    // => >10h: 2 meals (2nd must start before end of 10th hour)
+    // => >=12h: 2 meals (2nd mandatory — below 12h the 2nd meal is optional/waived)
 
     if (durationHours >= 3.5 && durationHours < 6) {
         breaks.push({ type: 'rest_10' });
@@ -39,10 +39,12 @@ export function getRequiredBreaksCA(start: Date, end: Date): Omit<BreakBlock, 's
         breaks.push({ type: 'rest_10' }, { type: 'rest_10' }, { type: 'rest_10' });
     }
 
-    if (durationHours >= 5) {
+    if (durationHours > 5) {
         breaks.push({ type: 'meal_30' });
     }
-    if (durationHours >= 10) {
+    // REGLA OPERATIVA: El segundo lunch es OPCIONAL entre 10-12 horas (el empleado puede renunciar a él).
+    // Solo es OBLIGATORIO cuando el turno excede las 12 horas.
+    if (durationHours >= 12) {
         breaks.push({ type: 'meal_30' });
     }
 
@@ -79,17 +81,45 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     }
 
     // To prevent two people from going on break at the same time globally
-    const globalUnavailable: { start: number, end: number, jobId: string }[] = [];
+    const globalUnavailable: { start: number, end: number, roleKey: string, isLeader: boolean }[] = [];
 
-    const checkGlobalOverlap = (testStart: number, testEnd: number) => {
-        // Adds a tight 1 minute buffer to be safe, though not strictly required
-        return globalUnavailable.some(unavail => 
-            testStart < unavail.end && testEnd > unavail.start
-        );
-    };
+    // (checkGlobalOverlap removido — reemplazado por lógica inline de roles en findBestSlot)
 
-    // Step 1: Initialize augmented shifts with empty breaks
-    const augmentedShifts: any[] = shifts.map(shift => ({
+    // Step 1: Initialize augmented shifts con Orden Estratégico (Escudo Operativo V2)
+    const sortedShifts = [...shifts].sort((a, b) => {
+        const aStart = new Date(a.start_time).getTime();
+        const bStart = new Date(b.start_time).getTime();
+        
+        // Agrupar rígidamente por la hora de entrada redondeada para preservar transitividad
+        // Ej: 4:45 PM -> 5:00 PM (17), 5:10 PM -> 5:00 PM (17)
+        const getLogicalHour = (ts: number) => {
+            const d = new Date(ts);
+            let h = d.getHours();
+            if (d.getMinutes() >= 45) h += 1;
+            return h;
+        };
+
+        const aHour = getLogicalHour(aStart);
+        const bHour = getLogicalHour(bStart);
+        
+        // Si pertenecen al mismo bloque lógico (Ej. el bloque de las 5 PM)
+        if (aHour === bHour) {
+            // Priority 1: Líderes primero siempre. (Se quedan con los mejores lugares)
+            const aIsLeader = (a as any).is_leader ? 1 : 0;
+            const bIsLeader = (b as any).is_leader ? 1 : 0;
+            if (aIsLeader !== bIsLeader) return bIsLeader - aIsLeader; 
+            
+            // Priority 2: Duración del turno. (Turnos cortos evacúan temparano)
+            const durA = new Date(a.end_time).getTime() - aStart;
+            const durB = new Date(b.end_time).getTime() - bStart;
+            if (durA !== durB) return durA - durB;
+        }
+        
+        // Priority 3: Hora de entrada normal
+        return aStart - bStart;
+    });
+
+    const augmentedShifts: any[] = sortedShifts.map(shift => ({
         ...shift,
         breaks_schedule: []
     }));
@@ -106,7 +136,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     ) => {
         const STEP_MS = 15 * 60000;
         const DURATION_MS = durationMins * 60000;
-        const MIN_GAP_MS = 60 * 60 * 1000; 
+        // REGLA: Para turnos con 2+ breaks, la separación mínima entre descansos personales es 1.5 horas.
+        // Esto evita que un empleado tome un Rest a las 3:00 PM y otro a las 3:45 PM (inútil operativamente).
+        const MIN_GAP_MS = 90 * 60 * 1000; // 1 hora 30 minutos
         
         let bestStart = windowStart;
         let lowestScore = Infinity;
@@ -125,53 +157,124 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }
             if (violatesPersonal) continue;
 
-            // Mathematical Magic: Punish the SQUARE of overalapping minutes.
-            // 30 min exact overlap = 30x30 = 900 penalty.
-            // 15 min stagger overlap = 15x15 = 225 penalty.
-            // This naturally forces the AI to interleave/stagger employees in 15-minute increments.
+            // ═══════════════════════════════════════════════════════════════════
+            // SALES SCORE — Se calcula ANTES del empalme para poder usarlo en las 
+            // reglas de overlap durante horas pico.
+            // ═══════════════════════════════════════════════════════════════════
+            const hour = bStart.getHours();
+            // BUGFIX: Default missing data to 0.05 (Valley) instead of 1.0 (Max Rush).
+            const salesScore = hourScores.get(hour) ?? 0.05;
             
-            // NEW: Position-Aware Cross-Staggering
-            // If they are in the SAME position (e.g. 2 Cooks), the gravity is MASSIVE (x30).
-            // If they are in DIFFERENT positions (Cook vs Cashier), the gravity is TINY (x2).
-            // This guarantees the AI will pair up different positions for breaks when forced to overlap!
-            let overlapPenalty = 0;
-            globalUnavailable.forEach((unavail) => {
+            // EXTREME RULE: Absolute Ban on RUSH/PICO/MAX zones.
+            // If intensity is >= 0.75 (RUSH, PICO or MAX), the slot is completely unavailable.
+            // Only Panic Mode (legal compliance fallback) can override this.
+            if (salesScore >= 0.75) {
+                continue; 
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // OVERLAP RULES — Reglas estrictas del usuario
+            // ═══════════════════════════════════════════════════════════════════
+            // SIEMPRE (cualquier intensidad):
+            //   • MISMO PUESTO (cashier+cashier, cook+cook): CERO empalme.
+            //   • LÍDER vs CUALQUIERA: CERO empalme.
+            //
+            // DURANTE RUSH/PICO/MAX (salesScore >= 0.75):
+            //   • CUALQUIER PUESTO vs CUALQUIER PUESTO: CERO empalme.
+            //   • "Uno por uno" — el restaurante necesita a todos en piso.
+            //
+            // DURANTE VALLE/MODERADO (salesScore < 0.75):
+            //   • Tropa diferente (cashier+cook): SIN restricción.
+            //   • Operan en estaciones aisladas (FOH vs BOH).
+            // ═══════════════════════════════════════════════════════════════════
+            const isRushHour = salesScore >= 0.75;
+            let overlapBlocked = false;
+            const shiftRole = ((shift as any).job_title || shift.job_id || 'unknown').toString().toLowerCase().trim();
+            const isManagerOrLeader = (shift as any).is_leader === true || 
+                shiftRole.includes('manager') || 
+                shiftRole.includes('leader') || 
+                shiftRole.includes('assistant') || 
+                shiftRole.includes('asistente');
+            
+            for (const unavail of globalUnavailable) {
                 const oStart = Math.max(bStart.getTime(), unavail.start);
                 const oEnd = Math.min(bEnd.getTime(), unavail.end);
                 if (oStart < oEnd) {
-                    const overlapMinutes = (oEnd - oStart) / 60000;
+                    const isSameRole = unavail.roleKey === shiftRole;
                     
-                    const isSameRole = unavail.jobId === shift.job_id;
-                    
-                    let crossRoleMultiplier = 1;
                     if (isSameRole) {
-                        crossRoleMultiplier = isMeal ? 30 : 15; // Same position: Catastrophic
-                    } else {
-                        crossRoleMultiplier = isMeal ? 2 : 1;   // Different position: Totally fine, acceptable operational overlap
+                        // MISMO PUESTO: CERO empalme. Totalmente prohibido.
+                        overlapBlocked = true;
+                        break;
+                    } 
+                    
+                    if (isManagerOrLeader || unavail.isLeader) {
+                        // Ningún líder puede empalmarse con la tropa, ni la tropa puede empalmarse con el líder.
+                        overlapBlocked = true;
+                        break;
                     }
                     
-                    overlapPenalty += (overlapMinutes * overlapMinutes) * crossRoleMultiplier;
+                    // REGLA RUSH: Durante horas pesadas (RUSH/PICO/MAX), NADIE se empalma con NADIE.
+                    // Solo en horas valle/moderadas se permite tropa diferente al mismo tiempo.
+                    if (isRushHour) {
+                        overlapBlocked = true;
+                        break;
+                    }
+                    
+                    // VALLE/MODERADO: Tropa regular vs Tropa Regular diferente → sin restricción.
                 }
-            });
-
-            const hour = bStart.getHours();
-            const salesScore = hourScores.get(hour) ?? 1.0;
-            
-            // Penalización exponencial del Pico de Ventas para que distinga entre "Ocupado" y "Tsunami"
-            let peakPenalty = 0;
-            if (salesScore >= 0.95) {
-                peakPenalty = 500000; // MAX PICO: Prohibido si hay alternativa.
-            } else if (salesScore >= 0.85) {
-                peakPenalty = 100000; // PICO ALTO: Muy doloroso.
-            } else if (salesScore >= 0.75) {
-                peakPenalty = 20000;  // RUSH: Incómodo pero aceptable si la alternativa es empalmar a 2 cajeras.
-            } else if (salesScore >= 0.50) {
-                peakPenalty = 5000;   // ALTO VOLUMEN.
-            } else {
-                peakPenalty = salesScore * 1000; // Normal
             }
-            
-            const score = overlapPenalty + peakPenalty;
+            if (overlapBlocked) continue;
+
+            const peakPenalty = Math.pow(salesScore, 8) * 50_000_000;
+
+            // ═══════════════════════════════════════════════════════════════════
+            // Los líderes (asistentes/shift leaders) reciben un magneto MASIVO 
+            // hacia el inicio de su ventana, para "dar el ejemplo" y evacuar
+            // antes de que comience el pico. 
+            let leaderEarlyPenalty = 0;
+            if (isMeal && isManagerOrLeader) {
+                // 1. Determinar el contexto del turno para no mezclar picos AM con PM
+                const shiftStartHour = new Date(shift.start_time).getHours();
+                let peakHourForShift = 12;
+                let maxIntensity = 0;
+                
+                if (shiftStartHour < 15) { // Turno AM (entran antes de 3 PM)
+                    hourScores.forEach((score, h) => {
+                        if (h >= 6 && h <= 15) { 
+                            if (score > maxIntensity) { maxIntensity = score; peakHourForShift = h; } 
+                        }
+                    });
+                } else { // Turno PM (entran 3 PM o después)
+                    hourScores.forEach((score, h) => {
+                        if (h >= 16 || h <= 3) { 
+                            const adjustedH = h <= 3 ? h + 24 : h;
+                            if (score > maxIntensity) { maxIntensity = score; peakHourForShift = adjustedH; } 
+                        }
+                    });
+                }
+
+                // 2. Determinar si los lunches DEBEN iniciar antes del Pico
+                let wStartHour = windowStart.getHours();
+                if (wStartHour <= 3) wStartHour += 24; // normalizar madrugada
+                
+                let wEndHour = windowEnd.getHours();
+                if (wEndHour <= 3) wEndHour += 24;
+                if (wEndHour < wStartHour) wEndHour = wStartHour + 3.9; // Fallback caja seguridad
+                
+                const midPoint = wStartHour + (wEndHour - wStartHour) / 2;
+
+                // REGLA: "en el turno de las 5pm si el maximo rush es antes de las 8pm, pueden iniciar todos desde las 8pm"
+                // Esto significa: Si la hora Pico del turno cae DESPUÉS del midpoint de su ventana,
+                // la única salida es irse a comer TEMPRANO (antes del pico), por tanto, Magneto ON para que el líder vaya primero.
+                // Si el pico cae ANTES del midpoint, significa que "pueden aguantar" y mandarlos a todos después del pico (Magneto OFF).
+                if (peakHourForShift >= midPoint) {
+                    const hoursSinceStart = (bStart.getTime() - new Date(shift.start_time).getTime()) / 3600000;
+                    leaderEarlyPenalty = hoursSinceStart * 100_000_000;
+                }
+            }
+
+            const score = peakPenalty + leaderEarlyPenalty;
 
             if (score < lowestScore) {
                 lowestScore = score;
@@ -179,7 +282,105 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }
         }
         
-        if (lowestScore === Infinity) return windowStart;
+        if (lowestScore === Infinity) {
+            // PANIC MODE: The entire window was blocked by Red Zones (salesScore >= 0.85).
+            // We MUST schedule a break anyway due to California Law.
+            // We will re-scan the window ignoring the red zone penalty, but strictly respecting overlap rules.
+            let panicStart = windowStart;
+            let foundPanicSlot = false;
+            let lowestPanicScore = Infinity;
+            
+            for (let t = windowStart.getTime(); t <= windowEnd.getTime() - DURATION_MS; t += STEP_MS) {
+                const bStart = new Date(t);
+                const bEnd = new Date(t + DURATION_MS);
+                
+                let overlapBlocked = false;
+                
+                // Panic Mode MUST still respect the 90-minute gap between personal breaks!
+                if (allowPersonalOverlapCheck) {
+                    const violatesPersonal = scheduledBreaks.some(b => {
+                        const sbStart = new Date(b.start_time).getTime();
+                        const sbEnd = new Date(b.end_time).getTime();
+                        return (bStart.getTime() < sbEnd + MIN_GAP_MS && bEnd.getTime() > sbStart - MIN_GAP_MS);
+                    });
+                    if (violatesPersonal) {
+                        continue; // Keep searching panic mode for a 60-min spaced slot
+                    }
+                }
+                
+                const shiftRole = ((shift as any).job_title || shift.job_id || 'unknown').toString().toLowerCase().trim();
+                const isManagerOrLeader = (shift as any).is_leader === true || 
+                    shiftRole.includes('manager') || shiftRole.includes('leader') || shiftRole.includes('assistant') || shiftRole.includes('asistente');
+                
+                // Calcular salesScore ANTES del overlap check
+                const hour = bStart.getHours();
+                const salesScore = hourScores.get(hour) ?? 0.05;
+                
+                for (const unavail of globalUnavailable) {
+                    const oStart = Math.max(bStart.getTime(), unavail.start);
+                    const oEnd = Math.min(bEnd.getTime(), unavail.end);
+                    if (oStart < oEnd) {
+                        const isSameRole = unavail.roleKey === shiftRole;
+                        // PANIC MODE — REGLAS CALIBRADAS:
+                        // 1. MISMO PUESTO: Siempre bloqueado (cashier+cashier, cook+cook).
+                        if (isSameRole) {
+                            overlapBlocked = true;
+                            break;
+                        }
+                        // 2. LÍDER vs LÍDER: Siempre bloqueado (asst manager + shift leader).
+                        //    Dos líderes NUNCA pueden ir al mismo tiempo, ni en crisis.
+                        if (isManagerOrLeader && unavail.isLeader) {
+                            overlapBlocked = true;
+                            break;
+                        }
+                        // 3. LÍDER vs TROPA: RELAJADO en Panic Mode.
+                        //    Si bloqueamos líder contra tropa aquí, el líder no encuentra
+                        //    NINGÚN slot libre (toda la ventana es roja + llena de tropa)
+                        //    → cae a windowStart (la hora MÁS ROJA). Preferimos un empalme
+                        //    temporal con tropa que poner al líder en MAX.
+                    }
+                }
+                
+                if (overlapBlocked) continue;
+
+                // En Panic Mode ignoramos el BAN ESTRICTO de salesScore >= 0.75, 
+                // PERO AUN ASI preferimos el menor daño usando la curva exponencial de penalidad.
+                // NOTA: En Panic Mode, el Magneto de Líderes está DESACTIVADO.
+                // Si estamos aquí, es porque TODA la ventana es roja. La prioridad es
+                // minimizar daño a ventas (menor salesScore), NO forzar al líder temprano.
+                const peakPenalty = Math.pow(salesScore, 8) * 50_000_000;
+
+                if (peakPenalty < lowestPanicScore) {
+                    lowestPanicScore = peakPenalty;
+                    panicStart = bStart;
+                    foundPanicSlot = true;
+                }
+            }
+
+            let fallbackStart = foundPanicSlot ? panicStart : windowStart;
+            
+            if (allowPersonalOverlapCheck) {
+                // Ensure the fallback doesn't glue breaks together
+                for (const b of scheduledBreaks) {
+                    const sbEnd = new Date(b.end_time).getTime();
+                    const requiredStart = sbEnd + MIN_GAP_MS;
+                    if (fallbackStart.getTime() < requiredStart && (fallbackStart.getTime() + DURATION_MS) > new Date(b.start_time).getTime() - MIN_GAP_MS) {
+                        fallbackStart = new Date(requiredStart);
+                    }
+                }
+            }
+            
+            // CRITICAL FIX: No matter what, you absolutely cannot schedule a break past the end of the shift!
+            // Allow the fallback to push outside its 'preferred' window slice to maintain the 60-min gap, 
+            // but NEVER allow it to exceed the physical end of the employee's shift.
+            const shiftEnd = new Date(shift.end_time).getTime();
+            const maxAllowedFallback = shiftEnd - DURATION_MS;
+            if (fallbackStart.getTime() > maxAllowedFallback) {
+                fallbackStart = new Date(maxAllowedFallback);
+            }
+            
+            return fallbackStart;
+        }
         return bestStart;
     };
 
@@ -194,15 +395,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const mealsToSchedule = requiredBreaks.filter(b => b.type === 'meal_30');
 
         mealsToSchedule.forEach((meal, mealIndex) => {
-            // California Law enforced explicitly by user rules:
-            // "1 hour after starting" -> 1.0
-            // "Before 5 hours worked" -> 4.9 (Must start before 5th hour completes)
-            const mealDeadlineHourOffset = mealIndex === 0 ? 4.9 : 9.9;
+            // California Law enforced explicitly by user rules: The meal must **START** before the end of the 5th hour.
+            // In findBestSlot, the loop limits the start time to `windowEnd - DURATION_MS`. 
+            // So if we want the actual START time limit to be 4.95 hours, we must set windowEnd to 4.95 + 0.5 = 5.45.
+            const mealDeadlineHourOffset = mealIndex === 0 ? 5.49 : 10.49;
             const windowStart = new Date(start.getTime() + (mealIndex === 0 ? 1.0 : 6) * 3600000); 
             let windowEnd = new Date(start.getTime() + mealDeadlineHourOffset * 3600000);
             if (windowEnd > end) windowEnd = end;
-
-            const bestSlotStart = findBestSlot(windowStart, windowEnd, 30, false, shift.breaks_schedule, true, shift);
+            const bestSlotStart = findBestSlot(windowStart, windowEnd, 30, true, shift.breaks_schedule, true, shift);
             const bestSlotEnd = new Date(bestSlotStart.getTime() + 30 * 60000);
 
             shift.breaks_schedule.push({
@@ -211,7 +411,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 end_time: bestSlotEnd.toISOString(),
                 status: 'scheduled'
             });
-            globalUnavailable.push({ start: bestSlotStart.getTime(), end: bestSlotEnd.getTime(), jobId: shift.job_id || 'unknown' });
+            const mealRoleKey = ((shift as any).job_title || shift.job_id || 'unknown').toString().toLowerCase().trim();
+            const isLeaderValue = (shift as any).is_leader === true || mealRoleKey.includes('manager') || mealRoleKey.includes('leader') || mealRoleKey.includes('assistant') || mealRoleKey.includes('asistente');
+            globalUnavailable.push({ start: bestSlotStart.getTime(), end: bestSlotEnd.getTime(), roleKey: mealRoleKey, isLeader: isLeaderValue });
         });
     });
 
@@ -222,40 +424,47 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const requiredBreaks = getRequiredBreaksCA(start, end);
         const restsToSchedule = requiredBreaks.filter(b => b.type === 'rest_10');
 
-        restsToSchedule.forEach((rest, restIndex) => {
-            let idealOffset = 2.0; 
-            const scheduledMeal = shift.breaks_schedule.find((b: any) => b.type === 'meal_30');
-            const mealOffsetHours = scheduledMeal 
-                ? (new Date(scheduledMeal.start_time).getTime() - start.getTime()) / 3600000 
-                : null;
-            
-            if (restsToSchedule.length === 1) {
-                if (mealOffsetHours !== null && mealOffsetHours < 2.5) idealOffset = mealOffsetHours + 2.0; 
-                else idealOffset = 2.0; 
-            } else if (restsToSchedule.length === 2) {
-                if (mealOffsetHours !== null && mealOffsetHours <= 2.5) {
-                    if (restIndex === 0) idealOffset = mealOffsetHours + 2.0;
-                    if (restIndex === 1) idealOffset = mealOffsetHours + 4.0;
-                } else {
-                    if (restIndex === 0) idealOffset = 2.0; 
-                    if (restIndex === 1) idealOffset = (mealOffsetHours || 4.5) + 2.0; 
-                }
-            } else if (restsToSchedule.length === 3) {
-                if (restIndex === 0) idealOffset = 2.0;
-                if (restIndex === 1) idealOffset = (mealOffsetHours || 4.5) + 2.0;
-                if (restIndex === 2) idealOffset = (mealOffsetHours || 4.5) + 4.0;
-            }
+        const meals = shift.breaks_schedule
+            .filter((b: any) => b.type === 'meal_30')
+            .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
-            let windowStart = new Date(start.getTime() + (idealOffset - 1.5) * 3600000);
+        restsToSchedule.forEach((rest, restIndex) => {
+            let windowStart: Date;
+            let windowEnd: Date;
             
-            // STRICT RULE: No break can start before 1 hour worked.
+            // Lógica Especial para 10+ horas (Doble Meal, Triple Rest) -> Fix para Alexander
+            // ═══════════════════════════════════════════════════════════════════
+            // NUEVO SISTEMA DISTRIBUIDO: Evita el efecto Acordeón.
+            // Para asegurar máxima flexibilidad ante Meals erráticos (Leader Magneto),
+            // distribuimos los Rests equitativamente a lo largo de TODO el turno.
+            // La IA con su MIN_GAP de 60 mins tejerá naturalmente los descansos
+            // alrededor de la curva de ventas y los Meals que ya estén puestos.
+            // ═══════════════════════════════════════════════════════════════════
+            const shiftDurationHours = (end.getTime() - start.getTime()) / 3600000;
+            const fraction = (restIndex + 1) / (restsToSchedule.length + 1);
+            const idealOffset = shiftDurationHours * fraction;
+
+            // Damos una ventana amplia (± 1.5 horas = 3 horas total) para que la IA escápela del PICO
+            windowStart = new Date(start.getTime() + (idealOffset - 1.5) * 3600000);
+            windowEnd = new Date(start.getTime() + (idealOffset + 1.5) * 3600000);
+            // REGLA: "pueden tomar break hasta 30 minutos antes de salir si el turno está muy apretado"
+            // Expandimos la ventana hasta shiftEnd - 30min para que en turnos congestionados
+            // la IA pueda empujar un Rest casi al final. El clamp de seguridad del fallback
+            // garantiza que nunca se pase del turno físico.
+            const maxRestEnd = new Date(end.getTime() - 30 * 60000); // 30 min antes de salir
+            if (windowEnd > maxRestEnd) windowEnd = maxRestEnd;
+            if (windowEnd > end) windowEnd = end;
+            
+            // STRICT RULE: No break can start before 1.0 hours worked.
             const minAllowedStart = new Date(start.getTime() + 1.0 * 3600000);
             if (windowStart < minAllowedStart) {
                 windowStart = minAllowedStart;
             }
-
-            let windowEnd = new Date(start.getTime() + (idealOffset + 1.5) * 3600000);
-            if (windowEnd > end) windowEnd = end;
+            // Asegurarnos de no sobrepasar el límite de la ventana
+            if (windowStart >= windowEnd) {
+                 windowStart = new Date(windowEnd.getTime() - 15 * 60000); // Dar al menos 15 min de respiro si quedó apachurrado
+                 if (windowStart < minAllowedStart) windowStart = minAllowedStart;
+            }
 
             const bestSlotStart = findBestSlot(windowStart, windowEnd, 10, true, shift.breaks_schedule, false, shift);
             const bestSlotEnd = new Date(bestSlotStart.getTime() + 10 * 60000);
@@ -266,7 +475,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 end_time: bestSlotEnd.toISOString(),
                 status: 'scheduled'
             });
-            globalUnavailable.push({ start: bestSlotStart.getTime(), end: bestSlotEnd.getTime(), jobId: shift.job_id || 'unknown' });
+            const restRoleKey = ((shift as any).job_title || shift.job_id || 'unknown').toString().toLowerCase().trim();
+            const isLeaderRestValue = (shift as any).is_leader === true || restRoleKey.includes('manager') || restRoleKey.includes('leader') || restRoleKey.includes('assistant') || restRoleKey.includes('asistente');
+            globalUnavailable.push({ start: bestSlotStart.getTime(), end: bestSlotEnd.getTime(), roleKey: restRoleKey, isLeader: isLeaderRestValue });
         });
 
         shift.breaks_schedule.sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
