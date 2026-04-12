@@ -35,6 +35,10 @@
         {
             "path": "/api/cron/sync-meat-history",
             "schedule": "*/30 * * * *"
+        },
+        {
+            "path": "/api/cron/smart-rebalance",
+            "schedule": "*/20 * * * *"
         }
     ]
 }
