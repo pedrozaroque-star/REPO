@@ -64,7 +64,16 @@ export default function DescansosPage() {
 
     const [absentEmpIds, setAbsentEmpIds] = useState<Set<number>>(new Set())
     const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
+    const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
     const lastDataRef = useRef<{shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[]}>({ shifts: [], hours: [], employees: [], jobs: [] })
+
+    // Auto-hide notification
+    useEffect(() => {
+        if (aiStatus) {
+            const timer = setTimeout(() => setAiStatus(null), 5000)
+            return () => clearTimeout(timer)
+        }
+    }, [aiStatus])
 
     const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any) => {
         setCalculating(true);
@@ -116,6 +125,7 @@ export default function DescansosPage() {
                         await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
                     } catch (err) {}
                 }
+                setAiStatus({ message: 'Inteligencia Artificial: Horario re-balanceado por cambios de asistencia', type: 'success' });
             }
         } catch(e) {
             console.error(e);
@@ -345,6 +355,31 @@ export default function DescansosPage() {
         setCalculating(false)
     }
 
+    // --- REALTIME MONITORING (Auditoría Automática) ---
+    useEffect(() => {
+        if (!selectedStoreId || !dateStr) return
+
+        const supabase = getSupabaseClient()
+        const channel = supabase
+            .channel('rebalance-monitor')
+            .on('postgres_changes', { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'shifts', 
+                filter: `store_id=eq.${selectedStoreId}` 
+            }, (payload) => {
+                if (payload.new.shift_date === dateStr) {
+                    setAiStatus({ message: 'Auditoría Toast: Descansos re-balanceados por ponchada irregular', type: 'info' })
+                    loadDayData()
+                }
+            })
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [selectedStoreId, dateStr])
+
     useEffect(() => {
         loadDayData()
     }, [storeGuid, dateStr])
@@ -451,7 +486,6 @@ export default function DescansosPage() {
                     >
                         <History size={16} /> Auditoría (Real Toast)
                     </button>
-                    {/* Botones de Anclar eliminados: el sistema ahora actualiza dinámicamente y salva en BD todo el tiempo. */}
                 </div>
             </header>
 
@@ -698,6 +732,39 @@ export default function DescansosPage() {
                         })}
                     </div>
                 </div>
+
+                <AnimatePresence>
+                {aiStatus && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        style={{
+                            position: 'fixed',
+                            bottom: '24px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            zIndex: 9999,
+                            background: aiStatus.type === 'success' ? '#059669' : '#4f46e5',
+                            color: 'white',
+                            padding: '12px 24px',
+                            borderRadius: '999px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            fontWeight: '600',
+                            fontSize: '14px'
+                        }}
+                    >
+                        <div style={{ background: 'rgba(255,255,255,0.2)', padding: '6px', borderRadius: '50%' }}>
+                            <Zap size={18} fill="white" />
+                        </div>
+                        {aiStatus.message}
+                    </motion.div>
+                )}
+                </AnimatePresence>
 
                 <div className="mt-6 flex items-center justify-between">
                     <div className="bg-white border border-slate-200 p-4 rounded-xl flex items-center gap-6 shadow-sm">
