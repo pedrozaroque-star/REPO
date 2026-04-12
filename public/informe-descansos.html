@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motor de Descansos — Informe Técnico Completo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-card-hover: #f1f5f9;
+            --border: #e2e8f0;
+            --border-strong: #cbd5e1;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --accent-blue: #2563eb;
+            --accent-cyan: #0891b2;
+            --accent-emerald: #059669;
+            --accent-amber: #d97706;
+            --accent-red: #dc2626;
+            --accent-purple: #7c3aed;
+            --accent-orange: #ea580c;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        /* ═══ HEADER ═══ */
+        .hero {
+            background: linear-gradient(135deg, #1e40af 0%, #4f46e5 40%, #7c3aed 100%);
+            padding: 3rem 2rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 30% 70%, rgba(255,255,255,0.08) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 30%, rgba(255,255,255,0.05) 0%, transparent 50%);
+        }
+        .hero h1 {
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: #ffffff;
+            position: relative;
+            z-index: 1;
+        }
+        .hero .subtitle {
+            color: rgba(255,255,255,0.8);
+            font-size: 1rem;
+            margin-top: 0.5rem;
+            position: relative;
+            z-index: 1;
+        }
+        .hero .meta {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+        .hero .meta span {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.25);
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        /* ═══ LAYOUT ═══ */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 4rem;
+        }
+
+        /* ═══ TOC ═══ */
+        .toc {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            margin-bottom: 2.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .toc h3 {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--accent-blue);
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+        .toc ol {
+            columns: 2;
+            column-gap: 2rem;
+            padding-left: 1.2rem;
+        }
+        .toc li {
+            margin-bottom: 0.4rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            break-inside: avoid;
+        }
+        .toc a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .toc a:hover { color: var(--accent-blue); }
+
+        /* ═══ SECTIONS ═══ */
+        section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        section > h2 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 1.2rem;
+            padding-bottom: 0.6rem;
+            border-bottom: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+        }
+        section > h2 .num {
+            background: var(--accent-blue);
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: 800;
+            flex-shrink: 0;
+        }
+
+        h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 1.5rem 0 0.8rem;
+        }
+        h4 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            margin: 1.2rem 0 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        p {
+            color: var(--text-secondary);
+            margin-bottom: 0.8rem;
+            font-size: 0.95rem;
+        }
+        code {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: var(--accent-purple);
+        }
+
+        /* ═══ TABLES ═══ */
+        .table-wrap {
+            overflow-x: auto;
+            margin: 1rem 0 1.5rem;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+        }
+        thead {
+            background: #f1f5f9;
+        }
+        th {
+            text-align: left;
+            padding: 0.7rem 1rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            border-bottom: 2px solid var(--border);
+            white-space: nowrap;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+            vertical-align: top;
+        }
+        tbody tr:hover {
+            background: #f8fafc;
+        }
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* ═══ CARDS ═══ */
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .card:hover {
+            border-color: var(--accent-blue);
+            box-shadow: 0 4px 12px rgba(37,99,235,0.08);
+        }
+        .card h4 { margin-top: 0; }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        /* ═══ BADGES ═══ */
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.65rem;
+            border-radius: 9999px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge-red { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .badge-orange { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+        .badge-yellow { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+        .badge-green { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+        .badge-gray { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+        .badge-blue { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+
+        /* ═══ CODE / FLOW ═══ */
+        .code-block, .flow {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 1.2rem 1.5rem;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.82rem;
+            line-height: 1.9;
+            color: #e2e8f0;
+            overflow-x: auto;
+            margin: 1rem 0;
+            white-space: pre;
+        }
+        .comment { color: #64748b; }
+        .keyword { color: #f472b6; }
+        .string { color: #7dd3fc; }
+        .arrow { color: #60a5fa; }
+        .yes { color: #4ade80; }
+        .no { color: #f87171; }
+
+        /* ═══ CALLOUTS ═══ */
+        .callout {
+            border-radius: 10px;
+            padding: 1rem 1.2rem;
+            margin: 1.2rem 0;
+            border-left: 4px solid;
+            font-size: 0.9rem;
+        }
+        .callout-red { background: #fef2f2; border-color: var(--accent-red); color: #7f1d1d; }
+        .callout-amber { background: #fffbeb; border-color: var(--accent-amber); color: #78350f; }
+        .callout-blue { background: #eff6ff; border-color: var(--accent-blue); color: #1e3a5f; }
+        .callout-green { background: #f0fdf4; border-color: var(--accent-emerald); color: #14532d; }
+        .callout strong { color: inherit; }
+
+        /* ═══ PRIORITY TOWER ═══ */
+        .tower {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            margin: 1.5rem 0;
+        }
+        .tower-level {
+            padding: 1.2rem 1.5rem;
+            border: 1px solid;
+            position: relative;
+        }
+        .tower-level:first-child { border-radius: 12px 12px 0 0; }
+        .tower-level:last-child { border-radius: 0 0 12px 12px; }
+        .tower-level h4 { margin: 0 0 0.5rem; font-size: 1rem; text-transform: none; letter-spacing: 0; }
+        .tower-level p { margin: 0; font-size: 0.85rem; }
+        .tower-level ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+        .tower-level li { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.2rem; }
+
+        .tower-red {
+            background: #fef2f2;
+            border-color: #fecaca;
+        }
+        .tower-red h4 { color: #b91c1c; }
+        .tower-orange {
+            background: #fff7ed;
+            border-color: #fed7aa;
+            border-top: none;
+        }
+        .tower-orange h4 { color: #c2410c; }
+        .tower-yellow {
+            background: #fffbeb;
+            border-color: #fde68a;
+            border-top: none;
+        }
+        .tower-yellow h4 { color: #b45309; }
+        .tower-gray {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+            border-top: none;
+        }
+        .tower-gray h4 { color: #64748b; }
+
+        /* ═══ HEATMAP DEMO ═══ */
+        .heatmap-demo {
+            display: flex;
+            gap: 2px;
+            margin: 1rem 0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .heatmap-cell {
+            flex: 1;
+            text-align: center;
+            padding: 0.5rem 0.2rem;
+            font-size: 0.65rem;
+            font-weight: 700;
+            min-width: 42px;
+        }
+
+        /* ═══ PRINT ═══ */
+        @media print {
+            body { background: white; }
+            section { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
+            .hero { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+
+        /* ═══ RESPONSIVE — iPhone 15 Pro Max (430px) + tablets ═══ */
+        @media (max-width: 768px) {
+            .hero { padding: 2rem 1.2rem; }
+            .hero h1 { font-size: 1.5rem; line-height: 1.3; }
+            .hero .subtitle { font-size: 0.85rem; }
+            .hero .meta { gap: 0.4rem; }
+            .hero .meta span { font-size: 0.7rem; padding: 0.3rem 0.7rem; }
+
+            .container { padding: 0.8rem 0.6rem 3rem; }
+
+            .toc { padding: 1rem 1.2rem; margin-bottom: 1.5rem; }
+            .toc ol { columns: 1; }
+            .toc li { font-size: 0.85rem; padding: 0.3rem 0; }
+            .toc a { display: block; min-height: 44px; display: flex; align-items: center; }
+
+            section {
+                padding: 1.2rem 1rem;
+                border-radius: 10px;
+                margin-bottom: 1rem;
+            }
+            section > h2 {
+                font-size: 1.2rem;
+                gap: 0.5rem;
+                flex-wrap: wrap;
+            }
+            section > h2 .num {
+                width: 28px;
+                height: 28px;
+                font-size: 0.75rem;
+            }
+
+            h3 { font-size: 1.05rem; margin: 1.2rem 0 0.6rem; }
+            h4 { font-size: 0.82rem; }
+            p { font-size: 0.88rem; }
+
+            .card-grid { grid-template-columns: 1fr; gap: 0.6rem; }
+            .card { padding: 1rem; }
+            .card p[style*="font-size:1.8rem"] { font-size: 1.4rem !important; }
+
+            /* Tables: horizontally scrollable with momentum */
+            .table-wrap {
+                -webkit-overflow-scrolling: touch;
+                margin: 0.8rem -1rem;
+                border-radius: 0;
+                border-left: none;
+                border-right: none;
+                width: calc(100% + 2rem);
+            }
+            table { font-size: 0.8rem; min-width: 500px; }
+            th { padding: 0.6rem 0.7rem; font-size: 0.7rem; }
+            td { padding: 0.5rem 0.7rem; }
+
+            /* Code and flow: smaller font, allow wrapping */
+            .code-block, .flow {
+                font-size: 0.72rem;
+                line-height: 1.7;
+                padding: 1rem;
+                border-radius: 8px;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            /* Callouts */
+            .callout { padding: 0.8rem 1rem; font-size: 0.85rem; }
+
+            /* Tower */
+            .tower-level { padding: 1rem; }
+            .tower-level h4 { font-size: 0.9rem; }
+            .tower-level li { font-size: 0.82rem; }
+
+            /* Heatmap: scrollable on small screens */
+            .heatmap-demo {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 4px;
+            }
+            .heatmap-cell {
+                min-width: 46px;
+                padding: 0.4rem 0.15rem;
+                font-size: 0.6rem;
+            }
+
+            /* Badges */
+            .badge { font-size: 0.65rem; padding: 0.15rem 0.5rem; }
+        }
+
+        /* ═══ Extra small (iPhone SE, older devices) ═══ */
+        @media (max-width: 380px) {
+            .hero h1 { font-size: 1.3rem; }
+            .container { padding: 0.5rem 0.4rem 2rem; }
+            section { padding: 1rem 0.8rem; }
+            section > h2 { font-size: 1.1rem; }
+            table { min-width: 440px; }
+            .code-block, .flow { font-size: 0.68rem; padding: 0.8rem; }
+        }
+
+        /* ═══ iOS Safe Area (notch + home indicator) ═══ */
+        @supports (padding: env(safe-area-inset-top)) {
+            .hero { padding-top: calc(2rem + env(safe-area-inset-top)); }
+            footer { padding-bottom: calc(2rem + env(safe-area-inset-bottom)); }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════ HERO ═══════════════════ -->
+<header class="hero">
+    <h1>🧠 Motor de Descansos Autónomo</h1>
+    <p class="subtitle">Informe Técnico Completo — breaks-engine.ts + descansos/page.tsx</p>
+    <div class="meta">
+        <span>📅 Abril 11, 2026</span>
+        <span>⚙️ Versión 6.0</span>
+        <span>📦 Panic Mode Calibrado</span>
+        <span>🏪 Tacos El Gavilan</span>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- ═══════════════════ TOC ═══════════════════ -->
+    <nav class="toc">
+        <h3>📑 Índice</h3>
+        <ol>
+            <li><a href="#s1">Resumen Ejecutivo</a></li>
+            <li><a href="#s2">Arquitectura y Flujo de Datos</a></li>
+            <li><a href="#s3">Pilar 1 — Ley de California</a></li>
+            <li><a href="#s4">Pilar 2 — Protección Operativa (Heatmap)</a></li>
+            <li><a href="#s5">Reglas de Empalme (Overlap)</a></li>
+            <li><a href="#s6">El Magneto de Líderes</a></li>
+            <li><a href="#s7">Pilar 3 — Panic Mode</a></li>
+            <li><a href="#s8">Catálogo de 14 Reglas</a></li>
+            <li><a href="#s9">Jerarquía de Prioridades</a></li>
+            <li><a href="#s10">Flujo de Ejecución Completo</a></li>
+            <li><a href="#s11">Parámetros Ajustables</a></li>
+            <li><a href="#s12">Casos Reales Documentados</a></li>
+        </ol>
+    </nav>
+
+    <!-- ═══════════════════ 1. RESUMEN ═══════════════════ -->
+    <section id="s1">
+        <h2><span class="num">1</span> Resumen Ejecutivo</h2>
+        <p>La IA del motor de descansos toma las <strong style="color:var(--text-primary)">proyecciones de venta por hora de Toast</strong> (heatmap) y los <strong style="color:var(--text-primary)">turnos del día</strong> para calcular automáticamente cuándo debe ir cada empleado a Lunch y Break.</p>
+        <div class="callout callout-red">
+            <strong>Prioridad #1 — ABSOLUTA:</strong> Cumplir la Ley Laboral de California. Nunca se viola.
+        </div>
+        <div class="callout callout-amber">
+            <strong>Prioridad #2 — ALTA:</strong> Proteger las horas de mayor venta (RUSH/PICO/MAX). Se sacrifica SOLO en Panic Mode.
+        </div>
+        <div class="callout callout-blue">
+            <strong>Prioridad #3 — MEDIA:</strong> Optimizar la distribución (Magneto, equidad). Se apaga en crisis.
+        </div>
+    </section>
+
+    <!-- ═══════════════════ 2. ARQUITECTURA ═══════════════════ -->
+    <section id="s2">
+        <h2><span class="num">2</span> Arquitectura y Flujo de Datos</h2>
+        <div class="card-grid">
+            <div class="card">
+                <h4>📄 breaks-engine.ts</h4>
+                <p>Motor de IA: calcula CUÁNDO va cada empleado a break/lunch. Contiene <code>scheduleBreaksWithDemand()</code> y <code>findBestSlot()</code>.</p>
+                <p><span class="badge badge-blue">488 líneas</span></p>
+            </div>
+            <div class="card">
+                <h4>📄 descansos/page.tsx</h4>
+                <p>Interfaz: timeline visual, heatmap de colores, tooltips, auto-guardado en Supabase.</p>
+                <p><span class="badge badge-blue">719 líneas</span></p>
+            </div>
+        </div>
+        <div class="flow">Toast POS (Ventas históricas)
+    ↓
+API Forecast (/api/ventas) → operatingHours[] (ventas por hora, 0-23)
+    ↓
+breaks-engine.ts → scheduleBreaksWithDemand(shifts[], operatingHours[])
+    ↓
+smartShifts[] (turnos + breaks_schedule calculados)
+    ↓
+├── Timeline Visual (Heatmap + Barras de turno)
+└── Auto-Save a Supabase (shifts.breaks_schedule)</div>
+    </section>
+
+    <!-- ═══════════════════ 3. LEY ═══════════════════ -->
+    <section id="s3">
+        <h2><span class="num">3</span> Pilar 1 — Ley Laboral de California</h2>
+
+        <h3>🍽️ Lunches (Meals) — 30 minutos NO pagados</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Duración del Turno</th><th>Lunches</th><th>Notas</th></tr></thead>
+                <tbody>
+                    <tr><td>&lt; 5 horas</td><td>0</td><td>No requiere lunch</td></tr>
+                    <tr><td>5 – 10 horas</td><td><strong>1 obligatorio</strong></td><td>Debe INICIAR antes de que se cumplan 5 horas</td></tr>
+                    <tr><td>10 – 12 horas</td><td>1 oblig. + 1 <strong>opcional</strong></td><td>El 2do se puede firmar como Waiver (renuncia voluntaria)</td></tr>
+                    <tr><td>12+ horas</td><td><strong>2 obligatorios</strong></td><td>El 2do YA NO es opcional — la ley lo exige</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h4>Ventana de Meal #1</h4>
+        <p><strong style="color:var(--text-primary)">Inicio mínimo:</strong> 1 hora después de entrar &nbsp;|&nbsp; <strong style="color:var(--text-primary)">Deadline:</strong> 5 horas y 29 min después de la entrada</p>
+
+        <h4>Ventana de Meal #2 (si aplica)</h4>
+        <p><strong style="color:var(--text-primary)">Inicio mínimo:</strong> 6 horas después de entrar &nbsp;|&nbsp; <strong style="color:var(--text-primary)">Deadline:</strong> 10 horas y 29 min después de la entrada</p>
+
+        <h3>☕ Breaks (Rests) — 10 minutos PAGADOS</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Duración del Turno</th><th>Breaks</th><th>Distribución Ideal</th></tr></thead>
+                <tbody>
+                    <tr><td>&lt; 3.5 horas</td><td>0</td><td>—</td></tr>
+                    <tr><td>3.5 – 6 horas</td><td><strong>1</strong></td><td>Al 50% del turno</td></tr>
+                    <tr><td>6 – 10 horas</td><td><strong>2</strong></td><td>Al 25% y 75% del turno</td></tr>
+                    <tr><td>10 – 14 horas</td><td><strong>3</strong></td><td>Al 25%, 50% y 75% del turno</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>⏱️ Separación Personal (MIN_GAP)</h3>
+        <div class="callout callout-blue">
+            <strong>90 minutos</strong> mínimo entre CUALQUIER par de descansos del MISMO empleado. Ejemplo: Si María toma su Lunch de 12:00 a 12:30 PM, su siguiente Break NO puede ser antes de la <strong>1:30 PM</strong>.
+        </div>
+
+        <h3>📅 Día Laboral Tacos Gavilan</h3>
+        <div class="card-grid">
+            <div class="card" style="text-align:center;"><h4>🌅 Inicio</h4><p style="font-size:1.8rem;font-weight:900;color:var(--accent-blue);">6:00 AM</p></div>
+            <div class="card" style="text-align:center;"><h4>🌙 Fin</h4><p style="font-size:1.8rem;font-weight:900;color:var(--accent-purple);">5:59 AM (+1)</p></div>
+            <div class="card" style="text-align:center;"><h4>🌆 Turno PM</h4><p style="font-size:1.8rem;font-weight:900;color:var(--accent-amber);">5:00 PM</p></div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════ 4. HEATMAP ═══════════════════ -->
+    <section id="s4">
+        <h2><span class="num">4</span> Pilar 2 — Protección Operativa (Heatmap)</h2>
+
+        <h3>📊 El Sales Score (Intensidad)</h3>
+        <p>La IA normaliza las ventas históricas por hora a un valor de <strong style="color:var(--text-primary)">0.0</strong> (sin ventas) a <strong style="color:var(--text-primary)">1.0</strong> (hora de máxima venta).</p>
+
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Sales Score</th><th>Etiqueta</th><th>Color</th><th>¿Breaks permitidos?</th></tr></thead>
+                <tbody>
+                    <tr><td>0.00 – 0.05</td><td>Valle profundo</td><td>Gris / Blanco</td><td><span class="badge badge-green">✅ Ideal</span></td></tr>
+                    <tr><td>0.05 – 0.50</td><td>Valle / Bajo</td><td>Amarillo claro</td><td><span class="badge badge-green">✅ Bueno</span></td></tr>
+                    <tr><td>0.50 – 0.74</td><td>Moderado</td><td>Amarillo fuerte</td><td><span class="badge badge-yellow">⚠️ Con penalización</span></td></tr>
+                    <tr><td><strong>0.75 – 0.84</strong></td><td><strong>RUSH</strong></td><td style="color:var(--accent-orange);font-weight:700;">Naranja</td><td><span class="badge badge-red">❌ PROHIBIDO</span></td></tr>
+                    <tr><td><strong>0.85 – 0.94</strong></td><td><strong>PICO</strong></td><td style="color:var(--accent-red);font-weight:700;">Rojo claro</td><td><span class="badge badge-red">❌ PROHIBIDO</span></td></tr>
+                    <tr><td><strong>0.95 – 1.00</strong></td><td><strong>MAX</strong></td><td style="color:#991b1b;font-weight:700;">Rojo intenso</td><td><span class="badge badge-red">❌ PROHIBIDO</span></td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h4>Ejemplo Visual de Heatmap (Sábado típico)</h4>
+        <div class="heatmap-demo">
+            <div class="heatmap-cell" style="background:#fef9c3;color:#713f12;">6AM</div>
+            <div class="heatmap-cell" style="background:#fef08a;color:#713f12;">7</div>
+            <div class="heatmap-cell" style="background:#fde047;color:#713f12;">8</div>
+            <div class="heatmap-cell" style="background:#facc15;color:#713f12;">9</div>
+            <div class="heatmap-cell" style="background:#eab308;color:#fff;">10</div>
+            <div class="heatmap-cell" style="background:#f97316;color:#fff;">11<br>RUSH</div>
+            <div class="heatmap-cell" style="background:#ef4444;color:#fff;">12<br>PICO</div>
+            <div class="heatmap-cell" style="background:#dc2626;color:#fff;">1PM<br>MAX</div>
+            <div class="heatmap-cell" style="background:#f97316;color:#fff;">2<br>RUSH</div>
+            <div class="heatmap-cell" style="background:#facc15;color:#713f12;">3</div>
+            <div class="heatmap-cell" style="background:#eab308;color:#fff;">4</div>
+            <div class="heatmap-cell" style="background:#f97316;color:#fff;">5<br>RUSH</div>
+            <div class="heatmap-cell" style="background:#ef4444;color:#fff;">6<br>PICO</div>
+            <div class="heatmap-cell" style="background:#ef4444;color:#fff;">7<br>PICO</div>
+            <div class="heatmap-cell" style="background:#dc2626;color:#fff;">8PM<br>MAX</div>
+            <div class="heatmap-cell" style="background:#f97316;color:#fff;">9<br>RUSH</div>
+            <div class="heatmap-cell" style="background:#facc15;color:#713f12;">10</div>
+            <div class="heatmap-cell" style="background:#fef9c3;color:#713f12;">11</div>
+        </div>
+
+        <div class="callout callout-red">
+            <strong>🚫 REGLA CRÍTICA:</strong> Cualquier hora con intensidad ≥ 0.75 es <strong>Tierra Prohibida</strong>. La IA tiene absolutamente bloqueado agendar lunches o breaks ahí. Solo el <strong>Panic Mode</strong> puede romper esta regla.
+        </div>
+    </section>
+
+    <!-- ═══════════════════ 5. OVERLAP ═══════════════════ -->
+    <section id="s5">
+        <h2><span class="num">5</span> Reglas de Empalme (Overlap)</h2>
+
+        <h3>En Modo Normal (hay slots fuera del Rush)</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Escenario</th><th>¿Permitido?</th><th>Razón</th></tr></thead>
+                <tbody>
+                    <tr><td>Cashier + Cashier</td><td><span class="badge badge-red">❌ NUNCA</span></td><td>Mismo puesto — sin cajero</td></tr>
+                    <tr><td>Cook + Cook</td><td><span class="badge badge-red">❌ NUNCA</span></td><td>Mismo puesto</td></tr>
+                    <tr><td>Asst Manager + Shift Leader</td><td><span class="badge badge-red">❌ NUNCA</span></td><td>Líder vs Líder</td></tr>
+                    <tr><td>Shift Leader + Cashier</td><td><span class="badge badge-red">❌ Bloqueado</span></td><td>Líder vs Tropa</td></tr>
+                    <tr><td>Cashier + Cook <em>(Valle)</em></td><td><span class="badge badge-green">✅ Permitido</span></td><td>Tropa diferente, estaciones aisladas</td></tr>
+                    <tr><td>Cashier + Cook <em>(Rush ≥ 0.75)</em></td><td><span class="badge badge-red">❌ Bloqueado</span></td><td>Uno por uno en horas pesadas</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>En Panic Mode (toda la ventana es roja)</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Escenario</th><th>¿Permitido?</th><th>Razón</th></tr></thead>
+                <tbody>
+                    <tr><td>Cashier + Cashier</td><td><span class="badge badge-red">❌ NUNCA</span></td><td>Mismo puesto siempre bloqueado</td></tr>
+                    <tr><td>Líder + Líder</td><td><span class="badge badge-red">❌ NUNCA</span></td><td>Dos líderes nunca juntos ni en crisis</td></tr>
+                    <tr><td>Líder + Tropa</td><td><span class="badge badge-green">✅ RELAJADO</span></td><td>Si no se relaja, el líder cae al peor slot</td></tr>
+                    <tr><td>Tropa + Tropa diferente</td><td><span class="badge badge-green">✅ Permitido</span></td><td>Prioridad: cumplir la ley</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>🔍 ¿Cómo identifica los roles?</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Palabra en job_title</th><th>Clasificación</th><th>Ejemplo</th></tr></thead>
+                <tbody>
+                    <tr><td><code>manager</code></td><td><span class="badge badge-orange">Líder</span></td><td>Asst Manager, General Manager</td></tr>
+                    <tr><td><code>leader</code></td><td><span class="badge badge-orange">Líder</span></td><td>Shift Leader</td></tr>
+                    <tr><td><code>assistant / asistente</code></td><td><span class="badge badge-orange">Líder</span></td><td>Assistant, Asistente</td></tr>
+                    <tr><td><code>is_leader = true</code></td><td><span class="badge badge-orange">Líder</span></td><td>Campo booleano de BD</td></tr>
+                    <tr><td>Cualquier otra cosa</td><td><span class="badge badge-gray">Tropa</span></td><td>Cashier, Cook, Taquero, Prep</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ═══════════════════ 6. MAGNETO ═══════════════════ -->
+    <section id="s6">
+        <h2><span class="num">6</span> El Magneto de Líderes</h2>
+        <p>Es una penalización matemática <strong style="color:var(--text-primary)">gigante</strong> (100 millones de puntos por cada hora de retraso) que "jala" a los líderes a tomar su Lunch lo más temprano posible.</p>
+
+        <h3>¿Cuándo se activa?</h3>
+        <p>Solo cuando el <strong style="color:var(--text-primary)">Pico más fuerte del turno</strong> cae DESPUÉS del punto medio de la ventana de Meal.</p>
+
+        <div class="card-grid">
+            <div class="card" style="border-color: #bbf7d0;">
+                <h4 style="color: var(--accent-emerald);">✅ Magneto ON</h4>
+                <p>Turno PM con pico a las <strong style="color:var(--text-primary)">8 PM</strong> → Empuja al líder a comer a las 5-6 PM</p>
+            </div>
+            <div class="card" style="border-color: #fecaca;">
+                <h4 style="color: var(--accent-red);">❌ Magneto OFF</h4>
+                <p>En <strong style="color:var(--text-primary)">Panic Mode</strong> — porque empujaría al líder a la hora MÁS ROJA</p>
+            </div>
+        </div>
+
+        <h3>Ejemplo Numérico</h3>
+        <div class="code-block"><span class="comment">// Rafael Lopez - Asst Manager - 5:00 PM a 3:00 AM</span>
+<span class="comment">// Pico del turno: hora 20 (8 PM) — Magneto ON</span>
+
+Slot 6:00 PM → leaderPenalty = 1hr × 100M = <span class="string">100M</span>  ← <span class="yes">✅ GANA</span>
+Slot 8:00 PM → leaderPenalty = 3hr × 100M = <span class="string">300M</span>
+Slot 9:30 PM → leaderPenalty = 4.5hr × 100M = <span class="string">450M</span>
+
+<span class="arrow">→ La IA elige 6:00 PM para Rafael (menor penalidad total)</span></div>
+    </section>
+
+    <!-- ═══════════════════ 7. PANIC ═══════════════════ -->
+    <section id="s7">
+        <h2><span class="num">7</span> Pilar 3 — Panic Mode (Modo Crisis)</h2>
+
+        <div class="callout callout-red">
+            <strong>🚨 Activación:</strong> Se activa cuando la IA escanea TODA la ventana legal de un empleado y <strong>TODOS</strong> los slots tienen salesScore ≥ 0.75. No hay dónde dar el break sin violar el Ban Absoluto.
+        </div>
+
+        <h3>¿Qué reglas cambian?</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Regla</th><th>Modo Normal</th><th>Panic Mode</th></tr></thead>
+                <tbody>
+                    <tr><td>Gap personal 90 min</td><td><span class="badge badge-green">✅ Activa</span></td><td><span class="badge badge-green">✅ Se mantiene</span></td></tr>
+                    <tr><td>Mismo puesto bloqueado</td><td><span class="badge badge-green">✅ Activa</span></td><td><span class="badge badge-green">✅ Se mantiene</span></td></tr>
+                    <tr><td>Líder + Líder bloqueado</td><td><span class="badge badge-green">✅ Activa</span></td><td><span class="badge badge-green">✅ Se mantiene</span></td></tr>
+                    <tr><td>Ban ≥ 0.75</td><td><span class="badge badge-green">✅ Activa</span></td><td><span class="badge badge-red">❌ Se ignora</span></td></tr>
+                    <tr><td>Líder vs Tropa</td><td><span class="badge badge-green">✅ Activa</span></td><td><span class="badge badge-red">❌ Se relaja</span></td></tr>
+                    <tr><td>Uno por uno en Rush</td><td><span class="badge badge-green">✅ Activa</span></td><td><span class="badge badge-red">❌ Se desactiva</span></td></tr>
+                    <tr><td>Magneto de Líderes</td><td><span class="badge badge-green">✅ Activa</span></td><td><span class="badge badge-red">❌ Se apaga</span></td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>Lógica de Selección en Panic Mode</h3>
+        <div class="flow"><span class="comment">// Panic Mode: busca el "Daño Menor" en la zona roja</span>
+
+Para cada slot de 15 min (SIN ban de ≥ 0.75):
+│
+├─ ¿Viola gap personal 90 min?   → <span class="no">SKIP</span>
+├─ ¿Mismo puesto ya tiene break? → <span class="no">SKIP</span>
+├─ ¿Líder + Líder?               → <span class="no">SKIP</span>
+├─ ¿Líder + Tropa?               → <span class="yes">PERMITIDO</span> (relajado)
+│
+└─ Calcular: peakPenalty = salesScore⁸ × 50,000,000
+   <span class="comment">// SIN Magneto (apagado en crisis)</span>
+   <span class="arrow">→ Elegir slot con MENOR peakPenalty</span>
+
+<span class="comment">// Ejemplo: 0.75⁸ × 50M = 5M  vs  1.0⁸ × 50M = 50M</span>
+<span class="comment">// La IA preferirá RUSH (5M) sobre MAX (50M) por mucho</span></div>
+    </section>
+
+    <!-- ═══════════════════ 8. CATÁLOGO ═══════════════════ -->
+    <section id="s8">
+        <h2><span class="num">8</span> Catálogo Completo — 14 Reglas</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>#</th><th>Regla</th><th>Prioridad</th><th>¿Se rompe en Panic?</th><th>Líneas</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>R1</td><td>Meal obligatorio a las 5 hrs</td><td><span class="badge badge-red">SAGRADA</span></td><td>NO, nunca</td><td>L42-44</td></tr>
+                    <tr><td>R2</td><td>2do Meal obligatorio a 12+ hrs</td><td><span class="badge badge-red">SAGRADA</span></td><td>NO, nunca</td><td>L47-49</td></tr>
+                    <tr><td>R3</td><td>2do Meal opcional 10-12 hrs (waiver)</td><td><span class="badge badge-red">SAGRADA</span></td><td>NO, nunca</td><td>L45-46</td></tr>
+                    <tr><td>R4</td><td>Gap personal 90 min</td><td><span class="badge badge-red">SAGRADA</span></td><td>NO, nunca</td><td>L141</td></tr>
+                    <tr><td>R5</td><td>Mismo puesto NUNCA juntos</td><td><span class="badge badge-red">SAGRADA</span></td><td>NO, nunca</td><td>L205-208</td></tr>
+                    <tr><td>R6</td><td>Líder vs Líder NUNCA juntos</td><td><span class="badge badge-red">SAGRADA</span></td><td>NO, nunca</td><td>L211-214</td></tr>
+                    <tr><td>R7</td><td>Ban Absoluto en zonas ≥ 0.75</td><td><span class="badge badge-orange">ALTA</span></td><td><strong>SÍ</strong>, se ignora</td><td>L168-173</td></tr>
+                    <tr><td>R8</td><td>Líder vs Tropa bloqueado</td><td><span class="badge badge-orange">ALTA</span></td><td><strong>SÍ</strong>, se relaja</td><td>L211-214</td></tr>
+                    <tr><td>R9</td><td>Uno por uno en Rush</td><td><span class="badge badge-orange">ALTA</span></td><td><strong>SÍ</strong>, se desactiva</td><td>L217-222</td></tr>
+                    <tr><td>R10</td><td>Magneto de Líderes</td><td><span class="badge badge-yellow">MEDIA</span></td><td><strong>SÍ</strong>, se apaga</td><td>L235-274</td></tr>
+                    <tr><td>R11</td><td>Break no antes de 1hr trabajada</td><td><span class="badge badge-yellow">MEDIA</span></td><td>NO</td><td>L458-462</td></tr>
+                    <tr><td>R12</td><td>Rest hasta 30 min antes de salir</td><td><span class="badge badge-gray">BAJA</span></td><td>NO</td><td>L450-455</td></tr>
+                    <tr><td>R13</td><td>Distribución equitativa 25/50/75%</td><td><span class="badge badge-gray">BAJA</span></td><td>NO</td><td>L444-445</td></tr>
+                    <tr><td>R14</td><td>Break no puede exceder fin de turno</td><td><span class="badge badge-red">SAGRADA</span></td><td>NO, nunca</td><td>L373-380</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ═══════════════════ 9. JERARQUÍA ═══════════════════ -->
+    <section id="s9">
+        <h2><span class="num">9</span> Jerarquía de Prioridades</h2>
+        <p>Piénsalo como un edificio de 4 pisos. Si hay un incendio (Panic Mode), tiramos paredes de arriba pero los cimientos <strong style="color:var(--text-primary)">NUNCA</strong> se tocan:</p>
+
+        <div class="tower">
+            <div class="tower-level tower-red">
+                <h4>🔴 PISO 1 — INTOCABLE (Jamás se rompe)</h4>
+                <ul>
+                    <li><strong>R1:</strong> Meal a las 5 hrs (Ley de California)</li>
+                    <li><strong>R2:</strong> 2do Meal a 12+ hrs</li>
+                    <li><strong>R4:</strong> Gap personal de 90 min</li>
+                    <li><strong>R5:</strong> Mismo puesto NUNCA juntos</li>
+                    <li><strong>R6:</strong> Líder + Líder NUNCA juntos</li>
+                    <li><strong>R14:</strong> Nunca exceder fin del turno</li>
+                </ul>
+            </div>
+            <div class="tower-level tower-orange">
+                <h4>🟠 PISO 2 — SE SACRIFICA EN PANIC MODE</h4>
+                <p style="color:#9a3412;">Se rompen cuando TODA la ventana legal es roja. La ley &gt; las ventas.</p>
+                <ul>
+                    <li><strong>R7:</strong> Ban Absoluto ≥ 0.75 → se ignora</li>
+                    <li><strong>R8:</strong> Líder vs Tropa → se relaja</li>
+                    <li><strong>R9:</strong> Uno por uno en Rush → se desactiva</li>
+                </ul>
+            </div>
+            <div class="tower-level tower-yellow">
+                <h4>🟡 PISO 3 — OPTIMIZACIÓN (Se apaga en crisis)</h4>
+                <ul>
+                    <li><strong>R10:</strong> Magneto de Líderes → se apaga (puede empujar al peor slot)</li>
+                    <li><strong>R11:</strong> No break antes de 1hr trabajada</li>
+                </ul>
+            </div>
+            <div class="tower-level tower-gray">
+                <h4>⬜ PISO 4 — COSMÉTICO (Siempre activo, nunca bloquea nada)</h4>
+                <ul>
+                    <li><strong>R12:</strong> Rest hasta 30 min antes de salir</li>
+                    <li><strong>R13:</strong> Distribución equitativa de Rests</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════ 10. FLUJO ═══════════════════ -->
+    <section id="s10">
+        <h2><span class="num">10</span> Flujo de Ejecución Completo</h2>
+
+        <h3>PASO 0 — Preparar Heatmap</h3>
+        <div class="flow"><span class="comment">// Líneas 60-81</span>
+
+¿Hay datos reales de Toast? (maxSales ≥ 10)
+├─ <span class="yes">SÍ</span> → Normalizar: hourScores[hora] = ventas / max_ventas
+│         Resultado: 0.0 (muerto) → 1.0 (máximo)
+│
+└─ <span class="no">NO</span> → Usar curva mock de restaurante mexicano:
+         6AM=0.01  12PM=1.0(Pico)  7PM=0.95(Rush)  11PM=0.16</div>
+
+        <h3>PASO 1 — Ordenar Empleados (Escudo Operativo V2)</h3>
+        <div class="flow"><span class="comment">// Líneas 88-120</span>
+
+Agrupar por hora de entrada (redondeada):
+│
+├─ <span class="keyword">DENTRO</span> del mismo grupo horario:
+│   ├─ Prioridad 1: Líderes primero
+│   └─ Prioridad 2: Turnos más cortos primero
+│
+└─ <span class="keyword">ENTRE</span> grupos: Hora más temprana primero
+
+<span class="comment">// Ejemplo: Damaris(9AM,Leader) → Jesse(9AM,Leader) → Maria(9AM,Mgr) → Senia(10AM,Cashier)</span></div>
+
+        <h3>PASO 2 — Agendar TODOS los Lunches</h3>
+        <div class="flow"><span class="comment">// Líneas 387-418</span>
+
+Para CADA empleado en orden:
+├─ ¿Turno > 5 hrs? → Necesita Meal
+│   ├─ Ventana: 1hr después → 5.49 hrs después de entrada
+│   ├─ Llamar findBestSlot()
+│   └─ Agregar resultado a globalUnavailable[]
+│
+└─ ¿Turno ≥ 12 hrs? → 2do Meal obligatorio
+    └─ Ventana: 6hrs después → 10.49 hrs después</div>
+
+        <h3>PASO 3 — Agendar TODOS los Rests</h3>
+        <div class="flow"><span class="comment">// Líneas 420-484</span>
+
+Para CADA empleado:
+├─ Calcular cuántos Rests (1, 2, o 3)
+├─ Distribuir: 25%, 50%, 75% del turno (± 1.5 hrs ventana)
+├─ Llamar findBestSlot() con isMeal=false (Magneto OFF)
+└─ Agregar a globalUnavailable[]</div>
+
+        <h3>⚡ findBestSlot() — El Cerebro (5 Filtros en Cascada)</h3>
+        <div class="flow"><span class="comment">// Líneas 128-385 — Para cada slot de 15 min:</span>
+
+<span class="keyword">FILTRO 1</span>: Gap Personal (R4)
+   ¿Otro break propio a menos de 90 min? → <span class="no">SKIP</span>
+
+<span class="keyword">FILTRO 2</span>: Sales Score (R7)
+   ¿Intensidad ≥ 0.75? → <span class="no">SKIP — Tierra Prohibida</span>
+
+<span class="keyword">FILTRO 3</span>: Mismo Puesto (R5)
+   ¿Otro del MISMO puesto ya tiene break? → <span class="no">SKIP</span>
+
+<span class="keyword">FILTRO 4</span>: Líder (R6 + R8)
+   ¿Soy líder Y overlap con cualquiera? → <span class="no">SKIP</span>
+   ¿Soy tropa Y overlap con un líder? → <span class="no">SKIP</span>
+
+<span class="keyword">FILTRO 5</span>: Rush (R9)
+   ¿RUSH Y overlap con cualquiera? → <span class="no">SKIP</span>
+
+<span class="yes">✅ SLOT VÁLIDO</span> → score = (salesScore⁸ × 50M) + leaderMagneto
+   <span class="arrow">→ El slot con MENOR score gana</span>
+
+<span class="comment">// Si NINGÚN slot pasó → PANIC MODE</span></div>
+    </section>
+
+    <!-- ═══════════════════ 11. PARÁMETROS ═══════════════════ -->
+    <section id="s11">
+        <h2><span class="num">11</span> Parámetros Ajustables</h2>
+        <p>Estos son los "knobs" que se pueden girar para hacer el sistema más estricto o permisivo:</p>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Parámetro</th><th>Valor</th><th>Si lo SUBES</th><th>Si lo BAJAS</th></tr></thead>
+                <tbody>
+                    <tr><td><strong>MIN_GAP_MS</strong></td><td>90 min</td><td>Más espacio entre breaks personales</td><td>Breaks pueden quedar más juntos</td></tr>
+                    <tr><td><strong>Ban threshold</strong></td><td>0.75</td><td>Más horas permitidas</td><td>Más horas bloqueadas</td></tr>
+                    <tr><td><strong>STEP_MS</strong></td><td>15 min</td><td>Menos opciones (rápido)</td><td>Más precisión (lento)</td></tr>
+                    <tr><td><strong>leaderEarlyPenalty</strong></td><td>100M/hr</td><td>Magneto más agresivo</td><td>Líderes pueden ir más tarde</td></tr>
+                    <tr><td><strong>peakPenalty exp.</strong></td><td>8</td><td>Más sensible al pico</td><td>Menos diferencia naranja vs rojo</td></tr>
+                    <tr><td><strong>Peak penalty base</strong></td><td>50M</td><td>Sales score pesa más</td><td>Otros factores pesan más</td></tr>
+                    <tr><td><strong>Rest window</strong></td><td>± 1.5 hrs</td><td>Rests más flexibles</td><td>Rests pegados al punto ideal</td></tr>
+                    <tr><td><strong>End buffer</strong></td><td>30 min</td><td>Rests pueden ir al final</td><td>Rests acaban antes</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ═══════════════════ 12. CASOS ═══════════════════ -->
+    <section id="s12">
+        <h2><span class="num">12</span> Casos Reales Documentados</h2>
+
+        <div class="card" style="border-left: 4px solid var(--accent-orange);">
+            <h4 style="color: var(--accent-orange);">📍 Caso Abraham — Azusa, Sábado 04/04</h4>
+            <p><strong style="color:var(--text-primary)">Empleado:</strong> Abraham Lopez, Shift Leader, 4 PM – 1 AM</p>
+            <p><strong style="color:var(--text-primary)">Problema:</strong> Toda su ventana (5-9:30 PM) era RUSH/MAX. El Magneto lo clavaba a las 7 PM (MAX).</p>
+            <p><strong style="color:var(--text-primary)">Solución:</strong> Magneto OFF en Panic + líder-vs-tropa relajado → se va a las 9:15 PM (menor intensidad).</p>
+        </div>
+
+        <div class="card" style="border-left: 4px solid var(--accent-blue);">
+            <h4 style="color: var(--accent-blue);">📍 Caso Rafael + Robinson — West Covina, Sábado 04/04</h4>
+            <p><strong style="color:var(--text-primary)">Empleados:</strong> Rafael (Asst Manager) + Robinson (Shift Leader), ambos 5 PM – 3 AM</p>
+            <p><strong style="color:var(--text-primary)">Problema:</strong> Ambos iban a lunch a las 8 PM al mismo tiempo.</p>
+            <p><strong style="color:var(--text-primary)">Solución:</strong> Regla <code>isManagerOrLeader && unavail.isLeader</code> en Panic Mode. Dos líderes NUNCA juntos.</p>
+        </div>
+
+        <div class="card" style="border-left: 4px solid var(--text-muted);">
+            <h4>📍 Inteligencia Ciega — Tienda sin datos Toast</h4>
+            <p><strong style="color:var(--text-primary)">Problema:</strong> Sin ventas históricas, todo sería "valley" → breaks al azar en pleno rush.</p>
+            <p><strong style="color:var(--text-primary)">Solución:</strong> Mock curve automática con picos a las 12 PM y 7-8 PM. Se activa cuando <code>maxSales &lt; 10</code>.</p>
+        </div>
+    </section>
+
+    <!-- ═══════════════════ FOOTER ═══════════════════ -->
+    <footer style="text-align:center; padding: 2rem 0; border-top: 1px solid var(--border); margin-top: 1rem;">
+        <p style="color: var(--text-muted); font-size: 0.85rem;">
+            📄 Motor de Descansos Autónomo — Tacos El Gavilan &nbsp;|&nbsp; Versión 6.0 &nbsp;|&nbsp; Abril 2026
+        </p>
+        <p style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.3rem;">
+            La Ley de California SIEMPRE gana. Si la IA tiene que elegir entre proteger las ventas y cumplir la ley, la ley gana.
+        </p>
+    </footer>
+
+</div>
+</body>
+</html>

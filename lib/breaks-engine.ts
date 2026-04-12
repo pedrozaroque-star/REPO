@@ -20,23 +20,28 @@ export function getRequiredBreaksCA(start: Date, end: Date): Omit<BreakBlock, 's
 
     const breaks: Omit<BreakBlock, 'start_time' | 'end_time'>[] = [];
 
-    // California Law:
-    // Rest Break (10m): 1 per 4 hours or major fraction thereof (maj fraction = > 2h).
-    // => 0 to <3.5: 0 rest
-    // => 3.5 to < 6: 1 rest
-    // => 6 to < 10: 2 rests
-    // => 10 to < 14: 3 rests
-    
-    // Meal Break (30m):
-    // => >5h: 1 meal (must start before end of 5th hour)
-    // => >=12h: 2 meals (2nd mandatory — below 12h the 2nd meal is optional/waived)
+    // California Law — Rest Breaks (10 min PAID):
+    // "10 minutes per 4 hours or MAJOR FRACTION thereof"
+    // "Major fraction" = MORE THAN half of 4 hours = MORE THAN 2 hours (> 2.0, NOT >= 2.0)
+    //
+    // DLSE Interpretation (confirmed by multiple CA employment law sources):
+    //   3.5 – 6.0 hrs:  1 rest  (first 4hrs or its major fraction ≥ 3.5)
+    //   > 6.0 – 10.0 hrs: 2 rests (remaining after 4hrs is > 2.0 = major fraction)
+    //   > 10.0 – 14.0 hrs: 3 rests (remaining after 8hrs is > 2.0 = major fraction)
+    //
+    // KEY: At EXACTLY 6.0 hrs → 4hrs + 2.0 remaining. 2.0 is NOT > 2.0 → still 1 rest.
+    //      At EXACTLY 10.0 hrs → 8hrs + 2.0 remaining. 2.0 is NOT > 2.0 → still 2 rests.
+    //
+    // Meal Break (30m, UNPAID):
+    //   > 5h: 1 meal (must START before end of 5th hour)
+    //   >= 12h: 2 meals (2nd mandatory — below 12h the 2nd meal is optional/waived)
 
-    if (durationHours >= 3.5 && durationHours < 6) {
-        breaks.push({ type: 'rest_10' });
-    } else if (durationHours >= 6 && durationHours < 10) {
-        breaks.push({ type: 'rest_10' }, { type: 'rest_10' });
-    } else if (durationHours >= 10 && durationHours < 14) {
+    if (durationHours > 10) {
         breaks.push({ type: 'rest_10' }, { type: 'rest_10' }, { type: 'rest_10' });
+    } else if (durationHours > 6) {
+        breaks.push({ type: 'rest_10' }, { type: 'rest_10' });
+    } else if (durationHours >= 3.5) {
+        breaks.push({ type: 'rest_10' });
     }
 
     if (durationHours > 5) {

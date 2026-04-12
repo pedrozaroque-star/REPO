@@ -2,8 +2,12 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import path from 'path'
 import fs from 'fs'
+import { generateSmartForecast } from '@/lib/intelligence'
+import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
 
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -170,12 +174,88 @@ export async function POST(req: Request) {
         // 4. Fetch Employee Contact Info
         const { data: employees, error: empError } = await supabase
             .from('toast_employees')
-            .select('id, first_name, last_name, email, phone')
+            .select('*')
             .in('id', targetEmployeeIds)
 
         if (empError) throw empError
 
-        // 5. Send Email Notifications (VIA GMAIL API REST - NO SMTP)
+        // --- 5. SMART BREAKS GENERATION (Enterprise Strength) ---
+        const { data: allJobs } = await supabase.from('toast_jobs').select('*')
+        const jobs = allJobs || []
+
+        const datesToCheck = [...new Set(shifts.map(s => s.shift_date))]
+        const needsCalcDates = datesToCheck.filter(dateStr => {
+            const dayShifts = shifts.filter(s => s.shift_date === dateStr)
+            return dayShifts.some(s => !s.breaks_schedule || (Array.isArray(s.breaks_schedule) && s.breaks_schedule.length === 0))
+        })
+
+        if (needsCalcDates.length > 0) {
+            console.log(`🤖 [API] Multi-date Auto-calculation for: ${needsCalcDates.join(', ')}`)
+            
+            // 5.1 PRE-FETCH ALL NECESSARY DATA IN PARALLEL
+            const [fullWeekShiftsRes, storeEmployeesRes, forecastsRes] = await Promise.all([
+                supabase.from('shifts').select('*').eq('store_id', store_id).in('shift_date', needsCalcDates),
+                supabase.from('toast_employees').select('*').contains('store_ids', [store_id]),
+                Promise.all(needsCalcDates.map(d => generateSmartForecast(store_id, d)))
+            ])
+
+            const fullWeekShifts = fullWeekShiftsRes.data || []
+            const storeEmployees = storeEmployeesRes.data || []
+            const dayForecasts: Record<string, any[]> = {}
+            needsCalcDates.forEach((d, i) => { dayForecasts[d] = forecastsRes[i].hours || [] })
+
+            // 5.2 PROCESS EACH DATE
+            for (const dateStr of needsCalcDates) {
+                try {
+                    const dayShifts = fullWeekShifts.filter(s => s.shift_date === dateStr)
+                    const hoursToDraw = dayForecasts[dateStr]
+
+                    const shiftsForAi = dayShifts.map(s => {
+                        const emp = storeEmployees.find(e => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
+                        let extTitle = '';
+                        if (emp && emp.job_references && emp.job_references.length > 0) {
+                            const jobRef = emp.job_references[0];
+                            const job = jobs.find((j: any) => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
+                            if (job) extTitle = job.title;
+                        }
+                        if (!extTitle) {
+                            const shiftJob = jobs.find((j: any) => j.guid === s.job_id || String(j.id) === String(s.job_id));
+                            if (shiftJob) extTitle = shiftJob.title;
+                        }
+                        const titleLowerCase = extTitle.toLowerCase();
+                        const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado');
+                        return { ...s, is_leader: isLeader, job_title: extTitle };
+                    });
+
+                    const augmented = scheduleBreaksWithDemand(shiftsForAi as any, hoursToDraw);
+                    
+                    // Batch updates to DB for this day
+                    const updates = augmented.map(aug => ({
+                        id: aug.id,
+                        breaks_schedule: aug.breaks_schedule
+                    }))
+
+                    // Update memory for the email loop
+                    for (const upd of updates) {
+                        const idx = shifts.findIndex(ls => ls.id === upd.id)
+                        if (idx !== -1) shifts[idx].breaks_schedule = upd.breaks_schedule
+                    }
+
+                    // Perform one bulk update per day to be faster than one-by-one
+                    if (updates.length > 0) {
+                        await supabase.from('shifts').upsert(updates.map(u => ({
+                            id: u.id,
+                            breaks_schedule: u.breaks_schedule,
+                            store_id: store_id // required for safety/index
+                        })))
+                    }
+                } catch (e) {
+                    console.error(`❌ [API] Error calculating breaks for ${dateStr}:`, e)
+                }
+            }
+        }
+
+        // 6. Send Email Notifications (VIA GMAIL API REST - NO SMTP)
         const results = { email: 0, errors: 0 }
 
         // Get store info for branding
@@ -204,12 +284,19 @@ export async function POST(req: Request) {
 
                     let breaksHtml = '';
                     if (s.breaks_schedule && Array.isArray(s.breaks_schedule) && s.breaks_schedule.length > 0) {
-                        breaksHtml = s.breaks_schedule.map((b: any) => {
+                        const list = s.breaks_schedule.map((b: any) => {
                             const bTime = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' });
-                            const bName = b.type === 'meal_30' ? 'Almuerzo (30m)' : 'Descanso (10m)';
+                            const bName = b.type === 'meal_30' ? 'Almuerzo' : 'Descanso';
                             const bColor = b.type === 'meal_30' ? '#d97706' : '#059669';
-                            return `<div style="font-size: 12px; color: ${bColor}; margin-top: 4px;">☕ ${bName}: ${bTime}</div>`
-                        }).join('');
+                            return `<span style="display: inline-block; font-size: 11px; background: ${bColor}10; color: ${bColor}; padding: 2px 6px; border-radius: 4px; margin: 2px; font-weight: 700;">${bName}: ${bTime}</span>`
+                        }).join(' ');
+                        
+                        breaksHtml = `
+                            <div style="margin-top: 10px; border-top: 1px dashed #e5e7eb; pt: 8px;">
+                                <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 800; margin-bottom: 4px;">Breaks Programados:</div>
+                                ${list}
+                            </div>
+                        `;
                     }
 
                     return `
@@ -253,11 +340,26 @@ export async function POST(req: Request) {
                                 </td>
                             </tr>
                              <tr>
-                                <td style="padding: 0 30px 40px 30px;">
+                                <td style="padding: 0 30px 20px 30px;">
                                     <table role="presentation" style="width: 100%; border-collapse: collapse; background: #f9fafb; border-radius: 16px; overflow: hidden; border: 2px solid #e5e7eb;">
-                                        <thead><tr><th style="padding:16px;">Día</th><th style="padding:16px;">Horario</th></tr></thead>
+                                        <thead>
+                                            <tr style="background: #f3f4f6;">
+                                                <th style="padding:16px; text-align: left; font-size: 14px; color: #374151;">Día</th>
+                                                <th style="padding:16px; text-align: center; font-size: 14px; color: #374151;">Horario y Descansos</th>
+                                            </tr>
+                                        </thead>
                                         <tbody>${shiftRows}</tbody>
                                     </table>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0 30px 40px 30px;">
+                                    <div style="background: #fffbeb; border: 2px solid #fcd34d; border-radius: 12px; padding: 20px; text-align: center;">
+                                        <p style="margin: 0; color: #92400e; font-size: 16px; font-weight: 800; line-height: 1.5;">
+                                            ⚠️ AVISO IMPORTANTE:<br>
+                                            Los horarios de breaks (descansos) y lunches (almuerzos) son una guía inicial y <span style="text-decoration: underline;">podrán cambiar</span> de acuerdo a las necesidades operativas del restaurante y el flujo de clientes.
+                                        </p>
+                                    </div>
                                 </td>
                             </tr>
                              <tr>
@@ -356,6 +458,258 @@ export async function POST(req: Request) {
             await processChunk(chunk)
             // Small delay to prevent SMTP rate limiting or Serverless timeout issues
             await new Promise(r => setTimeout(r, 500))
+        }
+
+        // --- 7. SEND CONSOLIDATED REPORT TO MANAGER ---
+        if (results.email > 0) {
+            console.log(`📊 [API] Generating Consolidated Report for Manager: ${fromEmail}`)
+            
+            // Helper for sorting (replicated from lib/utils.ts for API use)
+            const getApiRoleWeight = (title: string, empShifts: any[]) => {
+                const t = (title || '').toLowerCase();
+                if (t.includes('manager') && !t.includes('asst') && !t.includes('assist') && !t.includes('asistente') && !t.includes('shift')) return 10;
+                
+                let totalAmHours = 0;
+                let totalPmHours = 0;
+                empShifts.forEach(s => {
+                    const start = new Date(s.start_time);
+                    const end = new Date(s.end_time);
+                    const startH = start.getHours() + (start.getMinutes() / 60);
+                    let endH = end.getHours() + (end.getMinutes() / 60);
+                    if (endH < startH) endH += 24;
+                    const overlapAm = Math.max(0, Math.min(endH, 17) - startH);
+                    const overlapPm = Math.max(0, endH - Math.max(startH, 17));
+                    totalAmHours += overlapAm;
+                    totalPmHours += overlapPm;
+                });
+
+                const blockScore = totalPmHours > totalAmHours ? 2000 : 1000;
+                let roleScore = 99;
+                if (t.includes('asst') || t.includes('assist') || t.includes('asistente')) roleScore = 1;
+                else if (t.includes('shift') || t.includes('leader') || t.includes('encargado')) roleScore = 2;
+                else if (t.includes('cashier') || t.includes('cajera')) roleScore = 3;
+                else if (t.includes('cook') || t.includes('cocinero') || t.includes('prep') || t.includes('preparador') || t.includes('taquero') || t.includes('tortill')) roleScore = 4;
+                return blockScore + roleScore;
+            };
+
+            // Fix: ensure we have names for ALL employees in the report shifts
+            const allEmpIdInShifts = [...new Set(shifts.map(s => s.employee_id).filter(Boolean))]
+            const { data: allShiftsEmployees } = await supabase.from('toast_employees').select('id, first_name, last_name, job_references').in('id', allEmpIdInShifts)
+            
+            // Sort employees by Planner Weight
+            const empMap = (allShiftsEmployees || []).sort((a,b) => {
+                const aShifts = shifts.filter(s => s.employee_id === a.id);
+                const bShifts = shifts.filter(s => s.employee_id === b.id);
+                const aJob = a.job_references?.[0]?.title || '';
+                const bJob = b.job_references?.[0]?.title || '';
+                const wA = getApiRoleWeight(aJob, aShifts);
+                const wB = getApiRoleWeight(bJob, bShifts);
+                if (wA !== wB) return wA - wB;
+                return a.first_name.localeCompare(b.first_name);
+            })
+            
+            // Get unique dates for columns
+            const reportDates = [...new Set(shifts.map(s => s.shift_date))].sort()
+            
+            const tableHeaders = reportDates.map(d => {
+                const dateObj = new Date(d + 'T12:00:00')
+                return `<th style="padding: 6px; border: 1px solid #ddd; font-size: 10px; background: #f1f5f9; text-transform: uppercase;">${dateObj.toLocaleDateString('es-US', { weekday: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })}</th>`
+            }).join('')
+
+            const reportRows = empMap.map(emp => {
+                const empShifts = shifts.filter(s => s.employee_id === emp.id)
+                if (empShifts.length === 0) return ''
+
+                const cells = reportDates.map(dateStr => {
+                    const dayShifts = empShifts.filter(s => s.shift_date === dateStr)
+                    if (dayShifts.length === 0) return `<td style="border: 1px solid #eee; background: #fafafa;"></td>`
+
+                    const content = dayShifts.map(s => {
+                        const sTime = new Date(s.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '')
+                        const eTime = new Date(s.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '')
+                        
+                        let bInfo = ''
+                        if (s.breaks_schedule && Array.isArray(s.breaks_schedule)) {
+                            bInfo = s.breaks_schedule.map((b: any) => {
+                                const bt = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '')
+                                return `<div style="font-size: 8px; color: ${b.type === 'meal_30' ? '#92400e' : '#059669'};">${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}</div>`
+                            }).join('')
+                        }
+
+                        return `
+                            <div style="font-size: 9px; font-weight: bold; margin-bottom: 2px;">${sTime}-${eTime}</div>
+                            ${bInfo}
+                        `
+                    }).join('<div style="margin: 4px 0; border-top: 1px solid #eee;"></div>')
+
+                    return `<td style="padding: 4px; border: 1px solid #eee; vertical-align: top; min-width: 60px;">${content}</td>`
+                }).join('')
+
+                return `
+                    <tr>
+                        <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 11px; background: #fdfdfd; white-space: nowrap;">${emp.first_name} ${emp.last_name?.charAt(0) || ''}.</td>
+                        ${cells}
+                    </tr>
+                `
+            }).join('')
+
+            const managerHtml = `
+                <!DOCTYPE html>
+                <html>
+                <body style="font-family: 'Inter', Arial, sans-serif; color: #1e293b; padding: 0; margin: 0; background-color: #f8fafc;">
+                    <div style="max-width: 1100px; margin: 0 auto; background: white; padding: 40px; border: 1px solid #e2e8f0;">
+                        
+                        <!-- PDF HEADER STYLE -->
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px;">
+                            <div style="flex: 1;">
+                                <h1 style="margin: 0; font-size: 24px; font-weight: 900; color: #1e293b; letter-spacing: -0.025em;">REPORTES DE PROGRAMACIÓN</h1>
+                                <p style="margin: 4px 0 0 0; font-size: 14px; font-weight: 600; color: #6366f1; text-transform: uppercase;">${storeName}</p>
+                            </div>
+                            <div style="text-align: right; font-size: 11px; line-height: 1.6;">
+                                <div style="font-weight: 900; color: #4f46e5;">DOCUMENTO OFICIAL</div>
+                                <div><b>Publicado:</b> ${new Date().toLocaleDateString('es-US', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                                <div><b>Manager ID:</b> ${fromEmail}</div>
+                                <div style="margin-top: 10px; background: #eff6ff; color: #1d4ed8; padding: 4px 8px; border-radius: 4px; display: inline-block;">
+                                    Confirmaciones de envío: <b>${results.email}</b>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GRID CONTENT -->
+                        <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; table-layout: fixed;">
+                            <thead>
+                                <tr style="background: #f8fafc;">
+                                    <th style="width: 130px; padding: 10px 8px; border: 1px solid #e2e8f0; font-size: 10px; color: #64748b; text-align: left;">COLABORADOR</th>
+                                    ${tableHeaders}
+                                </tr>
+                            </thead>
+                            <tbody style="font-size: 10px; color: #334155;">
+                                ${reportRows}
+                            </tbody>
+                        </table>
+
+                        <!-- PDF FOOTER -->
+                        <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8;">
+                            <div>© ${new Date().getFullYear()} Tacos Gavilan - Sistema de Gestión de Labor</div>
+                            <div style="font-style: italic;">* L: Lunch (30m) | B: Break (10m)</div>
+                            <div>Página 1 de 1</div>
+                        </div>
+                    </div>
+
+                    <style>
+                        @media print {
+                            body { background: white !important; }
+                            div { border: none !important; padding: 0 !important; }
+                            table { page-break-inside: auto; }
+                            tr { page-break-inside: avoid; page-break-after: auto; }
+                        }
+                    </style>
+                </body>
+                </html>
+            `
+
+            // --- PDF ATTACHMENT GENERATION ---
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+            
+            // Header Content
+            doc.setFontSize(18);
+            doc.setTextColor(79, 70, 229); // #4f46e5
+            doc.text(`HORARIO MAESTRO: ${storeName}`, 14, 20);
+            
+            doc.setFontSize(10);
+            doc.setTextColor(100, 116, 139);
+            const dateRangeStr = reportDates.length > 0 ? `${reportDates[0]} - ${reportDates[reportDates.length-1]}` : '';
+            doc.text(`Periodo: ${dateRangeStr} | Generado por: ${fromEmail}`, 14, 28);
+            doc.text(`Fecha de Publicación: ${new Date().toLocaleString()}`, 14, 33);
+
+            // Table Data Preparation
+            const head = [['EMPLEADO', ...reportDates.map(d => {
+                const dateObj = new Date(d + 'T12:00:00');
+                return dateObj.toLocaleDateString('es-US', { weekday: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' }).toUpperCase();
+            })]];
+
+            const body = empMap.map(emp => {
+                const empShifts = shifts.filter(s => s.employee_id === emp.id);
+                const row = [`${emp.first_name} ${emp.last_name?.charAt(0) || ''}.`];
+                
+                reportDates.forEach(dateStr => {
+                    const dayShifts = empShifts.filter(s => s.shift_date === dateStr);
+                    if (dayShifts.length === 0) {
+                        row.push('');
+                    } else {
+                        const cellText = dayShifts.map(s => {
+                            const sTime = new Date(s.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '');
+                            const eTime = new Date(s.end_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '');
+                            let bText = '';
+                            if (s.breaks_schedule && Array.isArray(s.breaks_schedule)) {
+                                bText = '\n' + s.breaks_schedule.map((b: any) => {
+                                    const bt = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '');
+                                    return `${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}`;
+                                }).join('  ');
+                            }
+                            return `${sTime}-${eTime}${bText}`;
+                        }).join('\n---\n');
+                        row.push(cellText);
+                    }
+                });
+                return row;
+            });
+
+            autoTable(doc, {
+                startY: 40,
+                head: head,
+                body: body,
+                theme: 'grid',
+                styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
+                headStyles: { fillColor: [79, 70, 229], textColor: 255 },
+                columnStyles: { 0: { fontStyle: 'bold', fontSize: 8, cellWidth: 35 } },
+                alternateRowStyles: { fillColor: [248, 250, 252] }
+            });
+
+            // Footer
+            const pageCount = (doc as any).internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                doc.setPage(i);
+                doc.setFontSize(8);
+                doc.setTextColor(150);
+                doc.text(`Sistema TEG Tacos Gavilan | Página ${i} de ${pageCount}`, doc.internal.pageSize.width / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+            }
+
+            const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
+
+            try {
+                const compiler = nodemailer.createTransport({ streamTransport: true, newline: 'windows' })
+                const info = await compiler.sendMail({
+                    from: `"Sistema TEG" <${fromEmail}>`,
+                    to: fromEmail,
+                    subject: `📑 RESUMEN PUBLICACIÓN: ${storeName}`,
+                    html: managerHtml,
+                    attachments: [
+                        {
+                            filename: `Horario_${storeName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`,
+                            content: pdfBuffer
+                        }
+                    ]
+                })
+                const rawBuffer = await new Promise<Buffer>((resolve, reject) => {
+                    const message = info.message as any
+                    if (Buffer.isBuffer(message)) return resolve(message)
+                    const chunks: Buffer[] = []
+                    message.on('data', (chunk: Buffer) => chunks.push(chunk))
+                    message.on('end', () => resolve(Buffer.concat(chunks)))
+                    message.on('error', (err: Error) => reject(err))
+                })
+                const raw = rawBuffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+                
+                await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ raw })
+                })
+                console.log(`✅ Manager Report (with PDF) sent to ${fromEmail}`)
+            } catch (me) {
+                console.error('❌ Failed to send Manager Report:', me)
+            }
         }
 
         return NextResponse.json({ success: true, stats: results })

@@ -62,6 +62,63 @@ export default function DescansosPage() {
     const [showRealPunches, setShowRealPunches] = useState(false)
     const [isRefreshingToast, setIsRefreshingToast] = useState(false)
 
+    const [absentEmpIds, setAbsentEmpIds] = useState<Set<number>>(new Set())
+    const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
+    const lastDataRef = useRef<{shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[]}>({ shifts: [], hours: [], employees: [], jobs: [] })
+
+    const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any) => {
+        setCalculating(true);
+        await new Promise(r => setTimeout(r, 50)); 
+        
+        const { shifts, hours, employees, jobs } = dataOverride || lastDataRef.current;
+        if (!shifts || shifts.length === 0) {
+            setCalculating(false);
+            return;
+        }
+
+        const presentShifts = shifts.filter((s: Shift) => !absentSet.has(typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id));
+        
+        const shiftsForAi = presentShifts.map((s: Shift) => {
+            const emp = employees.find((e: Employee) => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
+            let extTitle = '';
+            if (emp && emp.job_references && emp.job_references.length > 0) {
+                const jobRef = emp.job_references[0];
+                const job = jobs.find((j: Job) => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
+                if (job) extTitle = job.title;
+            }
+            if (!extTitle) {
+                const shiftJob = jobs.find((j: Job) => j.guid === s.job_id || String(j.id) === String(s.job_id));
+                if (shiftJob) extTitle = shiftJob.title;
+            }
+            const titleLowerCase = extTitle.toLowerCase();
+            const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
+            const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
+            return { ...s, is_leader: isLeader, job_title: extTitle };
+        });
+
+        try {
+            const augmented = scheduleBreaksWithDemand(shiftsForAi, hours);
+            setSmartShifts(augmented as Shift[]);
+            
+            const supabase = await getSupabaseClient()
+            const shiftsToUpdate = augmented.filter((s: any) => {
+                const original = shifts.find((old: Shift) => old.id === s.id);
+                return JSON.stringify(s.breaks_schedule) !== JSON.stringify(original?.breaks_schedule);
+            });
+
+            if (shiftsToUpdate.length > 0) {
+                for (const shift of shiftsToUpdate) {
+                    try {
+                        await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
+                    } catch (err) {}
+                }
+            }
+        } catch(e) {
+            console.error(e);
+        }
+        setCalculating(false);
+    }
+
     useEffect(() => {
         async function loadBasics() {
             setLoading(true)
@@ -274,73 +331,12 @@ export default function DescansosPage() {
             setOperatingHours(hoursToDraw)
             
             if (todayRawShifts) {
-                // Inyectar contexto de Liderazgo para el algoritmo de Escudo Operativo (Líderes sacrifican su horario para salvar al equipo)
-                const shiftsForAi = todayRawShifts.map(s => {
-                    const emp = allEmpData.find(e => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
-                    
-                    // Unificar Job Title: La UI pinta el título del employee_profile, la IA debe leer el mismo
-                    let extTitle = '';
-                    if (emp && emp.job_references && emp.job_references.length > 0) {
-                        const jobRef = emp.job_references[0];
-                        const job = jobs.find(j => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
-                        if (job) extTitle = job.title;
-                    }
-                    if (!extTitle) {
-                        const shiftJob = jobs.find(j => j.guid === s.job_id || String(j.id) === String(s.job_id));
-                        if (shiftJob) extTitle = shiftJob.title;
-                    }
-                    
-                    const titleLowerCase = extTitle.toLowerCase();
-                    const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
-                    
-                    // Fallback ultra-seguro: Si el job_id falla, buscamos nombres clave o títulos en el nombre para garantizar que los Asistentes nunca se degraden a Cocineros de 9 horas.
-                    const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
-                    return { ...s, is_leader: isLeader, job_title: extTitle };
-                });
-
-                // Generar 100% en vivo con la IA (Ignora el sobre-escrito en DB y usa la proyección más nueva)
-                const augmented = scheduleBreaksWithDemand(shiftsForAi, hoursToDraw);
-                setSmartShifts(augmented as Shift[]);
-
-                // Autoguardar silenciosamente si la IA detecta una mejor optimización que la existente
-                const shiftsToUpdate = augmented.filter(s => {
-                    const original = todayRawShifts.find(old => old.id === s.id);
-                    return JSON.stringify(s.breaks_schedule) !== JSON.stringify(original?.breaks_schedule);
-                });
-
-                if (shiftsToUpdate.length > 0) {
-                    for (const shift of shiftsToUpdate) {
-                        try {
-                            await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
-                        } catch (err) {
-                            console.error("Error auto-saving breaks:", err);
-                        }
-                    }
-                }
+                const data = { shifts: todayRawShifts, hours: hoursToDraw, employees: allEmpData as Employee[], jobs: jobs };
+                lastDataRef.current = data;
+                await triggerAiRecalculation(absentEmpIds, data);
             }
         } catch (e) {
             console.error("Error generating forecast:", e)
-            if (todayRawShifts) {
-                 const shiftsForAi = todayRawShifts.map(s => {
-                    const emp = allEmpData.find(e => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
-                    let extTitle = '';
-                    if (emp && emp.job_references && emp.job_references.length > 0) {
-                        const jobRef = emp.job_references[0];
-                        const job = jobs.find(j => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
-                        if (job) extTitle = job.title;
-                    }
-                    if (!extTitle) {
-                        const shiftJob = jobs.find(j => j.guid === s.job_id || String(j.id) === String(s.job_id));
-                        if (shiftJob) extTitle = shiftJob.title;
-                    }
-                    const titleLowerCase = extTitle.toLowerCase();
-                    const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
-                    const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
-                    return { ...s, is_leader: isLeader, job_title: extTitle };
-                 });
-                 const augmented = scheduleBreaksWithDemand(shiftsForAi, [])
-                 setSmartShifts(augmented as Shift[])
-            }
         }
         setCalculating(false)
     }
@@ -387,9 +383,10 @@ export default function DescansosPage() {
     if (loading) return <div className="p-10 text-white flex items-center gap-2"><Loader2 className="animate-spin text-amber-500" /> Sincronizando con Planificador...</div>
 
     const activeEmployees = rosterEmployees.filter(emp => {
-        const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id))
+        const shiftBase = todayShifts.find(s => String(s.employee_id) === String(emp.id))
+        const shiftAi = smartShifts.find(s => String(s.employee_id) === String(emp.id))
         const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid && p.clock_in)
-        return shift || empPunch;
+        return shiftBase || shiftAi || empPunch;
     });
 
     return (
@@ -567,7 +564,11 @@ export default function DescansosPage() {
                             return (
                                 <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group relative z-10 focus-within:z-50 hover:z-40">
                                     <div className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
-                                        <div className="text-lg leading-tight font-black text-slate-800 truncate">
+                                        <div 
+                                            className={`text-lg leading-tight font-black truncate cursor-pointer transition-colors ${absentEmpIds.has(typeof emp.id === 'string' ? parseInt(emp.id) : emp.id) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 hover:text-indigo-600'}`}
+                                            onClick={() => setAbsentModalEmp(emp)}
+                                            title="Click para marcar Ausente o Editar"
+                                        >
                                             {emp.first_name} {emp.last_name}
                                         </div>
                                         {(() => {
@@ -713,6 +714,57 @@ export default function DescansosPage() {
                     </div>
                 </div>
             </main>
+            
+            {/* Absent Modal Wrapper */}
+            {absentModalEmp && (
+                <div className="fixed inset-0 z-[99999] bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-md">
+                    <div className="bg-white rounded-3xl shadow-2xl p-10 w-full max-w-xl border border-slate-300">
+                        <h3 className="text-4xl font-black text-slate-900 mb-2 flex items-center gap-3">
+                            <Calendar size={36} className="text-indigo-600" />
+                            Gestionar Empleado
+                        </h3>
+                        <p className="text-slate-900 text-3xl font-black mb-10 pb-8 border-b-2 border-slate-200">
+                            {absentModalEmp.first_name} {absentModalEmp.last_name}
+                        </p>
+                        
+                        <div className="flex flex-col gap-6">
+                            <button 
+                                onClick={() => {
+                                    const newSet = new Set(absentEmpIds);
+                                    const empIdNum = typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id;
+                                    if (newSet.has(empIdNum)) {
+                                        newSet.delete(empIdNum);
+                                    } else {
+                                        newSet.add(empIdNum);
+                                    }
+                                    setAbsentEmpIds(newSet);
+                                    triggerAiRecalculation(newSet);
+                                    setAbsentModalEmp(null);
+                                }}
+                                className={`px-8 py-6 rounded-2xl text-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02] active:scale-[0.98] ${
+                                    absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id) 
+                                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 border-2 border-indigo-900' 
+                                        : 'bg-red-600 text-white hover:bg-red-700 border-2 border-red-900'
+                                }`}
+                            >
+                                {absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id) 
+                                    ? 'Restaurar Turno (Desmarcar Ausencia)' 
+                                    : 'Marcar Ausente (Eliminar del Schedule)'}
+                            </button>
+                            <button 
+                                onClick={() => setAbsentModalEmp(null)}
+                                className="px-8 py-5 rounded-2xl text-xl font-bold text-slate-900 bg-slate-200 hover:bg-slate-300 border-2 border-slate-300 mt-2 transition-colors shadow-sm"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                        
+                        <div className="mt-10 text-lg text-slate-800 font-bold leading-relaxed text-center bg-amber-50 border border-amber-200 p-5 rounded-xl shadow-inner">
+                            Al excluir a este empleado, la IA reprogramará automáticamente los tiempos de descanso de los demás para cubrir sus horas.
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
