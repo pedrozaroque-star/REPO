@@ -67,15 +67,7 @@ export default function DescansosPage() {
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
     const lastDataRef = useRef<{shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[]}>({ shifts: [], hours: [], employees: [], jobs: [] })
 
-    // Auto-hide notification
-    useEffect(() => {
-        if (aiStatus) {
-            const timer = setTimeout(() => setAiStatus(null), 5000)
-            return () => clearTimeout(timer)
-        }
-    }, [aiStatus])
-
-    const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any) => {
+    const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any, isManualAction: boolean = false) => {
         setCalculating(true);
         await new Promise(r => setTimeout(r, 50)); 
         
@@ -125,7 +117,29 @@ export default function DescansosPage() {
                         await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
                     } catch (err) {}
                 }
-                setAiStatus({ message: 'Inteligencia Artificial: Horario re-balanceado por cambios de asistencia', type: 'success' });
+
+                // 🧠 DEEP FIX: Diferenciar el motivo del mensaje
+                if (isManualAction) {
+                    setAiStatus({ message: 'Asistencia actualizada: Descansos re-balanceados para cubrir huecos operativos', type: 'success' });
+                } else {
+                    // Si fue automático (al cargar), el mensaje debe ser sobre optimización, no asistencia
+                    setAiStatus({ message: 'Inteligencia Artificial: Horario optimizado para maximizar cobertura en picos de venta', type: 'success' });
+                }
+            } else if (isManualAction) {
+                setAiStatus({ message: 'Asistencia registrada: No se requirieron cambios en los descansos de los demás', type: 'info' });
+            }
+
+            // 🚩 PERSISTENCIA PROFUNDA: Guardar ausentes en DB
+            if (isManualAction && shifts) {
+                for (const s of shifts) {
+                    const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as number;
+                    if (absentSet.has(id)) {
+                        await supabase.from('shifts').update({ is_callback: true }).eq('id', s.id);
+                    } else if (s.is_callback === true) {
+                        // Si regresó (desmarcar), restauramos is_callback a false
+                        await supabase.from('shifts').update({ is_callback: false }).eq('id', s.id);
+                    }
+                }
             }
         } catch(e) {
             console.error(e);
@@ -156,6 +170,8 @@ export default function DescansosPage() {
     }, [stores, selectedStoreId])
 
     const dateStr = formatDateISO(currentDate)
+
+
 
     const pullToastPunches = useCallback(async (isManual = false) => {
         if (!storeGuid) return;
@@ -198,6 +214,12 @@ export default function DescansosPage() {
     const loadDayData = async () => {
         if (!storeGuid) return;
         setCalculating(true)
+        
+        // RESET ausentes al cambiar de día/tienda
+        const freshAbsentSet = new Set<number>();
+        setAbsentEmpIds(freshAbsentSet); 
+        setAiStatus(null);
+
         const supabase = await getSupabaseClient()
 
         // 1. Fechas de toda la semana para emular el Roster del Planificador
@@ -320,6 +342,15 @@ export default function DescansosPage() {
         // 4. Aislar los turnos estrictamente del día actual (currentDate)
         const todayRawShifts = weekShifts.filter(s => s.shift_date === dateStr);
         setTodayShifts(todayRawShifts);
+ 
+        // 🧠 REHIDRATAR AUSENCIAS (Deep Fix: Respetar marcas manuales guardadas en DB)
+        const dbAbsentees = todayRawShifts
+            .filter(s => s.is_callback === true)
+            .map(s => typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as number);
+        
+        if (dbAbsentees.length > 0) {
+            setAbsentEmpIds(new Set(dbAbsentees));
+        }
 
         // 5. Fetch Toast Punches for reality check (Inicial)
         await pullToastPunches(false);
@@ -347,7 +378,8 @@ export default function DescansosPage() {
             if (todayRawShifts) {
                 const data = { shifts: todayRawShifts, hours: hoursToDraw, employees: allEmpData as Employee[], jobs: jobs };
                 lastDataRef.current = data;
-                await triggerAiRecalculation(absentEmpIds, data);
+                // En carga inicial (isManualAction = false), solo avisará si realmente mueve algo en la DB
+                await triggerAiRecalculation(new Set(), data, false);
             }
         } catch (e) {
             console.error("Error generating forecast:", e)
@@ -361,6 +393,8 @@ export default function DescansosPage() {
 
         let channel: any = null
         
+        let rebalanceTimer: any = null;
+        
         const setupRealtime = async () => {
             const supabase = await getSupabaseClient()
             channel = supabase
@@ -372,8 +406,12 @@ export default function DescansosPage() {
                     filter: `store_id=eq.${selectedStoreId}` 
                 }, (payload: any) => {
                     if (payload.new.shift_date === dateStr) {
-                        setAiStatus({ message: 'Auditoría Toast: Descansos re-balanceados por ponchada irregular', type: 'info' })
-                        loadDayData()
+                        // DEBOUNCE: Si vienen 10 cambios seguidos (el cron), solo re-cargamos una vez al final
+                        if (rebalanceTimer) clearTimeout(rebalanceTimer);
+                        rebalanceTimer = setTimeout(() => {
+                            setAiStatus({ message: 'Auditoría Toast: Descansos re-balanceados por ponchada irregular', type: 'info' });
+                            loadDayData();
+                        }, 2000); 
                     }
                 })
                 .subscribe()
@@ -743,6 +781,24 @@ export default function DescansosPage() {
                     </div>
                 </div>
 
+                <div className="mt-6 flex items-center justify-between">
+                    <div className="bg-white border border-slate-200 p-4 rounded-xl flex items-center gap-6 shadow-sm">
+                        <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-amber-500 rounded"></div>
+                            <span className="text-xs font-bold text-slate-700">Meal (30 min)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-emerald-500 rounded"></div>
+                            <span className="text-xs font-bold text-slate-700">Rest (10 min)</span>
+                        </div>
+                        {showRealPunches && (
+                            <div className="flex items-center gap-2 ml-4 pl-4 border-l border-slate-300">
+                                <div className="w-4 h-4 bg-cyan-500 rounded"></div>
+                                <span className="text-xs font-bold text-cyan-700">Break Real Toast</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
                 <AnimatePresence>
                 {aiStatus && (
                     <motion.div 
@@ -763,37 +819,22 @@ export default function DescansosPage() {
                             alignItems: 'center',
                             gap: '12px',
                             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                            border: '1px solid rgba(255,255,255,0.1)',
+                            border: '2px solid rgba(255,255,255,0.2)',
                             fontWeight: '600',
-                            fontSize: '14px'
+                            fontSize: '14px',
+                            cursor: 'pointer'
                         }}
+                        onClick={() => setAiStatus(null)}
+                        title="Click para cerrar"
                     >
                         <div style={{ background: 'rgba(255,255,255,0.2)', padding: '6px', borderRadius: '50%' }}>
                             <Zap size={18} fill="white" />
                         </div>
                         {aiStatus.message}
+                        <div className="ml-2 opacity-50 px-2 py-0.5 rounded-full border border-white/30 text-[10px]">CERRAR</div>
                     </motion.div>
                 )}
                 </AnimatePresence>
-
-                <div className="mt-6 flex items-center justify-between">
-                    <div className="bg-white border border-slate-200 p-4 rounded-xl flex items-center gap-6 shadow-sm">
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-amber-500 rounded"></div>
-                            <span className="text-xs font-bold text-slate-700">Meal (30 min)</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-emerald-500 rounded"></div>
-                            <span className="text-xs font-bold text-slate-700">Rest (10 min)</span>
-                        </div>
-                        {showRealPunches && (
-                            <div className="flex items-center gap-2 ml-4 pl-4 border-l border-slate-300">
-                                <div className="w-4 h-4 bg-cyan-500 rounded"></div>
-                                <span className="text-xs font-bold text-cyan-700">Break Real Toast</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
             </main>
             
             {/* Absent Modal Wrapper */}
@@ -819,7 +860,7 @@ export default function DescansosPage() {
                                         newSet.add(empIdNum);
                                     }
                                     setAbsentEmpIds(newSet);
-                                    triggerAiRecalculation(newSet);
+                                    triggerAiRecalculation(newSet, null, true); // Es una acción manual
                                     setAbsentModalEmp(null);
                                 }}
                                 className={`px-8 py-6 rounded-2xl text-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02] active:scale-[0.98] ${
