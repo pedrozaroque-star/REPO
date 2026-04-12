@@ -76,7 +76,11 @@ export default function DescansosPage() {
             return;
         }
 
-        const presentShifts = shifts.filter((s: Shift) => !absentSet.has(typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id));
+        const presentShifts = shifts.filter((s: Shift) => {
+            if (s.employee_id === null) return true;
+            const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as number;
+            return !absentSet.has(id);
+        });
         
         const shiftsForAi = presentShifts.map((s: Shift) => {
             const emp = employees.find((e: Employee) => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
