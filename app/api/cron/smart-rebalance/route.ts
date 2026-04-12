@@ -21,6 +21,8 @@ export async function GET(req: Request) {
 
     try {
         const token = await getAuthToken()
+        if (!token) throw new Error('Failed to get Toast Auth Token')
+            
         const stores = await getToastRestaurants(token)
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) // YYYY-MM-DD
         
