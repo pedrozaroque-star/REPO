@@ -359,24 +359,34 @@ export default function DescansosPage() {
     useEffect(() => {
         if (!selectedStoreId || !dateStr) return
 
-        const supabase = getSupabaseClient()
-        const channel = supabase
-            .channel('rebalance-monitor')
-            .on('postgres_changes', { 
-                event: 'UPDATE', 
-                schema: 'public', 
-                table: 'shifts', 
-                filter: `store_id=eq.${selectedStoreId}` 
-            }, (payload) => {
-                if (payload.new.shift_date === dateStr) {
-                    setAiStatus({ message: 'Auditoría Toast: Descansos re-balanceados por ponchada irregular', type: 'info' })
-                    loadDayData()
-                }
-            })
-            .subscribe()
+        let channel: any = null
+        
+        const setupRealtime = async () => {
+            const supabase = await getSupabaseClient()
+            channel = supabase
+                .channel('rebalance-monitor')
+                .on('postgres_changes', { 
+                    event: 'UPDATE', 
+                    schema: 'public', 
+                    table: 'shifts', 
+                    filter: `store_id=eq.${selectedStoreId}` 
+                }, (payload: any) => {
+                    if (payload.new.shift_date === dateStr) {
+                        setAiStatus({ message: 'Auditoría Toast: Descansos re-balanceados por ponchada irregular', type: 'info' })
+                        loadDayData()
+                    }
+                })
+                .subscribe()
+        }
+
+        setupRealtime()
 
         return () => {
-            supabase.removeChannel(channel)
+            if (channel) {
+                // We use a separate async cleanup if needed, but simple channel removal works
+                const supabaseAsync = getSupabaseClient()
+                supabaseAsync.then(s => s.removeChannel(channel))
+            }
         }
     }, [selectedStoreId, dateStr])
 
