@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { getSupabaseClient } from '@/lib/supabase'
 import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } from '@/app/planificador-v2/lib/utils'
 import { Shift, Employee, Job } from '@/app/planificador-v2/lib/types'
