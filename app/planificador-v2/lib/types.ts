@@ -9,7 +9,10 @@ export type Shift = {
     notes?: string
     is_open?: boolean
     shift_date: string // YYYY-MM-DD
-    breaks_schedule?: any[] // We use any[] for now to avoid strict circular deps, or BreakBlock[] if imported.
+    breaks_schedule?: any[]
+    is_callback?: boolean // Para persistencia de ausencias manuales
+    is_leader?: boolean   // Metadato para el motor de IA
+    job_title?: string   // Metadato para visualización
 }
 
 export type Employee = {
