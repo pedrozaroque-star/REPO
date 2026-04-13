@@ -132,7 +132,9 @@ export default function DescansosPage() {
             // 🚩 PERSISTENCIA PROFUNDA: Guardar ausentes en DB
             if (isManualAction && shifts) {
                 for (const s of shifts) {
-                    const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as number;
+                    if (s.employee_id === null) continue; // Ignorar Open Shifts
+
+                    const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as unknown as number;
                     if (absentSet.has(id)) {
                         await supabase.from('shifts').update({ is_callback: true }).eq('id', s.id);
                     } else if (s.is_callback === true) {
@@ -345,8 +347,8 @@ export default function DescansosPage() {
  
         // 🧠 REHIDRATAR AUSENCIAS (Deep Fix: Respetar marcas manuales guardadas en DB)
         const dbAbsentees = todayRawShifts
-            .filter(s => s.is_callback === true)
-            .map(s => typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as number);
+            .filter(s => s.is_callback === true && s.employee_id !== null)
+            .map(s => typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as unknown as number);
         
         if (dbAbsentees.length > 0) {
             setAbsentEmpIds(new Set(dbAbsentees));
