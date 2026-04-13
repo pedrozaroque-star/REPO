@@ -179,78 +179,78 @@ export async function POST(req: Request) {
 
         if (empError) throw empError
 
-        // --- 5. SMART BREAKS GENERATION (Enterprise Strength) ---
+        // --- 5. SMART BREAKS GENERATION (Fidelity Alignment with Tablet) ---
         const { data: allJobs } = await supabase.from('toast_jobs').select('*')
-        const jobs = allJobs || []
 
-        const datesToCheck = [...new Set(shifts.map(s => s.shift_date))]
-        const needsCalcDates = datesToCheck.filter(dateStr => {
-            const dayShifts = shifts.filter(s => s.shift_date === dateStr)
-            return dayShifts.some(s => !s.breaks_schedule || (Array.isArray(s.breaks_schedule) && s.breaks_schedule.length === 0))
-        })
+        // DEEP AUDIT: If the Tablet (Descansos Page) already optimized the schedule, 
+        // we MUST NOT recalculate here. We only fill gaps for shifts that have NO schedule.
+        const needsCalcShifts = shifts.filter(s => !s.breaks_schedule || (Array.isArray(s.breaks_schedule) && s.breaks_schedule.length === 0))
 
-        if (needsCalcDates.length > 0) {
-            console.log(`🤖 [API] Multi-date Auto-calculation for: ${needsCalcDates.join(', ')}`)
+        if (needsCalcShifts.length > 0) {
+            console.log(`🤖 [API] Filling break gaps for ${needsCalcShifts.length} shifts. Priority: Tablet Integrity.`)
             
-            // 5.1 PRE-FETCH ALL NECESSARY DATA IN PARALLEL
-            const [fullWeekShiftsRes, storeEmployeesRes, forecastsRes] = await Promise.all([
-                supabase.from('shifts').select('*').eq('store_id', store_id).in('shift_date', needsCalcDates),
-                supabase.from('toast_employees').select('*').contains('store_ids', [store_id]),
-                Promise.all(needsCalcDates.map(d => generateSmartForecast(store_id, d)))
-            ])
-
-            const fullWeekShifts = fullWeekShiftsRes.data || []
-            const storeEmployees = storeEmployeesRes.data || []
-            const dayForecasts: Record<string, any[]> = {}
-            needsCalcDates.forEach((d, i) => { dayForecasts[d] = forecastsRes[i].hours || [] })
-
-            // 5.2 PROCESS EACH DATE
-            for (const dateStr of needsCalcDates) {
+            const datesToProcess = [...new Set(needsCalcShifts.map(s => s.shift_date))]
+            
+            for (const dateStr of datesToProcess) {
                 try {
-                    const dayShifts = fullWeekShifts.filter(s => s.shift_date === dateStr)
-                    const hoursToDraw = dayForecasts[dateStr]
+                    // Fetch current day's complete context to ensure leader/tropa rules
+                    const { data: dayShifts } = await supabase.from('shifts').select('*').eq('store_id', store_id).eq('shift_date', dateStr)
+                    if (!dayShifts) continue
 
-                    const shiftsForAi = dayShifts.map(s => {
-                        const emp = storeEmployees.find(e => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
-                        let extTitle = '';
-                        if (emp && emp.job_references && emp.job_references.length > 0) {
-                            const jobRef = emp.job_references[0];
-                            const job = jobs.find((j: any) => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
-                            if (job) extTitle = job.title;
-                        }
-                        if (!extTitle) {
-                            const shiftJob = jobs.find((j: any) => j.guid === s.job_id || String(j.id) === String(s.job_id));
-                            if (shiftJob) extTitle = shiftJob.title;
-                        }
-                        const titleLowerCase = extTitle.toLowerCase();
-                        const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado');
-                        return { ...s, is_leader: isLeader, job_title: extTitle };
-                    });
-
-                    const augmented = scheduleBreaksWithDemand(shiftsForAi as any, hoursToDraw);
+                    // Get Forecast (Using existing logic but ONLY if missing)
+                    const { hours: hoursToDraw } = await generateSmartForecast(store_id, dateStr)
                     
-                    // Batch updates to DB for this day
-                    const updates = augmented.map(aug => ({
-                        id: aug.id,
-                        breaks_schedule: aug.breaks_schedule
-                    }))
+                    // Identify employees for this day context
+                    const dayEmpIds = [...new Set(dayShifts.map(s => s.employee_id).filter(Boolean))]
+                    const { data: dayEmployees } = await supabase.from('toast_employees').select('*').in('id', dayEmpIds)
 
-                    // Update memory for the email loop
-                    for (const upd of updates) {
-                        const idx = shifts.findIndex(ls => ls.id === upd.id)
-                        if (idx !== -1) shifts[idx].breaks_schedule = upd.breaks_schedule
-                    }
+                    const shiftsForAi = dayShifts
+                        .filter((s: any) => s.is_callback !== true) // FIDELITY: Skip absentees in calculation
+                        .map((s: any) => {
+                            const emp = (dayEmployees || []).find(e => e.id === s.employee_id || e.toast_guid === s.employee_toast_guid)
+                            let extTitle = ''
+                            if (emp?.job_references?.[0]) {
+                                const job = (allJobs || []).find((j: any) => j.guid === emp.job_references[0].guid)
+                                if (job) extTitle = job.title
+                            }
+                            if (!extTitle && s.job_id) {
+                                const shiftJob = (allJobs || []).find((j: any) => j.guid === s.job_id || String(j.id) === String(s.job_id))
+                                if (shiftJob) extTitle = shiftJob.title
+                            }
+                            
+                            const titleLower = extTitle.toLowerCase()
+                            const empNameLower = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : ''
+                            
+                            // FIDELITY LOGIC: Must match app/descansos/page.tsx
+                            const isLeader = titleLower.includes('manager') || 
+                                             titleLower.includes('asst') || 
+                                             titleLower.includes('shift') || 
+                                             titleLower.includes('lead') ||
+                                             titleLower.includes('asistente') ||
+                                             titleLower.includes('assistant') ||
+                                             titleLower.includes('encargado') ||
+                                             empNameLower.includes('alberto romero') ||
+                                             empNameLower.includes('manager');
 
-                    // Perform one bulk update per day to be faster than one-by-one
-                    if (updates.length > 0) {
-                        await supabase.from('shifts').upsert(updates.map(u => ({
-                            id: u.id,
-                            breaks_schedule: u.breaks_schedule,
-                            store_id: store_id // required for safety/index
-                        })))
+                            return { ...s, is_leader: isLeader, job_title: extTitle }
+                        })
+
+                    const augmented = scheduleBreaksWithDemand(shiftsForAi as any, hoursToDraw || [])
+                    
+                    // Apply ONLY to the shifts that were missing data in our original list
+                    for (const aug of augmented) {
+                        const originalIdx = shifts.findIndex(ls => ls.id === aug.id)
+                        if (originalIdx !== -1) {
+                            // If they were already set, DON'T touch them (Tablet wins)
+                            if (!shifts[originalIdx].breaks_schedule || shifts[originalIdx].breaks_schedule.length === 0) {
+                                shifts[originalIdx].breaks_schedule = aug.breaks_schedule
+                                // Persist to DB so Tablet sees the same
+                                await supabase.from('shifts').update({ breaks_schedule: aug.breaks_schedule }).eq('id', aug.id)
+                            }
+                        }
                     }
                 } catch (e) {
-                    console.error(`❌ [API] Error calculating breaks for ${dateStr}:`, e)
+                    console.error(`❌ [API] Error filling breaks for ${dateStr}:`, e)
                 }
             }
         }
