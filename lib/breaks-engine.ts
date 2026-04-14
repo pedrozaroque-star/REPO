@@ -20,23 +20,28 @@ export function getRequiredBreaksCA(start: Date, end: Date): Omit<BreakBlock, 's
 
     const breaks: Omit<BreakBlock, 'start_time' | 'end_time'>[] = [];
 
-    // California Law — Rest Breaks (10 min PAID):
-    // "10 minutes per 4 hours or MAJOR FRACTION thereof"
-    // "Major fraction" = MORE THAN half of 4 hours = MORE THAN 2 hours (> 2.0, NOT >= 2.0)
+    // ═══════════════════════════════════════════════════════════════════
+    // California Labor Law — Tabla Oficial de Descansos
+    // ═══════════════════════════════════════════════════════════════════
     //
-    // DLSE Interpretation (confirmed by multiple CA employment law sources):
-    //   3.5 – 6.0 hrs:  1 rest  (first 4hrs or its major fraction ≥ 3.5)
-    //   > 6.0 – 10.0 hrs: 2 rests (remaining after 4hrs is > 2.0 = major fraction)
-    //   > 10.0 – 14.0 hrs: 3 rests (remaining after 8hrs is > 2.0 = major fraction)
+    // REST BREAKS (10 min, PAGADOS):
+    //   < 3.5h:     0 descansos
+    //   3.5 – 6h:   1 descanso
+    //   6.1 – 10h:  2 descansos
+    //   10.1 – 14h: 3 descansos
+    //   > 14h:      4 descansos
     //
-    // KEY: At EXACTLY 6.0 hrs → 4hrs + 2.0 remaining. 2.0 is NOT > 2.0 → still 1 rest.
-    //      At EXACTLY 10.0 hrs → 8hrs + 2.0 remaining. 2.0 is NOT > 2.0 → still 2 rests.
-    //
-    // Meal Break (30m, UNPAID):
-    //   > 5h: 1 meal (must START before end of 5th hour)
-    //   >= 12h: 2 meals (2nd mandatory — below 12h the 2nd meal is optional/waived)
+    // MEAL BREAKS (30 min, NO PAGADOS):
+    //   ≤ 5h:       0 comidas
+    //   5.1 – 10h:  1 comida
+    //   10.1 – 12h: 2 comidas (2do puede renunciarse si se tomó el 1ro)
+    //   > 12h:      2 comidas (OBLIGATORIO ambos)
+    // ═══════════════════════════════════════════════════════════════════
 
-    if (durationHours > 10) {
+    // REST BREAKS
+    if (durationHours > 14) {
+        breaks.push({ type: 'rest_10' }, { type: 'rest_10' }, { type: 'rest_10' }, { type: 'rest_10' });
+    } else if (durationHours > 10) {
         breaks.push({ type: 'rest_10' }, { type: 'rest_10' }, { type: 'rest_10' });
     } else if (durationHours > 6) {
         breaks.push({ type: 'rest_10' }, { type: 'rest_10' });
@@ -44,12 +49,12 @@ export function getRequiredBreaksCA(start: Date, end: Date): Omit<BreakBlock, 's
         breaks.push({ type: 'rest_10' });
     }
 
+    // MEAL BREAKS
     if (durationHours > 5) {
         breaks.push({ type: 'meal_30' });
     }
-    // REGLA OPERATIVA: El segundo lunch es OPCIONAL entre 10-12 horas (el empleado puede renunciar a él).
-    // Solo es OBLIGATORIO cuando el turno excede las 12 horas.
-    if (durationHours >= 12) {
+    // 10.1+ horas: Programar 2do meal por defecto (waivable entre 10-12h, obligatorio > 12h)
+    if (durationHours > 10) {
         breaks.push({ type: 'meal_30' });
     }
 
@@ -141,9 +146,11 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     ) => {
         const STEP_MS = 15 * 60000;
         const DURATION_MS = durationMins * 60000;
-        // REGLA: Para turnos con 2+ breaks, la separación mínima entre descansos personales es 1.5 horas.
-        // Esto evita que un empleado tome un Rest a las 3:00 PM y otro a las 3:45 PM (inútil operativamente).
-        const MIN_GAP_MS = 90 * 60 * 1000; // 1 hora 30 minutos
+        // REGLA: Separación mínima entre breaks personales del mismo empleado.
+        // 45 minutos asegura trabajo productivo entre breaks, pero permite que los
+        // rests escapen al valle POST-RUSH cuando el lunch está en la tarde.
+        // (Antes era 90 min, lo cual bloqueaba toda la tarde si el lunch estaba a las 3 PM)
+        const MIN_GAP_MS = 45 * 60 * 1000; // 45 minutos
         
         let bestStart = windowStart;
         let lowestScore = Infinity;
@@ -170,10 +177,11 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             // BUGFIX: Default missing data to 0.05 (Valley) instead of 1.0 (Max Rush).
             const salesScore = hourScores.get(hour) ?? 0.05;
             
-            // EXTREME RULE: Absolute Ban on RUSH/PICO/MAX zones.
-            // If intensity is >= 0.75 (RUSH, PICO or MAX), the slot is completely unavailable.
-            // Only Panic Mode (legal compliance fallback) can override this.
-            if (salesScore >= 0.75) {
+            // HARD BLOCK: Solo PICO y MAX absolutos (>= 0.85) son completamente intocables.
+            // Para horas intermedias (0.55–0.84), el sistema de scoring con POW(12) y
+            // proximity penalty las hace MUY caras, pero NO imposibles — esto evita
+            // Panic Mode innecesario y deja que la IA elija la "menos mala".
+            if (salesScore >= 0.85) {
                 continue; 
             }
 
@@ -184,15 +192,15 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             //   • MISMO PUESTO (cashier+cashier, cook+cook): CERO empalme.
             //   • LÍDER vs CUALQUIERA: CERO empalme.
             //
-            // DURANTE RUSH/PICO/MAX (salesScore >= 0.75):
+            // DURANTE HORAS OCUPADAS (salesScore >= 0.55):
             //   • CUALQUIER PUESTO vs CUALQUIER PUESTO: CERO empalme.
             //   • "Uno por uno" — el restaurante necesita a todos en piso.
             //
-            // DURANTE VALLE/MODERADO (salesScore < 0.75):
+            // DURANTE VALLE (salesScore < 0.55):
             //   • Tropa diferente (cashier+cook): SIN restricción.
             //   • Operan en estaciones aisladas (FOH vs BOH).
             // ═══════════════════════════════════════════════════════════════════
-            const isRushHour = salesScore >= 0.75;
+            const isRushHour = salesScore >= 0.55;
             let overlapBlocked = false;
             const shiftRole = ((shift as any).job_title || shift.job_id || 'unknown').toString().toLowerCase().trim();
             const isManagerOrLeader = (shift as any).is_leader === true || 
@@ -231,55 +239,43 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }
             if (overlapBlocked) continue;
 
-            const peakPenalty = Math.pow(salesScore, 8) * 50_000_000;
+            const peakPenalty = Math.pow(salesScore, 12) * 10_000_000_000;
 
             // ═══════════════════════════════════════════════════════════════════
-            // Los líderes (asistentes/shift leaders) reciben un magneto MASIVO 
-            // hacia el inicio de su ventana, para "dar el ejemplo" y evacuar
-            // antes de que comience el pico. 
-            let leaderEarlyPenalty = 0;
-            if (isMeal && isManagerOrLeader) {
-                // 1. Determinar el contexto del turno para no mezclar picos AM con PM
-                const shiftStartHour = new Date(shift.start_time).getHours();
-                let peakHourForShift = 12;
-                let maxIntensity = 0;
-                
-                if (shiftStartHour < 15) { // Turno AM (entran antes de 3 PM)
-                    hourScores.forEach((score, h) => {
-                        if (h >= 6 && h <= 15) { 
-                            if (score > maxIntensity) { maxIntensity = score; peakHourForShift = h; } 
-                        }
-                    });
-                } else { // Turno PM (entran 3 PM o después)
-                    hourScores.forEach((score, h) => {
-                        if (h >= 16 || h <= 3) { 
-                            const adjustedH = h <= 3 ? h + 24 : h;
-                            if (score > maxIntensity) { maxIntensity = score; peakHourForShift = adjustedH; } 
-                        }
-                    });
-                }
-
-                // 2. Determinar si los lunches DEBEN iniciar antes del Pico
-                let wStartHour = windowStart.getHours();
-                if (wStartHour <= 3) wStartHour += 24; // normalizar madrugada
-                
-                let wEndHour = windowEnd.getHours();
-                if (wEndHour <= 3) wEndHour += 24;
-                if (wEndHour < wStartHour) wEndHour = wStartHour + 3.9; // Fallback caja seguridad
-                
-                const midPoint = wStartHour + (wEndHour - wStartHour) / 2;
-
-                // REGLA: "en el turno de las 5pm si el maximo rush es antes de las 8pm, pueden iniciar todos desde las 8pm"
-                // Esto significa: Si la hora Pico del turno cae DESPUÉS del midpoint de su ventana,
-                // la única salida es irse a comer TEMPRANO (antes del pico), por tanto, Magneto ON para que el líder vaya primero.
-                // Si el pico cae ANTES del midpoint, significa que "pueden aguantar" y mandarlos a todos después del pico (Magneto OFF).
-                if (peakHourForShift >= midPoint) {
-                    const hoursSinceStart = (bStart.getTime() - new Date(shift.start_time).getTime()) / 3600000;
-                    leaderEarlyPenalty = hoursSinceStart * 100_000_000;
-                }
+            // MULTI-PEAK NEIGHBORHOOD PENALTY (V9 — Solución Lynwood)
+            // ═══════════════════════════════════════════════════════════════════
+            // El viejo sistema detectaba UN pico y penalizaba las 4h antes.
+            // Esto FALLABA en tiendas con MÚLTIPLES rush hours (Lynwood:
+            // 2-4 PM AM rush + 7-8 PM PM rush).
+            //
+            // NUEVO: Calculamos el PROMEDIO de intensidad en una ventana de ±2h
+            // alrededor del slot. Cualquier slot CERCA de CUALQUIER pico tendrá
+            // vecinos con intensidad alta → penalty automáticamente alta.
+            // Un slot en un valle verdadero → vecinos bajos → penalty mínima.
+            //
+            // Esto detecta automáticamente TODOS los picos sin configuración.
+            // ═══════════════════════════════════════════════════════════════════
+            let neighborhoodPenalty = 0;
+            const slotHour = bStart.getHours();
+            
+            // Average intensity of ±2 hours around this slot
+            let neighborhoodSum = 0;
+            let neighborhoodCount = 0;
+            for (let h = slotHour - 2; h <= slotHour + 2; h++) {
+                // Handle hours > 23 (for late-night shifts)
+                const normalizedH = h < 0 ? h + 24 : (h > 23 ? h - 24 : h);
+                const score = hourScores.get(normalizedH) ?? 0.05;
+                neighborhoodSum += score;
+                neighborhoodCount++;
             }
+            const avgNeighborhood = neighborhoodSum / neighborhoodCount;
+            
+            // Exponential penalty: a neighborhood avg of 0.60 is 100x worse than 0.20
+            neighborhoodPenalty = Math.pow(avgNeighborhood, 8) * 5_000_000_000;
 
-            const score = peakPenalty + leaderEarlyPenalty;
+            // MEALS: Solo peakPenalty (busca la hora menos intensa → naturalmente PRE-RUSH)
+            // REST:  peakPenalty + neighborhoodPenalty (evita CUALQUIER zona rush, AM o PM)
+            const score = peakPenalty + (isMeal ? 0 : neighborhoodPenalty);
 
             if (score < lowestScore) {
                 lowestScore = score;
@@ -375,13 +371,17 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 }
             }
             
-            // CRITICAL FIX: No matter what, you absolutely cannot schedule a break past the end of the shift!
-            // Allow the fallback to push outside its 'preferred' window slice to maintain the 60-min gap, 
-            // but NEVER allow it to exceed the physical end of the employee's shift.
+            // CRITICAL FIX V8: El cap debe respetar AMBOS límites:
+            // 1. windowEnd (ventana legal para meals — 5 horas para el 1er meal)
+            // 2. shiftEnd (fin físico del turno)
+            // Para MEALS: si el gap empuja el fallback fuera de la ventana legal,
+            // lo forzamos al límite legal. Mejor un empalme que una violación de ley.
             const shiftEnd = new Date(shift.end_time).getTime();
-            const maxAllowedFallback = shiftEnd - DURATION_MS;
-            if (fallbackStart.getTime() > maxAllowedFallback) {
-                fallbackStart = new Date(maxAllowedFallback);
+            const legalCap = isMeal 
+                ? Math.min(windowEnd.getTime(), shiftEnd) - DURATION_MS
+                : shiftEnd - DURATION_MS;
+            if (fallbackStart.getTime() > legalCap) {
+                fallbackStart = new Date(legalCap);
             }
             
             return fallbackStart;
@@ -400,10 +400,20 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const mealsToSchedule = requiredBreaks.filter(b => b.type === 'meal_30');
 
         mealsToSchedule.forEach((meal, mealIndex) => {
-            // California Law enforced explicitly by user rules: The meal must **START** before the end of the 5th hour.
-            // In findBestSlot, the loop limits the start time to `windowEnd - DURATION_MS`. 
-            // So if we want the actual START time limit to be 4.95 hours, we must set windowEnd to 4.95 + 0.5 = 5.45.
-            const mealDeadlineHourOffset = mealIndex === 0 ? 5.49 : 10.49;
+            // ═══════════════════════════════════════════════════════════════════
+            // MEAL WINDOW — CA §512 LEGAL COMPLIANCE (V8)
+            // ═══════════════════════════════════════════════════════════════════
+            // Offset 5.0h → windowEnd = shift_start + 5h.
+            // Último START posible = windowEnd - 30min = shift_start + 4h30m.
+            //
+            // Para turno de 10 AM: último start = 2:30 PM (4.5h) → LEGAL con
+            // 30 minutos de margen antes del límite de 5 horas.
+            //
+            // Para turno de 9 AM: último start = 1:30 PM (4.5h) → hora 13
+            // está BLOQUEADA (salesScore >= 0.85), forzando el lunch a la
+            // zona pre-rush 10-11:30 AM (exactamente lo que el manager pide).
+            // ═══════════════════════════════════════════════════════════════════
+            const mealDeadlineHourOffset = mealIndex === 0 ? 5.0 : 10.0;
             const windowStart = new Date(start.getTime() + (mealIndex === 0 ? 1.0 : 6) * 3600000); 
             let windowEnd = new Date(start.getTime() + mealDeadlineHourOffset * 3600000);
             if (windowEnd > end) windowEnd = end;
@@ -433,45 +443,97 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             .filter((b: any) => b.type === 'meal_30')
             .sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
+        // ═══════════════════════════════════════════════════════════════════
+        // WORK SEGMENTS — CA DLSE Compliance
+        // ═══════════════════════════════════════════════════════════════════
+        // "Rest breaks should be taken as near to the middle of each
+        //  four-hour work period as is practicable."
+        //
+        // Dividimos el turno en SEGMENTOS de trabajo (entre inicio, meals, y fin).
+        // Cada rest se asigna al PUNTO MEDIO del segmento correspondiente.
+        //
+        // Ejemplo: Turno 10 AM-5 PM, Lunch 2:00-2:30 PM, 2 rests:
+        //   Seg 1: 10:00 AM – 2:00 PM (4h) → Rest 1 @ 12:00 PM
+        //   Seg 2: 2:30 PM – 5:00 PM (2.5h) → Rest 2 @ 3:45 PM
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Build work segments from shift boundaries and meal breaks
+        const segmentBounds: { start: number; end: number }[] = [];
+        let segStart = start.getTime();
+        for (const meal of meals) {
+            const mealStart = new Date(meal.start_time).getTime();
+            const mealEnd = new Date(meal.end_time).getTime();
+            if (mealStart > segStart) {
+                segmentBounds.push({ start: segStart, end: mealStart });
+            }
+            segStart = mealEnd;
+        }
+        if (segStart < end.getTime()) {
+            segmentBounds.push({ start: segStart, end: end.getTime() });
+        }
+
+        // Distribute rests across segments
+        // If more rests than segments, the largest segment gets extras
         restsToSchedule.forEach((rest, restIndex) => {
             let windowStart: Date;
             let windowEnd: Date;
-            
-            // Lógica Especial para 10+ horas (Doble Meal, Triple Rest) -> Fix para Alexander
-            // ═══════════════════════════════════════════════════════════════════
-            // NUEVO SISTEMA DISTRIBUIDO: Evita el efecto Acordeón.
-            // Para asegurar máxima flexibilidad ante Meals erráticos (Leader Magneto),
-            // distribuimos los Rests equitativamente a lo largo de TODO el turno.
-            // La IA con su MIN_GAP de 60 mins tejerá naturalmente los descansos
-            // alrededor de la curva de ventas y los Meals que ya estén puestos.
-            // ═══════════════════════════════════════════════════════════════════
-            const shiftDurationHours = (end.getTime() - start.getTime()) / 3600000;
-            const fraction = (restIndex + 1) / (restsToSchedule.length + 1);
-            const idealOffset = shiftDurationHours * fraction;
 
-            // Damos una ventana amplia (± 1.5 horas = 3 horas total) para que la IA escápela del PICO
-            windowStart = new Date(start.getTime() + (idealOffset - 1.5) * 3600000);
-            windowEnd = new Date(start.getTime() + (idealOffset + 1.5) * 3600000);
-            // REGLA: "pueden tomar break hasta 30 minutos antes de salir si el turno está muy apretado"
-            // Expandimos la ventana hasta shiftEnd - 30min para que en turnos congestionados
-            // la IA pueda empujar un Rest casi al final. El clamp de seguridad del fallback
-            // garantiza que nunca se pase del turno físico.
-            const maxRestEnd = new Date(end.getTime() - 30 * 60000); // 30 min antes de salir
-            if (windowEnd > maxRestEnd) windowEnd = maxRestEnd;
-            if (windowEnd > end) windowEnd = end;
-            
+            // Calcular si es segmento pre-meal UNA sola vez
+            const firstMealStartMs = meals.length > 0 ? new Date(meals[0].start_time).getTime() : Infinity;
+            let isPreMealSegment = false;
+
+            if (restIndex < segmentBounds.length) {
+                // Assign this rest to its corresponding segment
+                const seg = segmentBounds[restIndex];
+                const segMidpoint = seg.start + (seg.end - seg.start) / 2;
+                const segDurationH = (seg.end - seg.start) / 3600000;
+
+                // Detectar si este segmento es PRE-MEAL o POST-MEAL
+                const isPreMealCandidate = seg.end <= firstMealStartMs;
+
+                // ═══════════════════════════════════════════════════════════════
+                // VIABILIDAD MÍNIMA del segmento pre-meal:
+                // Necesitamos al menos 2h para que quepa:
+                //   1h trabajo mínimo + 10min rest + 45min gap al lunch = ~1h55m
+                // Si el segmento es más corto, el rest NO cabe ahí sin pegarse
+                // al lunch → lo tratamos como post-meal (ventana abierta).
+                // ═══════════════════════════════════════════════════════════════
+                if (isPreMealCandidate && segDurationH >= 2.0) {
+                    // PRE-MEAL VIABLE: Ventana limitada al segmento
+                    // Ej: Turno 5 PM, Lunch 9 PM → seg 4h → rest va a 6-6:30 PM
+                    isPreMealSegment = true;
+                    windowStart = new Date(seg.start);
+                    windowEnd = new Date(seg.end);
+                } else {
+                    // POST-MEAL o segmento pre-meal MUY CORTO:
+                    // Ventana abierta → scoring encuentra valles alejados del meal
+                    windowStart = new Date(segMidpoint - 1.5 * 3600000);
+                    windowEnd = new Date(end.getTime());
+                    if (windowStart.getTime() < seg.start) windowStart = new Date(seg.start);
+                }
+            } else {
+                // Extra rests go to the largest segment
+                const largest = segmentBounds.reduce((a, b) => (b.end - b.start) > (a.end - a.start) ? b : a, segmentBounds[0]);
+                const segMidpoint = largest.start + (largest.end - largest.start) / 2;
+                windowStart = new Date(segMidpoint - 1.0 * 3600000);
+                windowEnd = new Date(end.getTime());
+            }
+
             // STRICT RULE: No break can start before 1.0 hours worked.
             const minAllowedStart = new Date(start.getTime() + 1.0 * 3600000);
             if (windowStart < minAllowedStart) {
                 windowStart = minAllowedStart;
             }
-            // Asegurarnos de no sobrepasar el límite de la ventana
+            // Allow breaks up to 15 min before shift end
+            const maxRestEnd = new Date(end.getTime() - 15 * 60000); 
+            if (windowEnd > maxRestEnd) windowEnd = maxRestEnd;
+
             if (windowStart >= windowEnd) {
-                 windowStart = new Date(windowEnd.getTime() - 15 * 60000); // Dar al menos 15 min de respiro si quedó apachurrado
+                 windowStart = new Date(windowEnd.getTime() - 15 * 60000);
                  if (windowStart < minAllowedStart) windowStart = minAllowedStart;
             }
 
-            const bestSlotStart = findBestSlot(windowStart, windowEnd, 10, true, shift.breaks_schedule, false, shift);
+            const bestSlotStart = findBestSlot(windowStart, windowEnd, 10, true, shift.breaks_schedule, isPreMealSegment, shift);
             const bestSlotEnd = new Date(bestSlotStart.getTime() + 10 * 60000);
 
             shift.breaks_schedule.push({

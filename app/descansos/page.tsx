@@ -580,21 +580,23 @@ export default function DescansosPage() {
                                 let labelColor = '';
 
                                 if (intensity >= 0.95) {
-                                    bgColor = `rgba(220, 38, 38, 0.35)`; 
+                                    bgColor = `rgba(185, 28, 28, 0.40)`; 
                                     peakLabel = 'MAX';
-                                    labelColor = 'text-red-700';
+                                    labelColor = 'text-red-800';
                                 } else if (intensity >= 0.85) {
-                                    bgColor = `rgba(239, 68, 68, 0.20)`;
-                                    peakLabel = 'PICO';
-                                    labelColor = 'text-red-500';
+                                    bgColor = `rgba(220, 38, 38, 0.30)`;
                                 } else if (intensity >= 0.75) {
-                                    bgColor = `rgba(249, 115, 22, 0.20)`;
-                                    peakLabel = 'RUSH';
-                                    labelColor = 'text-orange-600';
+                                    bgColor = `rgba(239, 68, 68, 0.22)`;
+                                } else if (intensity >= 0.65) {
+                                    bgColor = `rgba(249, 115, 22, 0.25)`;
                                 } else if (intensity >= 0.50) {
-                                    bgColor = `rgba(251, 191, 36, 0.20)`;
+                                    bgColor = `rgba(251, 146, 60, 0.18)`;
+                                } else if (intensity >= 0.35) {
+                                    bgColor = `rgba(251, 191, 36, 0.15)`;
+                                } else if (intensity >= 0.20) {
+                                    bgColor = `rgba(253, 230, 138, 0.12)`;
                                 } else if (intensity > 0.05) {
-                                    bgColor = `rgba(253, 230, 138, 0.15)`;
+                                    bgColor = `rgba(254, 243, 199, 0.10)`;
                                 }
 
                                 return (
