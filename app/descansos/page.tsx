@@ -13,7 +13,7 @@ import { useSearchParams } from 'next/navigation'
 
 export default function DescansosPage() {
     const searchParams = useSearchParams()
-    
+
     const containerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -34,7 +34,7 @@ export default function DescansosPage() {
             document.exitFullscreen()
         }
     }
-    
+
     const [loading, setLoading] = useState(true)
     const [calculating, setCalculating] = useState(false)
     const [stores, setStores] = useState<any[]>([])
@@ -48,13 +48,13 @@ export default function DescansosPage() {
         }
         return new Date()
     })
-    
+
     // Roster de la semana (Idéntico a Planificador)
     const [rosterEmployees, setRosterEmployees] = useState<Employee[]>([])
-    
+
     // Turnos específicos del día actual para renderizar
     const [todayShifts, setTodayShifts] = useState<Shift[]>([])
-    const [punches, setPunches] = useState<any[]>([]) 
+    const [punches, setPunches] = useState<any[]>([])
     const [operatingHours, setOperatingHours] = useState<any[]>([])
     const [smartShifts, setSmartShifts] = useState<Shift[]>([])
     const [allJobs, setAllJobs] = useState<Job[]>([])
@@ -65,12 +65,12 @@ export default function DescansosPage() {
     const [absentEmpIds, setAbsentEmpIds] = useState<Set<number>>(new Set())
     const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
-    const lastDataRef = useRef<{shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[]}>({ shifts: [], hours: [], employees: [], jobs: [] })
+    const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[] }>({ shifts: [], hours: [], employees: [], jobs: [] })
 
     const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any, isManualAction: boolean = false) => {
         setCalculating(true);
-        await new Promise(r => setTimeout(r, 50)); 
-        
+        await new Promise(r => setTimeout(r, 50));
+
         const { shifts, hours, employees, jobs } = dataOverride || lastDataRef.current;
         if (!shifts || shifts.length === 0) {
             setCalculating(false);
@@ -82,29 +82,39 @@ export default function DescansosPage() {
             const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as number;
             return !absentSet.has(id);
         });
-        
+
         const shiftsForAi = presentShifts.map((s: Shift) => {
             const emp = employees.find((e: Employee) => e.id === s.employee_id || e.toast_guid === (s as any).employee_toast_guid);
             let extTitle = '';
             if (emp && emp.job_references && emp.job_references.length > 0) {
                 const jobRef = emp.job_references[0];
-                const job = jobs.find((j: Job) => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
-                if (job) extTitle = job.title;
+                // Deep Fix: Usar el title embebido si existe, en vez de depender ciegamente del JOIN
+                if (jobRef.title) extTitle = jobRef.title;
+                else {
+                    const job = jobs.find((j: Job) => j.guid === jobRef.guid || String(j.id) === jobRef.guid);
+                    if (job) extTitle = job.title;
+                }
             }
             if (!extTitle) {
                 const shiftJob = jobs.find((j: Job) => j.guid === s.job_id || String(j.id) === String(s.job_id));
                 if (shiftJob) extTitle = shiftJob.title;
             }
+            
+            // Failsafe estructural para garantizar que breaks-engine identifique el rol
+            if (!extTitle && emp) {
+                extTitle = 'cook'; // Fallback genérico para BOH en vez de tirar un UUID que rompe el wavePenalty
+            }
+
             const titleLowerCase = extTitle.toLowerCase();
             const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
             const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
-            return { ...s, is_leader: isLeader, job_title: extTitle };
+            return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: employeeName };
         });
 
         try {
             const augmented = scheduleBreaksWithDemand(shiftsForAi, hours);
             setSmartShifts(augmented as Shift[]);
-            
+
             const supabase = await getSupabaseClient()
             const shiftsToUpdate = augmented.filter((s: any) => {
                 const original = shifts.find((old: Shift) => old.id === s.id);
@@ -115,7 +125,7 @@ export default function DescansosPage() {
                 for (const shift of shiftsToUpdate) {
                     try {
                         await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
-                    } catch (err) {}
+                    } catch (err) { }
                 }
 
                 // 🧠 DEEP FIX: Diferenciar el motivo del mensaje
@@ -143,7 +153,7 @@ export default function DescansosPage() {
                     }
                 }
             }
-        } catch(e) {
+        } catch (e) {
             console.error(e);
         }
         setCalculating(false);
@@ -178,7 +188,7 @@ export default function DescansosPage() {
     const pullToastPunches = useCallback(async (isManual = false) => {
         if (!storeGuid) return;
         if (isManual) setIsRefreshingToast(true);
-        
+
         try {
             // Si es manual, forzamos la sincronización directa con los servidores de Toast
             if (isManual) {
@@ -195,7 +205,7 @@ export default function DescansosPage() {
                 .select('employee_toast_guid, clock_in, clock_out, breaks')
                 .eq('store_id', storeGuid)
                 .eq('business_date', dateStr)
-            
+
             if (punchData) setPunches(punchData)
         } catch (error) {
             console.error("Error pulling Toast punches:", error)
@@ -216,10 +226,10 @@ export default function DescansosPage() {
     const loadDayData = async () => {
         if (!storeGuid) return;
         setCalculating(true)
-        
+
         // RESET ausentes al cambiar de día/tienda
         const freshAbsentSet = new Set<number>();
-        setAbsentEmpIds(freshAbsentSet); 
+        setAbsentEmpIds(freshAbsentSet);
         setAiStatus(null);
 
         const supabase = await getSupabaseClient()
@@ -239,7 +249,7 @@ export default function DescansosPage() {
                 .from('toast_employees')
                 .select('*')
                 .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-            
+
             if (error || !data) break;
             allEmpDataRaw = [...allEmpDataRaw, ...data]
             if (data.length < PAGE_SIZE) hasMore = false
@@ -260,7 +270,7 @@ export default function DescansosPage() {
 
         // 3. Reconstruir la lista exacta de empleados activos que usa el planificador (useVisibleEmployees)
         const ALLOWED_ROLES = ['manager', 'shift', 'cook', 'cocinero', 'cashier', 'cajero', 'prep', 'taquero', 'assistant', 'asst'];
-        
+
         // Filtro por tienda primero
         const storeEmployees = allEmpData.filter((e: any) => {
             let empStoreIds: string[] = []
@@ -332,10 +342,10 @@ export default function DescansosPage() {
             const ref = emp.job_references?.[0];
             const j = jobs.find(job => job.guid === ref?.guid || String(job.id) === ref?.guid);
             const jobTitle = (j?.title || '').toLowerCase();
-            const isGeneralManager = (jobTitle.includes('manager') || jobTitle.includes('gerente')) && 
-                              !jobTitle.includes('assist') && 
-                              !jobTitle.includes('asst') && 
-                              !jobTitle.includes('shift');
+            const isGeneralManager = (jobTitle.includes('manager') || jobTitle.includes('gerente')) &&
+                !jobTitle.includes('assist') &&
+                !jobTitle.includes('asst') &&
+                !jobTitle.includes('shift');
             return !isGeneralManager;
         });
 
@@ -344,12 +354,12 @@ export default function DescansosPage() {
         // 4. Aislar los turnos estrictamente del día actual (currentDate)
         const todayRawShifts = weekShifts.filter(s => s.shift_date === dateStr);
         setTodayShifts(todayRawShifts);
- 
+
         // 🧠 REHIDRATAR AUSENCIAS (Deep Fix: Respetar marcas manuales guardadas en DB)
         const dbAbsentees = todayRawShifts
             .filter(s => s.is_callback === true && s.employee_id !== null)
             .map(s => typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as unknown as number);
-        
+
         if (dbAbsentees.length > 0) {
             setAbsentEmpIds(new Set(dbAbsentees));
         }
@@ -366,7 +376,7 @@ export default function DescansosPage() {
             })
             const projData = await projRes.json()
             let hoursToDraw = []
-            
+
             if (projData?.meta?.dailyDetails?.length > 0) {
                 // Find the specific day's hours
                 const dayMatch = projData.meta.dailyDetails.find((d: any) => d.date === dateStr)
@@ -374,14 +384,15 @@ export default function DescansosPage() {
                     hoursToDraw = dayMatch.hourly_breakdown
                 }
             }
-            
+
             setOperatingHours(hoursToDraw)
-            
+
             if (todayRawShifts) {
                 const data = { shifts: todayRawShifts, hours: hoursToDraw, employees: allEmpData as Employee[], jobs: jobs };
                 lastDataRef.current = data;
                 // En carga inicial (isManualAction = false), solo avisará si realmente mueve algo en la DB
-                await triggerAiRecalculation(new Set(), data, false);
+                const hydratedAbsentSet = new Set(dbAbsentees);
+                await triggerAiRecalculation(hydratedAbsentSet, data, false);
             }
         } catch (e) {
             console.error("Error generating forecast:", e)
@@ -391,21 +402,21 @@ export default function DescansosPage() {
 
     // --- REALTIME MONITORING (Auditoría Automática) ---
     useEffect(() => {
-        if (!selectedStoreId || !dateStr) return
+        if (!storeGuid || !dateStr) return
 
         let channel: any = null
-        
+
         let rebalanceTimer: any = null;
-        
+
         const setupRealtime = async () => {
             const supabase = await getSupabaseClient()
             channel = supabase
                 .channel('rebalance-monitor')
-                .on('postgres_changes', { 
-                    event: 'UPDATE', 
-                    schema: 'public', 
-                    table: 'shifts', 
-                    filter: `store_id=eq.${selectedStoreId}` 
+                .on('postgres_changes', {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'shifts',
+                    filter: `store_id=eq.${storeGuid}`
                 }, (payload: any) => {
                     if (payload.new.shift_date === dateStr) {
                         // DEBOUNCE: Si vienen 10 cambios seguidos (el cron), solo re-cargamos una vez al final
@@ -413,7 +424,7 @@ export default function DescansosPage() {
                         rebalanceTimer = setTimeout(() => {
                             setAiStatus({ message: 'Auditoría Toast: Descansos re-balanceados por ponchada irregular', type: 'info' });
                             loadDayData();
-                        }, 2000); 
+                        }, 2000);
                     }
                 })
                 .subscribe()
@@ -428,7 +439,7 @@ export default function DescansosPage() {
                 supabaseAsync.then(s => s.removeChannel(channel))
             }
         }
-    }, [selectedStoreId, dateStr])
+    }, [storeGuid, dateStr])
 
     useEffect(() => {
         loadDayData()
@@ -451,13 +462,13 @@ export default function DescansosPage() {
     const getTimelineWidth = (startIso: string, endIso: string) => {
         if (!startIso) return 0
         const s = new Date(startIso)
-        const e = endIso ? new Date(endIso) : new Date() 
+        const e = endIso ? new Date(endIso) : new Date()
         let sH = s.getHours()
         if (sH < START_HOUR) sH += 24
         let eH = e.getHours()
         if (eH < START_HOUR) eH += 24
-        if (eH < sH) eH += 24 
-        
+        if (eH < sH) eH += 24
+
         const durationMins = ((eH - sH) * 60) + e.getMinutes() - s.getMinutes()
         return Math.max(0, Math.min(100, (durationMins / (TOTAL_HOURS * 60)) * 100))
     }
@@ -498,20 +509,20 @@ export default function DescansosPage() {
                             <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                         ))}
                     </select>
-                    <input 
+                    <input
                         type="date"
                         value={dateStr}
                         onChange={(e) => {
-                             const nd = new Date(e.target.value + 'T12:00:00')
-                             setCurrentDate(nd)
+                            const nd = new Date(e.target.value + 'T12:00:00')
+                            setCurrentDate(nd)
                         }}
                         className="bg-slate-100 text-slate-800 rounded-lg px-3 py-2 text-sm font-bold border border-slate-200 focus:ring-2 focus:ring-amber-500"
                     />
-                     {calculating && <div className="flex items-center gap-2 text-amber-500 text-xs font-bold animate-pulse"><Loader2 size={12} className="animate-spin" /> Procesando...</div>}
+                    {calculating && <div className="flex items-center gap-2 text-amber-500 text-xs font-bold animate-pulse"><Loader2 size={12} className="animate-spin" /> Procesando...</div>}
                 </div>
-                
+
                 <div className="flex items-center gap-2 md:gap-3">
-                    <button 
+                    <button
                         onClick={toggleFullscreen}
                         className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-sm transition-colors border border-slate-200"
                         title="Modo Tableta (Pantalla Completa)"
@@ -520,7 +531,7 @@ export default function DescansosPage() {
                         <span className="hidden lg:inline">{isFullscreen ? 'Salir' : 'Tableta'}</span>
                     </button>
                     {showRealPunches && (
-                        <button 
+                        <button
                             onClick={() => pullToastPunches(true)}
                             disabled={isRefreshingToast}
                             className="bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition-all flex items-center gap-2 disabled:opacity-50"
@@ -529,7 +540,7 @@ export default function DescansosPage() {
                             <RefreshCw size={16} className={isRefreshingToast ? 'animate-spin' : ''} />
                         </button>
                     )}
-                    <button 
+                    <button
                         onClick={() => setShowRealPunches(!showRealPunches)}
                         className={`px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all flex items-center gap-2 border ${showRealPunches ? 'bg-cyan-600 text-white border-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'}`}
                         title="Comparar vs el histórico real de Toast"
@@ -545,15 +556,15 @@ export default function DescansosPage() {
                         {showRealPunches ? "Plan vs Realidad (Toast Punches)" : "Smart Timeline"}
                     </h2>
                     <p className="text-slate-500 text-sm mt-1">
-                        {showRealPunches 
-                            ? "Compara las horas donde la IA programó descansos (línea gruesa) versus a qué hora realmente oprimieron <Break> en el sistema (Líneas Cyan abajo)." 
+                        {showRealPunches
+                            ? "Compara las horas donde la IA programó descansos (línea gruesa) versus a qué hora realmente oprimieron <Break> en el sistema (Líneas Cyan abajo)."
                             : "Asignación automática basada en volumen de ventas respetando las leyes laborales de CA. (Fondo Brillante = Pico, Gris = Valle)."
                         }
                     </p>
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-xl shadow-xl relative">
-                    
+
                     {/* Operating Hours Background Chart (HEATMAP) */}
                     {(
                         <div className="absolute top-10 bottom-0 left-64 right-0 z-[5] pointer-events-none overflow-hidden rounded-br-xl">
@@ -562,13 +573,13 @@ export default function DescansosPage() {
                                 const hData = operatingHours?.find(o => o.hour === h || o.hour === (h >= 24 ? h - 24 : -1));
                                 let sales = hData?.projected_sales || 0;
                                 let maxSales = operatingHours?.length > 0 ? Math.max(...operatingHours.map(o => o.projected_sales)) : 0;
-                                
+
                                 // Fallback dinámico si no hay histórico: curva típica de afluencia (Rush de Mediodía y Tarde)
                                 if (maxSales < 10) {
                                     const baseMockCurve: Record<number, number> = {
-                                        6: 10, 7: 30, 8: 80, 9: 150, 
-                                        10: 300, 11: 600, 12: 950, 13: 850, 14: 400, 15: 250, 16: 300, 
-                                        17: 500, 18: 800, 19: 900, 20: 750, 21: 500, 22: 300, 23: 150, 
+                                        6: 10, 7: 30, 8: 80, 9: 150,
+                                        10: 300, 11: 600, 12: 950, 13: 850, 14: 400, 15: 250, 16: 300,
+                                        17: 500, 18: 800, 19: 900, 20: 750, 21: 500, 22: 300, 23: 150,
                                         24: 50, 25: 20, 26: 10, 27: 5
                                     };
                                     sales = baseMockCurve[h] || 0;
@@ -579,34 +590,35 @@ export default function DescansosPage() {
                                 let peakLabel = '';
                                 let labelColor = '';
 
+                                // Colores alineados con el engine:
+                                // Engine: MEAL block >= 0.80, REST block >= 0.65
+                                // Visual: solo las horas que el engine BLOQUEA se ven calientes
                                 if (intensity >= 0.95) {
-                                    bgColor = `rgba(185, 28, 28, 0.40)`; 
+                                    bgColor = `rgba(185, 28, 28, 0.40)`;
                                     peakLabel = 'MAX';
                                     labelColor = 'text-red-800';
                                 } else if (intensity >= 0.85) {
                                     bgColor = `rgba(220, 38, 38, 0.30)`;
-                                } else if (intensity >= 0.75) {
+                                } else if (intensity >= 0.80) {
                                     bgColor = `rgba(239, 68, 68, 0.22)`;
-                                } else if (intensity >= 0.65) {
-                                    bgColor = `rgba(249, 115, 22, 0.25)`;
-                                } else if (intensity >= 0.50) {
-                                    bgColor = `rgba(251, 146, 60, 0.18)`;
-                                } else if (intensity >= 0.35) {
-                                    bgColor = `rgba(251, 191, 36, 0.15)`;
-                                } else if (intensity >= 0.20) {
-                                    bgColor = `rgba(253, 230, 138, 0.12)`;
-                                } else if (intensity > 0.05) {
-                                    bgColor = `rgba(254, 243, 199, 0.10)`;
+                                } else if (intensity >= 0.70) {
+                                    bgColor = `rgba(249, 115, 22, 0.16)`;
+                                } else if (intensity >= 0.60) {
+                                    bgColor = `rgba(251, 146, 60, 0.10)`;
+                                } else if (intensity >= 0.45) {
+                                    bgColor = `rgba(253, 230, 138, 0.07)`;
+                                } else if (intensity > 0.25) {
+                                    bgColor = `rgba(254, 243, 199, 0.05)`;
                                 }
 
                                 return (
-                                    <div 
-                                        key={i} 
+                                    <div
+                                        key={i}
                                         className="absolute top-0 bottom-0 border-l border-slate-200/60 transition-colors duration-700"
-                                        style={{ 
+                                        style={{
                                             left: `${(i / TOTAL_HOURS) * 100}%`,
                                             width: `${(1 / TOTAL_HOURS) * 100}%`,
-                                            backgroundColor: bgColor 
+                                            backgroundColor: bgColor
                                         }}
                                     >
                                         {peakLabel && (
@@ -627,8 +639,8 @@ export default function DescansosPage() {
                         </div>
                         <div className="flex-1 relative h-10 bg-slate-50 rounded-tr-xl">
                             {Array.from({ length: TOTAL_HOURS }).map((_, i) => (
-                                <div 
-                                    key={i} 
+                                <div
+                                    key={i}
                                     className="absolute top-0 bottom-0 border-l border-slate-200 flex items-center px-1"
                                     style={{ left: `${(i / TOTAL_HOURS) * 100}%` }}
                                 >
@@ -647,14 +659,14 @@ export default function DescansosPage() {
                         ) : activeEmployees.map((emp) => {
                             // Link con los turnos inteligentes (ya traen la data de breaks inyectada)
                             const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id))
-                                const isOff = !shift
-                            
+                            const isOff = !shift
+
                             const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid)
-                            
+
                             return (
                                 <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group relative z-10 focus-within:z-50 hover:z-40">
                                     <div className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
-                                        <div 
+                                        <div
                                             className={`text-lg leading-tight font-black truncate cursor-pointer transition-colors ${absentEmpIds.has(typeof emp.id === 'string' ? parseInt(emp.id) : emp.id) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 hover:text-indigo-600'}`}
                                             onClick={() => setAbsentModalEmp(emp)}
                                             title="Click para marcar Ausente o Editar"
@@ -676,24 +688,24 @@ export default function DescansosPage() {
                                             <div className="text-sm text-slate-400 font-bold mt-0.5">DÍA LIBRE (OFF)</div>
                                         ) : (
                                             <div className="text-sm text-slate-600 font-bold mt-1">
-                                                {new Date(shift.start_time).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})} - {new Date(shift.end_time).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
+                                                {new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                                             </div>
                                         )}
                                         {showRealPunches && empPunch && (
                                             <div className="text-xs text-cyan-600 mt-1 uppercase font-bold">
-                                                Toast: {new Date(empPunch.clock_in).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
+                                                Toast: {new Date(empPunch.clock_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                                             </div>
                                         )}
                                     </div>
-                                    
+
                                     <div className={`flex-1 relative py-2 ${showRealPunches ? 'min-h-[80px]' : 'min-h-[60px]'}`}>
-                                        
+
                                         {!isOff && (
-                                            <motion.div 
+                                            <motion.div
                                                 initial={{ opacity: 0, scaleX: 0 }}
                                                 animate={{ opacity: 1, scaleX: 1 }}
-                                                style={{ 
-                                                    left: `${getTimelinePosition(shift.start_time)}%`, 
+                                                style={{
+                                                    left: `${getTimelinePosition(shift.start_time)}%`,
                                                     width: `${getTimelineWidth(shift.start_time, shift.end_time)}%`,
                                                     transformOrigin: 'left'
                                                 }}
@@ -705,29 +717,28 @@ export default function DescansosPage() {
                                                     const posLeft = getTimelinePosition(shift.start_time)
                                                     const wPct = getTimelineWidth(shift.start_time, shift.end_time)
                                                     let relativeLeft = ((subLeft - posLeft) / wPct) * 100
-                                                    if(relativeLeft < 0) relativeLeft = 0;
+                                                    if (relativeLeft < 0) relativeLeft = 0;
                                                     const bWidth = getTimelineWidth(b.start_time, b.end_time)
                                                     let relativeWidth = (bWidth / wPct) * 100
-                                                    
+
                                                     const isMeal = b.type === 'meal_30'
-                                                    
+
                                                     return (
-                                                        <div 
+                                                        <div
                                                             key={`plan-${idx}`}
                                                             tabIndex={0}
-                                                            className={`absolute top-0 bottom-0 rounded border group/break cursor-pointer transition-transform hover:scale-105 active:scale-105 focus:outline-none ${
-                                                                isMeal 
-                                                                    ? 'bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]' 
-                                                                    : 'bg-emerald-500 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
-                                                            }`}
-                                                            style={{ 
-                                                                left: `${relativeLeft}%`, 
+                                                            className={`absolute top-0 bottom-0 rounded border group/break cursor-pointer transition-transform hover:scale-105 active:scale-105 focus:outline-none ${isMeal
+                                                                ? 'bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
+                                                                : 'bg-emerald-500 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
+                                                                }`}
+                                                            style={{
+                                                                left: `${relativeLeft}%`,
                                                                 width: `${relativeWidth}%`,
                                                             }}
                                                         >
                                                             <div className="opacity-0 group-hover/break:opacity-100 group-focus/break:opacity-100 group-active/break:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[14px] font-bold px-3 py-1.5 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
-                                                                {isMeal ? 'Almuerzo Planeado' : 'Descanso Planeado'}<br/>
-                                                                {new Date(b.start_time).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})}
+                                                                {isMeal ? 'Almuerzo Planeado' : 'Descanso Planeado'}<br />
+                                                                {new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                                                             </div>
                                                         </div>
                                                     )
@@ -736,11 +747,11 @@ export default function DescansosPage() {
                                         )}
 
                                         {showRealPunches && empPunch && (
-                                            <motion.div 
+                                            <motion.div
                                                 initial={{ opacity: 0 }}
                                                 animate={{ opacity: 1 }}
-                                                style={{ 
-                                                    left: `${getTimelinePosition(empPunch.clock_in)}%`, 
+                                                style={{
+                                                    left: `${getTimelinePosition(empPunch.clock_in)}%`,
                                                     width: `${getTimelineWidth(empPunch.clock_in, empPunch.clock_out)}%`,
                                                 }}
                                                 className="absolute bottom-3 h-4 bg-cyan-900/50 border-b-2 border-cyan-500/50 rounded-sm flex items-center overflow-visible z-10 hover:z-30 focus-within:z-50"
@@ -750,7 +761,7 @@ export default function DescansosPage() {
                                                     const rLeft = getTimelinePosition(rb.inDate)
                                                     const pLeft = getTimelinePosition(empPunch.clock_in)
                                                     const pWidth = getTimelineWidth(empPunch.clock_in, empPunch.clock_out)
-                                                    
+
                                                     const relativeLeft = ((rLeft - pLeft) / pWidth) * 100
                                                     const currentOutDate = rb.outDate || new Date().toISOString()
                                                     const rWidth = getTimelineWidth(rb.inDate, currentOutDate)
@@ -760,18 +771,18 @@ export default function DescansosPage() {
                                                     const isRealMeal = durationMins > 20;
 
                                                     return (
-                                                         <div 
+                                                        <div
                                                             key={`real-${idx}`}
                                                             tabIndex={0}
                                                             className={`absolute top-0 bottom-0 rounded border border-cyan-400 group/rbreak cursor-help focus:outline-none ${isRealMeal ? 'bg-cyan-500' : 'bg-teal-400'}`}
-                                                            style={{ 
-                                                                left: `${relativeLeft}%`, 
+                                                            style={{
+                                                                left: `${relativeLeft}%`,
                                                                 width: `${relativeWidth}%`,
                                                             }}
                                                         >
                                                             <div className="opacity-0 group-hover/rbreak:opacity-100 group-focus/rbreak:opacity-100 group-active/rbreak:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-cyan-300 text-[14px] font-bold px-3 py-1.5 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
-                                                                {isRealMeal ? 'Lunch Real' : 'Break Real'}: {durationMins.toFixed(0)} min<br/>
-                                                                {new Date(rb.inDate).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})}
+                                                                {isRealMeal ? 'Lunch Real' : 'Break Real'}: {durationMins.toFixed(0)} min<br />
+                                                                {new Date(rb.inDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                                                             </div>
                                                         </div>
                                                     )
@@ -804,43 +815,43 @@ export default function DescansosPage() {
                     </div>
                 </div>
                 <AnimatePresence>
-                {aiStatus && (
-                    <motion.div 
-                        initial={{ opacity: 0, y: 50, scale: 0.9 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        style={{
-                            position: 'fixed',
-                            bottom: '24px',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            zIndex: 9999,
-                            background: aiStatus.type === 'success' ? '#059669' : '#4f46e5',
-                            color: 'white',
-                            padding: '12px 24px',
-                            borderRadius: '999px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '12px',
-                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                            border: '2px solid rgba(255,255,255,0.2)',
-                            fontWeight: '600',
-                            fontSize: '14px',
-                            cursor: 'pointer'
-                        }}
-                        onClick={() => setAiStatus(null)}
-                        title="Click para cerrar"
-                    >
-                        <div style={{ background: 'rgba(255,255,255,0.2)', padding: '6px', borderRadius: '50%' }}>
-                            <Zap size={18} fill="white" />
-                        </div>
-                        {aiStatus.message}
-                        <div className="ml-2 opacity-50 px-2 py-0.5 rounded-full border border-white/30 text-[10px]">CERRAR</div>
-                    </motion.div>
-                )}
+                    {aiStatus && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            style={{
+                                position: 'fixed',
+                                bottom: '24px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                zIndex: 9999,
+                                background: aiStatus.type === 'success' ? '#059669' : '#4f46e5',
+                                color: 'white',
+                                padding: '12px 24px',
+                                borderRadius: '999px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                                border: '2px solid rgba(255,255,255,0.2)',
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                cursor: 'pointer'
+                            }}
+                            onClick={() => setAiStatus(null)}
+                            title="Click para cerrar"
+                        >
+                            <div style={{ background: 'rgba(255,255,255,0.2)', padding: '6px', borderRadius: '50%' }}>
+                                <Zap size={18} fill="white" />
+                            </div>
+                            {aiStatus.message}
+                            <div className="ml-2 opacity-50 px-2 py-0.5 rounded-full border border-white/30 text-[10px]">CERRAR</div>
+                        </motion.div>
+                    )}
                 </AnimatePresence>
             </main>
-            
+
             {/* Absent Modal Wrapper */}
             {absentModalEmp && (
                 <div className="fixed inset-0 z-[99999] bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-md">
@@ -852,9 +863,9 @@ export default function DescansosPage() {
                         <p className="text-slate-900 text-3xl font-black mb-10 pb-8 border-b-2 border-slate-200">
                             {absentModalEmp.first_name} {absentModalEmp.last_name}
                         </p>
-                        
+
                         <div className="flex flex-col gap-6">
-                            <button 
+                            <button
                                 onClick={() => {
                                     const newSet = new Set(absentEmpIds);
                                     const empIdNum = typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id;
@@ -867,24 +878,23 @@ export default function DescansosPage() {
                                     triggerAiRecalculation(newSet, null, true); // Es una acción manual
                                     setAbsentModalEmp(null);
                                 }}
-                                className={`px-8 py-6 rounded-2xl text-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02] active:scale-[0.98] ${
-                                    absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id) 
-                                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 border-2 border-indigo-900' 
-                                        : 'bg-red-600 text-white hover:bg-red-700 border-2 border-red-900'
-                                }`}
+                                className={`px-8 py-6 rounded-2xl text-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02] active:scale-[0.98] ${absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id)
+                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700 border-2 border-indigo-900'
+                                    : 'bg-red-600 text-white hover:bg-red-700 border-2 border-red-900'
+                                    }`}
                             >
-                                {absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id) 
-                                    ? 'Restaurar Turno (Desmarcar Ausencia)' 
+                                {absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id)
+                                    ? 'Restaurar Turno (Desmarcar Ausencia)'
                                     : 'Marcar Ausente (Eliminar del Schedule)'}
                             </button>
-                            <button 
+                            <button
                                 onClick={() => setAbsentModalEmp(null)}
                                 className="px-8 py-5 rounded-2xl text-xl font-bold text-slate-900 bg-slate-200 hover:bg-slate-300 border-2 border-slate-300 mt-2 transition-colors shadow-sm"
                             >
                                 Cancelar
                             </button>
                         </div>
-                        
+
                         <div className="mt-10 text-lg text-slate-800 font-bold leading-relaxed text-center bg-amber-50 border border-amber-200 p-5 rounded-xl shadow-inner">
                             Al excluir a este empleado, la IA reprogramará automáticamente los tiempos de descanso de los demás para cubrir sus horas.
                         </div>

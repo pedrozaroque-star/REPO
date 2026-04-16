@@ -98,8 +98,13 @@ export async function GET(req: Request) {
                     return { ...s, is_leader: isLeader, job_title: title }
                 })
 
-                // Re-calculate the whole day's puzzle
-                const newShifts = scheduleBreaksWithDemand(augmentedForAi, hours)
+                // 🧠 DEEP AUDIT: Filter out shifts marked as absent (is_callback)
+                const activeShiftsForRebalance = adjustedShifts.filter(s => s.is_callback !== true);
+                
+                if (activeShiftsForRebalance.length === 0) continue;
+
+                // Re-calculate the whole day's puzzle (only for present employees)
+                const newShifts = scheduleBreaksWithDemand(activeShiftsForRebalance as any, hours)
 
                 // Update DB (Batching optimization: updates only if breaks actually changed)
                 for (const updated of newShifts) {

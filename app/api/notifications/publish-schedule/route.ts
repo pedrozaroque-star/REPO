@@ -179,7 +179,15 @@ export async function POST(req: Request) {
 
         if (empError) throw empError
 
-        // --- 5. SMART BREAKS GENERATION (Fidelity Alignment with Tablet) ---
+        // --- 5. STATION ASSIGNMENTS FETCH ---
+        const { data: stationAssignments } = await supabase
+            .from('station_assignments')
+            .select('*')
+            .eq('store_id', store_id)
+            .gte('assignment_date', start_date)
+            .lte('assignment_date', end_date)
+
+        // --- 6. SMART BREAKS GENERATION (Fidelity Alignment with Tablet) ---
         const { data: allJobs } = await supabase.from('toast_jobs').select('*')
 
         // DEEP AUDIT: If the Tablet (Descansos Page) already optimized the schedule, 
@@ -282,6 +290,22 @@ export async function POST(req: Request) {
                     const start = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
                     const end = endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
 
+                    // BUSCAR POSICION / STATION
+                    const dayStr = startDate.toISOString().split('T')[0]
+                    const myPosition = (stationAssignments || []).find(a => 
+                        a.employee_id === emp.id && 
+                        a.assignment_date === dayStr
+                    )
+
+                    let positionBadge = '';
+                    if (myPosition) {
+                        positionBadge = `
+                            <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
+                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Posición:</span> ${myPosition.sub_position || myPosition.main_station}
+                            </div>
+                        `;
+                    }
+
                     let breaksHtml = '';
                     if (s.breaks_schedule && Array.isArray(s.breaks_schedule) && s.breaks_schedule.length > 0) {
                         const list = s.breaks_schedule.map((b: any) => {
@@ -308,6 +332,7 @@ export async function POST(req: Request) {
                             </td>
                             <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 16px; font-weight: 600; color: #1f2937;">
                                 <div>${start} - ${end}</div>
+                                ${positionBadge}
                                 ${breaksHtml}
                             </td>
                         </tr>
@@ -532,7 +557,9 @@ export async function POST(req: Request) {
                         if (s.breaks_schedule && Array.isArray(s.breaks_schedule)) {
                             bInfo = s.breaks_schedule.map((b: any) => {
                                 const bt = new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' }).replace(':00', '')
-                                return `<div style="font-size: 8px; color: ${b.type === 'meal_30' ? '#92400e' : '#059669'};">${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}</div>`
+                                // ORANGE for Lunch, GREEN for Break
+                                const color = b.type === 'meal_30' ? '#f97316' : '#22c55e';
+                                return `<div style="font-size: 8px; color: ${color}; font-weight: bold;">${b.type === 'meal_30' ? 'L:' : 'B:'}${bt}</div>`
                             }).join('')
                         }
 
@@ -660,10 +687,57 @@ export async function POST(req: Request) {
                 head: head,
                 body: body,
                 theme: 'grid',
-                styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
-                headStyles: { fillColor: [79, 70, 229], textColor: 255 },
-                columnStyles: { 0: { fontStyle: 'bold', fontSize: 8, cellWidth: 35 } },
-                alternateRowStyles: { fillColor: [248, 250, 252] }
+                styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', halign: 'center', valign: 'middle' },
+                headStyles: { fillColor: [79, 70, 229], textColor: 255, halign: 'center', fontStyle: 'bold' },
+                columnStyles: { 0: { fontStyle: 'bold', fontSize: 8, cellWidth: 35, halign: 'left', fillColor: [249, 250, 251] } },
+                alternateRowStyles: { fillColor: [255, 255, 255] },
+                willDrawCell: (data) => {
+                    // Prevent default text drawing for body columns (>0) to allow for colored manual drawing
+                    if (data.section === 'body' && data.column.index > 0) {
+                        data.cell.styles.textColor = 255; // White to "hide" but keep spacing logic
+                        // Actually better: just store current text and clear it for default engine
+                        (data.cell as any)._coloredText = data.cell.text;
+                        data.cell.text = [];
+                    }
+                },
+                didDrawCell: (data) => {
+                    if (data.section === 'body' && data.column.index > 0) {
+                        const cell = data.cell;
+                        const lines = (cell as any)._coloredText || [];
+                        if (lines.length === 0) return;
+
+                        let currentY = cell.y + 4;
+                        const centerX = cell.x + cell.width / 2;
+
+                        doc.setFontSize(7);
+                        
+                        lines.forEach((line: string) => {
+                            if (line === '---') {
+                                doc.setDrawColor(240);
+                                doc.line(cell.x + 2, currentY, cell.x + cell.width - 2, currentY);
+                                currentY += 4;
+                                return;
+                            }
+
+                            if (line.includes('L:')) {
+                                doc.setTextColor(249, 115, 22); // Orange #f97316
+                                doc.setFont('helvetica', 'bold');
+                                doc.setFontSize(7);
+                            } else if (line.includes('B:')) {
+                                doc.setTextColor(34, 197, 94); // Green #22c55e
+                                doc.setFont('helvetica', 'bold');
+                                doc.setFontSize(7);
+                            } else {
+                                doc.setTextColor(30, 41, 59); // Dark blue-gray #1e293b
+                                doc.setFont('helvetica', 'bold');
+                                doc.setFontSize(8);
+                            }
+                            
+                            doc.text(line, centerX, currentY, { align: 'center' });
+                            currentY += 4;
+                        });
+                    }
+                }
             });
 
             // Footer

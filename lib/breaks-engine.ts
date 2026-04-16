@@ -611,11 +611,17 @@ export function scheduleBreaksWithDemand(
                             
                             // Mismos roles o líderes no pueden empalmarse bajo ninguna circunstancia
                             // Y Líderes VS Subordinados TAMPOCO pueden empalmarse JAMÁS.
-                        const isLeaderFleeing = cat === 'leader' && slot.category !== 'leader'
-                        const isSubordinateFleeing = cat !== 'leader' && slot.category === 'leader'
+                            const isLeaderFleeing = cat === 'leader' && slot.category !== 'leader'
+                            const isSubordinateFleeing = cat !== 'leader' && slot.category === 'leader'
 
-                            if (isLeaderConflict || isLeaderFleeing || isSubordinateFleeing) {
-                                return false
+                            if (isLeaderConflict || isLeaderFleeing || isSubordinateFleeing || isSameRole) {
+                                // Permiso de vida o muerte: Si ya no hay espacio matemático, permitiremos un pequeño overlap de 10 min 
+                                // entre el mismo rol, pero núnca entre líderes y subordinados.
+                                if (isSameRole && !isLeaderConflict && !isLeaderFleeing && !isSubordinateFleeing) {
+                                     if (overlapMs > 15 * 60000) return false; // Bloquea si empalman más de 15 min
+                                } else {
+                                     return false
+                                }
                             }
                         }
                     }
