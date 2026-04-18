@@ -1,3 +1,5 @@
+// Archivo de pruebas desactivado para no afectar el Build de Vercel
+/*
 import { scheduleBreaksWithDemand as generateTimeline } from './lib/breaks-engine';
 
 const shifts = [
@@ -25,3 +27,5 @@ console.log(JSON.stringify(result.map(s => ({
     name: s.employee_name,
     meal: new Date(s.breaks_schedule.find(b => b.type === 'meal_30')?.start_time).toLocaleTimeString()
 })), null, 2));
+
+*/
