@@ -243,21 +243,10 @@ export default function DescansosPage() {
         const endStr = formatDateISO(addDays(weekStartM, 6))
 
         // 2. Traer Empleados, Trabajos y Turnos de la semana
-        let allEmpDataRaw: any[] = []
-        let page = 0
-        const PAGE_SIZE = 1000
-        let hasMore = true
-        while (hasMore) {
-            const { data, error } = await supabase
-                .from('toast_employees')
-                .select('*')
-                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-
-            if (error || !data) break;
-            allEmpDataRaw = [...allEmpDataRaw, ...data]
-            if (data.length < PAGE_SIZE) hasMore = false
-            page++
-        }
+        const { data: allEmpDataRaw, error: empError } = await supabase
+            .from('toast_employees')
+            .select('*')
+            .ilike('store_ids', `%${storeGuid}%`)
 
         const { data: jobsDataRaw } = await supabase.from('toast_jobs').select('*')
         const { data: weekShiftsData } = await supabase.from('shifts')
