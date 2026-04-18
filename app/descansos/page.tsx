@@ -118,7 +118,10 @@ export default function DescansosPage() {
             const supabase = await getSupabaseClient()
             const shiftsToUpdate = augmented.filter((s: any) => {
                 const original = shifts.find((old: Shift) => old.id === s.id);
-                return JSON.stringify(s.breaks_schedule) !== JSON.stringify(original?.breaks_schedule);
+                const stringifyBreak = (b: any) => `${b.type}_${new Date(b.start_time).getTime()}_${new Date(b.end_time).getTime()}`;
+                const newStr = s.breaks_schedule.map(stringifyBreak).sort().join('|');
+                const oldStr = (original?.breaks_schedule || []).map(stringifyBreak).sort().join('|');
+                return newStr !== oldStr;
             });
 
             if (shiftsToUpdate.length > 0) {
