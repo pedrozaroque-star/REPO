@@ -246,7 +246,7 @@ export default function DescansosPage() {
         const { data: allEmpDataRaw, error: empError } = await supabase
             .from('toast_employees')
             .select('*')
-            .ilike('store_ids', `%${storeGuid}%`)
+            .contains('store_ids', JSON.stringify([storeGuid]))
 
         const { data: jobsDataRaw } = await supabase.from('toast_jobs').select('*')
         const { data: weekShiftsData } = await supabase.from('shifts')
