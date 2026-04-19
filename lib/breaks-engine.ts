@@ -636,7 +636,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
 
         const minStart = sMs + ms(60 * H_MIN_START)
         const endBuf = eMs - ms(60 * H_END_BUFFER)
-        const meals = sortChron(shift.breaks_schedule.filter((b: BreakBlock) => b.type === 'meal_30')).map(m => ({ sMs: new Date(m.start_time).getTime(), eMs: new Date(m.end_time).getTime() }))
+        const meals = sortChron(shift.breaks_schedule.filter((b: BreakBlock) => b.type === 'meal_30') as BreakBlock[]).map((m: BreakBlock) => ({ sMs: new Date(m.start_time).getTime(), eMs: new Date(m.end_time).getTime() }))
 
         type Segment = { sMs: number; eMs: number }
         const rawSegments: Segment[] = []
