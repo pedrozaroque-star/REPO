@@ -1141,7 +1141,35 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                                 fromCache: true
                             }
                         }
-                        throw err // Rethrow if no cache available
+                        
+                        // GRACEFUL DEGRADATION: Do NOT throw! Set the global connectionError and return zeros.
+                        // This prevents a 500 error from one store (e.g. Huntington Park) taking down the ENTIRE dashboard.
+                        console.error(`🚨 [Toast API Fault Tolerance] Store ${store.id} failed, returning zeroes. Error:`, (err as Error).message)
+                        connectionError = (err as Error).message
+                        
+                        return {
+                            store, date: dateStr,
+                            salesMetrics: {
+                                netSales: 0,
+                                grossSales: 0,
+                                discounts: 0,
+                                tips: 0,
+                                taxes: 0,
+                                serviceCharges: 0,
+                                orders: 0,
+                                guests: 0,
+                                hourlySales: {},
+                                hourlyTickets: {},
+                                uberSales: 0,
+                                doordashSales: 0,
+                                grubhubSales: 0,
+                                ebtCount: 0,
+                                ebtAmount: 0
+                            },
+                            laborMetrics: { hours: 0, laborCost: 0, hourlyLabor: {} },
+                            fromCache: false,
+                            hasError: true
+                        }
                     }
                 } else {
                     // Mock
@@ -1167,7 +1195,8 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             ebtAmount: 0
                         },
                         laborMetrics: { hours: (salesVal / 25) * 0.4, laborCost: ((salesVal / 25) * 0.4) * 18.50 },
-                        fromCache: false
+                        fromCache: false,
+                        hasError: false
                     }
                 }
             }
@@ -1205,6 +1234,9 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 // 4. Never cache YESTERDAY if we are strictly in the "Dirty Window" (<6am)
                 // (Already handled by fetching logic, but ensuring storage safety)
                 if (r.date === yesterdayStrCache && laHourForCache < 6) return false
+                
+                // 5. CAREFUL: Never cache if there was a Toast API connection error!
+                if (r.hasError) return false
 
                 return true
             })
