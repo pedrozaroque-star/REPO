@@ -99,7 +99,7 @@ function getRequiredBreaks(startMs: number, endMs: number): Omit<BreakBlock, 'st
     const restCount = h > 14 ? 4 : h > 10 ? 3 : h > 6 ? 2 : h >= 3.5 ? 1 : 0
     for (let i = 0; i < restCount; i++) result.push({ type: 'rest_10' })
     if (h > 6) result.push({ type: 'meal_30' })
-    if (h > 10) result.push({ type: 'meal_30' })
+    if (h > 12) result.push({ type: 'meal_30' })
     return result
 }
 
