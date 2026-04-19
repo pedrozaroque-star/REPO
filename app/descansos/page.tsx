@@ -364,7 +364,7 @@ export default function DescansosPage() {
             const projRes = await fetch('/api/projections/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ storeId: storeGuid, weekStart: dateStr })
+                body: JSON.stringify({ storeId: storeGuid, weekStart: dateStr, days: 1 })
             })
             const projData = await projRes.json()
             let hoursToDraw = []

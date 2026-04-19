@@ -15,7 +15,7 @@ import { addDays, format } from 'date-fns'
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
-        const { storeId, weekStart } = body
+        const { storeId, weekStart, days = 7 } = body
 
         if (!storeId || !weekStart) {
             return NextResponse.json(
@@ -24,9 +24,9 @@ export async function POST(request: NextRequest) {
             )
         }
 
-        console.log(`📊 [Intelligence API] Generating projections for store=${storeId}, week=${weekStart}`)
+        console.log(`📊 [Intelligence API] Generating projections for store=${storeId}, week=${weekStart}, days=${days}`)
 
-        // Generate projections for 7 days (Monday to Sunday)
+        // Generate projections for requested days
         const projections: Record<string, number> = {}
         const meta: Record<string, any> = {
             model: 'Intelligence v2.1',
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         // Parse weekStart safely (append T12:00 to avoid timezone issues)
         const startDate = new Date(weekStart + 'T12:00:00')
 
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < days; i++) {
             const targetDate = addDays(startDate, i)
             const dateStr = format(targetDate, 'yyyy-MM-dd')
 
