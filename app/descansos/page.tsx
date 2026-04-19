@@ -1,21 +1,27 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize } from 'lucide-react'
+import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { getSupabaseClient } from '@/lib/supabase'
 import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } from '@/app/planificador-v2/lib/utils'
 import { Shift, Employee, Job } from '@/app/planificador-v2/lib/types'
+import { useAuth } from '@/components/ProtectedRoute'
 
 import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
 export default function DescansosPage() {
+    const { user } = useAuth()
     const searchParams = useSearchParams()
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    const [calendarOpen, setCalendarOpen] = useState(false)
+    const [calendarViewDate, setCalendarViewDate] = useState(new Date())
 
     useEffect(() => {
         const onFullscreenChange = () => {
@@ -59,7 +65,7 @@ export default function DescansosPage() {
     const [smartShifts, setSmartShifts] = useState<Shift[]>([])
     const [allJobs, setAllJobs] = useState<Job[]>([])
 
-    const [showRealPunches, setShowRealPunches] = useState(false)
+    const [showRealPunches, setShowRealPunches] = useState(true)
     const [isRefreshingToast, setIsRefreshingToast] = useState(false)
 
     const [absentEmpIds, setAbsentEmpIds] = useState<Set<number>>(new Set())
@@ -99,7 +105,7 @@ export default function DescansosPage() {
                 const shiftJob = jobs.find((j: Job) => j.guid === s.job_id || String(j.id) === String(s.job_id));
                 if (shiftJob) extTitle = shiftJob.title;
             }
-            
+
             // Failsafe estructural para garantizar que breaks-engine identifique el rol
             if (!extTitle && emp) {
                 extTitle = 'cook'; // Fallback genérico para BOH en vez de tirar un UUID que rompe el wavePenalty
@@ -166,19 +172,50 @@ export default function DescansosPage() {
         async function loadBasics() {
             setLoading(true)
             const supabase = await getSupabaseClient()
-            const { data: storesData } = await supabase.from('stores').select('*').order('name')
+
+            // RBAC
+            let userRole = 'staff'
+            let userStoreId: any = null
+
+            if (user) {
+                const { data: uData } = await supabase.from('users').select('role, store_id').eq('id', user.id).single()
+                if (uData) {
+                    userRole = uData.role || 'staff'
+                    userStoreId = uData.store_id
+                }
+            }
+
+            let storeQuery = supabase.from('stores').select('*').order('name')
+            if (userRole !== 'admin' && userStoreId) {
+                storeQuery = storeQuery.eq('id', userStoreId)
+            } else if (userRole !== 'admin' && !userStoreId) {
+                if (userRole === 'manager' || userRole === 'gerente') {
+                    alert('No tienes tienda asignada (Descansos). Contacta a soporte.')
+                    storeQuery = storeQuery.eq('id', -1)
+                }
+            }
+
+            const { data: storesData } = await storeQuery
+
             if (storesData) {
                 setStores(storesData)
                 if (storesData.length > 0) {
-                    const storeParam = searchParams?.get('store')
-                    const matchedStore = storeParam ? storesData.find(s => String(s.id) === storeParam) : null
-                    setSelectedStoreId(matchedStore ? String(matchedStore.id) : String(storesData[0].id))
+                    const storeParam = searchParams?.get('store') || localStorage.getItem('planner_store')
+                    const matchedStore = storeParam ? storesData.find((s: any) => String(s.id) === storeParam || String(s.external_id) === storeParam) : null
+
+                    if (storesData.length === 1) {
+                        setSelectedStoreId(String(storesData[0].id))
+                    } else if (matchedStore) {
+                        setSelectedStoreId(String(matchedStore.id))
+                    } else {
+                        setSelectedStoreId(String(storesData[0].id))
+                    }
                 }
             }
             setLoading(false)
         }
-        loadBasics()
-    }, [searchParams])
+        if (user) loadBasics()
+    }, [user])
 
     const storeGuid = useMemo(() => {
         return stores.find(s => String(s.id) === String(selectedStoreId))?.external_id
@@ -472,7 +509,7 @@ export default function DescansosPage() {
         return d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
     }
 
-    if (loading) return <div className="p-10 text-white flex items-center gap-2"><Loader2 className="animate-spin text-amber-500" /> Sincronizando con Planificador...</div>
+    // if (loading) return <div className="p-10 text-white flex items-center gap-2"><Loader2 className="animate-spin text-amber-500" /> Sincronizando con Planificador...</div>
 
     const activeEmployees = rosterEmployees.filter(emp => {
         const shiftBase = todayShifts.find(s => String(s.employee_id) === String(emp.id))
@@ -483,11 +520,40 @@ export default function DescansosPage() {
 
     return (
         <div ref={containerRef} className={`font-sans selection:bg-indigo-500/30 transition-all ${isFullscreen ? 'fixed inset-0 z-[9999] bg-slate-50 h-[100vh] w-[100vw] overflow-y-auto' : 'min-h-screen bg-slate-50 text-slate-800'}`}>
-            <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between shadow-sm sticky top-0 z-30 gap-4">
+            {/* FULL SCREEN PROCESSING MODAL */}
+            <AnimatePresence>
+                {(loading || calculating) && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-md"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.9, y: 20 }}
+                            className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm w-[90%] border-2 border-amber-400"
+                        >
+                            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mb-6 shadow-inner ring-4 ring-amber-100">
+                                <Zap className="text-amber-500 animate-bounce" size={32} />
+                            </div>
+                            <h2 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-center">
+                                {loading ? 'Sincronizando...' : 'Procesando IA'}
+                            </h2>
+                            <p className="text-sm font-medium text-slate-500 text-center mb-6 px-4">
+                                {loading
+                                    ? 'Cargando turnos y configuraciones del Planificador maestro.'
+                                    : 'Calculando coberturas y optimizando descansos en tiempo real.'}
+                            </p>
+                            <Loader2 className="animate-spin text-amber-500" size={36} />
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between shadow-sm sticky top-0 z-[100] gap-4">
                 <div className="flex items-center gap-6">
-                    <Link href="/planificador" className="text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-1 font-bold">
-                        <ArrowLeft size={16} /> Volver
-                    </Link>
                     <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
                         <Zap className="text-amber-500" />
                         AI Breaks & Lunches
@@ -501,16 +567,134 @@ export default function DescansosPage() {
                             <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                         ))}
                     </select>
-                    <input
-                        type="date"
-                        value={dateStr}
-                        onChange={(e) => {
-                            const nd = new Date(e.target.value + 'T12:00:00')
-                            setCurrentDate(nd)
-                        }}
-                        className="bg-slate-100 text-slate-800 rounded-lg px-3 py-2 text-sm font-bold border border-slate-200 focus:ring-2 focus:ring-amber-500"
-                    />
-                    {calculating && <div className="flex items-center gap-2 text-amber-500 text-xs font-bold animate-pulse"><Loader2 size={12} className="animate-spin" /> Procesando...</div>}
+
+                    <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg p-0.5 shadow-inner">
+                        <button
+                            onClick={() => {
+                                const nd = new Date(currentDate)
+                                nd.setDate(nd.getDate() - 1)
+                                setCurrentDate(nd)
+                            }}
+                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-md transition-colors"
+                        >
+                            <ChevronLeft size={18} />
+                        </button>
+
+                        <div className="relative">
+                            <div 
+                                className={`flex items-center justify-center px-4 min-w-[140px] group cursor-pointer hover:bg-slate-200/50 rounded-md transition-colors py-1.5 ${calendarOpen ? 'bg-slate-200/50' : ''}`}
+                                onClick={() => {
+                                    setCalendarViewDate(currentDate)
+                                    setCalendarOpen(!calendarOpen)
+                                }}
+                            >
+                                <Calendar size={14} className={`mr-2 transition-colors ${calendarOpen ? 'text-amber-600' : 'text-slate-400 group-hover:text-amber-500'}`} />
+                                <span className={`text-sm font-black uppercase tracking-tight ${calendarOpen ? 'text-amber-700' : 'text-slate-800'}`}>
+                                    {format(currentDate, "EEE, d MMM", { locale: es }).replace('.', '')}
+                                </span>
+                            </div>
+
+                            {/* CUSTOM PREMIUM CALENDAR DROPDOWN */}
+                            <AnimatePresence>
+                                {calendarOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setCalendarOpen(false)}></div>
+                                        <motion.div 
+                                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                            transition={{ duration: 0.15 }}
+                                            className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-[280px] bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 font-sans select-none"
+                                        >
+                                            <div className="flex items-center justify-between mb-4">
+                                                <button onClick={() => setCalendarViewDate(subMonths(calendarViewDate, 1))} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
+                                                    <ChevronLeft size={16} />
+                                                </button>
+                                                <span className="text-sm font-black text-slate-800 capitalize">
+                                                    {format(calendarViewDate, 'MMMM yyyy', { locale: es })}
+                                                </span>
+                                                <button onClick={() => setCalendarViewDate(addMonths(calendarViewDate, 1))} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
+                                                    <ChevronRight size={16} />
+                                                </button>
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-7 gap-1 mb-2">
+                                                {['L','M','X','J','V','S','D'].map(day => (
+                                                    <div key={day} className="text-center text-[10px] font-black text-slate-400">{day}</div>
+                                                ))}
+                                            </div>
+
+                                            <div className="grid grid-cols-7 gap-1">
+                                                {(() => {
+                                                    const monthStart = startOfMonth(calendarViewDate)
+                                                    const monthEnd = endOfMonth(monthStart)
+                                                    const startDate = startOfWeek(monthStart, { weekStartsOn: 1 })
+                                                    const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 })
+                                                    
+                                                    const days = []
+                                                    let day = startDate
+                                                    
+                                                    while (day <= endDate) {
+                                                        const isSelected = isSameDay(day, currentDate)
+                                                        const isCurrentMonth = isSameMonth(day, monthStart)
+                                                        const isToday = isSameDay(day, new Date())
+                                                        const cloneDay = day
+
+                                                        days.push(
+                                                            <button
+                                                                key={day.toString()}
+                                                                onClick={() => {
+                                                                    const nd = new Date(cloneDay)
+                                                                    nd.setHours(12,0,0,0)
+                                                                    setCurrentDate(nd)
+                                                                    setCalendarOpen(false)
+                                                                }}
+                                                                className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold transition-all mx-auto
+                                                                    ${!isCurrentMonth ? 'text-slate-300 pointer-events-none opacity-40' : ''}
+                                                                    ${isSelected ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30' : ''}
+                                                                    ${!isSelected && isToday ? 'text-amber-600 bg-amber-50' : ''}
+                                                                    ${!isSelected && !isToday && isCurrentMonth ? 'text-slate-700 hover:bg-slate-100' : ''}
+                                                                `}
+                                                            >
+                                                                {format(day, 'd')}
+                                                            </button>
+                                                        )
+                                                        day = addDays(day, 1)
+                                                    }
+                                                    return days
+                                                })()}
+                                            </div>
+                                            
+                                            <div className="pt-3 mt-3 border-t border-slate-100 flex justify-center">
+                                                <button 
+                                                    onClick={() => {
+                                                        const m = new Date()
+                                                        m.setHours(12,0,0,0)
+                                                        setCurrentDate(m)
+                                                        setCalendarOpen(false)
+                                                    }}
+                                                    className="text-xs font-bold text-amber-600 hover:text-amber-700 hover:bg-amber-50 px-3 py-1.5 rounded-full transition-colors"
+                                                >
+                                                    Ir a Hoy
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    </>
+                                )}
+                            </AnimatePresence>
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                const nd = new Date(currentDate)
+                                nd.setDate(nd.getDate() + 1)
+                                setCurrentDate(nd)
+                            }}
+                            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-md transition-colors"
+                        >
+                            <ChevronRight size={18} />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-3">
@@ -526,18 +710,18 @@ export default function DescansosPage() {
                         <button
                             onClick={() => pullToastPunches(true)}
                             disabled={isRefreshingToast}
-                            className="bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 px-3 py-2 rounded-lg text-sm font-bold shadow-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                            title="Refrescar datos de Toast manualmente"
+                            className="bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 px-4 py-2.5 rounded-xl text-base font-black shadow-sm transition-all flex items-center justify-center disabled:opacity-50 min-w-[52px]"
+                            title="Recargar datos de Toast manualmente"
                         >
-                            <RefreshCw size={16} className={isRefreshingToast ? 'animate-spin' : ''} />
+                            <RefreshCw size={20} className={isRefreshingToast ? 'animate-spin' : ''} />
                         </button>
                     )}
                     <button
                         onClick={() => setShowRealPunches(!showRealPunches)}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all flex items-center gap-2 border ${showRealPunches ? 'bg-cyan-600 text-white border-cyan-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'}`}
+                        className={`px-6 py-2.5 rounded-xl text-base tracking-wider font-black shadow-md transition-all flex items-center gap-2 border ${showRealPunches ? 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700 ring-2 ring-cyan-600/30 ring-offset-1' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'}`}
                         title="Comparar vs el histórico real de Toast"
                     >
-                        <History size={16} /> Auditoría (Real Toast)
+                        <History size={20} /> AUDITAR
                     </button>
                 </div>
             </header>

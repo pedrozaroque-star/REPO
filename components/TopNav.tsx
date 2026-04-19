@@ -6,7 +6,7 @@ import NotificationBell from './NotificationBell'
 import ThemeToggle from './ThemeToggle'
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
-import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog, Monitor, ChefHat } from 'lucide-react'
+import { Menu, X, LogOut, ChevronDown, User, QrCode, ClipboardList, Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit, DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog, Monitor, ChefHat, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 
@@ -74,6 +74,7 @@ export default function TopNav() {
                     roles: ['manager', 'supervisor', 'admin']
                 },
                 { name: t('items.planner'), path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: 'Descansos AI', path: '/descansos', icon: <Zap size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.feedback'), path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
             ]
         },
