@@ -14,6 +14,10 @@ import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
+const START_HOUR = 6 // 6 AM
+const END_HOUR = 30  // 6 AM Next Day (cubre turnos hasta 5:59 AM, fin de día laboral)
+const TOTAL_HOURS = END_HOUR - START_HOUR
+
 export default function DescansosPage() {
     const { user } = useAuth()
     const searchParams = useSearchParams()
@@ -45,14 +49,18 @@ export default function DescansosPage() {
     const [calculating, setCalculating] = useState(false)
     const [stores, setStores] = useState<any[]>([])
     const [selectedStoreId, setSelectedStoreId] = useState<string>('')
-    const [currentDate, setCurrentDate] = useState(() => {
+    const [currentDate, setCurrentDate] = useState<Date>(() => {
         const paramDate = searchParams?.get('date')
         if (paramDate) {
             // Reconstruit YYYY-MM-DD avoiding TZ shift by appending noon
             const d = new Date(paramDate + 'T12:00:00')
             if (!isNaN(d.getTime())) return d
         }
-        return new Date()
+        const now = new Date()
+        if (now.getHours() < 6) {
+            now.setDate(now.getDate() - 1);
+        }
+        return now
     })
 
     // Roster de la semana (Idéntico a Planificador)
@@ -131,11 +139,11 @@ export default function DescansosPage() {
             });
 
             if (shiftsToUpdate.length > 0) {
-                for (const shift of shiftsToUpdate) {
-                    try {
-                        await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
-                    } catch (err) { }
-                }
+                await Promise.all(shiftsToUpdate.map(async shift => {
+                    if (!shift.id) return;
+                    const { error } = await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
+                    if (error) console.warn("Supabase DB Warning:", error.message || JSON.stringify(error));
+                }));
 
                 // 🧠 DEEP FIX: Diferenciar el motivo del mensaje
                 if (isManualAction) {
@@ -148,19 +156,17 @@ export default function DescansosPage() {
                 setAiStatus({ message: 'Asistencia registrada: No se requirieron cambios en los descansos de los demás', type: 'info' });
             }
 
-            // 🚩 PERSISTENCIA PROFUNDA: Guardar ausentes en DB
+            // 🚩 PERSISTENCIA PROFUNDA: Guardar ausentes en DB en Paralelo
             if (isManualAction && shifts) {
-                for (const s of shifts) {
-                    if (s.employee_id === null) continue; // Ignorar Open Shifts
-
+                const validShifts = shifts.filter((s: Shift) => s.employee_id !== null && s.id != null);
+                await Promise.all(validShifts.map(async (s: Shift) => {
                     const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as unknown as number;
                     if (absentSet.has(id)) {
                         await supabase.from('shifts').update({ is_callback: true }).eq('id', s.id);
                     } else if (s.is_callback === true) {
-                        // Si regresó (desmarcar), restauramos is_callback a false
                         await supabase.from('shifts').update({ is_callback: false }).eq('id', s.id);
                     }
-                }
+                }));
             }
         } catch (e) {
             console.error(e);
@@ -263,6 +269,49 @@ export default function DescansosPage() {
         return () => clearInterval(intervalId);
     }, [showRealPunches, pullToastPunches]);
 
+    // --- RELOJ Y LÍNEA DE HORA ACTUAL ---
+    const [currentTime, setCurrentTime] = useState<Date>(new Date())
+    const lastBusinessDateRef = useRef<string>('')
+
+    useEffect(() => {
+        setCurrentTime(new Date()); // Init just in case
+        const timer = setInterval(() => setCurrentTime(new Date()), 30000) // Update every 30s
+        return () => clearInterval(timer)
+    }, [])
+
+    // Escaner 6:00 AM Auto-Rollover
+    useEffect(() => {
+        const now = currentTime;
+        const bDate = new Date(now);
+        if (now.getHours() < START_HOUR) {
+            bDate.setDate(bDate.getDate() - 1);
+        }
+        const currentBDateStr = formatDateISO(bDate);
+
+        if (lastBusinessDateRef.current && lastBusinessDateRef.current !== currentBDateStr) {
+            // El reloj acaba de cruzar las 6:00 AM (Cambio de Día de Negocio)
+            // Avanzamos o retrocedemos la página al día real que inició automáticamente
+            setCurrentDate(new Date(currentBDateStr + 'T12:00:00'));
+        }
+        lastBusinessDateRef.current = currentBDateStr;
+    }, [currentTime])
+
+    const isTodayLineVisible = useMemo(() => {
+        const now = currentTime
+        let nowBusinessDate = new Date(now)
+        if (now.getHours() < START_HOUR) {
+            nowBusinessDate.setDate(nowBusinessDate.getDate() - 1)
+        }
+        return formatDateISO(currentDate) === formatDateISO(nowBusinessDate)
+    }, [currentDate, currentTime])
+
+    const currentTimeLeft = useMemo(() => {
+        const now = currentTime
+        let shiftHour = now.getHours() + now.getMinutes() / 60
+        if (shiftHour < START_HOUR) shiftHour += 24
+        return Math.max(0, Math.min(100, ((shiftHour - START_HOUR) / 24) * 100))
+    }, [currentTime])
+
     const loadDayData = async () => {
         if (!storeGuid) return;
         setCalculating(true)
@@ -279,23 +328,27 @@ export default function DescansosPage() {
         const startStr = formatDateISO(weekStartM)
         const endStr = formatDateISO(addDays(weekStartM, 6))
 
-        // 2. Traer Empleados, Trabajos y Turnos de la semana
-        const { data: allEmpDataRaw, error: empError } = await supabase
-            .from('toast_employees')
-            .select('*')
-            .contains('store_ids', JSON.stringify([storeGuid]))
+        // 2. Traer Empleados, Trabajos, Turnos, Punches y Proyecciones en PARALELO ABSOLUTO
+        const [empRes, jobsRes, weekShiftsRes, _, projData] = await Promise.all([
+            supabase.from('toast_employees').select('*').contains('store_ids', JSON.stringify([storeGuid])),
+            supabase.from('toast_jobs').select('*'),
+            supabase.from('shifts')
+                .select('*')
+                .eq('store_id', storeGuid)
+                .gte('shift_date', startStr)
+                .lte('shift_date', endStr),
+            pullToastPunches(false),
+            fetch('/api/projections/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ storeId: storeGuid, weekStart: dateStr, days: 1 })
+            }).then(r => r.json()).catch(e => { console.error(e); return null; })
+        ]);
 
-        const { data: jobsDataRaw } = await supabase.from('toast_jobs').select('*')
-        const { data: weekShiftsData } = await supabase.from('shifts')
-            .select('*')
-            .eq('store_id', storeGuid)
-            .gte('shift_date', startStr)
-            .lte('shift_date', endStr)
-
-        const allEmpData = allEmpDataRaw as Employee[] || []
-        const jobs = jobsDataRaw as Job[] || []
+        const allEmpData = empRes.data as Employee[] || []
+        const jobs = jobsRes.data as Job[] || []
         setAllJobs(jobs)
-        const weekShifts = weekShiftsData as Shift[] || []
+        const weekShifts = weekShiftsRes.data as Shift[] || []
 
         // 3. Reconstruir la lista exacta de empleados activos que usa el planificador (useVisibleEmployees)
         const ALLOWED_ROLES = ['manager', 'shift', 'cook', 'cocinero', 'cashier', 'cajero', 'prep', 'taquero', 'assistant', 'asst'];
@@ -393,29 +446,18 @@ export default function DescansosPage() {
             setAbsentEmpIds(new Set(dbAbsentees));
         }
 
-        // 5. Fetch Toast Punches for reality check (Inicial)
-        await pullToastPunches(false);
+        // 5. Configurar Horas Operativas de las proyecciones precargadas arriba
+        let hoursToDraw = []
+        if (projData?.meta?.dailyDetails?.length > 0) {
+            const dayMatch = projData.meta.dailyDetails.find((d: any) => d.date === dateStr)
+            if (dayMatch && dayMatch.hourly_breakdown) {
+                hoursToDraw = dayMatch.hourly_breakdown
+            }
+        }
+        setOperatingHours(hoursToDraw)
 
         // 6. Forecast y Cálculos de IA
         try {
-            const projRes = await fetch('/api/projections/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ storeId: storeGuid, weekStart: dateStr, days: 1 })
-            })
-            const projData = await projRes.json()
-            let hoursToDraw = []
-
-            if (projData?.meta?.dailyDetails?.length > 0) {
-                // Find the specific day's hours
-                const dayMatch = projData.meta.dailyDetails.find((d: any) => d.date === dateStr)
-                if (dayMatch && dayMatch.hourly_breakdown) {
-                    hoursToDraw = dayMatch.hourly_breakdown
-                }
-            }
-
-            setOperatingHours(hoursToDraw)
-
             if (todayRawShifts) {
                 const data = { shifts: todayRawShifts, hours: hoursToDraw, employees: allEmpData as Employee[], jobs: jobs };
                 lastDataRef.current = data;
@@ -473,10 +515,6 @@ export default function DescansosPage() {
     useEffect(() => {
         loadDayData()
     }, [storeGuid, dateStr])
-
-    const START_HOUR = 6 // 6 AM
-    const END_HOUR = 30  // 6 AM Next Day (cubre turnos hasta 5:59 AM, fin de día laboral)
-    const TOTAL_HOURS = END_HOUR - START_HOUR
 
     const getTimelinePosition = (isoTimeString: string) => {
         if (!isoTimeString) return 0
@@ -552,9 +590,9 @@ export default function DescansosPage() {
                 )}
             </AnimatePresence>
 
-            <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between shadow-sm sticky top-0 z-[100] gap-4">
+            <header className={`bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between shadow-sm sticky ${isFullscreen ? 'top-0 z-[100]' : 'top-16 z-50'} gap-4 transition-all duration-300`}>
                 <div className="flex items-center gap-6">
-                    <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                    <h1 className={`font-black text-slate-800 flex items-center gap-2 ${isFullscreen ? 'text-xl' : 'text-xl md:ml-12'} transition-all`}>
                         <Zap className="text-amber-500" />
                         AI Breaks & Lunches
                     </h1>
@@ -727,17 +765,19 @@ export default function DescansosPage() {
             </header>
 
             <main className={`p-4 md:p-6 mx-auto transition-all ${isFullscreen ? 'w-full max-w-full' : 'max-w-screen-2xl'}`}>
-                <div className="mb-6">
-                    <h2 className="text-2xl font-black text-slate-900">
-                        {showRealPunches ? "Plan vs Realidad (Toast Punches)" : "Smart Timeline"}
-                    </h2>
-                    <p className="text-slate-500 text-sm mt-1">
-                        {showRealPunches
-                            ? "Compara las horas donde la IA programó descansos (línea gruesa) versus a qué hora realmente oprimieron <Break> en el sistema (Líneas Cyan abajo)."
-                            : "Asignación automática basada en volumen de ventas respetando las leyes laborales de CA. (Fondo Brillante = Pico, Gris = Valle)."
-                        }
-                    </p>
-                </div>
+                {!isFullscreen && (
+                    <div className="mb-6">
+                        <h2 className="text-2xl font-black text-slate-900">
+                            {showRealPunches ? "Plan vs Realidad (Toast Punches)" : "Smart Timeline"}
+                        </h2>
+                        <p className="text-slate-500 text-sm mt-1">
+                            {showRealPunches
+                                ? "Compara las horas donde la IA programó descansos (línea gruesa) versus a qué hora realmente oprimieron <Break> en el sistema (Líneas Cyan abajo)."
+                                : "Asignación automática basada en volumen de ventas respetando las leyes laborales de CA. (Fondo Brillante = Pico, Gris = Valle)."
+                            }
+                        </p>
+                    </div>
+                )}
 
                 <div className="bg-white border border-slate-200 rounded-xl shadow-xl relative">
 
@@ -809,7 +849,7 @@ export default function DescansosPage() {
                     )}
 
                     {/* Timeline Headers */}
-                    <div className="flex border-b border-slate-200 bg-slate-50 relative sticky top-[180px] md:top-[65px] z-30 shadow-sm rounded-t-xl">
+                    <div className={`flex border-b border-slate-200 bg-slate-50 relative sticky ${isFullscreen ? 'top-[210px] md:top-[80px]' : 'top-[270px] md:top-[144px]'} z-40 shadow-sm rounded-t-xl transition-all duration-300`}>
                         <div className="w-64 shrink-0 border-r border-slate-200 p-3 text-sm font-black text-slate-500 uppercase tracking-wider flex items-center bg-slate-50 rounded-tl-xl">
                             Empleado
                         </div>
@@ -970,6 +1010,33 @@ export default function DescansosPage() {
                             )
                         })}
                     </div>
+
+                    {/* LINEA MORADA HORA ACTUAL */}
+                    {isTodayLineVisible && (
+                        <div className="absolute top-0 bottom-0 left-64 right-0 pointer-events-none z-[45] rounded-r-xl overflow-hidden">
+                            <div
+                                className="absolute top-0 bottom-0 w-8 -translate-x-4 pointer-events-auto cursor-pointer group/timeline z-50 flex flex-col items-center"
+                                style={{ left: `${currentTimeLeft}%` }}
+                            >
+                                {/* Línea visible central */}
+                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[3px] h-full bg-fuchsia-600 shadow-[0_0_12px_rgba(192,38,211,0.8)] group-hover/timeline:scale-x-150 transition-transform origin-center"></div>
+
+                                {/* Contenedor pegajoso para que el Tooltip baje junto con el scroll del usuario */}
+                                <div className="sticky top-[220px] md:top-[160px] self-center flex flex-col items-center mt-20 pointer-events-none">
+                                    {/* Punto focal brillante */}
+                                    <div className="w-3 h-3 rounded-full bg-fuchsia-400 border-[2px] border-white shadow-[0_0_10px_rgba(192,38,211,1)] opacity-0 group-hover/timeline:opacity-100 transition-opacity mb-2"></div>
+
+                                    {/* Tooltip Globo */}
+                                    <div className="opacity-0 group-hover/timeline:opacity-100 bg-slate-900 border border-fuchsia-500/50 text-white text-[13px] font-bold px-4 py-2 rounded-lg shadow-2xl transition-all duration-300 whitespace-nowrap z-[60] translate-y-2 group-hover/timeline:translate-y-0 text-center">
+                                        <div className="text-slate-400 text-[10px] uppercase tracking-widest mb-0.5">Tiempo Real</div>
+                                        <div className="text-fuchsia-400 text-lg tabular-nums tracking-tight">
+                                            {currentTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="mt-6 flex items-center justify-between">
