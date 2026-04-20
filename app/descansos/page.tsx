@@ -1013,13 +1013,13 @@ export default function DescansosPage() {
 
                     {/* LINEA MORADA HORA ACTUAL */}
                     {isTodayLineVisible && (
-                        <div className="absolute top-0 bottom-0 left-64 right-0 pointer-events-none z-[45] rounded-r-xl overflow-hidden">
+                        <div className="absolute top-0 bottom-0 left-64 right-0 pointer-events-none z-[60] rounded-r-xl overflow-hidden">
                             <div
-                                className="absolute top-0 bottom-0 w-8 -translate-x-4 pointer-events-auto cursor-pointer group/timeline z-50 flex flex-col items-center"
+                                className="absolute top-0 bottom-0 w-[10px] -translate-x-[5px] pointer-events-auto cursor-help group/timeline z-50 flex flex-col items-center"
                                 style={{ left: `${currentTimeLeft}%` }}
                             >
                                 {/* Línea visible central */}
-                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[3px] h-full bg-fuchsia-600 shadow-[0_0_12px_rgba(192,38,211,0.8)] group-hover/timeline:scale-x-150 transition-transform origin-center"></div>
+                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[3px] h-full bg-fuchsia-600 shadow-[0_0_12px_rgba(192,38,211,0.8)] group-hover/timeline:w-[5px] transition-all duration-200"></div>
 
                                 {/* Contenedor pegajoso para que el Tooltip baje junto con el scroll del usuario */}
                                 <div className="sticky top-[220px] md:top-[160px] self-center flex flex-col items-center mt-20 pointer-events-none">
