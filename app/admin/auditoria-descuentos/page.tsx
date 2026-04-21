@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Calendar, Store, AlertTriangle, User, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Calendar, Store, AlertTriangle, User, Filter, ChevronLeft, ChevronRight, ShieldAlert, Target, Info, X } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts'
 
@@ -22,6 +22,8 @@ type DiscountRow = {
     approver_name: string
     server_name: string
     opened_date: string
+    order_id?: string
+    check_id?: string
 }
 
 export default function AuditoriaDescuentos() {
@@ -120,11 +122,100 @@ export default function AuditoriaDescuentos() {
         }
     }
 
-    const [focusKeyword, setFocusKeyword] = useState('senior')
+    const [focusKeyword, setFocusKeyword] = useState('all')
     const [selectedModalData, setSelectedModalData] = useState<{type: 'REASON' | 'EMPLOYEE', title: string, data: DiscountRow[]} | null>(null);
-    const [modalSort, setModalSort] = useState<{column: string, direction: 'asc' | 'desc'}>({ column: 'hora', direction: 'desc' });
+    const [modalSort, setModalSort] = useState<{column: string, direction: 'asc' | 'desc'}>({ column: 'monto', direction: 'desc' });
     const [orderDetailData, setOrderDetailData] = useState<{loading: boolean, data?: any, error?: string, checkId?: string, storeName?: string, cajeraName?: string} | null>(null);
 
+    // Welcome Wizard & Risk Radar
+    const [showWizard, setShowWizard] = useState(true);
+    const [riskAlerts, setRiskAlerts] = useState<{ loading: boolean, data: any[] }>({ loading: true, data: [] });
+
+    useEffect(() => {
+        if (showWizard) {
+            const fetchRisks = async () => {
+                setRiskAlerts(prev => ({...prev, loading: true}));
+                const d = new Date();
+                const eDate = d.toISOString().split('T')[0];
+                d.setDate(d.getDate() - 15);
+                const sDate = d.toISOString().split('T')[0];
+
+                let allRisks: any[] = [];
+                let from = 0;
+                const pageSize = 1000;
+                let hasMore = true;
+
+                while (hasMore) {
+                    const { data, error } = await supabase.from('sales_discounts_log')
+                        .select('store_name, discount_name, discount_amount, approver_name, server_name')
+                        .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
+                        .gte('business_date', sDate)
+                        .lte('business_date', eDate)
+                        .order('id')
+                        .range(from, from + pageSize - 1);
+                    
+                    if (data) allRisks = [...allRisks, ...data];
+                    if (!data || data.length < pageSize) {
+                        hasMore = false;
+                    } else {
+                        from += pageSize;
+                    }
+                }
+
+                // Agrupar por cajero
+                const grouped = allRisks.reduce((acc, curr) => {
+                    const emp = curr.approver_name || curr.server_name || 'Autoservicio';
+                    if (!acc[emp]) acc[emp] = { firstResponderTotal: 0, employeeTotal: 0, seniorTotal: 0, stores: {} };
+                    
+                    if (curr.discount_name === 'First Responder Discount') {
+                        acc[emp].firstResponderTotal += Number(curr.discount_amount);
+                    } else if (curr.discount_name === 'Employee Discount') {
+                        acc[emp].employeeTotal += Number(curr.discount_amount);
+                    } else if (curr.discount_name === 'Senior Discount' || curr.discount_name === 'Senior') {
+                        acc[emp].seniorTotal += Number(curr.discount_amount);
+                    }
+
+                    if (!acc[emp].stores[curr.store_name]) acc[emp].stores[curr.store_name] = 0;
+                    acc[emp].stores[curr.store_name] += Number(curr.discount_amount);
+                    
+                    return acc;
+                }, {} as Record<string, any>);
+
+                const structured = Object.entries(grouped)
+                    .map(([emp, vals]: [string, any]) => {
+                        const topStore = Object.entries(vals.stores).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || 'Desconocida';
+                        
+                        let cause = "Investigar patrón";
+                        const fr = vals.firstResponderTotal;
+                        const em = vals.employeeTotal;
+                        const sen = vals.seniorTotal;
+
+                        const maxAmt = Math.max(fr, em, sen);
+
+                        if (maxAmt === fr && fr > 50) cause = "Posible colusión en First Responder";
+                        else if (maxAmt === em && em > 50) cause = "Posible abuso de Privilegio Interno";
+                        else if (maxAmt === sen && sen > 50) cause = "Abuso de Descuento Senior (Falsos Mayores)";
+                        else if ((fr > 0 && em > 0) || (sen > 0 && em > 0)) cause = "Patrón mixto altamente atípico";
+                        else cause = "Volumen sospechoso general";
+
+                        return {
+                            employee: emp,
+                            highestStore: topStore,
+                            firstResponderTotal: vals.firstResponderTotal,
+                            employeeTotal: vals.employeeTotal,
+                            seniorTotal: vals.seniorTotal,
+                            totalRisk: vals.firstResponderTotal + vals.employeeTotal + vals.seniorTotal,
+                            probableCause: cause
+                        };
+                    })
+                    .sort((a, b) => b.totalRisk - a.totalRisk)
+                    .slice(0, 5); // Solo el Top 5 Empleados de riesgo
+
+                setRiskAlerts({ loading: false, data: structured });
+            };
+            fetchRisks();
+        }
+    }, [showWizard]);
 
     const handleModalSort = (column: string) => {
         setModalSort(prev => ({
@@ -255,6 +346,13 @@ export default function AuditoriaDescuentos() {
                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 shadow-sm">
                                 AUDITORÍA ACTIVA
                             </span>
+                             <button
+                                onClick={() => setShowWizard(true)}
+                                className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-red-500 hover:bg-red-600 transition-colors text-white shadow-sm shadow-red-500/30 flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <ShieldAlert size={12} className={riskAlerts.data.length > 0 ? "animate-pulse" : ""} />
+                                Radar de Riesgos (15 Días)
+                            </button>
                         </div>
                         <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                             <AlertTriangle className="text-amber-500 w-8 h-8" />
@@ -848,6 +946,134 @@ export default function AuditoriaDescuentos() {
                     </div>
                 </div>
             )}
+            
+            {/* WIZARD & RIESGO (15 Días) */}
+            {showWizard && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-5xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
+                        
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-6 flex justify-between items-center shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-red-500/20 rounded-lg">
+                                    <ShieldAlert className="w-8 h-8 text-red-500" />
+                                </div>
+                                <div className="text-white">
+                                    <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
+                                        C.O.R.E. 
+                                        <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-widest mt-1">Beta</span>
+                                    </h2>
+                                    <p className="text-slate-400 text-sm">Auditoría Forense P.O.S. y Prevención de Mermas</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowWizard(false)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-white transition-colors">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="flex-1 overflow-auto p-6 md:p-8 flex flex-col md:flex-row gap-8 custom-scrollbar">
+                            
+                            {/* Instricciones / Reglas */}
+                            <div className="flex-1 space-y-6">
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2 mb-2">
+                                        <Info className="w-5 h-5 text-sky-500" /> ¿Cómo utilizar este Dashboard?
+                                    </h3>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                                        Este módulo no es para ver ventas, es para <b>encontrar fugas ocultas</b>. La industria QSR sufre robos mediante los micro-descuentos aplicados por el staff sin autorización.
+                                    </p>
+                                </div>
+
+                                <div className="grid gap-4">
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                                        <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm mb-1">1. "Sweethearting" (El Compadrazgo)</h4>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">Empleados aplicando descuentos de <em>First Responder</em> o <em>Employee</em> a amigos y familiares. Revisa los Top Cajeros; si alguien destaca abruptamente, investígalo.</p>
+                                    </div>
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                                        <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm mb-1">2. Cash Pocketing (Robo de Efectivo)</h4>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">El cliente paga en efectivo, el cajero aplica un descuento retroactivo del 50% al ticket antes de cerrarlo, y se roba la diferencia física de la caja menor. Toast cuadrará, pero Gavilán pierde.</p>
+                                    </div>
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                                        <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm mb-1">3. Falsos Mayores (Senior Fraud)</h4>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">Si los clientes pagan en efectivo sin reclamar su edad, el cajero puede aplicar un <em>Senior Discount</em> retroactivo y quedarse ese margen repetidamente.</p>
+                                    </div>
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                                        <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm mb-1">4. Verificación de Cámara Integral</h4>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">Haz clic en cualquier celda para ver el Check ID. Cruza esa <b>identificación de ticket y la hora exacta</b> con tus grabaciones de seguridad. Comprueba si de verdad había un oficial u anciano elegible.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Resultados de Arrastre de 15 Días */}
+                            <div className="w-full md:w-[400px] border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 pt-6 md:pt-0 md:pl-8 flex flex-col">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-bold text-red-600 dark:text-red-500 flex items-center gap-2">
+                                        <Target className="w-5 h-5" /> Radar de Anomalías
+                                    </h3>
+                                    <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">Últimos 15 Días</span>
+                                </div>
+
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                                El escáner del sistema filtró los subsidios vulnerables más usados (<span className="text-slate-700 dark:text-slate-300 font-medium">First Responder</span>, <span className="text-slate-700 dark:text-slate-300 font-medium">Employee Discount</span>, y <span className="text-slate-700 dark:text-slate-300 font-medium">Senior</span>). Estos son los perfiles bajo observación:
+                                </p>
+
+                                <div className="flex-1 space-y-3">
+                                    {riskAlerts.loading ? (
+                                        <div className="flex justify-center items-center h-full">
+                                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+                                        </div>
+                                    ) : riskAlerts.data.length === 0 ? (
+                                        <div className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 p-4 rounded-xl text-sm font-bold text-center border border-emerald-200 dark:border-emerald-800/50">
+                                            ✅ No se detectaron perfiles altos de riesgo en este periodo de tiempo examinado.
+                                        </div>
+                                    ) : (
+                                        riskAlerts.data.map((r, i) => (
+                                            <div key={r.employee} className="bg-red-50 dark:bg-slate-800/80 border border-red-100 dark:border-red-900/30 p-3 rounded-xl flex items-center justify-between relative overflow-hidden group hover:scale-[1.02] transition-transform">
+                                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-400 dark:bg-red-600"></div>
+                                                <div className="flex-1">
+                                                    <div className="font-bold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
+                                                        <span className="shrink-0 w-5 h-5 rounded bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 text-[10px] flex items-center justify-center pointer-events-none">{i + 1}</span>
+                                                        <span className="truncate">{r.employee}</span>
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 uppercase font-bold tracking-wider">
+                                                        Base Op: {r.highestStore}
+                                                    </div>
+                                                    <div className="text-[10px] font-medium bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded mt-1.5 inline-block border border-red-200 dark:border-red-800">
+                                                        💡 {r.probableCause}
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="font-black text-red-600 dark:text-red-400">
+                                                        ${r.totalRisk.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}
+                                                    </div>
+                                                    <div className="text-[9px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                                                        Policía: ${r.firstResponderTotal.toFixed(0)} <br/>
+                                                        Staff: ${r.employeeTotal.toFixed(0)} <br/>
+                                                        Senior: ${r.seniorTotal.toFixed(0)}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                        </div>
+
+                        {/* Footer */}
+                        <div className="bg-slate-50 dark:bg-slate-800 p-4 md:px-8 flex justify-end shrink-0 border-t border-slate-200 dark:border-slate-700">
+                            <button 
+                                onClick={() => setShowWizard(false)}
+                                className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg active:scale-95"
+                            >
+                                Entendido, Abrir Dashboard
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             
             <style jsx global>{`
                 .custom-scrollbar::-webkit-scrollbar {
