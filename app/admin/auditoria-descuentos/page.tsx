@@ -629,7 +629,7 @@ export default function AuditoriaDescuentos() {
                                                 cursor={{fill: 'transparent'}}
                                                 contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)', padding: '10px 15px', backgroundColor: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(5px)' }}
                                                 itemStyle={{ color: '#0f172a', fontWeight: 'bold' }}
-                                                formatter={(value: number) => [`$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Descuentos']}
+                                                formatter={(value: any) => [`$${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Descuentos']}
                                                 labelStyle={{ display: 'none' }}
                                             />
                                             <Bar 
