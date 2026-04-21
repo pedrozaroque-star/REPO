@@ -123,7 +123,7 @@ export default function AuditoriaDescuentos() {
     }
 
     const [focusKeyword, setFocusKeyword] = useState('all')
-    const [selectedModalData, setSelectedModalData] = useState<{type: 'REASON' | 'EMPLOYEE', title: string, data: DiscountRow[]} | null>(null);
+    const [selectedModalData, setSelectedModalData] = useState<{type: 'REASON' | 'EMPLOYEE' | 'STORE', title: string, data: DiscountRow[]} | null>(null);
     const [modalSort, setModalSort] = useState<{column: string, direction: 'asc' | 'desc'}>({ column: 'monto', direction: 'desc' });
     const [orderDetailData, setOrderDetailData] = useState<{loading: boolean, data?: any, error?: string, checkId?: string, storeName?: string, cajeraName?: string} | null>(null);
 
