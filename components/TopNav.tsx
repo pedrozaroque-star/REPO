@@ -50,6 +50,7 @@ export default function TopNav() {
             id: 'gestion',
             items: [
                 { name: t('items.stores'), path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
+                { name: 'TV Menús', path: '/admin/tv-menus', icon: <Monitor size={20} />, roles: ['admin', 'supervisor'] },
                 { name: t('items.users'), path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
                 { name: t('items.templates'), path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
             ]
@@ -59,6 +60,7 @@ export default function TopNav() {
             id: 'analisis',
             items: [
                 { name: t('items.sales'), path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: 'Descuentos', path: '/admin/auditoria-descuentos', icon: <ClipboardList size={20} />, roles: ['admin', 'supervisor', 'manager'] },
                 {
                     name: t('items.reports'),
                     path: '/ventas/reportes',
@@ -299,21 +301,6 @@ export default function TopNav() {
                         ))}
                     </div>
 
-                    {/* Botón Especial TV Menus (Admins & Supervisors) */}
-                    {['admin', 'superadmin', 'supervisor'].includes((user?.role || user?.user_type || '').toLowerCase()) && (
-                        <div className="hidden md:flex items-center ml-2 pl-2 md:pl-4 border-l border-gray-200 dark:border-slate-800 shrink-0">
-                            <Link 
-                                href="/admin/tv-menus" 
-                                className="relative flex items-center justify-center gap-2 px-5 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:via-indigo-500 hover:to-purple-500 text-white rounded-full font-black text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/30 transition-all hover:scale-105 active:scale-95 border border-white/20 shrink-0"
-                            >
-                                <Monitor size={16} className="text-white fill-white/20" />
-                                <span className="drop-shadow-sm">TV Menus</span>
-                                <span className="absolute -top-2.5 -right-2 bg-red-500 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-full shadow-md border-2 border-white dark:border-slate-900 flex items-center justify-center animate-bounce">
-                                    NEW!
-                                </span>
-                            </Link>
-                        </div>
-                    )}
 
                 </div>
 
@@ -449,22 +436,6 @@ export default function TopNav() {
                                     )
                                 })}
 
-                                {/* Mobile Special TV Menus Button */}
-                                {['admin', 'superadmin', 'supervisor'].includes((user?.role || user?.user_type || '').toLowerCase()) && (
-                                    <div className="pt-2">
-                                        <Link 
-                                            href="/admin/tv-menus" 
-                                            onClick={() => setMobileMenuOpen(false)}
-                                            className="relative flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/30"
-                                        >
-                                            <Monitor size={18} />
-                                            <span>TV Menus</span>
-                                            <span className="bg-red-500 text-white text-[9px] uppercase px-1.5 py-0.5 rounded-full ml-1 animate-bounce">
-                                                NEW!
-                                            </span>
-                                        </Link>
-                                    </div>
-                                )}
 
                                 <div className="pt-4 border-t border-gray-100 dark:border-slate-800">
                                     <button
