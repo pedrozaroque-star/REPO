@@ -12,7 +12,6 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// The Authorized Store Map (Source of Truth)
 const TOAST_GUID_MAP: Record<string, string> = {
     "acf15327-54c8-4da4-8d0d-3ac0544dc422": "Rialto",
     "e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8": "Azusa",
@@ -70,7 +69,6 @@ async function loadEmployeeMap() {
     return map
 }
 
-// --- HELPER: GET DINING OPTIONS MAP ---
 async function getDiningOptionsMap(token: string, storeId: string): Promise<Record<string, string>> {
     try {
         const url = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
@@ -100,7 +98,6 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
     let hasMore = true
     const pageSize = 100
     
-    // Lista para acumular los descuentos para insertar
     const allDiscountsToInsert: any[] = []
 
     while (hasMore) {
@@ -108,9 +105,6 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
         url.searchParams.append('businessDate', formattedDate)
         url.searchParams.append('pageSize', String(pageSize))
         url.searchParams.append('page', String(page))
-
-        // Pedimos estrictamente lo necesario (Objeto Completo para atrapar GUIDs)
-        // Traemos siempre el JSON completo sin restringir campos para no omitir las propiedades condicionales de anulación (voidStatus, state, etc)
 
         let res: any;
         let attempt = 0;
@@ -138,7 +132,7 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
 
         if (!success) {
             console.error(`💥 Toast falló de forma irrecuperable en ${storeName} tras reintentos. Abortando tienda para evitar corromper la BD.`);
-            return; // Abortamos SIN BORRAR Supabase para mantener la data anterior íntegra
+            return;
         }
 
         const orders = await res.json()
@@ -162,7 +156,6 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
         orders.forEach(order => {
             if (order.voided || order.deleted || order.createdInTestMode) return;
 
-            // Identificar fuente (DoorDash, Uber Eats, Kiosk, Online) para asignarlo si no hay 'server'
             let fallbackName = 'Sistema Automático'
             if (order.diningOption) {
                 const optId = order.diningOption.guid || order.diningOption.id
@@ -180,7 +173,6 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
                 const isRefundedCheck = check.payments?.some((p:any) => p.refundStatus && p.refundStatus !== 'NONE') || false;
                 if (isRefundedCheck) return;
                 
-                // 1. DESCUENTOS A NIVEL CHEQUE (Todo el ticket)
                 if (check.appliedDiscounts && check.appliedDiscounts.length > 0) {
                     check.appliedDiscounts.forEach((disc: any) => {
                         const amount = Number(disc.discountAmount || 0)
@@ -201,7 +193,6 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
                     })
                 }
 
-                // 2. DESCUENTOS A NIVEL ITEM/PLATILLO (Selections) - ¡AQUí ESTÁN LOS SENIOR DISCOUNTS!
                 if (check.selections && check.selections.length > 0) {
                     check.selections.forEach((sel: any) => {
                         if (sel.voided || sel.deleted || sel.deferred || sel.state === 'VOIDED' || sel.state === 'REMOVED' || sel.refundDetails) return;
@@ -237,16 +228,9 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
         }
     }
 
-    // Insertar en Supabase si encontramos descuentos
     if (allDiscountsToInsert.length > 0) {
-        // Borramos los del día/tienda actual para evitar duplicados en reprocesamientos
-        await supabase
-            .from('sales_discounts_log')
-            .delete()
-            .eq('store_id', storeId)
-            .eq('business_date', dateStr)
+        await supabase.from('sales_discounts_log').delete().eq('store_id', storeId).eq('business_date', dateStr)
 
-        // Bulk insert
         const { error } = await supabase.from('sales_discounts_log').insert(allDiscountsToInsert)
         if (error) {
             console.error(`❌ Error insertando descuentos en ${storeName}:`, error.message)
@@ -255,11 +239,7 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
         }
     } else {
         console.log(`➖ ${storeName}: 0 descuentos encontrados, limpiando BD de este fecha por si acaso.`)
-        await supabase
-            .from('sales_discounts_log')
-            .delete()
-            .eq('store_id', storeId)
-            .eq('business_date', dateStr)
+        await supabase.from('sales_discounts_log').delete().eq('store_id', storeId).eq('business_date', dateStr)
     }
 }
 
@@ -274,11 +254,17 @@ async function run() {
             storeDiningMaps[storeId] = await getDiningOptionsMap(token, storeId)
         }
         
-        // Empezar desde el día de ayer, retrocediendo hacia Enero
-        const targetEndDate = new Date('2026-01-01T12:00:00Z')
+        // LIMITAMOS A EXACTAMENTE UNA SEMANA
         let currentDate = new Date() 
         currentDate.setDate(currentDate.getDate() - 1) // Empezar por ayer
         
+        const targetEndDate = new Date(currentDate)
+        targetEndDate.setDate(targetEndDate.getDate() - 7) // Frenar 7 días hacia atrás
+        
+        // FLAG: APAGAMOS EL SALTEO INTENCIONALMENTE.
+        // Queremos que en esta corrida SÍ SOBREESCRIBA los datos para bautizar a los Kioskos y UberEats correctamente.
+        const FORCE_REDOWNLOAD_WEEK = true; // No lo cambiamos, queremos que aplaste la DB de los ultimos 7 dias.
+
         while (currentDate >= targetEndDate) {
             const dateStr = currentDate.toISOString().split('T')[0] // 'YYYY-MM-DD'
             
@@ -286,20 +272,7 @@ async function run() {
             console.log(`📅 EXTRAYENDO FECHA: ${dateStr}`)
             console.log(`======================================================\n`)
 
-            // 1. Ver qué tiendas ya tienen datos completos para hoy
-            const { data: existingRecords } = await supabase
-                .from('sales_discounts_log')
-                .select('store_id')
-                .eq('business_date', dateStr)
-            
-            const processedStoreIds = new Set(existingRecords?.map(r => r.store_id) || [])
-
             for (const [storeId, storeName] of Object.entries(TOAST_GUID_MAP)) {
-                if (processedStoreIds.has(storeId)) {
-                    console.log(`⏭️  SALTANDO: ${storeName} (Ya existen registros en la base de datos para ${dateStr})`)
-                    continue;
-                }
-                
                 console.log(`⏳ PROCESANDO: ${storeName} para ${dateStr}...`)
                 await syncStoreDiscountsForDate(token, storeId, storeName, dateStr, employeeMap, storeDiningMaps[storeId] || {})
             }
@@ -308,7 +281,7 @@ async function run() {
             currentDate.setDate(currentDate.getDate() - 1)
         }
 
-        console.log('🎉 Sincronización MASIVA de Auditoría de Descuentos 2026 completada.')
+        console.log('🎉 Extracción y Reemplazo de la ultima Semana COMPLETADO.')
     } catch (e: any) {
         console.error('Error Crítico:', e.message)
     }

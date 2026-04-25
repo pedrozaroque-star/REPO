@@ -28,41 +28,45 @@ import {
   UserMinus,
   RefreshCw,
   UserCheck,
-  X
+  X,
+  ClipboardList,
+  Printer,
+  AlertTriangle,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { getRoleWeight, getMonday, formatDateISO, formatStoreName } from '../planificador-v2/lib/utils';
 
 // SUB-COMPONENTE PARA EL TABLERO VISUAL
-const BoardSlot = ({ label, assignee, employees, className = "", onClick }: any) => {
+const BoardSlot = ({ label, stationKey, group, assignee, employees, className = "", onClick }: any) => {
   const emp = assignee ? employees.find((e: any) => String(e.id) === String(assignee.employee_id)) : null;
   
   return (
     <div 
-      onClick={() => onClick(label, emp, assignee)}
+      onClick={() => onClick(stationKey, label, group, emp, assignee)}
       className={`p-1.5 flex flex-col h-full cursor-pointer group active:scale-95 transition-all ${className}`}
     >
-      <div className={`w-full h-full p-2.5 rounded-[1.5rem] transition-all duration-300 overflow-hidden relative flex flex-col items-center justify-center ${
+      <div className={`w-full h-full p-2.5 rounded-[1.5rem] transition-all duration-300 overflow-hidden relative flex flex-col items-center justify-center border-4 ${
         emp 
-        ? 'bg-white shadow-[0_8px_25px_rgba(0,0,0,0.08)] ring-1 ring-black/5 group-hover:shadow-[0_15px_40px_rgba(0,0,0,0.12)]' 
-        : 'bg-amber-50/50 border-[2.5px] border-dashed border-amber-200/80 shadow-none group-hover:border-amber-300'
+        ? 'bg-white border-slate-200 shadow-xl group-hover:shadow-2xl group-hover:border-slate-300' 
+        : 'bg-slate-50 border-dashed border-slate-300 shadow-md group-hover:shadow-lg group-hover:border-slate-400'
       }`}>
-        {/* Subtle accent bar at top */}
-        {emp && <div className="absolute top-0 inset-x-0 h-1 bg-indigo-600/80" />}
+        {/* Subtle accent bar removed for cleaner look */}
         
-        <span className={`text-[13px] font-black uppercase tracking-[0.15em] mb-1 text-center transition-colors ${
-          emp ? 'text-indigo-600/80' : 'text-amber-800'
+        <span className={`text-[24px] font-semibold uppercase tracking-widest mb-1.5 text-center transition-colors ${
+          emp ? 'text-[#ff9166]' : 'text-amber-800'
         }`}>
           {label}
         </span>
-        <span className={`text-2xl font-black uppercase tracking-tighter leading-none text-center transition-all ${
+        <span className={`text-[32px] font-black uppercase tracking-tighter leading-none text-center transition-all ${
           emp ? 'text-slate-900 font-black' : 'text-amber-400 drop-shadow-sm font-bold'
         }`}>
           {emp ? (emp.chosen_name || emp.first_name) : 'Libre'}
         </span>
         {emp && (
-          <p className="text-[10px] font-black text-slate-600 mt-1 uppercase tracking-widest truncate w-full text-center">
+          <p className="text-xs font-black text-slate-500 mt-1.5 uppercase tracking-widest truncate w-full text-center">
             {emp.last_name}
           </p>
         )}
@@ -90,6 +94,14 @@ export default function MissionControlRoles() {
   const [extraCashiers, setExtraCashiers] = useState(1);
   const [activeWeeklyShifts, setActiveWeeklyShifts] = useState<any[]>([]);
   const [showVisualBoard, setShowVisualBoard] = useState(false);
+  const [showActivitiesModal, setShowActivitiesModal] = useState(false);
+  const [showStationActivitiesModal, setShowStationActivitiesModal] = useState<string | null>(null);
+  const [activities, setActivities] = useState<any[]>([]); // Array of { id, name, category, startTime, endTime }
+  const [stationActivities, setStationActivities] = useState<Record<string, string[]>>({});
+  const [newActivity, setNewActivity] = useState({ name: '', category: 'APERTURA', startTime: '', endTime: '', shift: 'AM' });
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<{ newName: string, existing: any } | null>(null);
 
   // States for Employee Contact Card
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<any>(null);
@@ -105,6 +117,22 @@ export default function MissionControlRoles() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [newTemplateName, setNewTemplateName] = useState('');
   const [showTemplateSave, setShowTemplateSave] = useState(false);
+
+  const formatTime12h = (timeStr: string) => {
+    if (!timeStr) return '';
+    // Handle "13:00 - 14:00" legacy strings
+    if (timeStr.includes('-')) {
+      return timeStr.split('-').map(t => formatTime12h(t.trim())).join(' - ');
+    }
+    const [hours, minutes] = timeStr.split(':');
+    if (!hours || !minutes) return timeStr;
+    let h = parseInt(hours);
+    const m = minutes.substring(0, 2); // Ensure only 2 digits for minutes
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    h = h ? h : 12;
+    return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
+  };
 
   // Dynamic SECTIONS based on Drive-Thru toggle and dynamic cashiers
   const SECTIONS = useMemo(() => {
@@ -127,7 +155,7 @@ export default function MissionControlRoles() {
         title: 'SALÓN / SERVICIO', 
         icon: Monitor, 
         color: 'blue', 
-        stations: finalCajeras
+        stations: [...finalCajeras, 'CUBRIR DESCANSOS (SALÓN)']
       },
       { 
         id: 'kitchen', 
@@ -141,7 +169,8 @@ export default function MissionControlRoles() {
           'TORTAS/MULITAS', 
           'TACOS', 
           'CARNES', 
-          'PREPARACION'
+          'PREPARACION',
+          'CUBRIR DESCANSOS (COCINA)'
         ] 
       },
       {
@@ -151,7 +180,8 @@ export default function MissionControlRoles() {
         color: 'indigo',
         stations: [
           'TORTAS/QUESADILLAS (DT)',
-          'TACOS/BURRITOS (DT)'
+          'TACOS/BURRITOS (DT)',
+          'CUBRIR DESCANSOS (DT)'
         ]
       }
     ];
@@ -307,14 +337,171 @@ export default function MissionControlRoles() {
     }
   };
 
+  const fetchActivities = async () => {
+    if (!selectedStoreGuid) return;
+    try {
+      // 1. Fetch GLOBAL library
+      const globalResp = await fetch(`/api/roles/activities?store_id=GLOBAL`);
+      const globalData = await globalResp.json();
+      
+      let masterList = globalData.master_activities || [];
+
+      // MIGRATION BRIDGE: If Global is empty, try to rescue from Local
+      if (masterList.length === 0) {
+        console.log("Empty Global Library. Attempting migration from local store...");
+        const localResp = await fetch(`/api/roles/activities?store_id=${selectedStoreGuid}`);
+        const localData = await localResp.json();
+        
+        if (localData.master_activities && localData.master_activities.length > 0) {
+          masterList = localData.master_activities;
+          // Immediately promote to Global
+          await fetch('/api/roles/activities', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              store_id: 'GLOBAL',
+              master_activities: masterList,
+              station_mappings: {}
+            })
+          });
+          console.log("✅ Migration successful: Local activities promoted to GLOBAL.");
+        }
+      }
+
+      // 2. Fetch LOCAL mappings (station to task links are store-specific)
+      const localResp = await fetch(`/api/roles/activities?store_id=${selectedStoreGuid}`);
+      const localData = await localResp.json();
+
+      setActivities(masterList);
+      if (localData.station_mappings) setStationActivities(localData.station_mappings);
+    } catch (e) {
+      console.error('Error fetching activities:', e);
+    }
+  };
+
+  const saveActivities = async (newMaster?: any[], newMappings?: Record<string, string[]>) => {
+    if (!selectedStoreGuid) return;
+    try {
+      // Save GLOBAL Library
+      await fetch('/api/roles/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store_id: 'GLOBAL',
+          master_activities: newMaster || activities,
+          station_mappings: {} // No mappings in global
+        })
+      });
+
+      // Save LOCAL Station Mappings
+      await fetch('/api/roles/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store_id: selectedStoreGuid,
+          master_activities: [], // Don't store library locally anymore
+          station_mappings: newMappings || stationActivities
+        })
+      });
+    } catch (e) {
+      console.error('Error saving activities:', e);
+    }
+  };
+
   useEffect(() => {
     fetchWeeklyData();
     fetchTemplates();
+    fetchActivities();
   }, [selectedStoreGuid, currentWeekStart]);
+
+  const handleSaveActivity = () => {
+    if (!newActivity.name) return;
+    
+    // --- SMART DUPLICATE DETECTION LOGIC ---
+    const cleanString = (str: string) => {
+      return str.toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+        .replace(/\b(el|la|los|las|un|una|unos|unas|de|del|para|con|y|en|al|esta|este)\b/g, "") // Remove stop words
+        .replace(/[^\w\s]/gi, '') // Remove punctuation
+        .replace(/\s+/g, ' ').trim(); // Normalize spaces
+    };
+
+    const newClean = cleanString(newActivity.name);
+    
+    if (!editingActivityId) {
+      // Check for similar activities IN THE SAME CATEGORY
+      const similar = activities.find(a => 
+        a.category === newActivity.category && 
+        (cleanString(a.name) === newClean || 
+         cleanString(a.name).includes(newClean) || 
+         newClean.includes(cleanString(a.name)))
+      );
+
+      if (similar) {
+        setDuplicateWarning({ newName: newActivity.name, existing: similar });
+        return;
+      }
+    }
+    // --- END DETECTION ---
+
+    finalizeSaveActivity();
+  };
+
+  const finalizeSaveActivity = (force = false) => {
+    let updated: any[];
+    if (editingActivityId) {
+      updated = activities.map(a => {
+        if (a.id === editingActivityId) {
+          // CHECK FOR TIME OVERRIDES
+          const isTimeChanged = a.startTime !== newActivity.startTime || a.endTime !== newActivity.endTime;
+          
+          const newOverrides = { ...(a.overrides || {}) };
+          if (isTimeChanged) {
+            newOverrides[selectedStoreGuid] = {
+              startTime: newActivity.startTime,
+              endTime: newActivity.endTime
+            };
+          }
+
+          return { 
+            ...a, 
+            name: newActivity.name, // Global change
+            category: newActivity.category, // Global change
+            shift: newActivity.shift, // Global change
+            // Root times stay as "Default/Base" if it was new, 
+            // but we don't change root times on EDIT to avoid affecting others
+            overrides: newOverrides
+          };
+        }
+        return a;
+      });
+    } else {
+      const exists = activities.some(a => a.name === newActivity.name);
+      if (exists) return;
+      
+      // New activity: sets the "Base/Default" schedule
+      updated = [...activities, { 
+        ...newActivity, 
+        id: Date.now().toString(),
+        overrides: {} 
+      }];
+    }
+    
+    setActivities(updated);
+    setNewActivity({ name: '', category: 'APERTURA', startTime: '', endTime: '', shift: 'AM' });
+    setEditingActivityId(null);
+    saveActivities(updated);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   const updateAssignment = (dateStr: string, station: string, employeeId: string, group: string) => {
     const newAssignments = [...assignments];
     const shiftStation = `${station}_${activeShift}`;
+    const stationTasks = stationActivities[shiftStation] || [];
+    
     const index = newAssignments.findIndex(a => a.assignment_date === dateStr && a.sub_position === shiftStation);
 
     if (index !== -1) {
@@ -324,33 +511,64 @@ export default function MissionControlRoles() {
         newAssignments[index].employee_id = employeeId;
       }
     } else if (employeeId !== '') {
+      // Auto-inject tasks from station mapping
+      const defaultTasks = stationActivities[shiftStation] || [];
+      
       newAssignments.push({
         store_id: selectedStoreGuid,
         employee_id: employeeId,
         assignment_date: dateStr,
         main_station: station,
         sub_position: shiftStation,
-        station_group: group
+        station_group: group,
+        tasks: defaultTasks
       });
     }
     setAssignments(newAssignments);
   };
 
-  const handleSlotClick = (stationLabel: string, emp: any, assignee: any, group: string) => {
-    setSelectedSlotForCard({ label: stationLabel, assignee: { ...assignee, station_group: group } });
+  const handleSlotClick = (stationKey: string, label: string, group: string, emp: any, assignee: any) => {
+    setSelectedSlotForCard({ 
+      stationKey: stationKey, 
+      label: label, 
+      assignee: { ...assignee, station_group: group } 
+    });
     setSelectedEmployeeCard(emp);
     setIsReassigning(false);
   };
 
   const saveAssignments = async () => {
+    if (!selectedStoreGuid) return alert('Error: No hay tienda seleccionada');
+    
     setSaving(true);
+    const start = formatDateISO(getMonday(currentWeekStart));
+    const end = formatDateISO(addDays(getMonday(currentWeekStart), 6));
+
     try {
       const response = await fetch('/api/roles', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignments, store_id: selectedStoreGuid })
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          assignments, 
+          store_id: selectedStoreGuid,
+          start_date: start,
+          end_date: end
+        })
       });
-      if (response.ok) alert('🚀 Operación Guardada');
-    } catch (error) { console.error(error); } finally { setSaving(false); }
+      
+      const result = await response.json();
+
+      if (response.ok) {
+        alert('🚀 Operación Guardada con Éxito');
+      } else {
+        throw new Error(result.error || 'Error desconocido al guardar');
+      }
+    } catch (error: any) { 
+      console.error('SAVE ERROR:', error); 
+      alert(`❌ ERROR AL GUARDAR: ${error.message}\n\nPor favor, no refresques la página e intenta de nuevo.`);
+    } finally { 
+      setSaving(false); 
+    }
   };
 
   const saveCurrentAsTemplate = async () => {
@@ -375,11 +593,15 @@ export default function MissionControlRoles() {
       })
     });
 
+    const result = await response.json();
+
     if (response.ok) {
       alert(`💾 Plantilla ${activeShift} Guardada`);
       setNewTemplateName('');
       setShowTemplateSave(false);
       fetchTemplates();
+    } else {
+      alert(`❌ ERROR AL GUARDAR PLANTILLA: ${result.error || 'Error desconocido'}`);
     }
   };
 
@@ -413,13 +635,17 @@ export default function MissionControlRoles() {
     
     const newDayAssignments = templateData.map(a => {
         const mappedName = mapStationName(a.main_station, a.station_group);
+        // If template has no tasks, pull from current global mapping
+        const currentTasks = a.tasks || stationActivities[mappedName + shiftSuffix] || [];
+        
         return {
           ...a,
           main_station: mappedName,
           sub_position: `${mappedName}${shiftSuffix}`,
           station_group: findCurrentGroup(mappedName),
           store_id: selectedStoreGuid,
-          assignment_date: activeDateStr
+          assignment_date: activeDateStr,
+          tasks: currentTasks
         };
     });
 
@@ -578,6 +804,14 @@ export default function MissionControlRoles() {
             </button>
 
             <button 
+              onClick={() => setShowActivitiesModal(true)}
+              className="flex items-center gap-2 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 px-5 py-3 rounded-2xl border border-slate-200 font-bold text-xs transition-all shadow-sm"
+            >
+              <FileText size={16} />
+              Actividades
+            </button>
+
+            <button 
               onClick={saveAssignments}
               disabled={saving}
               className={`flex items-center gap-2 px-8 py-3 rounded-2xl font-bold text-xs tracking-wide shadow-xl transition-all active:scale-95 ${
@@ -700,8 +934,15 @@ export default function MissionControlRoles() {
 
                   {section.stations.map((station) => (
                     <React.Fragment key={station}>
-                      <div className="flex items-center px-6 bg-slate-50 border border-slate-100 rounded-2xl min-h-[70px]">
+                      <div className="flex items-center justify-between px-6 bg-slate-50 border border-slate-100 rounded-2xl min-h-[70px] group/station">
                         <span className="text-[12px] font-black text-slate-600 uppercase tracking-tight leading-tight">{station}</span>
+                        <button 
+                          onClick={() => setShowStationActivitiesModal(station)}
+                          className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all opacity-0 group-hover/station:opacity-100"
+                          title="Asignar Actividades"
+                        >
+                          <FileText size={16} />
+                        </button>
                       </div>
 
                       {[0, 1, 2, 3, 4, 5, 6].map(offset => {
@@ -766,6 +1007,137 @@ export default function MissionControlRoles() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* --- AUTO-GENERATED OPERATIONAL ACTIVITY REPORT (EXCEL STYLE) --- */}
+        <div className="bg-white/50 rounded-[2.5rem] border border-black/5 p-8 shadow-sm mt-12">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-4">
+              <div className="bg-slate-900 text-white p-4 rounded-3xl shadow-xl shadow-slate-200">
+                <ClipboardList size={24} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase italic">Resumen Operativo de Actividades ({activeShift})</h2>
+                <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest italic">Generado automáticamente según el rol de posiciones</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 no-print">
+              <div className="flex items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-100 rounded-2xl">
+                <Zap className="text-amber-500" size={16} />
+                <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Priorizar las órdenes de la línea</span>
+              </div>
+              <button 
+                onClick={handlePrint}
+                className="flex items-center gap-3 bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-lg hover:bg-indigo-700 hover:-translate-y-0.5 transition-all active:translate-y-0"
+              >
+                <Printer size={18} />
+                Imprimir Reporte
+              </button>
+            </div>
+          </div>
+
+          <div id="printable-activity-report" className="overflow-x-auto custom-scrollbar bg-white">
+            <table className="w-full border-separate border-spacing-0 rounded-3xl overflow-hidden border border-slate-200">
+              <thead>
+                <tr className="bg-slate-900">
+                  <th className="p-4 text-[10px] font-black text-white/50 uppercase tracking-[0.2em] text-left border-r border-white/5">Categoría / Tarea</th>
+                  <th className="p-4 text-[10px] font-black text-white/50 uppercase tracking-[0.2em] text-left border-r border-white/5 w-40">Horario</th>
+                  {weekDays.map(day => (
+                    <th key={day.toString()} className="p-4 text-[10px] font-black text-white uppercase tracking-[0.2em] text-center border-r border-white/5">
+                      {format(day, 'EEEE', { locale: es }).toUpperCase()}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white">
+                {['PLANCHAS', 'TRASTES', 'LINEA', 'BAÑOS', 'OTROS'].map(cat => {
+                  // FILTER ACTIVITIES BY CURRENT SHIFT AND ENSURE THEY HAVE AT LEAST ONE ASSIGNMENT
+                  const catActivities = activities.filter(act => {
+                    const matchesCategory = act.category === cat;
+                    if (!matchesCategory) return false;
+
+                    const matchesShift = act.shift === activeShift || act.shift === 'AMBOS' || !act.shift;
+                    if (!matchesShift) return false;
+
+                    // Check if anyone is assigned to this task in the current week/shift
+                    const hasAnyAssignment = weekDays.some(day => {
+                      const dateStr = formatDateISO(day);
+                      const shiftSuffix = `_${activeShift}`;
+                      return assignments.some(a => {
+                        const isDateMatch = a.assignment_date === dateStr;
+                        const isShiftMatch = a.sub_position.endsWith(shiftSuffix);
+                        const hasTask = a.tasks?.includes(act.name) || stationActivities[`${a.main_station}${shiftSuffix}`]?.includes(act.name);
+                        return isDateMatch && isShiftMatch && hasTask;
+                      });
+                    });
+
+                    return hasAnyAssignment;
+                  });
+
+                  if (catActivities.length === 0) return null;
+
+                  return (
+                    <React.Fragment key={cat}>
+                      <tr className="bg-slate-50/80">
+                        <td colSpan={9} className="p-4 text-[11px] font-black text-indigo-600 uppercase tracking-[0.3em] border-b border-slate-200">
+                          {cat}
+                        </td>
+                      </tr>
+                      {catActivities.map(act => (
+                        <tr key={act.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="p-4 border-r border-slate-100 border-b border-slate-100">
+                            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-tight group-hover:text-indigo-600 transition-colors">{act.name}</span>
+                          </td>
+                          <td className="p-4 border-r border-slate-100 border-b border-slate-100">
+                            <span className="text-[10px] font-black text-amber-500 uppercase">
+                              {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
+                            </span>
+                          </td>
+                          {weekDays.map(day => {
+                            const dateStr = formatDateISO(day);
+                            const shiftSuffix = `_${activeShift}`;
+                            const assignedPeople = assignments
+                              .filter(a => {
+                                const isDateMatch = a.assignment_date === dateStr;
+                                const isShiftMatch = a.sub_position.endsWith(shiftSuffix);
+                                // SYNC FIX: Check both saved tasks and CURRENT station mappings
+                                const hasTask = a.tasks?.includes(act.name) || stationActivities[`${a.main_station}${shiftSuffix}`]?.includes(act.name);
+                                return isDateMatch && isShiftMatch && hasTask;
+                              })
+                              .map(a => {
+                                const e = employees.find(emp => String(emp.id) === String(a.employee_id));
+                                return e ? (e.chosen_name || e.first_name).toUpperCase() : null;
+                              })
+                              .filter(Boolean);
+
+                            return (
+                              <td key={day.toString()} className="p-4 border-r border-slate-100 border-b border-slate-100 text-center">
+                                {assignedPeople.length > 0 ? (
+                                  <div className="flex flex-col gap-1">
+                                    {assignedPeople.map((name, i) => (
+                                      <span key={i} className="text-[12px] font-black text-slate-900 leading-tight bg-indigo-50/50 py-1 px-2 rounded-lg border border-indigo-100 shadow-sm">
+                                        {name}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">-</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          
+          <div className="mt-8 p-6 bg-red-600 rounded-2xl shadow-xl shadow-red-100">
+            <p className="text-white text-center text-xs font-black uppercase tracking-[0.2em]">Se ubicara al personal y se cambiaran de posiciones conforme a las necesidades del Restaurante</p>
+          </div>
         </div>
       </main>
 
@@ -870,20 +1242,39 @@ export default function MissionControlRoles() {
                 {/* --- DINING ZONE --- */}
                 <div className="flex flex-col gap-1 relative z-10">
                   <div className="flex items-center justify-center gap-4 mb-1">
-                    <h2 className="text-4xl font-black text-[#ff9166] uppercase tracking-[0.8em] italic leading-none drop-shadow-sm">Dining Area</h2>
+                    <h2 className="text-4xl font-black text-indigo-600 uppercase tracking-[0.8em] italic leading-none drop-shadow-sm">Dining Area</h2>
                   </div>
                   
                   <div className="flex flex-col items-center gap-1">
-                    <BoardSlot label="Limpieza" group="Salón" assignee={getAssignee(activeDay, `LIMPIEZA_${activeShift}`)} employees={employees} className="w-64 h-18" onClick={handleSlotClick} />
+                    <div className="flex gap-2 w-full max-w-2xl">
+                      <BoardSlot 
+                        label="Limpieza" 
+                        stationKey="LIMPIEZA"
+                        group="Salón" 
+                        assignee={getAssignee(activeDay, `LIMPIEZA_${activeShift}`)} 
+                        employees={employees} 
+                        className="flex-1 h-18" 
+                        onClick={handleSlotClick} 
+                      />
+                      <BoardSlot 
+                        label="Descansos" 
+                        stationKey="CUBRIR DESCANSOS (SALÓN)"
+                        group="Salón" 
+                        assignee={getAssignee(activeDay, `CUBRIR DESCANSOS (SALÓN)_${activeShift}`)} 
+                        employees={employees} 
+                        className="flex-1 h-18" 
+                        onClick={handleSlotClick} 
+                      />
+                    </div>
                     
                     <div className="w-full grid grid-cols-7 gap-1">
-                      <BoardSlot label="Delivery" group="Salón" assignee={getAssignee(activeDay, `Uber + Salsas_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
-                      <BoardSlot label="Entrega" group="Salón" assignee={getAssignee(activeDay, `ENTREGA_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
-                      <BoardSlot label="Tacos" group="Salón" assignee={getAssignee(activeDay, `TACOS_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
-                      <BoardSlot label="Burritos" group="Salón" assignee={getAssignee(activeDay, `BURRITOS_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
-                      <BoardSlot label="Caja 3" group="Salón" assignee={getAssignee(activeDay, `Caja 3_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
-                      <BoardSlot label="Caja 2" group="Salón" assignee={getAssignee(activeDay, `Caja 2_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
-                      <BoardSlot label="Caja 1" group="Salón" assignee={getAssignee(activeDay, `Caja 1 / Salón_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
+                      <BoardSlot label="Delivery" stationKey="Uber + Salsas" group="Salón" assignee={getAssignee(activeDay, `Uber + Salsas_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
+                      <BoardSlot label="Entrega" stationKey="ENTREGA" group="Salón" assignee={getAssignee(activeDay, `ENTREGA_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
+                      <BoardSlot label="Tacos" stationKey="TACOS" group="Salón" assignee={getAssignee(activeDay, `TACOS_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
+                      <BoardSlot label="Burritos" stationKey="BURRITOS" group="Salón" assignee={getAssignee(activeDay, `BURRITOS_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
+                      <BoardSlot label="Caja 3" stationKey="Caja 3" group="Salón" assignee={getAssignee(activeDay, `Caja 3_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
+                      <BoardSlot label="Caja 2" stationKey="Caja 2" group="Salón" assignee={getAssignee(activeDay, `Caja 2_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
+                      <BoardSlot label="Caja 1" stationKey="Caja 1 / Salón" group="Salón" assignee={getAssignee(activeDay, `Caja 1 / Salón_${activeShift}`)} employees={employees} className="h-18" onClick={handleSlotClick} />
                     </div>
                   </div>
                 </div>
@@ -892,13 +1283,14 @@ export default function MissionControlRoles() {
                 <div className="flex flex-col items-center flex-1 justify-center py-2 relative z-10">
                   <div className="w-full flex flex-col items-center gap-1">
                     <div className="w-full grid grid-cols-4 gap-2">
-                      <BoardSlot label="Carnes" group="Cocina" assignee={getAssignee(activeDay, `CARNES_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
-                      <BoardSlot label="Tortillas" group="Cocina" assignee={getAssignee(activeDay, `TORTILLAS_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
-                      <BoardSlot label="Tortas / Mulitas" group="Cocina" assignee={getAssignee(activeDay, `TORTAS/MULITAS_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
-                      <BoardSlot label="Tortas / Quesadillas" group="Cocina" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
+                      <BoardSlot label="Carnes" stationKey="CARNES" group="Cocina" assignee={getAssignee(activeDay, `CARNES_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
+                      <BoardSlot label="Tortillas" stationKey="TORTILLAS" group="Cocina" assignee={getAssignee(activeDay, `TORTILLAS_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
+                      <BoardSlot label="Tortas / Mulitas" stationKey="TORTAS/MULITAS" group="Cocina" assignee={getAssignee(activeDay, `TORTAS/MULITAS_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
+                      <BoardSlot label="Tortas / Quesadillas" stationKey="TORTAS/QUESADILLAS" group="Cocina" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS_${activeShift}`)} employees={employees} className="h-28" onClick={handleSlotClick} />
                     </div>
-                    <div className="w-full">
-                      <BoardSlot label="Preparación" group="Cocina" assignee={getAssignee(activeDay, `PREPARACION_${activeShift}`)} employees={employees} className="h-16 w-full" onClick={handleSlotClick} />
+                    <div className="w-full grid grid-cols-3 gap-2">
+                      <BoardSlot label="Preparación" stationKey="PREPARACION" group="Cocina" assignee={getAssignee(activeDay, `PREPARACION_${activeShift}`)} employees={employees} className="h-16 col-span-2" onClick={handleSlotClick} />
+                      <BoardSlot label="Descansos" stationKey="CUBRIR DESCANSOS (COCINA)" group="Cocina" assignee={getAssignee(activeDay, `CUBRIR DESCANSOS (COCINA)_${activeShift}`)} employees={employees} className="h-16" onClick={handleSlotClick} />
                     </div>
                   </div>
                 </div>
@@ -906,19 +1298,20 @@ export default function MissionControlRoles() {
                 {/* --- DRIVE-THRU ZONE --- */}
                 <div className="flex flex-col gap-1 items-center relative z-10">
                   <div className="flex items-center justify-center gap-4 mb-1 w-full">
-                    <h2 className="text-4xl font-black text-[#ff9166] uppercase tracking-[0.8em] italic leading-none drop-shadow-sm">Drive-Thru</h2>
+                    <h2 className="text-4xl font-black text-indigo-600 uppercase tracking-[0.8em] italic leading-none drop-shadow-sm">Drive-Thru</h2>
                   </div>
                   
                   <div className="flex gap-2 w-full px-1 items-stretch">
                      {/* Ventana 1 */}
-                     <BoardSlot label="Ventanilla 1" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 1_${activeShift}`)} employees={employees} className="h-28 w-72" onClick={handleSlotClick} />
+                     <BoardSlot label="Ventanilla 1" stationKey="Ventana 1" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 1_${activeShift}`)} employees={employees} className="h-28 w-72" onClick={handleSlotClick} />
 
                      {/* Central DT Area */}
                      <div className="flex-1 flex flex-col gap-1">
-                        <BoardSlot label="Tortas / Quesadillas (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS (DT)_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
-                        <div className="flex-1 grid grid-cols-2 gap-1">
-                          <BoardSlot label="Tacos / Burritos (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TACOS/BURRITOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
-                          <BoardSlot label="Ventanilla 2" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 2_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                        <BoardSlot label="Tortas / Quesadillas (DT)" stationKey="TORTAS/QUESADILLAS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS (DT)_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
+                        <div className="flex-1 grid grid-cols-3 gap-1">
+                          <BoardSlot label="Tacos / Burritos (DT)" stationKey="TACOS/BURRITOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TACOS/BURRITOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                          <BoardSlot label="Ventanilla 2" stationKey="Ventana 2" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 2_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                          <BoardSlot label="Descansos" stationKey="CUBRIR DESCANSOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `CUBRIR DESCANSOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
                         </div>
                      </div>
                   </div>
@@ -948,6 +1341,33 @@ export default function MissionControlRoles() {
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
         select option { background-color: white; color: #1e293b; padding: 12px; font-weight: bold; }
+
+        @media print {
+          @page {
+            size: letter landscape;
+            margin: 5mm;
+          }
+          body * { visibility: hidden; }
+          #printable-activity-report, #printable-activity-report * {
+            visibility: visible;
+          }
+          #printable-activity-report {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: white !important;
+            padding: 0 !important;
+          }
+          .no-print { display: none !important; }
+          table { width: 100% !important; border-collapse: collapse !important; border: 1px solid #e2e8f0 !important; }
+          th, td { border: 1px solid #e2e8f0 !important; padding: 6px !important; font-size: 9px !important; }
+          .bg-slate-900 { background-color: #0f172a !important; color: white !important; -webkit-print-color-adjust: exact; }
+          .bg-slate-50\/80 { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; }
+          .text-indigo-600 { color: #4f46e5 !important; }
+          .text-amber-500 { color: #f59e0b !important; }
+          .bg-indigo-50\/50 { background-color: #f5f3ff !important; border-color: #e0e7ff !important; -webkit-print-color-adjust: exact; }
+        }
       `}</style>
       {/* EMPLOYEE CONTACT & REASSIGNMENT MODAL */}
       <AnimatePresence>
@@ -1025,7 +1445,62 @@ export default function MissionControlRoles() {
                       )}
                     </div>
 
-                    <div className="flex flex-col gap-3 pt-4 border-t border-slate-100">
+                    {/* --- ASSIGNED ACTIVITIES SECTION --- */}
+                    <div className="pt-6 border-t border-slate-100">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                          <ClipboardList size={18} />
+                        </div>
+                        <h5 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Actividades Asignadas</h5>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        {(() => {
+                          const shiftSuffix = `_${activeShift}`;
+                          const stationKey = selectedSlotForCard.stationKey;
+                          const shiftStationKey = `${stationKey}${shiftSuffix}`;
+                          
+                          // COMBINE SAVED TASKS + DYNAMIC STATION MAPPINGS
+                          const liveTasks = [
+                            ...(selectedSlotForCard.assignee?.tasks || []),
+                            ...(stationActivities[shiftStationKey] || [])
+                          ];
+                          
+                          // Remove duplicates and filter empty
+                          const uniqueTasks = Array.from(new Set(liveTasks)).filter(Boolean);
+
+                          if (uniqueTasks.length > 0) {
+                            return uniqueTasks.map((taskName: string, i: number) => {
+                              const act = activities.find(a => a.name === taskName);
+                              return (
+                                <div key={i} className="flex items-center justify-between p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl group hover:bg-indigo-50 transition-colors">
+                                  <div className="flex flex-col">
+                                    <span className="text-[11px] font-black text-indigo-900 uppercase tracking-tight">{taskName}</span>
+                                    {act && (act.startTime || act.endTime || act.schedule) && (
+                                      <div className="flex items-center gap-2 mt-1">
+                                        <Clock size={10} className="text-amber-500" />
+                                        <span className="text-[9px] font-bold text-amber-600 uppercase">
+                                          {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <CheckCircle2 size={16} className="text-indigo-400 opacity-40" />
+                                </div>
+                              );
+                            });
+                          }
+
+                          return (
+                            <div className="p-4 bg-slate-50 border border-slate-100 border-dashed rounded-2xl text-center">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase italic">Sin actividades asignadas</p>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3 pt-4">
                       <button 
                         onClick={() => {
                           updateAssignment(formatDateISO(activeDay), selectedSlotForCard.label, '', selectedSlotForCard.assignee.station_group);
@@ -1101,6 +1576,469 @@ export default function MissionControlRoles() {
                     </div>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showActivitiesModal && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 md:p-8 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.9, y: 20 }} 
+              className="bg-white w-full max-w-6xl max-h-[92vh] rounded-[3rem] border border-black/5 shadow-2xl flex flex-col overflow-hidden relative"
+            >
+              {/* --- FIXED HEADER --- */}
+              <div className="p-8 pb-4 border-b border-slate-100 flex items-center justify-between bg-white z-20">
+                <div className="flex items-center gap-5">
+                  <div className="bg-slate-900 text-white p-4 rounded-[1.5rem] shadow-lg shadow-slate-200">
+                    <FileText size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Centro de Control</h3>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Librería Operativa GAVILÁN</p>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setShowActivitiesModal(false)} className="p-3 hover:bg-red-50 hover:text-red-600 rounded-[1.2rem] transition-all text-slate-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              {/* --- DUAL PANEL CONTENT --- */}
+              <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+                
+                {/* --- LEFT PANEL: INPUT FORM (FIXED ON MD+) --- */}
+                <div className="w-full md:w-[400px] bg-slate-50/50 p-8 border-r border-slate-100 overflow-y-auto custom-scrollbar">
+                  <h4 className="text-[11px] font-bold text-indigo-600 uppercase tracking-widest mb-6">Editor de Tareas</h4>
+                  
+                  <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm space-y-5">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5 ml-2">Nombre</label>
+                        <input 
+                          type="text" 
+                          placeholder="Ej: Limpieza Planchas" 
+                          value={newActivity.name} 
+                          onChange={(e) => setNewActivity({...newActivity, name: e.target.value})} 
+                          className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-300"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-2">Turno</label>
+                        <select 
+                          value={newActivity.shift || 'AM'}
+                          onChange={(e) => setNewActivity({...newActivity, shift: e.target.value})}
+                          className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none cursor-pointer"
+                        >
+                          <option value="AM">☀️ AM</option>
+                          <option value="PM">🌙 PM</option>
+                          <option value="AMBOS">⚡ AMBOS</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-2">Categoría</label>
+                        <select 
+                          value={newActivity.category}
+                          onChange={(e) => setNewActivity({...newActivity, category: e.target.value})}
+                          className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none cursor-pointer"
+                        >
+                          <option value="APERTURA">🌅 APERTURA</option>
+                          <option value="CIERRE">🌙 CIERRE</option>
+                          <option value="ACTIVIDAD REGULAR">⚡ ACTIVIDAD REGULAR</option>
+                          <option value="OTRO">⚙️ OTRO</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div className="bg-indigo-50/50 p-4 rounded-3xl border border-indigo-100/50">
+                          <label className="block text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-3 text-center">Inicio</label>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex gap-1">
+                              <select 
+                                className="flex-1 bg-white border border-indigo-100 rounded-xl p-2 text-xs font-black text-slate-700"
+                                value={newActivity.startTime ? (parseInt(newActivity.startTime.split(':')[0]) % 12 || 12).toString().padStart(2, '0') : '12'}
+                                onChange={(e) => {
+                                  const h = e.target.value;
+                                  const current = newActivity.startTime || '12:00';
+                                  const [_, m] = current.split(':');
+                                  const isPM = parseInt(current.split(':')[0]) >= 12;
+                                  let newH = parseInt(h);
+                                  if (isPM && newH < 12) newH += 12;
+                                  if (!isPM && newH === 12) newH = 0;
+                                  setNewActivity({...newActivity, startTime: `${newH.toString().padStart(2, '0')}:${m}`});
+                                }}
+                              >
+                                {Array.from({length: 12}, (_, i) => (i + 1).toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}</option>)}
+                              </select>
+                              <select 
+                                className="flex-1 bg-white border border-indigo-100 rounded-xl p-2 text-xs font-black text-slate-700"
+                                value={newActivity.startTime ? newActivity.startTime.split(':')[1] : '00'}
+                                onChange={(e) => {
+                                  const m = e.target.value;
+                                  const current = newActivity.startTime || '12:00';
+                                  const [h, _] = current.split(':');
+                                  setNewActivity({...newActivity, startTime: `${h}:${m}`});
+                                }}
+                              >
+                                {Array.from({length: 12}, (_, i) => (i * 5).toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                            </div>
+                            <select 
+                              className="w-full bg-indigo-600 text-white rounded-xl p-2 text-[10px] font-black shadow-md"
+                              value={parseInt((newActivity.startTime || '12:00').split(':')[0]) >= 12 ? 'PM' : 'AM'}
+                              onChange={(e) => {
+                                const p = e.target.value;
+                                const current = newActivity.startTime || '12:00';
+                                let [h, m] = current.split(':');
+                                let hour = parseInt(h);
+                                if (p === 'PM' && hour < 12) hour += 12;
+                                if (p === 'AM' && hour >= 12) hour -= 12;
+                                setNewActivity({...newActivity, startTime: `${hour.toString().padStart(2, '0')}:${m}`});
+                              }}
+                            >
+                              <option value="AM">AM</option>
+                              <option value="PM">PM</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="bg-amber-50/50 p-4 rounded-3xl border border-amber-100/50">
+                          <label className="block text-[9px] font-black text-amber-400 uppercase tracking-widest mb-3 text-center">Fin</label>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex gap-1">
+                              <select 
+                                className="flex-1 bg-white border border-amber-100 rounded-xl p-2 text-xs font-black text-slate-700"
+                                value={newActivity.endTime ? (parseInt(newActivity.endTime.split(':')[0]) % 12 || 12).toString().padStart(2, '0') : '12'}
+                                onChange={(e) => {
+                                  const h = e.target.value;
+                                  const current = newActivity.endTime || '12:00';
+                                  const [_, m] = current.split(':');
+                                  const isPM = parseInt(current.split(':')[0]) >= 12;
+                                  let newH = parseInt(h);
+                                  if (isPM && newH < 12) newH += 12;
+                                  if (!isPM && newH === 12) newH = 0;
+                                  setNewActivity({...newActivity, endTime: `${newH.toString().padStart(2, '0')}:${m}`});
+                                }}
+                              >
+                                {Array.from({length: 12}, (_, i) => (i + 1).toString().padStart(2, '0')).map(h => <option key={h} value={h}>{h}</option>)}
+                              </select>
+                              <select 
+                                className="flex-1 bg-white border border-amber-100 rounded-xl p-2 text-xs font-black text-slate-700"
+                                value={newActivity.endTime ? newActivity.endTime.split(':')[1] : '00'}
+                                onChange={(e) => {
+                                  const m = e.target.value;
+                                  const current = newActivity.endTime || '12:00';
+                                  const [h, _] = current.split(':');
+                                  setNewActivity({...newActivity, endTime: `${h}:${m}`});
+                                }}
+                              >
+                                {Array.from({length: 12}, (_, i) => (i * 5).toString().padStart(2, '0')).map(m => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                            </div>
+                            <select 
+                              className="w-full bg-amber-500 text-white rounded-xl p-2 text-[10px] font-black shadow-md"
+                              value={parseInt((newActivity.endTime || '12:00').split(':')[0]) >= 12 ? 'PM' : 'AM'}
+                              onChange={(e) => {
+                                const p = e.target.value;
+                                const current = newActivity.endTime || '12:00';
+                                let [h, m] = current.split(':');
+                                let hour = parseInt(h);
+                                if (p === 'PM' && hour < 12) hour += 12;
+                                if (p === 'AM' && hour >= 12) hour -= 12;
+                                setNewActivity({...newActivity, endTime: `${hour.toString().padStart(2, '0')}:${m}`});
+                              }}
+                            >
+                              <option value="AM">AM</option>
+                              <option value="PM">PM</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <button 
+                        onClick={handleSaveActivity}
+                        className={`w-full py-5 rounded-[1.5rem] transition-all shadow-lg flex items-center justify-center gap-4 group active:scale-95 ${
+                          editingActivityId ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-slate-900 hover:bg-black text-white'
+                        }`}
+                      >
+                        {editingActivityId ? <RefreshCw size={20} /> : <PlusCircle size={20} />}
+                        <span className="text-[11px] font-black uppercase tracking-[0.2em]">
+                          {editingActivityId ? 'Actualizar Tarea' : 'Registrar Actividad'}
+                        </span>
+                      </button>
+                      
+                      {editingActivityId && (
+                        <button 
+                          onClick={() => {
+                            setEditingActivityId(null);
+                            setNewActivity({ name: '', category: 'APERTURA', startTime: '', endTime: '', shift: 'AM' });
+                          }}
+                          className="w-full bg-slate-200 hover:bg-slate-300 text-slate-600 py-4 rounded-[1.5rem] transition-all font-black uppercase tracking-widest text-[10px]"
+                        >
+                          Cancelar Edición
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* --- RIGHT PANEL: LIST AREA (SCROLLABLE) --- */}
+                <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-white">
+                  <div className="flex items-center justify-between mb-8">
+                    <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Listado de la Librería</h4>
+                    <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-full">{activities.length} Tareas</span>
+                  </div>
+
+                  <div className="space-y-12">
+                    {activities.length === 0 ? (
+                      <div className="text-center py-24 bg-slate-50 rounded-[3rem] border-2 border-slate-200 border-dashed text-slate-400 text-sm">
+                        <div className="mb-4 opacity-20"><FileText size={64} className="mx-auto" /></div>
+                        La librería está vacía.
+                      </div>
+                    ) : (
+                      ['APERTURA', 'CIERRE', 'ACTIVIDAD REGULAR', 'OTRO'].map(cat => {
+                        const acts = activities.filter(a => a.category === cat);
+                        if (acts.length === 0) return null;
+                        
+                        return (
+                          <div key={cat} className="relative">
+                            <div className="flex items-center gap-4 mb-6 sticky top-0 bg-white z-10 py-1">
+                              <h4 className="text-[12px] font-bold text-indigo-600 uppercase tracking-widest">{cat}</h4>
+                              <div className="flex-1 h-px bg-gradient-to-r from-indigo-100 to-transparent" />
+                            </div>
+                            
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                              {acts.map((act) => (
+                                <div key={act.id} className={`group flex items-center justify-between p-5 rounded-[2rem] border transition-all ${
+                                  editingActivityId === act.id ? 'bg-indigo-50 border-indigo-500 scale-[1.02] shadow-lg' : 'bg-white border-slate-100 hover:bg-slate-50 hover:border-indigo-200'
+                                }`}>
+                                  {/* RESOLVE OVERRIDES FOR DISPLAY */}
+                                  {(() => {
+                                    const storeOverride = act.overrides?.[selectedStoreGuid];
+                                    const displayStartTime = storeOverride?.startTime || act.startTime;
+                                    const displayEndTime = storeOverride?.endTime || act.endTime;
+                                    const isOverridden = !!storeOverride;
+
+                                    return (
+                                      <>
+                                          <div className="flex flex-col">
+                                            <div className="flex items-center gap-3">
+                                              <span className="text-sm font-bold text-slate-900 tracking-tight leading-tight">{act.name}</span>
+                                              <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full ${
+                                                act.shift === 'AM' ? 'bg-amber-100 text-amber-700' : 
+                                                act.shift === 'PM' ? 'bg-indigo-100 text-indigo-700' : 
+                                                'bg-green-100 text-green-700'
+                                              }`}>
+                                                {act.shift}
+                                              </span>
+                                              {isOverridden && (
+                                                <span className="text-[8px] font-bold text-indigo-500 uppercase tracking-widest">● Horario Local</span>
+                                              )}
+                                            </div>
+                                            {(displayStartTime || displayEndTime) && (
+                                              <div className="flex items-center gap-2 mt-2">
+                                                <Clock size={12} className={isOverridden ? "text-indigo-500" : "text-amber-500"} />
+                                                <span className={`text-[10px] font-bold tracking-wide ${isOverridden ? "text-indigo-600" : "text-amber-500"}`}>
+                                                  {displayStartTime ? formatTime12h(displayStartTime) : '??'} - {displayEndTime ? formatTime12h(displayEndTime) : '??'}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        <div className="flex items-center gap-1">
+                                          <button 
+                                            onClick={() => {
+                                              setEditingActivityId(null); 
+                                              setNewActivity({
+                                                name: `${act.name} (COPIA)`,
+                                                category: act.category,
+                                                startTime: displayStartTime || '',
+                                                endTime: displayEndTime || '',
+                                                shift: act.shift || 'AM'
+                                              });
+                                              if (window.innerWidth < 768) {
+                                                document.querySelector('.md\\:w-\\[400px\\]')?.scrollIntoView({ behavior: 'smooth' });
+                                              }
+                                            }}
+                                            title="Duplicar Tarea"
+                                            className="p-3 text-slate-300 hover:text-amber-500 hover:bg-amber-50 rounded-xl transition-all"
+                                          >
+                                            <Copy size={18} />
+                                          </button>
+                                          <button 
+                                            onClick={() => {
+                                              setEditingActivityId(act.id);
+                                              setNewActivity({
+                                                name: act.name,
+                                                category: act.category,
+                                                startTime: displayStartTime || '',
+                                                endTime: displayEndTime || '',
+                                                shift: act.shift || 'AM'
+                                              });
+                                            }}
+                                            title="Editar Tarea"
+                                            className="p-3 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                                          >
+                                            <RefreshCw size={18} />
+                                          </button>
+                                          <button 
+                                            onClick={() => {
+                                              if(confirm('⚠️ ¡ALERTA DE IMPACTO GLOBAL!\n\nEsta acción eliminará la actividad de TODAS las tiendas de la corporación y no se puede deshacer.\n\nSE RECOMIENDA que esta acción sea realizada o validada por un SUPERVISOR. ¿Estás seguro de que deseas proceder?')) {
+                                                const updated = activities.filter(a => a.id !== act.id);
+                                                setActivities(updated);
+                                                saveActivities(updated);
+                                              }
+                                            }}
+                                            title="Eliminar de TODAS las tiendas"
+                                            className="p-3 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                          >
+                                            <Trash2 size={18} />
+                                          </button>
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* --- FIXED FOOTER --- */}
+              <div className="p-8 border-t border-slate-100 bg-white flex justify-end">
+                <button 
+                  onClick={() => setShowActivitiesModal(false)}
+                  className="bg-indigo-600 text-white px-12 py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
+                >
+                  Finalizar Gestión
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* --- STATION ACTIVITIES ASSIGNMENT MODAL --- */}
+        {showStationActivitiesModal && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-8 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white w-full max-w-xl rounded-[2.5rem] border border-black/5 p-10 shadow-2xl relative">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-5">
+                  <div className="bg-indigo-50 text-indigo-600 p-4 rounded-3xl"><ClipboardList size={32} /></div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900 tracking-tight uppercase">Asignar Tareas</h3>
+                    <p className="text-xs font-medium text-slate-400 mt-1 uppercase tracking-widest">Posición: {showStationActivitiesModal}</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowStationActivitiesModal(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400"><X size={24} /></button>
+              </div>
+
+              <div className="space-y-4">
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Selecciona las actividades para este puesto:</label>
+                <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                  {activities.length === 0 ? (
+                    <div className="text-center py-10 bg-slate-50 rounded-3xl border border-slate-200 border-dashed">
+                      <p className="text-slate-400 italic text-sm">Primero crea actividades en la Librería Maestra.</p>
+                      <button 
+                        onClick={() => { setShowStationActivitiesModal(null); setShowActivitiesModal(true); }}
+                        className="mt-4 text-indigo-600 font-bold hover:underline text-xs"
+                      >
+                        Ir a Librería
+                      </button>
+                    </div>
+                  ) : activities
+                      .filter(a => a.shift === activeShift || a.shift === 'AMBOS' || !a.shift)
+                      .map((act, idx) => {
+                    const shiftStationKey = `${showStationActivitiesModal}_${activeShift}`;
+                    const isSelected = stationActivities[shiftStationKey]?.includes(act.name);
+                    return (
+                      <button 
+                        key={idx}
+                        onClick={() => {
+                          const current = stationActivities[shiftStationKey] || [];
+                          const updated = isSelected ? current.filter(a => a !== act.name) : [...current, act.name];
+                          const newMappings = { ...stationActivities, [shiftStationKey]: updated };
+                          setStationActivities(newMappings);
+                          saveActivities(undefined, newMappings);
+                        }}
+                        className={`flex items-center justify-between p-5 rounded-3xl border transition-all ${
+                          isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
+                        }`}
+                      >
+                        <div className="flex flex-col items-start">
+                          <span className="text-[10px] font-black opacity-40 uppercase tracking-widest mb-1">{act.category}</span>
+                          <span className="text-sm font-bold uppercase">{act.name}</span>
+                          {(act.startTime || act.endTime || act.schedule) && (
+                            <span className={`text-[10px] font-bold mt-1 ${isSelected ? 'text-white/60' : 'text-amber-500'}`}>
+                              {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
+                            </span>
+                          )}
+                        </div>
+                        {isSelected ? <CheckCircle2 size={20} /> : <div className="w-5 h-5 rounded-full border-2 border-slate-200" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <div className="mt-10">
+                <button 
+                  onClick={() => setShowStationActivitiesModal(null)}
+                  className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] shadow-xl hover:bg-black transition-all"
+                >
+                  Guardar Configuracion de Puesto
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {duplicateWarning && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl border border-white/20 text-center"
+            >
+              <div className="w-20 h-20 bg-amber-100 text-amber-600 rounded-[2rem] flex items-center justify-center mx-auto mb-8 shadow-inner">
+                <AlertTriangle size={40} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-4 tracking-tight">Posible Actividad Duplicada</h3>
+              <p className="text-sm text-slate-500 leading-relaxed mb-8 text-balance">
+                Ya existe una actividad muy similar llamada <span className="font-bold text-slate-900">"{duplicateWarning.existing.name}"</span> en la categoría <span className="font-bold text-indigo-600">{duplicateWarning.existing.category}</span>.
+              </p>
+              
+              <div className="space-y-3">
+                <button 
+                  onClick={() => setDuplicateWarning(null)}
+                  className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold text-sm shadow-xl shadow-slate-200 transition-all hover:bg-slate-800"
+                >
+                  Entendido, usaré la existente
+                </button>
+                <button 
+                  onClick={() => {
+                    setDuplicateWarning(null);
+                    finalizeSaveActivity(true);
+                  }}
+                  className="w-full bg-slate-50 text-slate-400 py-4 rounded-2xl font-bold text-xs transition-all hover:bg-red-50 hover:text-red-500"
+                >
+                  No, crear "{duplicateWarning.newName}" de todos modos
+                </button>
               </div>
             </motion.div>
           </div>

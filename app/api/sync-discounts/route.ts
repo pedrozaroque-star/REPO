@@ -28,6 +28,30 @@ const TOAST_GUID_MAP: Record<string, string> = {
     "5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02": "West Covina"
 }
 
+// --- HELPER: GET DINING OPTIONS MAP ---
+async function getDiningOptionsMap(token: string, storeId: string): Promise<Record<string, string>> {
+    try {
+        const url = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
+        const res = await fetch(url.toString(), {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeId
+            }
+        })
+        if (!res.ok) return {}
+        const data = await res.json()
+        const map: Record<string, string> = {}
+        if (Array.isArray(data)) {
+            data.forEach((opt: any) => {
+                if (opt.guid && opt.name) map[opt.guid] = opt.name
+            })
+        }
+        return map
+    } catch (e) {
+        return {}
+    }
+}
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
@@ -59,6 +83,12 @@ export async function POST(request: Request) {
                 const name = emp.chosen_name || `${emp.first_name || ''} ${emp.last_name || ''}`.trim()
                 if (name) employeeMap.set(emp.toast_guid, name)
             })
+        }
+        
+        // 3. Cargar diccionario de Dining Options para resolver transacciones digitales
+        const storeDiningMaps: Record<string, Record<string, string>> = {}
+        for (const [storeId] of Object.entries(TOAST_GUID_MAP)) {
+            storeDiningMaps[storeId] = await getDiningOptionsMap(token, storeId)
         }
 
         let totalInserted = 0
@@ -118,9 +148,18 @@ export async function POST(request: Request) {
 
                 const allDiscountsToInsert: any[] = []
                 orders.forEach(order => {
-                    if (order.voided || order.deleted || order.createdInTestMode) return; // Order is voided or training mode
+                    if (order.voided || order.deleted || order.createdInTestMode) return;
 
-                    const serverNameOrder = buildName(order.server, 'Autoservicio/Kiosko')
+                    let fallbackName = 'Sistema Automático'
+                    const diningOptionsMap = storeDiningMaps[storeId] || {}
+                    if (order.diningOption) {
+                        const optId = order.diningOption.guid || order.diningOption.id
+                        if (optId && diningOptionsMap[optId]) {
+                            fallbackName = `Integración: ${diningOptionsMap[optId]}`
+                        }
+                    }
+
+                    const serverNameOrder = buildName(order.server, fallbackName)
                     const openedDate = order.openedDate
                     
                     order.checks?.forEach((check: any) => {

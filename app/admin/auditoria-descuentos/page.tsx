@@ -115,8 +115,8 @@ export default function AuditoriaDescuentos() {
                 setUniqueStores(stores)
             }
             
-        } catch (error) {
-            console.error("Error fetching discounts:", error)
+        } catch (error: any) {
+            console.error("Error fetching discounts:", error?.message || error?.details || error)
         } finally {
             setLoading(false)
         }
@@ -788,7 +788,7 @@ export default function AuditoriaDescuentos() {
 
             {selectedModalData && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200 cursor-pointer" onClick={() => setSelectedModalData(null)}>
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col cursor-default" onClick={e => e.stopPropagation()}>
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl w-[95vw] max-w-6xl max-h-[85vh] flex flex-col cursor-default" onClick={e => e.stopPropagation()}>
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 rounded-t-2xl shrink-0">
                             <h3 className="font-bold text-slate-900 dark:text-white text-lg">{selectedModalData.title}</h3>
                             <button onClick={() => setSelectedModalData(null)} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 transition-colors">
@@ -894,23 +894,38 @@ export default function AuditoriaDescuentos() {
                                         </div>
                                         {orderDetailData.data.checks?.map((check:any, idx:number) => (
                                             <div key={idx} className="space-y-2">
-                                                {check.selections?.filter((s:any)=> !s.deleted && !s.voided).map((sel:any, i:number) => (
-                                                    <div key={i} className="flex justify-between items-start text-xs">
-                                                        <span className="flex-1 pr-2">
-                                                            {sel.quantity}x {sel.displayName || sel.item?.name}
-                                                            {sel.appliedDiscounts?.map((d:any, j:number) => (
-                                                                <div key={j} className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
-                                                                    DESC {d.name} (-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                                                                </div>
-                                                            ))}
-                                                        </span>
-                                                        <span className="font-bold whitespace-nowrap">${Number(sel.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                                    </div>
-                                                ))}
-                                                {check.appliedDiscounts?.map((d:any, j:number) => (
-                                                    <div key={j} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
-                                                        <span>DESC. TICKET: {d.name}</span>
-                                                        <span>-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                {check.selections?.filter((s:any)=> !s.deleted && !s.voided).map((sel:any, i:number) => {
+                                                    const qty = sel.quantity || 1;
+                                                    const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0);
+                                                    const originalLinePrice = unitPrice * qty;
+                                                    const finalLinePrice = Number(sel.price || 0);
+                                                    const inferredDiscount = originalLinePrice - finalLinePrice;
+                                                    const validDiscounts = sel.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided) || [];
+
+                                                    return (
+                                                        <div key={i} className="flex justify-between items-start text-xs">
+                                                            <span className="flex-1 pr-2">
+                                                                {qty}x {sel.displayName || sel.item?.name}
+                                                                {validDiscounts.map((d:any, j:number) => (
+                                                                    <div key={`expl-${j}`} className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
+                                                                        ↳ DESC: {d.name} (-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                                    </div>
+                                                                ))}
+                                                                {validDiscounts.length === 0 && inferredDiscount > 0.009 && (
+                                                                    <div className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
+                                                                        ↳ DESC. AL PLATILLO (-${inferredDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                                    </div>
+                                                                )}
+                                                            </span>
+                                                            <span className="font-bold whitespace-nowrap">${originalLinePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                        </div>
+                                                    )
+                                                })}
+                                                {/* Mostrar descuentos a nivel ticket solo como referencia visual, pero NO sumarlos al total porque Toast ya los prorrateó en los items */}
+                                                {check.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided).map((d:any, j:number) => (
+                                                    <div key={`chk-${j}`} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
+                                                        <span>REFERENCIA TICKET: {d.name}</span>
+                                                        <span>(-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -918,9 +933,34 @@ export default function AuditoriaDescuentos() {
                                     </div>
                                     
                                     <div className="text-right space-y-1 text-xs">
-                                        <div className="flex justify-between text-slate-500"><span>Subtotal:</span> <span>${Number(orderDetailData.data.checks?.[0]?.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                        <div className="flex justify-between text-slate-500"><span>Tax:</span> <span>${Number(orderDetailData.data.checks?.[0]?.taxAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                        <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2"><span>TOTAL:</span> <span>${(Number(orderDetailData.data.checks?.[0]?.totalAmount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                        {(() => {
+                                            const checks = orderDetailData.data.checks || [];
+                                            const check = checks[0];
+                                            if (!check) return null;
+
+                                            // Cálculo matemático puro basado en el costo real vs el cobrado
+                                            const subtotalBruto = check.selections?.filter((s:any)=> !s.deleted && !s.voided).reduce((sum: number, sel: any) => {
+                                                const qty = sel.quantity || 1;
+                                                const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0);
+                                                return sum + (unitPrice * qty);
+                                            }, 0) || 0;
+
+                                            const subtotalNeto = Number(check.amount || 0);
+                                            // Prevenimos negativos por redondeos extraños de Toast
+                                            const totalDiscounts = Math.max(0, subtotalBruto - subtotalNeto);
+
+                                            return (
+                                                <>
+                                                    <div className="flex justify-between text-slate-500"><span>Subtotal bruto:</span> <span>${subtotalBruto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    {totalDiscounts > 0.009 && (
+                                                        <div className="flex justify-between font-bold text-amber-600 dark:text-amber-400"><span>Descuentos prorrateados aplicados:</span> <span>-${totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    )}
+                                                    <div className="flex justify-between text-slate-700 dark:text-slate-300 font-semibold mt-1"><span>Subtotal neto:</span> <span>${subtotalNeto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between text-slate-500"><span>Tax:</span> <span>${Number(check.taxAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2"><span>TOTAL:</span> <span>${(Number(check.totalAmount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                </>
+                                            );
+                                        })()}
                                     </div>
 
                                     {orderDetailData.data.checks?.[0]?.payments?.length > 0 && (

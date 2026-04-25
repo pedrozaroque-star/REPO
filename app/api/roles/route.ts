@@ -32,33 +32,52 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
     const body = await req.json()
-    const { assignments } = body
+    const { assignments, store_id, start_date, end_date } = body
 
-    if (!assignments || !Array.isArray(assignments)) {
-        return NextResponse.json({ error: 'Invalid data format' }, { status: 400 })
+    if (!assignments || !Array.isArray(assignments) || !store_id || !start_date || !end_date) {
+        return NextResponse.json({ error: 'Faltan parámetros críticos (assignments, store_id, dates)' }, { status: 400 })
     }
 
-    // Remapear para asegurar que coincida con la DB
-    const processedAssignments = assignments.map((a: any) => ({
-        store_id: a.store_id,
-        employee_id: a.employee_id,
-        assignment_date: a.assignment_date,
-        main_station: a.main_station || a.sub_position,
-        sub_position: a.sub_position || a.main_station,
-        station_group: a.station_group || 'Front',
-        tasks: a.tasks || []
-    }));
+    try {
+        // 1. ELIMINACIÓN ATÓMICA: Limpiar la semana para esta tienda antes de re-insertar
+        // Esto garantiza que los puestos que se dejaron vacíos (borrados en el front) 
+        // realmente se borren de la base de datos.
+        const { error: deleteError } = await supabaseAdmin
+            .from('station_assignments')
+            .delete()
+            .eq('store_id', store_id)
+            .gte('assignment_date', start_date)
+            .lte('assignment_date', end_date);
 
-    const { data, error } = await supabaseAdmin
-        .from('station_assignments')
-        .upsert(processedAssignments, { 
-            onConflict: 'store_id, employee_id, assignment_date, sub_position' 
-        })
+        if (deleteError) throw deleteError;
 
-    if (error) {
-        console.error('Save error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 })
+        if (assignments.length === 0) {
+            return NextResponse.json({ success: true, message: 'Semana limpiada (sin asignaciones)' });
+        }
+
+        // 2. INSERCIÓN DE NUEVO ESTADO
+        const processedAssignments = assignments.map((a: any) => ({
+            store_id: a.store_id || store_id,
+            employee_id: a.employee_id,
+            assignment_date: a.assignment_date,
+            main_station: a.main_station || a.sub_position,
+            sub_position: a.sub_position || a.main_station,
+            station_group: a.station_group || 'Front',
+            tasks: a.tasks || []
+        }));
+
+        const { error: insertError } = await supabaseAdmin
+            .from('station_assignments')
+            .insert(processedAssignments);
+
+        if (insertError) throw insertError;
+
+        return NextResponse.json({ success: true })
+    } catch (error: any) {
+        console.error('CRITICAL SAVE ERROR:', error);
+        return NextResponse.json({ 
+            error: 'Error al persistir en base de datos', 
+            details: error.message 
+        }, { status: 500 })
     }
-
-    return NextResponse.json({ success: true })
 }

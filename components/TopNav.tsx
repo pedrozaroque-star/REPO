@@ -113,6 +113,7 @@ export default function TopNav() {
             title: t('sections.team'),
             id: 'equipo',
             items: [
+                { name: 'Equipo', path: '/roles', icon: <Users size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.my_schedule'), path: '/mis-horarios', icon: <CalendarCheck size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
                 { name: t('items.self_scheduling'), path: '/gestion/auto-schedule', icon: <UserCog size={20} />, roles: ['supervisor', 'admin'] },
             ]
