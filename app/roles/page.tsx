@@ -118,7 +118,7 @@ export default function MissionControlRoles() {
   const [newTemplateName, setNewTemplateName] = useState('');
   const [showTemplateSave, setShowTemplateSave] = useState(false);
 
-  const formatTime12h = (timeStr: string) => {
+  const formatTime12h = (timeStr: string): string => {
     if (!timeStr) return '';
     // Handle "13:00 - 14:00" legacy strings
     if (timeStr.includes('-')) {
@@ -1633,7 +1633,36 @@ export default function MissionControlRoles() {
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-2">Turno</label>
                         <select 
                           value={newActivity.shift || 'AM'}
-                          onChange={(e) => setNewActivity({...newActivity, shift: e.target.value})}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const update: any = { ...newActivity, shift: val };
+                            
+                            // Auto-adjust times to period
+                            if (val === 'AM' || val === 'AMBOS') {
+                              if (newActivity.startTime) {
+                                let h = parseInt(newActivity.startTime.split(':')[0]);
+                                if (h >= 12) h -= 12;
+                                update.startTime = `${h.toString().padStart(2, '0')}:${newActivity.startTime.split(':')[1]}`;
+                              }
+                              if (newActivity.endTime) {
+                                let h = parseInt(newActivity.endTime.split(':')[0]);
+                                if (h >= 12) h -= 12;
+                                update.endTime = `${h.toString().padStart(2, '0')}:${newActivity.endTime.split(':')[1]}`;
+                              }
+                            } else if (val === 'PM') {
+                              if (newActivity.startTime) {
+                                let h = parseInt(newActivity.startTime.split(':')[0]);
+                                if (h < 12) h += 12;
+                                update.startTime = `${h.toString().padStart(2, '0')}:${newActivity.startTime.split(':')[1]}`;
+                              }
+                              if (newActivity.endTime) {
+                                let h = parseInt(newActivity.endTime.split(':')[0]);
+                                if (h < 12) h += 12;
+                                update.endTime = `${h.toString().padStart(2, '0')}:${newActivity.endTime.split(':')[1]}`;
+                              }
+                            }
+                            setNewActivity(update);
+                          }}
                           className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none cursor-pointer"
                         >
                           <option value="AM">☀️ AM</option>
@@ -1646,7 +1675,38 @@ export default function MissionControlRoles() {
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-2">Categoría</label>
                         <select 
                           value={newActivity.category}
-                          onChange={(e) => setNewActivity({...newActivity, category: e.target.value})}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const update: any = { ...newActivity, category: val };
+                            
+                            // Auto-adjust period based on category
+                            if (val === 'APERTURA') {
+                              update.shift = 'AM';
+                              if (newActivity.startTime) {
+                                let h = parseInt(newActivity.startTime.split(':')[0]);
+                                if (h >= 12) h -= 12;
+                                update.startTime = `${h.toString().padStart(2, '0')}:${newActivity.startTime.split(':')[1]}`;
+                              }
+                              if (newActivity.endTime) {
+                                let h = parseInt(newActivity.endTime.split(':')[0]);
+                                if (h >= 12) h -= 12;
+                                update.endTime = `${h.toString().padStart(2, '0')}:${newActivity.endTime.split(':')[1]}`;
+                              }
+                            } else if (val === 'CIERRE') {
+                              update.shift = 'PM';
+                              if (newActivity.startTime) {
+                                let h = parseInt(newActivity.startTime.split(':')[0]);
+                                if (h < 12) h += 12;
+                                update.startTime = `${h.toString().padStart(2, '0')}:${newActivity.startTime.split(':')[1]}`;
+                              }
+                              if (newActivity.endTime) {
+                                let h = parseInt(newActivity.endTime.split(':')[0]);
+                                if (h < 12) h += 12;
+                                update.endTime = `${h.toString().padStart(2, '0')}:${newActivity.endTime.split(':')[1]}`;
+                              }
+                            }
+                            setNewActivity(update);
+                          }}
                           className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-4 py-4 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all appearance-none cursor-pointer"
                         >
                           <option value="APERTURA">🌅 APERTURA</option>
