@@ -105,7 +105,7 @@ export default function MissionControlRoles() {
 
   // States for Employee Contact Card
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<any>(null);
-  const [selectedSlotForCard, setSelectedSlotForCard] = useState<{label: string, assignee: any} | null>(null);
+  const [selectedSlotForCard, setSelectedSlotForCard] = useState<{label: string, assignee: any, stationKey?: string} | null>(null);
   const [isReassigning, setIsReassigning] = useState(false);
   
   // Derived GUID
