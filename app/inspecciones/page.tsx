@@ -26,9 +26,15 @@ function InspeccionesContent() {
   const [loading, setLoading] = useState(true)
   const [storeFilter, setStoreFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [supervisorFilter, setSupervisorFilter] = useState('all') // New State
+  const [supervisorFilter, setSupervisorFilter] = useState('all')
   const [stores, setStores] = useState<any[]>([])
-  const [users, setUsers] = useState<any[]>([]) // key for dropdown
+  const [users, setUsers] = useState<any[]>([])
+
+  // Paginación
+  const [currentPage, setCurrentPage] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
+  const [totalCount, setTotalCount] = useState(0)
+  const [stats, setStats] = useState({ total: 0, avgScore: 0, pending: 0, approved: 0 })
 
   // Modal State
   const [selectedInspection, setSelectedInspection] = useState<any>(null)
@@ -58,8 +64,12 @@ function InspeccionesContent() {
   }, [openId, inspections])
 
   useEffect(() => {
+    setCurrentPage(0) // Reset page on filter change
+  }, [storeFilter, statusFilter, supervisorFilter])
+
+  useEffect(() => {
     if (user) fetchData()
-  }, [storeFilter, statusFilter, supervisorFilter, user])
+  }, [storeFilter, statusFilter, supervisorFilter, user, currentPage])
 
   const fetchData = async () => {
     try {
@@ -85,34 +95,60 @@ function InspeccionesContent() {
       setUsers(usersList || [])
 
 
-      // 2. Obtener inspecciones básicas (Sin Joins complejos que puedan fallar por RLS o FKs)
-
+      // 2. Obtener inspecciones básicas (Con Paginación y Filtros en Servidor)
       let query = supabase
         .from('supervisor_inspections')
-        .select('*')
-        .order('inspection_date', { ascending: false })
-        .order('created_at', { ascending: false })
+        .select('*', { count: 'exact' })
 
+      // Aplicar filtros a la consulta de Supabase
       if (storeFilter !== 'all') {
         query = query.eq('store_id', storeFilter)
       } else if (user?.role === 'manager' || user?.role === 'gerente') {
-        // [FIX] Managers solo ven SU tienda
         if (user.store_id) query = query.eq('store_id', user.store_id)
-      } else {
-        // Is Admin/Auditor
-        if (supervisorFilter !== 'all') {
-          query = query.eq('inspector_id', supervisorFilter)
+      } else if (supervisorFilter !== 'all') {
+        query = query.eq('inspector_id', supervisorFilter)
+      }
+
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'aprobado') {
+          query = query.in('estatus_admin', ['aprobado', 'cerrado'])
+        } else {
+          query = query.eq('estatus_admin', statusFilter)
         }
       }
 
-      const { data: rawData, error: rawError } = await query
+      // Orden y Rango
+      const from = currentPage * pageSize
+      const to = from + pageSize - 1
 
-      if (rawError) {
-        console.error('❌ Error de consulta de inspecciones:', rawError)
-        throw rawError
+      const { data: rawData, error: rawError, count } = await query
+        .order('inspection_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(from, to)
+
+      if (rawError) throw rawError
+      setTotalCount(count || 0)
+
+      // 2.5 Obtener Stats Globales (para las tarjetas de arriba)
+      // Nota: Fetching stats separately to avoid massive queries
+      const statsQuery = supabase.from('supervisor_inspections').select('overall_score, estatus_admin')
+      if (storeFilter !== 'all') statsQuery.eq('store_id', storeFilter)
+      else if (user?.role === 'manager' || user?.role === 'gerente') if (user.store_id) statsQuery.eq('store_id', user.store_id)
+      if (supervisorFilter !== 'all') statsQuery.eq('inspector_id', supervisorFilter)
+
+      const { data: statsData } = await statsQuery
+      if (statsData) {
+        const total = statsData.length
+        const avg = total > 0 ? Math.round(statsData.reduce((acc, curr) => acc + (curr.overall_score || 0), 0) / total) : 0
+        const pending = statsData.filter(i => (i.estatus_admin || 'pendiente').toLowerCase().trim() === 'pendiente').length
+        const approved = statsData.filter(i => {
+          const s = (i.estatus_admin || '').toLowerCase().trim()
+          return s === 'aprobado' || s === 'cerrado'
+        }).length
+        setStats({ total, avgScore: avg, pending, approved })
       }
 
-      // 2.5 Verificar comentarios (Chat)
+      // 2.6 Verificar comentarios (Chat)
       const inspectionIds = (rawData || []).map(i => i.id)
       let commentCounts: Record<string, number> = {}
 
@@ -128,7 +164,6 @@ function InspeccionesContent() {
           })
         }
       }
-
 
       // 3. Mapeo manual de datos
       const mappedData = (rawData || []).map(item => {
@@ -147,18 +182,7 @@ function InspeccionesContent() {
         }
       })
 
-      // 4. Filtrar por estado si aplica
-      const finalData = statusFilter !== 'all'
-        ? mappedData.filter(item => {
-          const s = (item.estatus_admin || 'pendiente').toLowerCase().trim()
-          if (statusFilter === 'aprobado') {
-            return s === 'aprobado' || s === 'cerrado'
-          }
-          return s === statusFilter
-        })
-        : mappedData
-
-      setInspections(finalData)
+      setInspections(mappedData)
     } catch (error: any) {
       console.error('Error fetching data:', error)
 
@@ -250,29 +274,24 @@ function InspeccionesContent() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-indigo-100 dark:border-slate-800 border-l-4 border-l-indigo-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.total')}</p>
-              <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">{inspections.length}</p>
+              <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">{stats.total}</p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-green-100 dark:border-slate-800 border-l-4 border-l-green-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.average')}</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
-                {inspections.length > 0
-                  ? Math.round(inspections.reduce((acc, curr) => acc + (curr.overall_score || 0), 0) / inspections.length) + '%'
-                  : 'N/A'}
+                {stats.total > 0 ? `${stats.avgScore}%` : 'N/A'}
               </p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-yellow-100 dark:border-slate-800 border-l-4 border-l-yellow-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.pending')}</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
-                {inspections.filter(i => (i.estatus_admin || 'pendiente').toLowerCase().trim() === 'pendiente').length}
+                {stats.pending}
               </p>
             </div>
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-xl shadow-sm p-4 border border-blue-100 dark:border-slate-800 border-l-4 border-l-blue-500 transition-all">
               <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">{t('inspections.stats.approved')}</p>
               <p className="text-2xl font-black text-gray-900 dark:text-white mt-0.5">
-                {inspections.filter(i => {
-                  const s = (i.estatus_admin || '').toLowerCase().trim()
-                  return s === 'aprobado' || s === 'cerrado'
-                }).length}
+                {stats.approved}
               </p>
             </div>
           </div>
@@ -548,6 +567,52 @@ function InspeccionesContent() {
               <div className="text-center text-gray-400 py-10 font-bold">{t('inspections.list.empty')}</div>
             )}
           </div>
+
+          {/* PAGINATION CONTROLS */}
+          {totalCount > pageSize && (
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 py-6 px-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-slate-800">
+              <div className="text-sm text-gray-500 dark:text-slate-400 font-medium">
+                Mostrando <span className="font-bold text-gray-900 dark:text-white">{currentPage * pageSize + 1}</span> a <span className="font-bold text-gray-900 dark:text-white">{Math.min((currentPage + 1) * pageSize, totalCount)}</span> de <span className="font-bold text-gray-900 dark:text-white">{totalCount}</span> inspecciones
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
+                  disabled={currentPage === 0}
+                  className="px-4 py-2 text-sm font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                >
+                  {t('common.previous') || 'Anterior'}
+                </button>
+                <div className="flex items-center gap-1">
+                  {[...Array(Math.min(5, Math.ceil(totalCount / pageSize)))].map((_, i) => {
+                    const totalPages = Math.ceil(totalCount / pageSize)
+                    let pageNum = i
+                    if (totalPages > 5) {
+                      if (currentPage > 2) pageNum = currentPage - 2 + i
+                      if (pageNum >= totalPages) pageNum = totalPages - 5 + i
+                    }
+                    if (pageNum < 0) return null
+
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`w-10 h-10 flex items-center justify-center rounded-lg text-sm font-bold transition-all ${currentPage === pageNum ? 'bg-indigo-600 text-white shadow-lg scale-110' : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-400 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
+                      >
+                        {pageNum + 1}
+                      </button>
+                    )
+                  })}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(totalCount / pageSize) - 1, prev + 1))}
+                  disabled={currentPage >= Math.ceil(totalCount / pageSize) - 1}
+                  className="px-4 py-2 text-sm font-bold bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                >
+                  {t('common.next') || 'Siguiente'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="h-16"></div> {/* Bottom Spacer */}
         </div>

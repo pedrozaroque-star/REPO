@@ -517,7 +517,7 @@ export default function MissionControlRoles() {
       if (employeeId === '') {
         newAssignments.splice(index, 1);
       } else {
-        newAssignments[index].employee_id = employeeId;
+        newAssignments[index] = { ...newAssignments[index], employee_id: employeeId };
       }
     } else if (employeeId !== '') {
       newAssignments.push({
@@ -1470,7 +1470,7 @@ export default function MissionControlRoles() {
                       <div className="flex flex-col gap-4 pt-6">
                         <button 
                           onClick={() => {
-                            updateAssignment(formatDateISO(activeDay), selectedSlotForCard.label, '', selectedSlotForCard.assignee.station_group);
+                            updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey, '', selectedSlotForCard.assignee.station_group);
                             setSelectedSlotForCard(null);
                           }}
                           className="w-full flex items-center justify-center gap-6 p-8 bg-red-500 text-white rounded-[2.5rem] font-black uppercase tracking-widest text-xl hover:bg-red-600 transition-all shadow-xl shadow-red-100"
@@ -1591,7 +1591,7 @@ export default function MissionControlRoles() {
                           <button 
                             key={e.id}
                             onClick={() => {
-                              updateAssignment(formatDateISO(activeDay), selectedSlotForCard.label, String(e.id), selectedSlotForCard.assignee.station_group);
+                              updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey, String(e.id), selectedSlotForCard.assignee.station_group);
                               setSelectedSlotForCard(null);
                             }}
                             className="w-full p-8 rounded-[3rem] bg-white border-2 border-slate-100 shadow-lg hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left flex items-center gap-10 group"

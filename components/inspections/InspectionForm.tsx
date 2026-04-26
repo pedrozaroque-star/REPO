@@ -413,8 +413,15 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             let recipients = admins ? admins.map(a => a.id) : []
             
             // Obtener managers de la tienda siempre para poder enviarles las notificaciones de comentarios
-            const { data: managers } = await supabase.from('users').select('id').eq('store_id', payload.store_id).in('role', ['manager', 'gerente'])
-            const managerIds = managers ? managers.map(m => m.id) : []
+            // Usamos una consulta que cubra store_id directo o store_scope (si es manager de varias)
+            const { data: allManagers } = await supabase.from('users').select('id, store_id, store_scope').in('role', ['manager', 'gerente', 'admin'])
+            const managerIds = (allManagers || [])
+              .filter(m => 
+                m.store_id === payload.store_id || 
+                (Array.isArray(m.store_scope) && m.store_scope.includes(payload.store_id)) ||
+                (typeof m.store_scope === 'string' && m.store_scope.includes(String(payload.store_id)))
+              )
+              .map(m => m.id)
 
             if (overall < 87) {
               recipients = [...new Set([...recipients, ...managerIds])]
@@ -453,12 +460,23 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                   user_id: managerId,
                   title: `Comentarios en Inspección: ${formatStoreName(storeName)}`,
                   message: combinedMessage.trim(),
-                  type: 'observacion_supervisor',
+                  type: 'warning', // Cambiado de 'observacion_supervisor' para asegurar que aparezca icono en campana
                   link: '/inspecciones',
                   reference_id: savedData?.[0]?.id,
                   reference_type: 'supervisor_inspection'
                 })
               })
+            }
+
+            // --- NUEVO: DISPARAR NOTIFICACION POR CORREO ---
+            if (questionsWithComments.length > 0 && savedData?.[0]?.id) {
+              fetch('/api/notifications/inspection-comments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ inspection_id: savedData[0].id })
+              }).then(res => res.json())
+                .then(data => console.log('📧 Email notification response:', data))
+                .catch(err => console.error('❌ Email notification failed:', err))
             }
 
             if (notifs.length > 0) {
