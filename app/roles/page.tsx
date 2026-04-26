@@ -43,6 +43,10 @@ import { getRoleWeight, getMonday, formatDateISO, formatStoreName } from '../pla
 const BoardSlot = ({ label, stationKey, group, assignee, employees, className = "", onClick }: any) => {
   const emp = assignee ? employees.find((e: any) => String(e.id) === String(assignee.employee_id)) : null;
   
+  const sUpper = stationKey?.toUpperCase();
+  const isGreenGroup = sUpper === 'ENTREGA' || sUpper === 'TORTILLAS';
+  const isYellowGroup = sUpper === 'CAJA 2' || sUpper === 'VENTANA 2' || sUpper === 'VENTANILLA 2';
+
   return (
     <div 
       onClick={() => onClick(stationKey, label, group, emp, assignee)}
@@ -50,23 +54,21 @@ const BoardSlot = ({ label, stationKey, group, assignee, employees, className = 
     >
       <div className={`w-full h-full p-2.5 rounded-[1.5rem] transition-all duration-300 overflow-hidden relative flex flex-col items-center justify-center border-4 ${
         emp 
-        ? 'bg-white border-slate-200 shadow-xl group-hover:shadow-2xl group-hover:border-slate-300' 
-        : 'bg-slate-50 border-dashed border-slate-300 shadow-md group-hover:shadow-lg group-hover:border-slate-400'
+        ? isGreenGroup ? 'bg-emerald-400 border-emerald-600 shadow-xl' : isYellowGroup ? 'bg-yellow-400 border-yellow-600 shadow-xl' : 'bg-white border-slate-200 shadow-xl group-hover:shadow-2xl group-hover:border-slate-300' 
+        : isGreenGroup ? 'bg-emerald-100 border-emerald-400 shadow-md' : isYellowGroup ? 'bg-yellow-100 border-yellow-400 shadow-md' : 'bg-slate-50 border-dashed border-slate-300 shadow-md group-hover:shadow-lg group-hover:border-slate-400'
       }`}>
-        {/* Subtle accent bar removed for cleaner look */}
-        
-        <span className={`text-[24px] font-semibold uppercase tracking-widest mb-1.5 text-center transition-colors ${
-          emp ? 'text-[#ff9166]' : 'text-amber-800'
+        <span className={`text-[24px] font-black uppercase tracking-widest mb-1.5 text-center transition-colors ${
+          isGreenGroup || isYellowGroup ? 'text-black' : (emp ? 'text-[#ff9166]' : 'text-amber-800')
         }`}>
           {label}
         </span>
         <span className={`text-[32px] font-black uppercase tracking-tighter leading-none text-center transition-all ${
-          emp ? 'text-slate-900 font-black' : 'text-amber-400 drop-shadow-sm font-bold'
+          isGreenGroup || isYellowGroup ? 'text-black' : (emp ? 'text-slate-900 font-black' : 'text-amber-400 drop-shadow-sm font-bold')
         }`}>
           {emp ? (emp.chosen_name || emp.first_name) : 'Libre'}
         </span>
         {emp && (
-          <p className="text-xs font-black text-slate-500 mt-1.5 uppercase tracking-widest truncate w-full text-center">
+          <p className={`text-xs font-black mt-1.5 uppercase tracking-widest truncate w-full text-center ${isGreenGroup || isYellowGroup ? 'text-black/60' : 'text-slate-500'}`}>
             {emp.last_name}
           </p>
         )}
@@ -102,6 +104,7 @@ export default function MissionControlRoles() {
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState<{ newName: string, existing: any } | null>(null);
+  const [assignmentDay, setAssignmentDay] = useState<string>('DIARIO');
 
   // States for Employee Contact Card
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<any>(null);
@@ -499,8 +502,14 @@ export default function MissionControlRoles() {
 
   const updateAssignment = (dateStr: string, station: string, employeeId: string, group: string) => {
     const newAssignments = [...assignments];
+    const jsDay = new Date(dateStr + 'T12:00:00').getDay();
+    const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
     const shiftStation = `${station}_${activeShift}`;
-    const stationTasks = stationActivities[shiftStation] || [];
+    
+    // Combine Daily + Day-Specific tasks
+    const dailyTasks = stationActivities[shiftStation] || [];
+    const specificDayTasks = stationActivities[`${shiftStation}_${myDayIndex}`] || [];
+    const defaultTasks = [...new Set([...dailyTasks, ...specificDayTasks])];
     
     const index = newAssignments.findIndex(a => a.assignment_date === dateStr && a.sub_position === shiftStation);
 
@@ -511,9 +520,6 @@ export default function MissionControlRoles() {
         newAssignments[index].employee_id = employeeId;
       }
     } else if (employeeId !== '') {
-      // Auto-inject tasks from station mapping
-      const defaultTasks = stationActivities[shiftStation] || [];
-      
       newAssignments.push({
         store_id: selectedStoreGuid,
         employee_id: employeeId,
@@ -633,15 +639,24 @@ export default function MissionControlRoles() {
       !(a.assignment_date === activeDateStr && a.sub_position.endsWith(shiftSuffix))
     );
     
+    const jsDay = new Date(activeDateStr + 'T12:00:00').getDay();
+    const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
+
     const newDayAssignments = templateData.map(a => {
         const mappedName = mapStationName(a.main_station, a.station_group);
-        // If template has no tasks, pull from current global mapping
-        const currentTasks = a.tasks || stationActivities[mappedName + shiftSuffix] || [];
+        const shiftStation = mappedName + shiftSuffix;
+        
+        // Combine Daily + Day-Specific tasks if template has no tasks
+        const dailyTasks = stationActivities[shiftStation] || [];
+        const specificDayTasks = stationActivities[`${shiftStation}_${myDayIndex}`] || [];
+        const defaultTasks = [...new Set([...dailyTasks, ...specificDayTasks])];
+        
+        const currentTasks = a.tasks || defaultTasks;
         
         return {
           ...a,
           main_station: mappedName,
-          sub_position: `${mappedName}${shiftSuffix}`,
+          sub_position: shiftStation,
           station_group: findCurrentGroup(mappedName),
           store_id: selectedStoreGuid,
           assignment_date: activeDateStr,
@@ -1060,16 +1075,22 @@ export default function MissionControlRoles() {
                     if (!matchesShift) return false;
 
                     // Check if anyone is assigned to this task in the current week/shift
-                    const hasAnyAssignment = weekDays.some(day => {
-                      const dateStr = formatDateISO(day);
-                      const shiftSuffix = `_${activeShift}`;
-                      return assignments.some(a => {
-                        const isDateMatch = a.assignment_date === dateStr;
-                        const isShiftMatch = a.sub_position.endsWith(shiftSuffix);
-                        const hasTask = a.tasks?.includes(act.name) || stationActivities[`${a.main_station}${shiftSuffix}`]?.includes(act.name);
-                        return isDateMatch && isShiftMatch && hasTask;
+                      const hasAnyAssignment = weekDays.some(day => {
+                        const dateStr = formatDateISO(day);
+                        const jsDay = day.getDay();
+                        const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
+                        const shiftSuffix = `_${activeShift}`;
+                        
+                        return assignments.some(a => {
+                          const isDateMatch = a.assignment_date === dateStr;
+                          const isShiftMatch = a.sub_position.endsWith(shiftSuffix);
+                          const shiftStationKey = `${a.main_station}${shiftSuffix}`;
+                          const hasTask = a.tasks?.includes(act.name) || 
+                                          stationActivities[shiftStationKey]?.includes(act.name) ||
+                                          stationActivities[`${shiftStationKey}_${myDayIndex}`]?.includes(act.name);
+                          return isDateMatch && isShiftMatch && hasTask;
+                        });
                       });
-                    });
 
                     return hasAnyAssignment;
                   });
@@ -1100,8 +1121,14 @@ export default function MissionControlRoles() {
                               .filter(a => {
                                 const isDateMatch = a.assignment_date === dateStr;
                                 const isShiftMatch = a.sub_position.endsWith(shiftSuffix);
-                                // SYNC FIX: Check both saved tasks and CURRENT station mappings
-                                const hasTask = a.tasks?.includes(act.name) || stationActivities[`${a.main_station}${shiftSuffix}`]?.includes(act.name);
+                                const jsDay = day.getDay();
+                                const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
+                                const shiftStationKey = `${a.main_station}${shiftSuffix}`;
+                                
+                                // SYNC FIX: Check both saved tasks, DAILY mappings and SPECIFIC DAY mappings
+                                const hasTask = a.tasks?.includes(act.name) || 
+                                                stationActivities[shiftStationKey]?.includes(act.name) ||
+                                                stationActivities[`${shiftStationKey}_${myDayIndex}`]?.includes(act.name);
                                 return isDateMatch && isShiftMatch && hasTask;
                               })
                               .map(a => {
@@ -2005,6 +2032,36 @@ export default function MissionControlRoles() {
                 <button onClick={() => setShowStationActivitiesModal(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400"><X size={24} /></button>
               </div>
 
+              {/* Day Selector */}
+              <div className="bg-slate-50 p-4 rounded-3xl mb-8 border border-slate-100 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Frecuencia</span>
+                  <div className="flex items-center gap-1">
+                    {['DIARIO', 'L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => {
+                      const dayVal = d === 'DIARIO' ? 'DIARIO' : (i - 1).toString();
+                      const isActive = assignmentDay === dayVal;
+                      return (
+                        <button
+                          key={d + i}
+                          onClick={() => setAssignmentDay(dayVal)}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                            isActive ? 'bg-indigo-600 text-white shadow-lg scale-110' : 'bg-white text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-100'
+                          } ${d === 'DIARIO' ? 'px-8 w-auto rounded-xl' : ''}`}
+                        >
+                          {d}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Contexto</span>
+                  <p className="text-xs font-bold text-indigo-600 uppercase">
+                    {assignmentDay === 'DIARIO' ? 'Toda la semana' : `Solo el ${['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][parseInt(assignmentDay)]}`}
+                  </p>
+                </div>
+              </div>
+
               <div className="space-y-4">
                 <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Selecciona las actividades para este puesto:</label>
                 <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
@@ -2022,14 +2079,15 @@ export default function MissionControlRoles() {
                       .filter(a => a.shift === activeShift || a.shift === 'AMBOS' || !a.shift)
                       .map((act, idx) => {
                     const shiftStationKey = `${showStationActivitiesModal}_${activeShift}`;
-                    const isSelected = stationActivities[shiftStationKey]?.includes(act.name);
+                    const storageKey = assignmentDay === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${assignmentDay}`;
+                    const isSelected = stationActivities[storageKey]?.includes(act.name);
                     return (
                       <button 
                         key={idx}
                         onClick={() => {
-                          const current = stationActivities[shiftStationKey] || [];
+                          const current = stationActivities[storageKey] || [];
                           const updated = isSelected ? current.filter(a => a !== act.name) : [...current, act.name];
-                          const newMappings = { ...stationActivities, [shiftStationKey]: updated };
+                          const newMappings = { ...stationActivities, [storageKey]: updated };
                           setStationActivities(newMappings);
                           saveActivities(undefined, newMappings);
                         }}
