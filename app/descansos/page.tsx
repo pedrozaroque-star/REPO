@@ -81,7 +81,7 @@ export default function DescansosPage() {
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
     const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[] }>({ shifts: [], hours: [], employees: [], jobs: [] })
 
-    const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any, isManualAction: boolean = false) => {
+    const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false) => {
         setCalculating(true);
         await new Promise(r => setTimeout(r, 50));
 
@@ -124,6 +124,19 @@ export default function DescansosPage() {
             const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
             return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: employeeName };
         });
+
+        // 🧠 BYPASS DE OPTIMIZACIÓN: Si los turnos ya tienen breaks calculados (no son null/undefined), los reusamos.
+        if (!isManualAction && !forceRecalculate) {
+            // Verificamos si TODOS los turnos procesables ya pasaron por la IA antes
+            const alreadyCalculated = shiftsForAi.every((s: any) => s.breaks_schedule !== undefined && s.breaks_schedule !== null);
+            
+            if (alreadyCalculated && shiftsForAi.length > 0) {
+                console.log("⏭️ Bypass IA: Turnos ya calculados previamente. Cargando caché de BD.");
+                setSmartShifts(shiftsForAi);
+                setCalculating(false);
+                return;
+            }
+        }
 
         try {
             const augmented = scheduleBreaksWithDemand(shiftsForAi, hours);
@@ -754,6 +767,15 @@ export default function DescansosPage() {
                             <RefreshCw size={20} className={isRefreshingToast ? 'animate-spin' : ''} />
                         </button>
                     )}
+                    <button
+                        onClick={() => triggerAiRecalculation(absentEmpIds, undefined, true, true)}
+                        disabled={calculating}
+                        className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2.5 rounded-xl text-base font-black shadow-sm transition-all flex items-center gap-2 min-w-[52px]"
+                        title="Forzar recálculo inteligente de descansos"
+                    >
+                        <Zap size={20} className={calculating ? 'animate-pulse' : ''} />
+                        <span className="hidden lg:inline">RECALCULAR</span>
+                    </button>
                     <button
                         onClick={() => setShowRealPunches(!showRealPunches)}
                         className={`px-6 py-2.5 rounded-xl text-base tracking-wider font-black shadow-md transition-all flex items-center gap-2 border ${showRealPunches ? 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700 ring-2 ring-cyan-600/30 ring-offset-1' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'}`}
