@@ -125,12 +125,14 @@ export default function DescansosPage() {
             return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: employeeName };
         });
 
-        // 🧠 BYPASS DE OPTIMIZACIÓN: Si los turnos ya tienen breaks calculados (no son null/undefined), los reusamos.
+        // 🧠 BYPASS DE OPTIMIZACIÓN: Si los turnos ya tienen breaks calculados, los reusamos.
         if (!isManualAction && !forceRecalculate) {
-            // Verificamos si TODOS los turnos procesables ya pasaron por la IA antes
-            const alreadyCalculated = shiftsForAi.every((s: any) => s.breaks_schedule !== undefined && s.breaks_schedule !== null);
+            // Verificamos si AL MENOS UN TURNO ya tiene descansos asignados en BD.
+            // Si es así, significa que la IA ya procesó el día entero previamente.
+            // (Si hay turnos nuevos, el mánager deberá presionar RECALCULAR manualmente).
+            const alreadyCalculated = shiftsForAi.some((s: any) => s.breaks_schedule && s.breaks_schedule.length > 0);
             
-            if (alreadyCalculated && shiftsForAi.length > 0) {
+            if (alreadyCalculated) {
                 console.log("⏭️ Bypass IA: Turnos ya calculados previamente. Cargando caché de BD.");
                 setSmartShifts(shiftsForAi);
                 setCalculating(false);
@@ -327,7 +329,7 @@ export default function DescansosPage() {
 
     const loadDayData = async () => {
         if (!storeGuid) return;
-        setCalculating(true)
+        setCalculating(true) // Mostramos spinner de "Procesando" brevemente
 
         // RESET ausentes al cambiar de día/tienda
         const freshAbsentSet = new Set<number>();
@@ -341,21 +343,15 @@ export default function DescansosPage() {
         const startStr = formatDateISO(weekStartM)
         const endStr = formatDateISO(addDays(weekStartM, 6))
 
-        // 2. Traer Empleados, Trabajos, Turnos, Punches y Proyecciones en PARALELO ABSOLUTO
-        const [empRes, jobsRes, weekShiftsRes, _, projData] = await Promise.all([
+        // 2a. CARGA EXTREMADAMENTE RÁPIDA: Supabase DB (Milisegundos)
+        const [empRes, jobsRes, weekShiftsRes] = await Promise.all([
             supabase.from('toast_employees').select('*').contains('store_ids', JSON.stringify([storeGuid])),
             supabase.from('toast_jobs').select('*'),
             supabase.from('shifts')
                 .select('*')
                 .eq('store_id', storeGuid)
                 .gte('shift_date', startStr)
-                .lte('shift_date', endStr),
-            pullToastPunches(false),
-            fetch('/api/projections/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ storeId: storeGuid, weekStart: dateStr, days: 1 })
-            }).then(r => r.json()).catch(e => { console.error(e); return null; })
+                .lte('shift_date', endStr)
         ]);
 
         const allEmpData = empRes.data as Employee[] || []
@@ -363,30 +359,24 @@ export default function DescansosPage() {
         setAllJobs(jobs)
         const weekShifts = weekShiftsRes.data as Shift[] || []
 
-        // 3. Reconstruir la lista exacta de empleados activos que usa el planificador (useVisibleEmployees)
+        // 3. Reconstruir la lista exacta de empleados activos que usa el planificador
         const ALLOWED_ROLES = ['manager', 'shift', 'cook', 'cocinero', 'cashier', 'cajero', 'prep', 'taquero', 'assistant', 'asst'];
 
-        // Filtro por tienda primero
         const storeEmployees = allEmpData.filter((e: any) => {
             let empStoreIds: string[] = []
             if (Array.isArray(e.store_ids)) {
                 empStoreIds = e.store_ids
             } else if (typeof e.store_ids === 'string') {
-                if (e.store_ids.trim().startsWith('[')) {
-                    try {
-                        const parsed = JSON.parse(e.store_ids)
-                        if (Array.isArray(parsed)) empStoreIds = parsed
-                    } catch {
-                        empStoreIds = [e.store_ids]
-                    }
-                } else {
+                try {
+                    const parsed = JSON.parse(e.store_ids)
+                    if (Array.isArray(parsed)) empStoreIds = parsed
+                } catch {
                     empStoreIds = [e.store_ids]
                 }
             }
             return empStoreIds.includes(storeGuid)
         })
 
-        // Filtro de visibilidad
         const visibleEmployees = storeEmployees.filter(emp => {
             const hasShiftThisWeek = weekShifts.some(s => String(s.employee_id) === String(emp.id));
             if (hasShiftThisWeek) return true;
@@ -414,7 +404,6 @@ export default function DescansosPage() {
             return hasAllowedRole;
         });
 
-        // Sort EXACTO como en el planificador
         const sortedVisibleEmployees = visibleEmployees.sort((a, b) => {
             const getTitle = (e: Employee) => {
                 const ref = e.job_references?.[0];
@@ -431,8 +420,6 @@ export default function DescansosPage() {
             return (a.chosen_name || a.first_name || '').localeCompare(b.chosen_name || b.first_name || '');
         });
 
-        // CRITICO: En la pantalla de descansos, NO DEBEMOS DIBUJAR a los Managers Generales
-        // pero queremos seguir dibujando al resto del roster idéntico al planificador.
         const rosterWithoutManagers = sortedVisibleEmployees.filter(emp => {
             const ref = emp.job_references?.[0];
             const j = jobs.find(job => job.guid === ref?.guid || String(job.id) === ref?.guid);
@@ -446,11 +433,9 @@ export default function DescansosPage() {
 
         setRosterEmployees(rosterWithoutManagers);
 
-        // 4. Aislar los turnos estrictamente del día actual (currentDate)
         const todayRawShifts = weekShifts.filter(s => s.shift_date === dateStr);
         setTodayShifts(todayRawShifts);
 
-        // 🧠 REHIDRATAR AUSENCIAS (Deep Fix: Respetar marcas manuales guardadas en DB)
         const dbAbsentees = todayRawShifts
             .filter(s => s.is_callback === true && s.employee_id !== null)
             .map(s => typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as unknown as number);
@@ -459,29 +444,59 @@ export default function DescansosPage() {
             setAbsentEmpIds(new Set(dbAbsentees));
         }
 
-        // 5. Configurar Horas Operativas de las proyecciones precargadas arriba
-        let hoursToDraw = []
-        if (projData?.meta?.dailyDetails?.length > 0) {
-            const dayMatch = projData.meta.dailyDetails.find((d: any) => d.date === dateStr)
-            if (dayMatch && dayMatch.hourly_breakdown) {
-                hoursToDraw = dayMatch.hourly_breakdown
-            }
-        }
-        setOperatingHours(hoursToDraw)
-
-        // 6. Forecast y Cálculos de IA
+        const hydratedAbsentSet = new Set(dbAbsentees);
+        
         try {
-            if (todayRawShifts) {
-                const data = { shifts: todayRawShifts, hours: hoursToDraw, employees: allEmpData as Employee[], jobs: jobs };
+            // --- 🧠 DEEP ARCHITECTURE: RENDERIZADO PROGRESIVO ---
+            const alreadyCalculated = todayRawShifts.some((s: any) => s.breaks_schedule && s.breaks_schedule.length > 0);
+            
+            // Definimos la tarea lenta (Toast API y Projections) que no bloquea la interfaz si hay Bypass
+            const fetchSlowData = async () => {
+                const [_, projData] = await Promise.all([
+                    pullToastPunches(false),
+                    fetch('/api/projections/generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ storeId: storeGuid, weekStart: dateStr, days: 1 })
+                    }).then(r => r.json()).catch(e => { console.error(e); return null; })
+                ]);
+
+                let hoursToDraw = []
+                if (projData?.meta?.dailyDetails?.length > 0) {
+                    const dayMatch = projData.meta.dailyDetails.find((d: any) => d.date === dateStr)
+                    if (dayMatch && dayMatch.hourly_breakdown) {
+                        hoursToDraw = dayMatch.hourly_breakdown
+                    }
+                }
+                setOperatingHours(hoursToDraw);
+                return hoursToDraw;
+            };
+
+            if (alreadyCalculated) {
+                // RUTA RÁPIDA (Bypass): Quitamos el cuadro de carga instantáneamente.
+                const data = { shifts: todayRawShifts, hours: [], employees: allEmpData as Employee[], jobs: jobs };
                 lastDataRef.current = data;
-                // En carga inicial (isManualAction = false), solo avisará si realmente mueve algo en la DB
-                const hydratedAbsentSet = new Set(dbAbsentees);
+                await triggerAiRecalculation(hydratedAbsentSet, data, false);
+                setCalculating(false); // ¡PANTALLA LIBERADA EN ~150ms!
+                
+                // Cargamos el Heatmap y Toast en segundo plano sin bloquear al usuario
+                fetchSlowData()
+                    .then((loadedHours) => {
+                        if (lastDataRef.current) lastDataRef.current.hours = loadedHours; // Por si oprime "Recalcular" después
+                    })
+                    .catch(e => console.error("Error en carga de fondo:", e));
+            } else {
+                // RUTA LENTA (Primera vez): Requerimos las proyecciones para que la IA decida
+                const loadedHours = await fetchSlowData();
+                const data = { shifts: todayRawShifts, hours: loadedHours, employees: allEmpData as Employee[], jobs: jobs };
+                lastDataRef.current = data;
                 await triggerAiRecalculation(hydratedAbsentSet, data, false);
             }
-        } catch (e) {
-            console.error("Error generating forecast:", e)
+        } catch (error) {
+            console.error("Error en la cadena principal de loadDayData:", error);
+        } finally {
+            setCalculating(false); // Garantía absoluta de liberar la pantalla
         }
-        setCalculating(false)
     }
 
     // --- REALTIME MONITORING (Auditoría Automática) ---
@@ -767,15 +782,6 @@ export default function DescansosPage() {
                             <RefreshCw size={20} className={isRefreshingToast ? 'animate-spin' : ''} />
                         </button>
                     )}
-                    <button
-                        onClick={() => triggerAiRecalculation(absentEmpIds, undefined, true, true)}
-                        disabled={calculating}
-                        className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2.5 rounded-xl text-base font-black shadow-sm transition-all flex items-center gap-2 min-w-[52px]"
-                        title="Forzar recálculo inteligente de descansos"
-                    >
-                        <Zap size={20} className={calculating ? 'animate-pulse' : ''} />
-                        <span className="hidden lg:inline">RECALCULAR</span>
-                    </button>
                     <button
                         onClick={() => setShowRealPunches(!showRealPunches)}
                         className={`px-6 py-2.5 rounded-xl text-base tracking-wider font-black shadow-md transition-all flex items-center gap-2 border ${showRealPunches ? 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700 ring-2 ring-cyan-600/30 ring-offset-1' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'}`}
