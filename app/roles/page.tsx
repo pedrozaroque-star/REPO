@@ -479,7 +479,7 @@ export default function MissionControlRoles() {
         return a;
       });
     } else {
-      const exists = activities.some(a => a.name === newActivity.name);
+      const exists = !force && activities.some(a => a.name === newActivity.name);
       if (exists) return;
       
       // New activity: sets the "Base/Default" schedule
@@ -1065,7 +1065,7 @@ export default function MissionControlRoles() {
                 </tr>
               </thead>
               <tbody className="bg-white">
-                {['PLANCHAS', 'TRASTES', 'LINEA', 'BAÑOS', 'OTROS'].map(cat => {
+                {[...new Set([...activities.map(a => a.category), 'APERTURA', 'CIERRE', 'ACTIVIDAD REGULAR', 'OTROS'])].filter(Boolean).map(cat => {
                   // FILTER ACTIVITIES BY CURRENT SHIFT AND ENSURE THEY HAVE AT LEAST ONE ASSIGNMENT
                   const catActivities = activities.filter(act => {
                     const matchesCategory = act.category === cat;
@@ -1082,13 +1082,17 @@ export default function MissionControlRoles() {
                         const shiftSuffix = `_${activeShift}`;
                         
                         return assignments.some(a => {
-                          const isDateMatch = a.assignment_date === dateStr;
-                          const isShiftMatch = a.sub_position.endsWith(shiftSuffix);
-                          const shiftStationKey = `${a.main_station}${shiftSuffix}`;
+                          if (a.assignment_date !== dateStr) return false;
+                          if (!a.sub_position?.endsWith(shiftSuffix)) return false;
+                          
+                          // Look for station name either in main_station or sub_position (before suffix)
+                          const stationBase = a.main_station || a.sub_position.replace(shiftSuffix, '');
+                          const shiftStationKey = `${stationBase}${shiftSuffix}`;
+                          
                           const hasTask = a.tasks?.includes(act.name) || 
                                           stationActivities[shiftStationKey]?.includes(act.name) ||
                                           stationActivities[`${shiftStationKey}_${myDayIndex}`]?.includes(act.name);
-                          return isDateMatch && isShiftMatch && hasTask;
+                          return hasTask;
                         });
                       });
 
@@ -1123,7 +1127,9 @@ export default function MissionControlRoles() {
                                 const isShiftMatch = a.sub_position.endsWith(shiftSuffix);
                                 const jsDay = day.getDay();
                                 const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
-                                const shiftStationKey = `${a.main_station}${shiftSuffix}`;
+                                
+                                const stationBase = a.main_station || a.sub_position.replace(shiftSuffix, '');
+                                const shiftStationKey = `${stationBase}${shiftSuffix}`;
                                 
                                 // SYNC FIX: Check both saved tasks, DAILY mappings and SPECIFIC DAY mappings
                                 const hasTask = a.tasks?.includes(act.name) || 
@@ -1405,173 +1411,173 @@ export default function MissionControlRoles() {
           >
             <motion.div 
               onClick={(e) => e.stopPropagation()}
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden relative cursor-default"
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              className="bg-slate-50 w-full h-full flex flex-col overflow-hidden relative cursor-default"
             >
               {/* Header with Station Info */}
               <div className="bg-indigo-600 p-8 text-white relative">
                 <button 
                   onClick={() => setSelectedSlotForCard(null)}
-                  className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-full transition-colors"
+                  className="absolute top-8 right-10 p-6 bg-white/10 hover:bg-white/20 text-white rounded-3xl transition-all z-30"
                 >
-                  <X size={24} />
+                  <X size={48} />
                 </button>
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-70 mb-1">GESTIÓN DE ESTACIÓN</p>
-                <h3 className="text-3xl font-black uppercase tracking-tighter">{selectedSlotForCard.label}</h3>
+                <div className="max-w-7xl mx-auto w-full">
+                  <p className="text-sm font-black uppercase tracking-[0.5em] opacity-70 mb-2">PANEL DE CONTROL OPERATIVO</p>
+                  <h3 className="text-6xl font-black uppercase tracking-tighter">{selectedSlotForCard.label}</h3>
+                </div>
               </div>
 
-              <div className="p-8">
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-12">
+                <div className="max-w-7xl mx-auto w-full">
                 {selectedEmployeeCard && !isReassigning ? (
                   /* --- VIEW 1: CONTACT CARD --- */
-                  <div className="space-y-8">
-                    <div className="flex items-center gap-6">
-                      <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center text-3xl font-black text-indigo-600 border-2 border-indigo-100 italic">
-                        {(selectedEmployeeCard.chosen_name || selectedEmployeeCard.first_name)?.[0]?.toUpperCase()}
-                      </div>
-                      <div>
-                        <h4 className="text-2xl font-black text-slate-900 uppercase">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                    
+                    {/* LEFT COLUMN: IDENTITY & ACTIONS (5 COLS) */}
+                    <div className="lg:col-span-5 space-y-10">
+                      <div className="bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100 flex flex-col items-center text-center">
+                        <div className="w-48 h-48 bg-indigo-600 rounded-[4rem] flex items-center justify-center text-7xl font-black text-white shadow-2xl shadow-indigo-200 italic mb-8">
+                          {(selectedEmployeeCard.chosen_name || selectedEmployeeCard.first_name)?.[0]?.toUpperCase()}
+                        </div>
+                        <h4 className="text-5xl font-black text-slate-900 uppercase leading-tight mb-2">
                           {selectedEmployeeCard.chosen_name || selectedEmployeeCard.first_name}
                         </h4>
-                        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">
+                        <p className="text-2xl font-bold text-slate-400 uppercase tracking-[0.3em]">
                           {selectedEmployeeCard.last_name}
                         </p>
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 gap-4">
-                      {selectedEmployeeCard.phone && (
-                        <a 
-                          href={`tel:${selectedEmployeeCard.phone}`}
-                          className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-300 transition-all group"
-                        >
-                          <div className="p-3 bg-white rounded-xl shadow-sm text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                            <Phone size={20} />
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Teléfono</span>
-                            <span className="text-lg font-black text-slate-700">{selectedEmployeeCard.phone}</span>
-                          </div>
-                        </a>
-                      )}
-                      
-                      {selectedEmployeeCard.email && (
-                        <a 
-                          href={`mailto:${selectedEmployeeCard.email}`}
-                          className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-300 transition-all group"
-                        >
-                          <div className="p-3 bg-white rounded-xl shadow-sm text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                            <Mail size={20} />
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email</span>
-                            <span className="text-sm font-bold text-slate-700 truncate max-w-[200px]">{selectedEmployeeCard.email}</span>
-                          </div>
-                        </a>
-                      )}
-                    </div>
-
-                    {/* --- ASSIGNED ACTIVITIES SECTION --- */}
-                    <div className="pt-6 border-t border-slate-100">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-                          <ClipboardList size={18} />
-                        </div>
-                        <h5 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Actividades Asignadas</h5>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        {(() => {
-                          const shiftSuffix = `_${activeShift}`;
-                          const stationKey = selectedSlotForCard.stationKey;
-                          const shiftStationKey = `${stationKey}${shiftSuffix}`;
-                          
-                          // COMBINE SAVED TASKS + DYNAMIC STATION MAPPINGS
-                          const liveTasks = [
-                            ...(selectedSlotForCard.assignee?.tasks || []),
-                            ...(stationActivities[shiftStationKey] || [])
-                          ];
-                          
-                          // Remove duplicates and filter empty
-                          const uniqueTasks = Array.from(new Set(liveTasks)).filter(Boolean);
-
-                          if (uniqueTasks.length > 0) {
-                            return uniqueTasks.map((taskName: string, i: number) => {
-                              const act = activities.find(a => a.name === taskName);
-                              return (
-                                <div key={i} className="flex items-center justify-between p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl group hover:bg-indigo-50 transition-colors">
-                                  <div className="flex flex-col">
-                                    <span className="text-[11px] font-black text-indigo-900 uppercase tracking-tight">{taskName}</span>
-                                    {act && (act.startTime || act.endTime || act.schedule) && (
-                                      <div className="flex items-center gap-2 mt-1">
-                                        <Clock size={10} className="text-amber-500" />
-                                        <span className="text-[9px] font-bold text-amber-600 uppercase">
-                                          {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <CheckCircle2 size={16} className="text-indigo-400 opacity-40" />
-                                </div>
-                              );
-                            });
-                          }
-
-                          return (
-                            <div className="p-4 bg-slate-50 border border-slate-100 border-dashed rounded-2xl text-center">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase italic">Sin actividades asignadas</p>
+                      <div className="grid grid-cols-1 gap-4">
+                        {selectedEmployeeCard.phone && (
+                          <a 
+                            href={`tel:${selectedEmployeeCard.phone}`}
+                            className="flex items-center gap-8 p-8 bg-white rounded-[2.5rem] shadow-lg border border-slate-100 hover:border-indigo-300 transition-all group"
+                          >
+                            <div className="p-6 bg-indigo-50 rounded-3xl text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                              <Phone size={32} />
                             </div>
-                          );
-                        })()}
+                            <div className="flex flex-col">
+                              <span className="text-sm font-black text-slate-400 uppercase tracking-widest">Llamar Ahora</span>
+                              <span className="text-3xl font-black text-slate-800">{selectedEmployeeCard.phone}</span>
+                            </div>
+                          </a>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-4 pt-6">
+                        <button 
+                          onClick={() => {
+                            updateAssignment(formatDateISO(activeDay), selectedSlotForCard.label, '', selectedSlotForCard.assignee.station_group);
+                            setSelectedSlotForCard(null);
+                          }}
+                          className="w-full flex items-center justify-center gap-6 p-8 bg-red-500 text-white rounded-[2.5rem] font-black uppercase tracking-widest text-xl hover:bg-red-600 transition-all shadow-xl shadow-red-100"
+                        >
+                          <UserMinus size={32} />
+                          Marcar como Ausente
+                        </button>
+                        
+                        <button 
+                          onClick={() => setIsReassigning(true)}
+                          className="w-full flex items-center justify-center gap-6 p-8 bg-indigo-600 text-white rounded-[2.5rem] font-black uppercase tracking-widest text-xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+                        >
+                          <RefreshCw size={32} />
+                          Cambiar Persona
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-3 pt-4">
-                      <button 
-                        onClick={() => {
-                          updateAssignment(formatDateISO(activeDay), selectedSlotForCard.label, '', selectedSlotForCard.assignee.station_group);
-                          setSelectedSlotForCard(null);
-                        }}
-                        className="w-full flex items-center justify-center gap-3 p-5 bg-red-50 text-red-600 rounded-2xl font-black uppercase tracking-widest text-[12px] hover:bg-red-600 hover:text-white transition-all border-2 border-red-100"
-                      >
-                        <UserMinus size={18} />
-                        Marcar como Ausente
-                      </button>
-                      
-                      <button 
-                        onClick={() => setIsReassigning(true)}
-                        className="w-full flex items-center justify-center gap-3 p-5 bg-indigo-50 text-indigo-600 rounded-2xl font-black uppercase tracking-widest text-[12px] hover:bg-indigo-600 hover:text-white transition-all border-2 border-indigo-100"
-                      >
-                        <RefreshCw size={18} />
-                        Sustituir / Cambiar Persona
-                      </button>
+                    {/* RIGHT COLUMN: ASSIGNED ACTIVITIES (7 COLS) */}
+                    <div className="lg:col-span-7">
+                      <div className="bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100 h-full">
+                        <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
+                          <div className="flex items-center gap-4">
+                            <div className="p-4 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-100">
+                              <ClipboardList size={32} />
+                            </div>
+                            <h5 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Actividades del Día</h5>
+                          </div>
+                          <span className="bg-slate-100 text-slate-500 py-2 px-6 rounded-full text-sm font-black uppercase tracking-widest">
+                            {format(activeDay, 'EEEE d', { locale: es })}
+                          </span>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          {(() => {
+                            const shiftSuffix = `_${activeShift}`;
+                            const stationKey = selectedSlotForCard.stationKey;
+                            const shiftStationKey = `${stationKey}${shiftSuffix}`;
+                            
+                            const liveTasks = [
+                              ...(selectedSlotForCard.assignee?.tasks || []),
+                              ...(stationActivities[shiftStationKey] || [])
+                            ];
+                            
+                            const uniqueTasks = Array.from(new Set(liveTasks)).filter(Boolean);
+
+                            if (uniqueTasks.length > 0) {
+                              return uniqueTasks.map((taskName: string, i: number) => {
+                                const act = activities.find(a => a.name === taskName);
+                                return (
+                                  <div key={i} className="flex items-center justify-between p-8 bg-slate-50 border border-slate-100 rounded-[2rem] group hover:bg-indigo-50 hover:border-indigo-100 transition-all">
+                                    <div className="flex flex-col">
+                                      <span className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">{taskName}</span>
+                                      {act && (act.startTime || act.endTime || act.schedule) && (
+                                        <div className="flex items-center gap-3">
+                                          <Clock size={20} className="text-amber-500" />
+                                          <span className="text-lg font-black text-amber-600 uppercase tracking-[0.2em]">
+                                            {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <CheckCircle2 size={36} className="text-indigo-400" />
+                                  </div>
+                                );
+                              });
+                            }
+
+                            return (
+                              <div className="py-20 flex flex-col items-center justify-center opacity-30">
+                                <ClipboardList size={80} className="mb-4" />
+                                <p className="text-xl font-black text-slate-400 uppercase italic tracking-widest">Sin tareas asignadas</p>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ) : (
                   /* --- VIEW 2: REASSIGNMENT (OR INITIAL ASSIGN) --- */
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between mb-2">
-                       <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest italic">Seleccionar Reemplazo</h4>
+                  <div className="space-y-10 max-w-4xl mx-auto w-full">
+                    <div className="flex items-center justify-between mb-4">
+                       <h4 className="text-2xl font-black text-slate-400 uppercase tracking-[0.3em] italic">Seleccionar Reemplazo</h4>
                        {selectedEmployeeCard && (
-                         <button onClick={() => setIsReassigning(false)} className="text-[10px] font-bold text-indigo-600 hover:underline">Volver a ficha</button>
+                         <button 
+                           onClick={() => setIsReassigning(false)} 
+                           className="text-xl font-bold text-indigo-600 hover:bg-indigo-50 px-6 py-3 rounded-2xl transition-all"
+                         >
+                           Volver a ficha
+                         </button>
                        )}
                     </div>
                     
-                    <div className="max-h-[400px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                    <div className="max-h-[70vh] overflow-y-auto space-y-4 pr-4 custom-scrollbar">
                       <button 
                         onClick={() => {
                           updateAssignment(formatDateISO(activeDay), selectedSlotForCard.label, '', selectedSlotForCard.assignee.station_group);
                           setSelectedSlotForCard(null);
                         }}
-                        className="w-full p-4 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-bold hover:bg-slate-50 transition-all text-left flex items-center gap-3"
+                        className="w-full p-8 rounded-[2.5rem] border-4 border-dashed border-slate-200 text-slate-400 font-black uppercase tracking-widest text-2xl hover:bg-slate-50 transition-all text-left flex items-center gap-8"
                       >
-                         <X size={18} />
+                         <X size={40} />
                          <span>Dejar Vacante (Libre)</span>
                       </button>
                       
                       {employees.map(e => {
-                        // Exclude people already working in THIS shift to prevent duplicates
                         const shiftSuffix = `_${activeShift}`;
                         const isBusy = assignments.some(a => 
                            a.assignment_date === formatDateISO(activeDay) && 
@@ -1588,14 +1594,14 @@ export default function MissionControlRoles() {
                               updateAssignment(formatDateISO(activeDay), selectedSlotForCard.label, String(e.id), selectedSlotForCard.assignee.station_group);
                               setSelectedSlotForCard(null);
                             }}
-                            className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left flex items-center gap-4 group"
+                            className="w-full p-8 rounded-[3rem] bg-white border-2 border-slate-100 shadow-lg hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left flex items-center gap-10 group"
                           >
-                             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-slate-400 group-hover:text-indigo-600 shadow-sm">
+                             <div className="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center text-4xl font-black text-slate-300 group-hover:text-indigo-600 shadow-inner">
                                {(e.chosen_name || e.first_name)?.[0]}
                              </div>
                              <div>
-                               <p className="text-sm font-black text-slate-900 leading-none">{(e.chosen_name || e.first_name).toUpperCase()}</p>
-                               <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">{e.last_name}</p>
+                               <p className="text-4xl font-black text-slate-900 uppercase leading-none mb-2">{(e.chosen_name || e.first_name)}</p>
+                               <p className="text-xl font-bold text-slate-400 uppercase tracking-widest">{e.last_name}</p>
                              </div>
                           </button>
                         );
@@ -1603,6 +1609,7 @@ export default function MissionControlRoles() {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             </motion.div>
           </div>
