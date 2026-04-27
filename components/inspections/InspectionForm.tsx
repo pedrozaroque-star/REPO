@@ -444,29 +444,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
               })
             }
 
-            // Notificaciones de comentarios para los Managers
+            // Notificaciones de comentarios: Se delegan a la API para evitar problemas de RLS en el frontend
             const questionsWithComments = allQuestions.filter(q => questionComments[q.id] && questionComments[q.id].trim() !== '')
-            
-            if (questionsWithComments.length > 0 && managerIds.length > 0) {
-              const totalComments = questionsWithComments.length;
-              let combinedMessage = `Se dejaron ${totalComments} comentarios detallados:\n`;
-              questionsWithComments.forEach((q, idx) => {
-                const safeText = q.text || 'Pregunta sin texto';
-                combinedMessage += `${idx + 1}. ${safeText.substring(0, 50)}${safeText.length > 50 ? '...' : ''}: "${questionComments[q.id]}"\n`;
-              });
-
-              managerIds.forEach(managerId => {
-                notifs.push({
-                  user_id: managerId,
-                  title: `Comentarios en Inspección: ${formatStoreName(storeName)}`,
-                  message: combinedMessage.trim(),
-                  type: 'warning', // Cambiado de 'observacion_supervisor' para asegurar que aparezca icono en campana
-                  link: '/inspecciones',
-                  reference_id: savedData?.[0]?.id,
-                  reference_type: 'supervisor_inspection'
-                })
-              })
-            }
 
             // --- NUEVO: DISPARAR NOTIFICACION POR CORREO ---
             if (questionsWithComments.length > 0 && savedData?.[0]?.id) {

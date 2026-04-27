@@ -249,10 +249,30 @@ export async function POST(req: Request) {
             }
         }
 
+        // 7. Insert Bell Notifications (TopNav)
+        // Esto se hace en la API para evitar problemas de RLS que el Supervisor pueda tener al buscar Managers
+        if (managers.length > 0) {
+            const combinedMessage = `Se dejaron ${comments.length} comentarios detallados en la inspección de ${storeName}.`
+            
+            const bellNotifs = managers.map(m => ({
+                user_id: m.id,
+                title: `Comentarios en Inspección: ${storeName}`,
+                message: combinedMessage,
+                type: 'warning',
+                link: `/inspecciones?id=${inspection_id}`,
+                reference_id: inspection_id,
+                reference_type: 'supervisor_inspection'
+            }))
+
+            const { error: bellError } = await supabase.from('notifications').insert(bellNotifs)
+            if (bellError) console.error('❌ [API] Error inserting bell notifications:', bellError)
+        }
+
         return NextResponse.json({
             success: true,
             sent_to: managerEmails.length,
             delivered: successCount,
+            bell_notifications: managers.length,
             errors: errors.length > 0 ? errors : undefined
         })
 
