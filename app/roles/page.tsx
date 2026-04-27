@@ -1572,9 +1572,13 @@ export default function MissionControlRoles() {
                         
                         <div className="space-y-4">
                           {(() => {
+                            const jsDay = activeDay.getDay();
+                            const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
+                            
                             const liveTasks = [
                               ...(currentAssignee?.tasks || []),
-                              ...(stationActivities[shiftStationKey] || [])
+                              ...(stationActivities[shiftStationKey] || []),
+                              ...(stationActivities[`${shiftStationKey}_${myDayIndex}`] || [])
                             ];
                             
                             const uniqueTasks = Array.from(new Set(liveTasks)).filter(Boolean);
