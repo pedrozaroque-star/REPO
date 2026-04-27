@@ -1005,16 +1005,16 @@ export default function MissionControlRoles() {
 
                   {section.stations.map((station) => (
                     <React.Fragment key={station}>
-                      <div className="flex items-center justify-between px-6 bg-slate-50 border border-slate-100 rounded-2xl min-h-[70px] group/station">
-                        <span className="text-[12px] font-black text-slate-600 uppercase tracking-tight leading-tight">{station}</span>
-                        <button 
-                          onClick={() => setShowStationActivitiesModal(station)}
-                          className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all opacity-0 group-hover/station:opacity-100"
-                          title="Asignar Actividades"
-                        >
+                      <button 
+                        onClick={() => setShowStationActivitiesModal(station)}
+                        className="w-full flex items-center justify-between px-4 text-left bg-slate-50 hover:bg-indigo-50/50 border border-slate-100 hover:border-indigo-200 rounded-2xl min-h-[70px] group/station transition-all shadow-sm hover:shadow-md"
+                        title={`Asignar Actividades a ${station}`}
+                      >
+                        <span className="text-[11px] font-black text-slate-600 group-hover/station:text-indigo-700 uppercase tracking-tight leading-tight flex-1 pr-2 break-words">{station}</span>
+                        <div className="p-2 text-slate-300 group-hover/station:text-indigo-600 group-hover/station:bg-white rounded-xl transition-all opacity-0 group-hover/station:opacity-100 shrink-0">
                           <FileText size={16} />
-                        </button>
-                      </div>
+                        </div>
+                      </button>
 
                       {[0, 1, 2, 3, 4, 5, 6].map(offset => {
                         const day = addDays(getMonday(currentWeekStart), offset);
