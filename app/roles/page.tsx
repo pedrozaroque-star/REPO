@@ -2201,7 +2201,7 @@ export default function MissionControlRoles() {
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto pr-4 custom-scrollbar">
+                <div className="max-h-[500px] overflow-y-auto pr-4 custom-scrollbar">
                   {activities.length === 0 ? (
                     <div className="text-center py-10 bg-slate-50 rounded-3xl border border-slate-200 border-dashed">
                       <p className="text-slate-400 italic text-sm">Primero crea actividades en la Librería Maestra.</p>
@@ -2212,65 +2212,93 @@ export default function MissionControlRoles() {
                         Ir a Librería
                       </button>
                     </div>
-                  ) : activities
+                  ) : (() => {
+                    const shiftStationKey = `${showStationActivitiesModal}_${activeShift}`;
+                    const firstDay = assignmentDay[0];
+                    const firstKey = firstDay === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${firstDay}`;
+                    
+                    const filteredActivities = activities
                       .filter(a => (a.shift === activeShift || a.shift === 'AMBOS' || !a.shift))
                       .filter(a => {
                         if (!taskSearchQuery) return true;
                         const query = taskSearchQuery.toLowerCase();
                         return a.name.toLowerCase().includes(query) || a.category.toLowerCase().includes(query);
-                      })
-                      .map((act, idx) => {
-                    const shiftStationKey = `${showStationActivitiesModal}_${activeShift}`;
-                    
-                    // A task is "selected" if it exists in at least the FIRST selected day of the array
-                    const firstDay = assignmentDay[0];
-                    const firstKey = firstDay === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${firstDay}`;
-                    const isSelected = stationActivities[firstKey]?.includes(act.name);
+                      });
 
-                    return (
+                    const selectedActs = filteredActivities.filter(act => stationActivities[firstKey]?.includes(act.name));
+                    const availableActs = filteredActivities.filter(act => !stationActivities[firstKey]?.includes(act.name));
+
+                    const renderActivityButton = (act: any, isSelected: boolean) => (
                       <button 
-                        key={idx}
+                        key={act.id || act.name}
                         onClick={() => {
-                          let newMappings = { ...stationActivities };
-                          
-                          // Determine the NEW state (if it was selected in first day, we remove from all. Else add to all)
                           const newState = !isSelected;
 
-                          assignmentDay.forEach(day => {
-                            const storageKey = day === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${day}`;
-                            const current = newMappings[storageKey] || [];
+                          setStationActivities(prev => {
+                            const newMappings = { ...prev };
                             
-                            if (newState) {
-                              // ADD: Ensure it's there
-                              if (!current.includes(act.name)) {
-                                newMappings[storageKey] = [...current, act.name];
+                            assignmentDay.forEach(day => {
+                              const storageKey = day === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${day}`;
+                              const current = newMappings[storageKey] || [];
+                              
+                              if (newState) {
+                                if (!current.includes(act.name)) newMappings[storageKey] = [...current, act.name];
+                              } else {
+                                newMappings[storageKey] = current.filter((a: string) => a !== act.name);
                               }
-                            } else {
-                              // REMOVE: Ensure it's gone
-                              newMappings[storageKey] = current.filter(a => a !== act.name);
-                            }
-                          });
+                            });
 
-                          setStationActivities(newMappings);
-                          saveActivities(undefined, newMappings);
+                            // Disparamos el guardado al backend asegurando que lleve el historial exacto sin perder clics rápidos
+                            saveActivities(undefined, newMappings);
+                            
+                            return newMappings;
+                          });
                         }}
-                        className={`flex items-center justify-between p-6 rounded-[2rem] border-2 transition-all ${
+                        className={`flex items-center justify-between p-6 rounded-[2rem] border-2 transition-all text-left ${
                           isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-100' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'
                         }`}
                       >
-                        <div className="flex flex-col items-start">
+                        <div className="flex flex-col items-start w-full pr-4">
                           <span className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isSelected ? 'text-white/40' : 'text-slate-400'}`}>{act.category}</span>
-                          <span className="text-lg font-black uppercase tracking-tight">{act.name}</span>
+                          <span className="text-lg font-black uppercase tracking-tight break-words">{act.name}</span>
                           {(act.startTime || act.endTime || act.schedule) && (
                             <span className={`text-xs font-black mt-2 ${isSelected ? 'text-white/60' : 'text-amber-500'}`}>
                               {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
                             </span>
                           )}
                         </div>
-                        {isSelected ? <CheckCircle2 size={32} /> : <div className="w-8 h-8 rounded-full border-4 border-slate-50 shadow-inner" />}
+                        {isSelected ? <CheckCircle2 size={32} className="shrink-0" /> : <div className="w-8 h-8 rounded-full border-4 border-slate-50 shadow-inner shrink-0" />}
                       </button>
                     );
-                  })}
+
+                    return (
+                      <div className="space-y-8">
+                        {selectedActs.length > 0 && (
+                          <div className="space-y-4">
+                            <h4 className="text-[11px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2 border-b border-indigo-100 pb-2">
+                              <CheckCircle2 size={14} />
+                              Tareas Asignadas ({selectedActs.length})
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {selectedActs.map(act => renderActivityButton(act, true))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {availableActs.length > 0 && (
+                          <div className="space-y-4">
+                            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2">
+                              <ClipboardList size={14} />
+                              Tareas Disponibles ({availableActs.length})
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {availableActs.map(act => renderActivityButton(act, false))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
               
