@@ -104,7 +104,8 @@ export default function MissionControlRoles() {
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [duplicateWarning, setDuplicateWarning] = useState<{ newName: string, existing: any } | null>(null);
-  const [assignmentDay, setAssignmentDay] = useState<string>('DIARIO');
+  const [assignmentDay, setAssignmentDay] = useState<string[]>(['DIARIO']);
+  const [taskSearchQuery, setTaskSearchQuery] = useState('');
 
   // States for Employee Contact Card
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<any>(null);
@@ -1329,26 +1330,28 @@ export default function MissionControlRoles() {
                 </div>
 
                 {/* --- DRIVE-THRU ZONE --- */}
-                <div className="flex flex-col gap-1 items-center relative z-10">
-                  <div className="flex items-center justify-center gap-4 mb-1 w-full">
-                    <h2 className="text-4xl font-black text-indigo-600 uppercase tracking-[0.8em] italic leading-none drop-shadow-sm">Drive-Thru</h2>
+                {hasDriveThru && (
+                  <div className="flex flex-col gap-1 items-center relative z-10">
+                    <div className="flex items-center justify-center gap-4 mb-1 w-full">
+                      <h2 className="text-4xl font-black text-indigo-600 uppercase tracking-[0.8em] italic leading-none drop-shadow-sm">Drive-Thru</h2>
+                    </div>
+                    
+                    <div className="flex gap-2 w-full px-1 items-stretch">
+                       {/* Ventana 1 */}
+                       <BoardSlot label="Ventanilla 1" stationKey="Ventana 1" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 1_${activeShift}`)} employees={employees} className="h-28 w-72" onClick={handleSlotClick} />
+  
+                       {/* Central DT Area */}
+                       <div className="flex-1 flex flex-col gap-1">
+                          <BoardSlot label="Tortas / Quesadillas (DT)" stationKey="TORTILLAS" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTILLAS_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
+                          <div className="flex-1 grid grid-cols-3 gap-1">
+                            <BoardSlot label="Tacos / Burritos (DT)" stationKey="TACOS/BURRITOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TACOS/BURRITOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                            <BoardSlot label="Ventanilla 2" stationKey="Ventana 2" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 2_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                            <BoardSlot label="Descansos" stationKey="CUBRIR DESCANSOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `CUBRIR DESCANSOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                          </div>
+                       </div>
+                    </div>
                   </div>
-                  
-                  <div className="flex gap-2 w-full px-1 items-stretch">
-                     {/* Ventana 1 */}
-                     <BoardSlot label="Ventanilla 1" stationKey="Ventana 1" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 1_${activeShift}`)} employees={employees} className="h-28 w-72" onClick={handleSlotClick} />
-
-                     {/* Central DT Area */}
-                     <div className="flex-1 flex flex-col gap-1">
-                        <BoardSlot label="Tortas / Quesadillas (DT)" stationKey="TORTAS/QUESADILLAS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS (DT)_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
-                        <div className="flex-1 grid grid-cols-3 gap-1">
-                          <BoardSlot label="Tacos / Burritos (DT)" stationKey="TACOS/BURRITOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TACOS/BURRITOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
-                          <BoardSlot label="Ventanilla 2" stationKey="Ventana 2" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 2_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
-                          <BoardSlot label="Descansos" stationKey="CUBRIR DESCANSOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `CUBRIR DESCANSOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
-                        </div>
-                     </div>
-                  </div>
-                </div>
+                )}
 
                 {/* DIGITAL WATERMARK / CLOCK */}
                 <div className="absolute bottom-4 right-6 flex items-end gap-3 opacity-30 pointer-events-none transform scale-75 origin-bottom-right">
@@ -2027,7 +2030,7 @@ export default function MissionControlRoles() {
         {/* --- STATION ACTIVITIES ASSIGNMENT MODAL --- */}
         {showStationActivitiesModal && (
           <div className="fixed inset-0 z-[150] flex items-center justify-center p-8 bg-slate-900/40 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white w-full max-w-xl rounded-[2.5rem] border border-black/5 p-10 shadow-2xl relative">
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white w-full max-w-4xl rounded-[3rem] border border-black/5 p-12 shadow-2xl relative">
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-5">
                   <div className="bg-indigo-50 text-indigo-600 p-4 rounded-3xl"><ClipboardList size={32} /></div>
@@ -2039,39 +2042,85 @@ export default function MissionControlRoles() {
                 <button onClick={() => setShowStationActivitiesModal(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400"><X size={24} /></button>
               </div>
 
-              {/* Day Selector */}
-              <div className="bg-slate-50 p-4 rounded-3xl mb-8 border border-slate-100 flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Frecuencia</span>
-                  <div className="flex items-center gap-1">
-                    {['DIARIO', 'L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => {
-                      const dayVal = d === 'DIARIO' ? 'DIARIO' : (i - 1).toString();
-                      const isActive = assignmentDay === dayVal;
-                      return (
-                        <button
-                          key={d + i}
-                          onClick={() => setAssignmentDay(dayVal)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
-                            isActive ? 'bg-indigo-600 text-white shadow-lg scale-110' : 'bg-white text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-100'
-                          } ${d === 'DIARIO' ? 'px-8 w-auto rounded-xl' : ''}`}
-                        >
-                          {d}
-                        </button>
-                      );
-                    })}
+              {/* Day Selector (Multi-select) */}
+              <div className="bg-slate-50 p-6 rounded-[2rem] mb-8 border border-slate-100 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Frecuencia de Tareas</span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {['DIARIO', 'L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => {
+                        const dayVal = d === 'DIARIO' ? 'DIARIO' : (i - 1).toString();
+                        const isActive = assignmentDay.includes(dayVal);
+                        
+                        return (
+                          <button
+                            key={d + i}
+                            onClick={() => {
+                              if (dayVal === 'DIARIO') {
+                                setAssignmentDay(['DIARIO']);
+                              } else {
+                                let next = assignmentDay.filter(x => x !== 'DIARIO');
+                                if (next.includes(dayVal)) {
+                                  next = next.filter(x => x !== dayVal);
+                                } else {
+                                  next.push(dayVal);
+                                }
+                                setAssignmentDay(next.length === 0 ? ['DIARIO'] : next);
+                              }
+                            }}
+                            className={`h-10 flex items-center justify-center text-[11px] font-black transition-all ${
+                              isActive 
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 scale-105' 
+                                : 'bg-white text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200'
+                            } ${d === 'DIARIO' ? 'px-8 rounded-xl' : 'w-10 rounded-full'}`}
+                          >
+                            {d}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 block">Contexto</span>
+                    <p className="text-sm font-black text-indigo-600 uppercase italic">
+                      {assignmentDay.includes('DIARIO') 
+                        ? 'Toda la semana' 
+                        : assignmentDay.length === 1 
+                          ? `Solo el ${['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][parseInt(assignmentDay[0])]}`
+                          : `Varios días (${assignmentDay.length})`
+                      }
+                    </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Contexto</span>
-                  <p className="text-xs font-bold text-indigo-600 uppercase">
-                    {assignmentDay === 'DIARIO' ? 'Toda la semana' : `Solo el ${['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][parseInt(assignmentDay)]}`}
-                  </p>
-                </div>
+                
+                {!assignmentDay.includes('DIARIO') && (
+                  <div className="flex flex-wrap gap-1">
+                    {assignmentDay.sort((a,b) => parseInt(a) - parseInt(b)).map(d => (
+                      <span key={d} className="bg-indigo-50 text-indigo-600 text-[10px] font-black px-3 py-1 rounded-full border border-indigo-100 uppercase">
+                        {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][parseInt(d)]}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4">
-                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Selecciona las actividades para este puesto:</label>
-                <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest">Selecciona las actividades para este puesto:</label>
+                  <div className="relative group">
+                    <input 
+                      type="text" 
+                      placeholder="BUSCAR ACTIVIDAD..." 
+                      value={taskSearchQuery}
+                      onChange={(e) => setTaskSearchQuery(e.target.value)}
+                      className="bg-slate-50 border border-slate-200 rounded-full px-4 py-2 text-[10px] font-black uppercase tracking-widest outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all w-48 placeholder:text-slate-300"
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none group-focus-within:text-indigo-600 transition-colors">
+                      <RefreshCw size={12} className={taskSearchQuery ? 'animate-spin' : ''} />
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto pr-4 custom-scrollbar">
                   {activities.length === 0 ? (
                     <div className="text-center py-10 bg-slate-50 rounded-3xl border border-slate-200 border-dashed">
                       <p className="text-slate-400 italic text-sm">Primero crea actividades en la Librería Maestra.</p>
@@ -2083,35 +2132,61 @@ export default function MissionControlRoles() {
                       </button>
                     </div>
                   ) : activities
-                      .filter(a => a.shift === activeShift || a.shift === 'AMBOS' || !a.shift)
+                      .filter(a => (a.shift === activeShift || a.shift === 'AMBOS' || !a.shift))
+                      .filter(a => {
+                        if (!taskSearchQuery) return true;
+                        const query = taskSearchQuery.toLowerCase();
+                        return a.name.toLowerCase().includes(query) || a.category.toLowerCase().includes(query);
+                      })
                       .map((act, idx) => {
                     const shiftStationKey = `${showStationActivitiesModal}_${activeShift}`;
-                    const storageKey = assignmentDay === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${assignmentDay}`;
-                    const isSelected = stationActivities[storageKey]?.includes(act.name);
+                    
+                    // A task is "selected" if it exists in at least the FIRST selected day of the array
+                    const firstDay = assignmentDay[0];
+                    const firstKey = firstDay === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${firstDay}`;
+                    const isSelected = stationActivities[firstKey]?.includes(act.name);
+
                     return (
                       <button 
                         key={idx}
                         onClick={() => {
-                          const current = stationActivities[storageKey] || [];
-                          const updated = isSelected ? current.filter(a => a !== act.name) : [...current, act.name];
-                          const newMappings = { ...stationActivities, [storageKey]: updated };
+                          let newMappings = { ...stationActivities };
+                          
+                          // Determine the NEW state (if it was selected in first day, we remove from all. Else add to all)
+                          const newState = !isSelected;
+
+                          assignmentDay.forEach(day => {
+                            const storageKey = day === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${day}`;
+                            const current = newMappings[storageKey] || [];
+                            
+                            if (newState) {
+                              // ADD: Ensure it's there
+                              if (!current.includes(act.name)) {
+                                newMappings[storageKey] = [...current, act.name];
+                              }
+                            } else {
+                              // REMOVE: Ensure it's gone
+                              newMappings[storageKey] = current.filter(a => a !== act.name);
+                            }
+                          });
+
                           setStationActivities(newMappings);
                           saveActivities(undefined, newMappings);
                         }}
-                        className={`flex items-center justify-between p-5 rounded-3xl border transition-all ${
-                          isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
+                        className={`flex items-center justify-between p-6 rounded-[2rem] border-2 transition-all ${
+                          isSelected ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl shadow-indigo-100' : 'bg-white border-slate-100 text-slate-600 hover:border-indigo-300'
                         }`}
                       >
                         <div className="flex flex-col items-start">
-                          <span className="text-[10px] font-black opacity-40 uppercase tracking-widest mb-1">{act.category}</span>
-                          <span className="text-sm font-bold uppercase">{act.name}</span>
+                          <span className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isSelected ? 'text-white/40' : 'text-slate-400'}`}>{act.category}</span>
+                          <span className="text-lg font-black uppercase tracking-tight">{act.name}</span>
                           {(act.startTime || act.endTime || act.schedule) && (
-                            <span className={`text-[10px] font-bold mt-1 ${isSelected ? 'text-white/60' : 'text-amber-500'}`}>
+                            <span className={`text-xs font-black mt-2 ${isSelected ? 'text-white/60' : 'text-amber-500'}`}>
                               {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
                             </span>
                           )}
                         </div>
-                        {isSelected ? <CheckCircle2 size={20} /> : <div className="w-5 h-5 rounded-full border-2 border-slate-200" />}
+                        {isSelected ? <CheckCircle2 size={32} /> : <div className="w-8 h-8 rounded-full border-4 border-slate-50 shadow-inner" />}
                       </button>
                     );
                   })}
