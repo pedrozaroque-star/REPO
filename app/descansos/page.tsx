@@ -331,7 +331,7 @@ export default function DescansosPage() {
         setCalculating(true) // Mostramos spinner de "Procesando" brevemente
 
         // RESET ausentes al cambiar de día/tienda
-        const freshAbsentSet = new Set<number>();
+        const freshAbsentSet = new Set<string>();
         setAbsentEmpIds(freshAbsentSet);
         setAiStatus(null);
 
