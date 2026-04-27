@@ -76,12 +76,12 @@ export default function DescansosPage() {
     const [showRealPunches, setShowRealPunches] = useState(true)
     const [isRefreshingToast, setIsRefreshingToast] = useState(false)
 
-    const [absentEmpIds, setAbsentEmpIds] = useState<Set<number>>(new Set())
+    const [absentEmpIds, setAbsentEmpIds] = useState<Set<string>>(new Set())
     const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
     const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[] }>({ shifts: [], hours: [], employees: [], jobs: [] })
 
-    const triggerAiRecalculation = async (absentSet: Set<number>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false) => {
+    const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false) => {
         setCalculating(true);
         await new Promise(r => setTimeout(r, 50));
 
@@ -93,8 +93,7 @@ export default function DescansosPage() {
 
         const presentShifts = shifts.filter((s: Shift) => {
             if (s.employee_id === null) return true;
-            const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as number;
-            return !absentSet.has(id);
+            return !absentSet.has(String(s.employee_id));
         });
 
         const shiftsForAi = presentShifts.map((s: Shift) => {
@@ -175,7 +174,7 @@ export default function DescansosPage() {
             if (isManualAction && shifts) {
                 const validShifts = shifts.filter((s: Shift) => s.employee_id !== null && s.id != null);
                 await Promise.all(validShifts.map(async (s: Shift) => {
-                    const id = typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as unknown as number;
+                    const id = String(s.employee_id);
                     if (absentSet.has(id)) {
                         await supabase.from('shifts').update({ is_callback: true }).eq('id', s.id);
                     } else if (s.is_callback === true) {
@@ -438,7 +437,7 @@ export default function DescansosPage() {
 
         const dbAbsentees = todayRawShifts
             .filter(s => s.is_callback === true && s.employee_id !== null)
-            .map(s => typeof s.employee_id === 'string' ? parseInt(s.employee_id) : s.employee_id as unknown as number);
+            .map(s => String(s.employee_id));
 
         if (dbAbsentees.length > 0) {
             setAbsentEmpIds(new Set(dbAbsentees));
@@ -911,7 +910,7 @@ export default function DescansosPage() {
                                 <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group relative z-10 focus-within:z-50 hover:z-40">
                                     <div className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
                                         <div
-                                            className={`text-lg leading-tight font-black truncate cursor-pointer transition-colors ${absentEmpIds.has(typeof emp.id === 'string' ? parseInt(emp.id) : emp.id) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 hover:text-indigo-600'}`}
+                                            className={`text-lg leading-tight font-black truncate cursor-pointer transition-colors ${absentEmpIds.has(String(emp.id)) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 hover:text-indigo-600'}`}
                                             onClick={() => setAbsentModalEmp(emp)}
                                             title="Click para marcar Ausente o Editar"
                                         >
@@ -1139,22 +1138,22 @@ export default function DescansosPage() {
                             <button
                                 onClick={() => {
                                     const newSet = new Set(absentEmpIds);
-                                    const empIdNum = typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id;
-                                    if (newSet.has(empIdNum)) {
-                                        newSet.delete(empIdNum);
+                                    const empIdStr = String(absentModalEmp.id);
+                                    if (newSet.has(empIdStr)) {
+                                        newSet.delete(empIdStr);
                                     } else {
-                                        newSet.add(empIdNum);
+                                        newSet.add(empIdStr);
                                     }
                                     setAbsentEmpIds(newSet);
                                     triggerAiRecalculation(newSet, null, true); // Es una acción manual
                                     setAbsentModalEmp(null);
                                 }}
-                                className={`px-8 py-6 rounded-2xl text-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02] active:scale-[0.98] ${absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id)
+                                className={`px-8 py-6 rounded-2xl text-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02] active:scale-[0.98] ${absentEmpIds.has(String(absentModalEmp.id))
                                     ? 'bg-indigo-600 text-white hover:bg-indigo-700 border-2 border-indigo-900'
                                     : 'bg-red-600 text-white hover:bg-red-700 border-2 border-red-900'
                                     }`}
                             >
-                                {absentEmpIds.has(typeof absentModalEmp.id === 'string' ? parseInt(absentModalEmp.id) : absentModalEmp.id)
+                                {absentEmpIds.has(String(absentModalEmp.id))
                                     ? 'Restaurar Turno (Desmarcar Ausencia)'
                                     : 'Marcar Ausente (Eliminar del Schedule)'}
                             </button>
