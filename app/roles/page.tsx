@@ -386,36 +386,91 @@ export default function MissionControlRoles() {
   const saveActivities = async (newMaster?: any[], newMappings?: Record<string, string[]>) => {
     if (!selectedStoreGuid) return;
     try {
-      // Save GLOBAL Library
-      await fetch('/api/roles/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          store_id: 'GLOBAL',
-          master_activities: newMaster || activities,
-          station_mappings: {} // No mappings in global
-        })
-      });
+      // 1. Save GLOBAL Library ONLY IF explicitly provided
+      // This prevents someone editing mappings at Store A from overwriting Jesus's new activities at Store B
+      if (newMaster) {
+        await fetch('/api/roles/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            store_id: 'GLOBAL',
+            master_activities: newMaster,
+            station_mappings: {} // Library doesn't hold mappings
+          })
+        });
+      }
 
-      // Save LOCAL Station Mappings
-      await fetch('/api/roles/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          store_id: selectedStoreGuid,
-          master_activities: [], // Don't store library locally anymore
-          station_mappings: newMappings || stationActivities
-        })
-      });
+      // 2. Save LOCAL Station Mappings ONLY IF explicitly provided
+      if (newMappings) {
+        await fetch('/api/roles/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            store_id: selectedStoreGuid,
+            master_activities: [], // Local record doesn't hold the library
+            station_mappings: newMappings
+          })
+        });
+      }
     } catch (e) {
       console.error('Error saving activities:', e);
     }
   };
 
   useEffect(() => {
+    if (!selectedStoreGuid) return;
+
+    // --- REAL-TIME SUBSCRIPTIONS ---
+    const channel = supabase
+      .channel('mission-control-sync')
+      // 1. Listen for Library Changes (Master Activities)
+      .on(
+        'postgres_changes',
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'station_templates',
+          filter: `template_name=eq.__CONFIG_ACTIVITIES__`
+        },
+        (payload: any) => {
+          console.log('🔔 Real-time activity update:', payload);
+          if (payload.new && (payload.new.store_id === 'GLOBAL' || payload.new.store_id === selectedStoreGuid)) {
+             fetchActivities();
+          }
+        }
+      )
+      // 2. Listen for Assignment Changes (Who is working where)
+      .on(
+        'postgres_changes',
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'station_assignments',
+          filter: `store_id=eq.${selectedStoreGuid}`
+        },
+        (payload: any) => {
+          console.log('🔔 Real-time assignment update:', payload);
+          // Just fetch the assignments to stay updated
+          const officialMonday = getMonday(currentWeekStart);
+          const start = formatDateISO(officialMonday);
+          const end = formatDateISO(addDays(officialMonday, 6));
+          
+          fetch(`/api/roles?store_id=${selectedStoreGuid}&start_date=${start}&end_date=${end}`)
+            .then(res => res.json())
+            .then(data => {
+              setAssignments(Array.isArray(data) ? data : []);
+            });
+        }
+      )
+      .subscribe();
+
     fetchWeeklyData();
     fetchTemplates();
     fetchActivities();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [selectedStoreGuid, currentWeekStart]);
 
   const handleSaveActivity = () => {
@@ -1435,7 +1490,15 @@ export default function MissionControlRoles() {
 
               <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-12">
                 <div className="max-w-7xl mx-auto w-full">
-                {selectedEmployeeCard && !isReassigning ? (
+                {(() => {
+                  // DERIVE CURRENT DATA IN REAL-TIME
+                  // This ensures that if a manager changes Daisy to Jesus elsewhere, this modal updates instantly
+                  const shiftStationKey = `${selectedSlotForCard.stationKey}_${activeShift}`;
+                  const currentAssignee = getAssignee(activeDay, shiftStationKey);
+                  const currentEmp = currentAssignee ? employees.find(e => String(e.id) === String(currentAssignee.employee_id)) : null;
+
+                  if (currentEmp && !isReassigning) {
+                    return (
                   /* --- VIEW 1: CONTACT CARD --- */
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                     
@@ -1443,20 +1506,20 @@ export default function MissionControlRoles() {
                     <div className="lg:col-span-5 space-y-10">
                       <div className="bg-white p-10 rounded-[3rem] shadow-xl border border-slate-100 flex flex-col items-center text-center">
                         <div className="w-48 h-48 bg-indigo-600 rounded-[4rem] flex items-center justify-center text-7xl font-black text-white shadow-2xl shadow-indigo-200 italic mb-8">
-                          {(selectedEmployeeCard.chosen_name || selectedEmployeeCard.first_name)?.[0]?.toUpperCase()}
+                          {(currentEmp.chosen_name || currentEmp.first_name)?.[0]?.toUpperCase()}
                         </div>
                         <h4 className="text-5xl font-black text-slate-900 uppercase leading-tight mb-2">
-                          {selectedEmployeeCard.chosen_name || selectedEmployeeCard.first_name}
+                          {currentEmp.chosen_name || currentEmp.first_name}
                         </h4>
                         <p className="text-2xl font-bold text-slate-400 uppercase tracking-[0.3em]">
-                          {selectedEmployeeCard.last_name}
+                          {currentEmp.last_name}
                         </p>
                       </div>
 
                       <div className="grid grid-cols-1 gap-4">
-                        {selectedEmployeeCard.phone && (
+                        {currentEmp.phone && (
                           <a 
-                            href={`tel:${selectedEmployeeCard.phone}`}
+                            href={`tel:${currentEmp.phone}`}
                             className="flex items-center gap-8 p-8 bg-white rounded-[2.5rem] shadow-lg border border-slate-100 hover:border-indigo-300 transition-all group"
                           >
                             <div className="p-6 bg-indigo-50 rounded-3xl text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
@@ -1464,7 +1527,7 @@ export default function MissionControlRoles() {
                             </div>
                             <div className="flex flex-col">
                               <span className="text-sm font-black text-slate-400 uppercase tracking-widest">Llamar Ahora</span>
-                              <span className="text-3xl font-black text-slate-800">{selectedEmployeeCard.phone}</span>
+                              <span className="text-3xl font-black text-slate-800">{currentEmp.phone}</span>
                             </div>
                           </a>
                         )}
@@ -1473,7 +1536,7 @@ export default function MissionControlRoles() {
                       <div className="flex flex-col gap-4 pt-6">
                         <button 
                           onClick={() => {
-                            updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey || selectedSlotForCard.label, '', selectedSlotForCard.assignee?.station_group || 'front');
+                            updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey || selectedSlotForCard.label, '', currentAssignee?.station_group || 'front');
                             setSelectedSlotForCard(null);
                           }}
                           className="w-full flex items-center justify-center gap-6 p-8 bg-red-500 text-white rounded-[2.5rem] font-black uppercase tracking-widest text-xl hover:bg-red-600 transition-all shadow-xl shadow-red-100"
@@ -1509,12 +1572,8 @@ export default function MissionControlRoles() {
                         
                         <div className="space-y-4">
                           {(() => {
-                            const shiftSuffix = `_${activeShift}`;
-                            const stationKey = selectedSlotForCard.stationKey;
-                            const shiftStationKey = `${stationKey}${shiftSuffix}`;
-                            
                             const liveTasks = [
-                              ...(selectedSlotForCard.assignee?.tasks || []),
+                              ...(currentAssignee?.tasks || []),
                               ...(stationActivities[shiftStationKey] || [])
                             ];
                             
@@ -1553,12 +1612,15 @@ export default function MissionControlRoles() {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  /* --- VIEW 2: REASSIGNMENT (OR INITIAL ASSIGN) --- */
+                    );
+                  }
+
+                  return (
+                  /* --- VIEW 2: REASSIGNMENT --- */
                   <div className="space-y-10 max-w-4xl mx-auto w-full">
                     <div className="flex items-center justify-between mb-4">
                        <h4 className="text-2xl font-black text-slate-400 uppercase tracking-[0.3em] italic">Seleccionar Reemplazo</h4>
-                       {selectedEmployeeCard && (
+                       {currentEmp && (
                          <button 
                            onClick={() => setIsReassigning(false)} 
                            className="text-xl font-bold text-indigo-600 hover:bg-indigo-50 px-6 py-3 rounded-2xl transition-all"
@@ -1571,7 +1633,7 @@ export default function MissionControlRoles() {
                     <div className="max-h-[70vh] overflow-y-auto space-y-4 pr-4 custom-scrollbar">
                       <button 
                         onClick={() => {
-                          updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey || selectedSlotForCard.label, '', selectedSlotForCard.assignee?.station_group || 'front');
+                          updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey || selectedSlotForCard.label, '', currentAssignee?.station_group || 'front');
                           setSelectedSlotForCard(null);
                         }}
                         className="w-full p-8 rounded-[2.5rem] border-4 border-dashed border-slate-200 text-slate-400 font-black uppercase tracking-widest text-2xl hover:bg-slate-50 transition-all text-left flex items-center gap-8"
@@ -1588,13 +1650,13 @@ export default function MissionControlRoles() {
                            String(a.employee_id) === String(e.id)
                         );
                         
-                        if (isBusy && String(e.id) !== String(selectedEmployeeCard?.id)) return null;
+                        if (isBusy && String(e.id) !== String(currentEmp?.id)) return null;
 
                         return (
                           <button 
                             key={e.id}
                             onClick={() => {
-                              updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey || selectedSlotForCard.label, String(e.id), selectedSlotForCard.assignee?.station_group || 'front');
+                              updateAssignment(formatDateISO(activeDay), selectedSlotForCard.stationKey || selectedSlotForCard.label, String(e.id), currentAssignee?.station_group || 'front');
                               setSelectedSlotForCard(null);
                             }}
                             className="w-full p-8 rounded-[3rem] bg-white border-2 border-slate-100 shadow-lg hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left flex items-center gap-10 group"
@@ -1611,7 +1673,8 @@ export default function MissionControlRoles() {
                       })}
                     </div>
                   </div>
-                )}
+                  );
+                })()}
                 </div>
               </div>
             </motion.div>
@@ -1891,8 +1954,22 @@ export default function MissionControlRoles() {
                 {/* --- RIGHT PANEL: LIST AREA (SCROLLABLE) --- */}
                 <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-white">
                   <div className="flex items-center justify-between mb-8">
-                    <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Listado de la Librería</h4>
-                    <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-full">{activities.length} Tareas</span>
+                    <div className="flex flex-col">
+                      <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Listado de la Librería</h4>
+                      <p className="text-[9px] text-emerald-500 font-bold mt-1 uppercase animate-pulse flex items-center gap-1">
+                        <Zap size={10} /> Conectado en tiempo real
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => fetchActivities()}
+                        className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                        title="Refrescar Librería"
+                      >
+                        <RefreshCw size={16} />
+                      </button>
+                      <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-4 py-2 rounded-full border border-slate-200">{activities.length} Tareas</span>
+                    </div>
                   </div>
 
                   <div className="space-y-12">
