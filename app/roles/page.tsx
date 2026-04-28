@@ -91,10 +91,19 @@ export default function MissionControlRoles() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
   const [activeShift, setActiveShift] = useState<'AM' | 'PM'>(() => {
-    const hour = new Date().getHours();
-    return (hour >= 17 || hour < 6) ? 'PM' : 'AM';
+    const laTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    const hour = laTime.getHours();
+    const minute = laTime.getMinutes();
+    const isPMShift = (hour > 16 || (hour === 16 && minute >= 50)) || (hour < 6);
+    return isPMShift ? 'PM' : 'AM';
   });
-  const [activeDay, setActiveDay] = useState<Date>(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [activeDay, setActiveDay] = useState<Date>(() => {
+    const laTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    if (laTime.getHours() < 6) {
+      laTime.setDate(laTime.getDate() - 1);
+    }
+    return new Date(laTime.getFullYear(), laTime.getMonth(), laTime.getDate());
+  });
   const [hasDriveThru, setHasDriveThru] = useState(true);
   const [extraCashiers, setExtraCashiers] = useState(1);
   const [activeWeeklyShifts, setActiveWeeklyShifts] = useState<any[]>([]);
@@ -200,6 +209,25 @@ export default function MissionControlRoles() {
       }
     ];
   }, [hasDriveThru, extraCashiers, assignments]);
+
+  // Auto-switch shift based on LA time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const laTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+      const hour = laTime.getHours();
+      const minute = laTime.getMinutes();
+      
+      // Exact time triggers: 4:50 PM -> PM, 6:00 AM -> AM & New Day
+      if (hour === 16 && minute === 50) {
+        setActiveShift('PM');
+      } else if (hour === 6 && minute === 0) {
+        setActiveShift('AM');
+        const newBusinessDay = new Date(laTime.getFullYear(), laTime.getMonth(), laTime.getDate());
+        setActiveDay(newBusinessDay);
+      }
+    }, 60000); // check every minute
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     fetchStores();
@@ -1329,23 +1357,23 @@ export default function MissionControlRoles() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 bg-white p-1 rounded-full border-2 border-black/5 shadow-sm">
-                  <div className="flex gap-1">
+                <div className="flex items-center gap-4 bg-white p-2 rounded-[2rem] border-2 border-slate-200 shadow-md">
+                  <div className="flex gap-2">
                     {['AM', 'PM'].map(sh => (
                       <button
                         key={sh}
                         onClick={() => setActiveShift(sh as any)}
-                        className={`px-8 py-2 rounded-full text-[10px] font-black transition-all ${activeShift === sh ? 'bg-black text-white' : 'text-zinc-400'}`}
+                        className={`px-10 py-3 rounded-xl text-sm md:text-base font-black transition-all uppercase tracking-widest ${activeShift === sh ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'}`}
                       >
-                        {sh === 'AM' ? 'APERTURA' : 'CIERRE'}
+                        {sh === 'AM' ? 'TURNO AM' : 'TURNO PM'}
                       </button>
                     ))}
                   </div>
-                  <div className="w-px h-6 bg-zinc-200 mx-1" />
-                  <div className="flex items-center gap-4 px-4 text-black font-black uppercase text-xs tracking-tighter">
-                    <button onClick={() => setActiveDay(subDays(activeDay, 1))} className="text-zinc-400 hover:text-black transition-colors"><ChevronLeft size={20} /></button>
-                    <span className="min-w-[150px] text-center">{format(activeDay, 'EEEE dd', { locale: es })}</span>
-                    <button onClick={() => setActiveDay(addDays(activeDay, 1))} className="text-zinc-400 hover:text-black transition-colors"><ChevronRight size={20} /></button>
+                  <div className="w-px h-10 bg-slate-200 mx-2" />
+                  <div className="flex items-center gap-6 px-6 text-slate-800 font-black uppercase text-lg tracking-tight">
+                    <button onClick={() => setActiveDay(subDays(activeDay, 1))} className="w-10 h-10 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors shadow-sm"><ChevronLeft size={24} /></button>
+                    <span className="min-w-[180px] text-center">{format(activeDay, 'EEEE dd', { locale: es })}</span>
+                    <button onClick={() => setActiveDay(addDays(activeDay, 1))} className="w-10 h-10 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors shadow-sm"><ChevronRight size={24} /></button>
                   </div>
                 </div>
 
