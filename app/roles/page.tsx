@@ -115,6 +115,7 @@ export default function MissionControlRoles() {
   const [specificTasksEmployeeId, setSpecificTasksEmployeeId] = useState<string | null>(null);
   const [specificTasksSearch, setSpecificTasksSearch] = useState('');
   const [taskSelectorForAssign, setTaskSelectorForAssign] = useState<any | null>(null);
+  const [extraTaskSearchQuery, setExtraTaskSearchQuery] = useState('');
 
   // States for Employee Contact Card
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<any>(null);
@@ -1615,25 +1616,44 @@ export default function MissionControlRoles() {
                             const uniqueTasks = Array.from(new Set(liveTasks)).filter(Boolean);
 
                             if (uniqueTasks.length > 0) {
-                              return uniqueTasks.map((taskName: string, i: number) => {
+                              const groupedTasks = uniqueTasks.reduce((acc: any, taskName: string) => {
                                 const act = activities.find(a => a.name === taskName);
-                                return (
-                                  <div key={i} className="flex items-center justify-between p-8 bg-slate-50 border border-slate-100 rounded-[2rem] group hover:bg-indigo-50 hover:border-indigo-100 transition-all">
-                                    <div className="flex flex-col">
-                                      <span className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">{taskName}</span>
-                                      {act && (act.startTime || act.endTime || act.schedule) && (
-                                        <div className="flex items-center gap-3">
-                                          <Clock size={20} className="text-amber-500" />
-                                          <span className="text-lg font-black text-amber-600 uppercase tracking-[0.2em]">
-                                            {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
-                                          </span>
-                                        </div>
-                                      )}
+                                const category = act?.category || 'ESPECÍFICAS / OTRAS';
+                                if (!acc[category]) acc[category] = [];
+                                acc[category].push({ taskName, act });
+                                return acc;
+                              }, {});
+
+                              return (
+                                <div className="space-y-8">
+                                  {Object.entries(groupedTasks).map(([category, tasks]: [string, any], idx) => (
+                                    <div key={idx} className="space-y-4">
+                                      <h6 className="text-xs font-black text-indigo-600 uppercase tracking-[0.2em] border-b-2 border-indigo-100 pb-3 pl-2 flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-inner"></div>
+                                        {category}
+                                      </h6>
+                                      <div className="space-y-3">
+                                        {tasks.map(({ taskName, act }: any, i: number) => (
+                                          <div key={i} className="flex items-center justify-between p-6 bg-slate-50 border border-slate-100 rounded-[1.5rem] group hover:bg-indigo-50 hover:border-indigo-100 transition-all shadow-sm">
+                                            <div className="flex flex-col pr-4">
+                                              <span className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2 leading-none">{taskName}</span>
+                                              {act && (act.startTime || act.endTime || act.schedule) && (
+                                                <div className="flex items-center gap-2">
+                                                  <Clock size={16} className="text-amber-500" />
+                                                  <span className="text-sm font-black text-amber-600 uppercase tracking-[0.2em]">
+                                                    {act.startTime ? `${formatTime12h(act.startTime)} - ${formatTime12h(act.endTime)}` : formatTime12h(act.schedule)}
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </div>
+                                            <CheckCircle2 size={32} className="text-indigo-300 group-hover:text-indigo-500 transition-colors shrink-0" />
+                                          </div>
+                                        ))}
+                                      </div>
                                     </div>
-                                    <CheckCircle2 size={36} className="text-indigo-400" />
-                                  </div>
-                                );
-                              });
+                                  ))}
+                                </div>
+                              );
                             }
 
                             return (
@@ -1736,23 +1756,47 @@ export default function MissionControlRoles() {
                       exit={{ opacity: 0, y: 20 }}
                       className="bg-white w-full max-w-4xl max-h-full rounded-[3rem] shadow-2xl flex flex-col overflow-hidden"
                     >
-                      <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                        <div>
+                      <div className="p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50 gap-8">
+                        <div className="flex-1">
                           <h3 className="text-3xl font-black text-slate-800 tracking-tight">Seleccionar Tarea Extra</h3>
-                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1 mb-6">
                             Agregando a: {taskSelectorForAssign.sub_position.replace(/_(AM|PM)$/, '')} ({taskSelectorForAssign.sub_position.includes('AM') ? 'AM' : 'PM'})
                           </p>
+                          <div className="relative max-w-md">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                            <input 
+                              type="text" 
+                              placeholder="Buscar tarea o categoría..." 
+                              className="w-full pl-12 pr-4 py-3 bg-white border-2 border-slate-200 rounded-2xl text-sm font-black text-slate-700 focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+                              value={extraTaskSearchQuery}
+                              onChange={e => setExtraTaskSearchQuery(e.target.value)}
+                            />
+                            {extraTaskSearchQuery && (
+                              <button 
+                                onClick={() => setExtraTaskSearchQuery('')}
+                                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
+                              >
+                                <X size={16} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <button 
-                          onClick={() => setTaskSelectorForAssign(null)} 
-                          className="w-12 h-12 bg-white border-2 border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 rounded-2xl flex items-center justify-center transition-all shadow-sm"
+                          onClick={() => {
+                            setTaskSelectorForAssign(null);
+                            setExtraTaskSearchQuery('');
+                          }} 
+                          className="w-12 h-12 shrink-0 bg-white border-2 border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 rounded-2xl flex items-center justify-center transition-all shadow-sm"
                         >
                           <X size={24} />
                         </button>
                       </div>
                       <div className="p-6 overflow-y-auto bg-slate-100/50 flex-1">
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                          {activities.map(act => {
+                          {activities.filter(act => 
+                            act.name.toLowerCase().includes(extraTaskSearchQuery.toLowerCase()) || 
+                            (act.category || '').toLowerCase().includes(extraTaskSearchQuery.toLowerCase())
+                          ).map(act => {
                             const isSelected = (taskSelectorForAssign.tasks || []).includes(act.name);
                             return (
                               <button 
@@ -1780,14 +1824,20 @@ export default function MissionControlRoles() {
                               </button>
                             );
                           })}
-                          {activities.length === 0 && (
-                            <div className="col-span-full p-12 text-center text-slate-400 font-bold text-lg">No hay tareas en la librería global.</div>
+                          {activities.filter(act => 
+                            act.name.toLowerCase().includes(extraTaskSearchQuery.toLowerCase()) || 
+                            (act.category || '').toLowerCase().includes(extraTaskSearchQuery.toLowerCase())
+                          ).length === 0 && (
+                            <div className="col-span-full p-12 text-center text-slate-400 font-bold text-lg">No se encontraron tareas con esa búsqueda.</div>
                           )}
                         </div>
                       </div>
                       <div className="p-6 bg-white border-t border-slate-100">
                         <button 
-                          onClick={() => setTaskSelectorForAssign(null)}
+                          onClick={() => {
+                            setTaskSelectorForAssign(null);
+                            setExtraTaskSearchQuery('');
+                          }}
                           className="w-full py-5 bg-slate-900 hover:bg-black text-white text-lg font-black rounded-2xl shadow-xl transition-all"
                         >
                           Hecho
