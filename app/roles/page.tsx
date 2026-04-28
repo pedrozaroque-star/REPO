@@ -33,7 +33,10 @@ import {
   Printer,
   AlertTriangle,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Search,
+  User,
+  Plus
 } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -106,6 +109,12 @@ export default function MissionControlRoles() {
   const [duplicateWarning, setDuplicateWarning] = useState<{ newName: string, existing: any } | null>(null);
   const [assignmentDay, setAssignmentDay] = useState<string[]>(['DIARIO']);
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
+  
+  // States for Specific Tasks Modal
+  const [showSpecificTasksModal, setShowSpecificTasksModal] = useState(false);
+  const [specificTasksEmployeeId, setSpecificTasksEmployeeId] = useState<string | null>(null);
+  const [specificTasksSearch, setSpecificTasksSearch] = useState('');
+  const [taskSelectorForAssign, setTaskSelectorForAssign] = useState<any | null>(null);
 
   // States for Employee Contact Card
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<any>(null);
@@ -556,6 +565,20 @@ export default function MissionControlRoles() {
     window.print();
   };
 
+  const toggleEmployeeSpecificTask = (assign: any, taskName: string) => {
+    setAssignments(prev => prev.map(a => {
+      if (a.assignment_date === assign.assignment_date && a.sub_position === assign.sub_position && a.employee_id === assign.employee_id) {
+        const tasks = a.tasks || [];
+        if (tasks.includes(taskName)) {
+          return { ...a, tasks: tasks.filter((t: string) => t !== taskName) };
+        } else {
+          return { ...a, tasks: [...tasks, taskName] };
+        }
+      }
+      return a;
+    }));
+  };
+
   const updateAssignment = (dateStr: string, station: string, employeeId: string, group: string) => {
     const newAssignments = [...assignments];
     const jsDay = new Date(dateStr + 'T12:00:00').getDay();
@@ -880,6 +903,14 @@ export default function MissionControlRoles() {
             >
               <FileText size={16} />
               Actividades
+            </button>
+
+            <button 
+              onClick={() => setShowSpecificTasksModal(true)}
+              className="flex items-center gap-2 bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 px-5 py-3 rounded-2xl border border-slate-200 font-bold text-xs transition-all shadow-sm"
+            >
+              <ClipboardList size={16} />
+              Tareas Especificas
             </button>
 
             <button 
@@ -1679,6 +1710,270 @@ export default function MissionControlRoles() {
                   </div>
                   );
                 })()}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showSpecificTasksModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-100 w-full max-w-[98vw] h-[95vh] rounded-[3rem] shadow-2xl flex overflow-hidden border border-slate-700 flex-col relative"
+            >
+              {/* Overlay for Task Selector */}
+              <AnimatePresence>
+                {taskSelectorForAssign && (
+                  <div className="absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-8">
+                    <motion.div 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 20 }}
+                      className="bg-white w-full max-w-4xl max-h-full rounded-[3rem] shadow-2xl flex flex-col overflow-hidden"
+                    >
+                      <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                        <div>
+                          <h3 className="text-3xl font-black text-slate-800 tracking-tight">Seleccionar Tarea Extra</h3>
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">
+                            Agregando a: {taskSelectorForAssign.sub_position.replace(/_(AM|PM)$/, '')} ({taskSelectorForAssign.sub_position.includes('AM') ? 'AM' : 'PM'})
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => setTaskSelectorForAssign(null)} 
+                          className="w-12 h-12 bg-white border-2 border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 rounded-2xl flex items-center justify-center transition-all shadow-sm"
+                        >
+                          <X size={24} />
+                        </button>
+                      </div>
+                      <div className="p-6 overflow-y-auto bg-slate-100/50 flex-1">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          {activities.map(act => {
+                            const isSelected = (taskSelectorForAssign.tasks || []).includes(act.name);
+                            return (
+                              <button 
+                                key={act.id}
+                                onClick={() => toggleEmployeeSpecificTask(taskSelectorForAssign, act.name)}
+                                className={`text-left p-5 rounded-[1.5rem] transition-all flex flex-col justify-between h-32 border-2 ${
+                                  isSelected 
+                                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200 scale-[1.02]' 
+                                    : 'bg-white border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-md text-slate-700'
+                                }`}
+                              >
+                                <span className={`text-[10px] font-black uppercase tracking-widest mb-2 ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>{act.category}</span>
+                                <div className="flex items-end justify-between w-full">
+                                  <span className="text-sm font-black leading-tight uppercase flex-1 pr-2 line-clamp-3">{act.name}</span>
+                                  {isSelected ? (
+                                    <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                                      <CheckCircle2 size={16} className="text-white" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0 text-slate-300">
+                                      <Plus size={16} />
+                                    </div>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                          {activities.length === 0 && (
+                            <div className="col-span-full p-12 text-center text-slate-400 font-bold text-lg">No hay tareas en la librería global.</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="p-6 bg-white border-t border-slate-100">
+                        <button 
+                          onClick={() => setTaskSelectorForAssign(null)}
+                          className="w-full py-5 bg-slate-900 hover:bg-black text-white text-lg font-black rounded-2xl shadow-xl transition-all"
+                        >
+                          Hecho
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
+
+              {/* Header */}
+              <div className="px-8 py-6 border-b border-slate-800 flex justify-between items-center bg-slate-900 shrink-0 text-white">
+                <div className="flex items-center gap-6">
+                  <div className="w-14 h-14 bg-indigo-500 rounded-[1.2rem] flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <ClipboardList size={28} className="text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black tracking-tight leading-none mb-1 text-white">Administrador de Tareas por Empleado</h2>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Ajustes directos a la plantilla semanal</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowSpecificTasksModal(false)} 
+                  className="w-12 h-12 bg-slate-800 text-slate-400 hover:text-white hover:bg-red-500 rounded-2xl flex items-center justify-center transition-all shadow-sm"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* Main Body */}
+              <div className="flex flex-1 overflow-hidden">
+                {/* Left Sidebar: Employees (Dark Theme) */}
+                <div className="w-[380px] bg-slate-800 flex flex-col shrink-0 z-10">
+                  <div className="p-6 border-b border-slate-700">
+                    <div className="relative">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input 
+                        type="text" 
+                        placeholder="Buscar empleado..." 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-900/50 border border-slate-600 rounded-2xl text-sm font-black text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none"
+                        value={specificTasksSearch}
+                        onChange={e => setSpecificTasksSearch(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+                    {employees.filter(e => ((e.chosen_name || e.first_name) || '').toLowerCase().includes(specificTasksSearch.toLowerCase()) || (e.last_name || '').toLowerCase().includes(specificTasksSearch.toLowerCase())).map(emp => {
+                      const empAssignments = assignments.filter(a => a.employee_id === String(emp.id));
+                      const taskCount = empAssignments.reduce((acc, a) => acc + (a.tasks?.length || 0), 0);
+                      const isSelected = specificTasksEmployeeId === String(emp.id);
+                      
+                      return (
+                        <button 
+                          key={emp.id}
+                          onClick={() => setSpecificTasksEmployeeId(String(emp.id))}
+                          className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all border ${
+                            isSelected
+                              ? 'bg-indigo-600 border-indigo-500 text-white shadow-xl' 
+                              : 'bg-slate-800/50 border-slate-700/50 hover:bg-slate-700 hover:border-slate-600 text-slate-300'
+                          }`}
+                        >
+                          <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center shrink-0 ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-900 text-slate-500'}`}>
+                            <User size={20} />
+                          </div>
+                          <div className="text-left flex-1 overflow-hidden">
+                            <span className={`font-black block truncate text-[15px] ${isSelected ? 'text-white' : 'text-slate-100'}`}>
+                              {emp.chosen_name || emp.first_name} {emp.last_name}
+                            </span>
+                            <span className={`text-[10px] font-black uppercase tracking-widest mt-0.5 block ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`}>
+                              {empAssignments.length} turnos • {taskCount} extras
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Right Content */}
+                <div className="flex-1 overflow-y-auto p-8 lg:p-12 relative bg-slate-100">
+                  {!specificTasksEmployeeId ? (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                      <div className="w-32 h-32 bg-slate-200 rounded-full flex items-center justify-center shadow-inner mb-6">
+                        <User size={64} className="text-slate-300" />
+                      </div>
+                      <h3 className="text-3xl font-black text-slate-400">Selecciona un Empleado</h3>
+                      <p className="font-bold mt-2 text-slate-500 text-lg">Su calendario de actividades de la semana aparecerá aquí.</p>
+                    </div>
+                  ) : (() => {
+                    const emp = employees.find(e => String(e.id) === specificTasksEmployeeId);
+                    return (
+                      <div className="space-y-8 h-full flex flex-col">
+                        <div className="flex justify-between items-center bg-white p-6 md:p-8 rounded-[2.5rem] shadow-sm border border-slate-200/60 shrink-0">
+                          <div className="flex items-center gap-6">
+                            <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white rounded-[2rem] flex items-center justify-center shadow-xl shadow-indigo-200">
+                              <span className="text-3xl font-black">{(emp?.chosen_name || emp?.first_name)?.[0]}</span>
+                            </div>
+                            <div>
+                              <h3 className="text-4xl font-black text-slate-800 tracking-tight leading-none mb-2">{emp?.chosen_name || emp?.first_name} {emp?.last_name}</h3>
+                              <p className="text-sm font-black text-indigo-500 uppercase tracking-widest">Semana del {format(getMonday(currentWeekStart), "d 'de' MMMM", { locale: es })}</p>
+                            </div>
+                          </div>
+                          <button onClick={saveAssignments} className="bg-slate-900 text-white px-8 py-5 rounded-[1.5rem] font-black hover:bg-black transition-all shadow-xl active:scale-95 flex items-center gap-3">
+                            {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+                            <span className="tracking-wide">Guardar Base de Datos</span>
+                          </button>
+                        </div>
+
+                        <div className="flex-1 grid grid-cols-1 lg:grid-cols-7 gap-3 xl:gap-5 min-h-0">
+                          {weekDays.map(day => {
+                            const dateStr = formatDateISO(day);
+                            const dayAssignments = assignments.filter(a => a.assignment_date === dateStr && a.employee_id === specificTasksEmployeeId);
+                            const isToday = isSameDay(day, new Date());
+                            
+                            return (
+                              <div key={dateStr} className={`rounded-[2.5rem] border overflow-hidden flex flex-col transition-all ${isToday ? 'bg-indigo-50 border-indigo-200 shadow-lg shadow-indigo-100/50' : 'bg-white border-slate-200 shadow-sm'}`}>
+                                <div className={`p-4 text-center border-b flex flex-col items-center justify-center gap-0.5 ${isToday ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-slate-50 border-slate-100'}`}>
+                                  <span className={`block text-[10px] font-black uppercase tracking-widest ${isToday ? 'text-indigo-200' : 'text-slate-400'}`}>{format(day, 'EEEE', { locale: es })}</span>
+                                  <span className={`text-4xl font-black ${isToday ? 'text-white' : 'text-slate-800'}`}>{format(day, 'dd')}</span>
+                                </div>
+                                
+                                <div className="p-3 xl:p-4 flex-1 overflow-y-auto">
+                                  {dayAssignments.length === 0 ? (
+                                    <div className={`h-full flex items-center justify-center text-center p-4 border-2 border-dashed rounded-[2rem] ${isToday ? 'border-indigo-200 bg-white' : 'border-slate-200 bg-slate-50/50'}`}>
+                                      <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest rotate-[-15deg] opacity-70">Libre</span>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-4">
+                                      {dayAssignments.map((assign, idx) => {
+                                        const isAM = assign.sub_position.includes('AM');
+                                        const cleanPositionName = assign.sub_position.replace(/_(AM|PM)$/, '');
+                                        
+                                        return (
+                                          <div key={idx} className="bg-white border-2 border-slate-100 rounded-[2rem] p-4 shadow-sm hover:shadow-md transition-all group/card">
+                                            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                                              <div className="flex-1 overflow-hidden pr-2">
+                                                <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest leading-none truncate block w-full" title={cleanPositionName}>
+                                                  {cleanPositionName}
+                                                </span>
+                                              </div>
+                                              <span className={`px-2 py-1 rounded-md text-[9px] font-black tracking-widest shrink-0 ${isAM ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                                {isAM ? 'AM' : 'PM'}
+                                              </span>
+                                            </div>
+                                            
+                                            {/* Specific tasks */}
+                                            <div className="space-y-2 mb-4">
+                                              {(assign.tasks || []).map((t: string) => (
+                                                <div key={t} className="flex justify-between items-center group/task bg-slate-50 hover:bg-slate-100 p-3 rounded-xl border border-slate-100 transition-all">
+                                                  <span className="text-[10px] font-black text-slate-700 uppercase leading-snug flex-1 pr-2 truncate" title={t}>{t}</span>
+                                                  <button 
+                                                    onClick={() => toggleEmployeeSpecificTask(assign, t)}
+                                                    className="w-6 h-6 bg-white border border-slate-200 text-slate-400 hover:bg-red-500 hover:text-white hover:border-red-500 rounded-lg flex items-center justify-center transition-all shadow-sm shrink-0 opacity-0 group-hover/task:opacity-100"
+                                                  >
+                                                    <X size={12} />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                              {(!assign.tasks || assign.tasks.length === 0) && (
+                                                <div className="h-12 flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">+ 0 Extras</span>
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            {/* Add Task Button */}
+                                            <button 
+                                              onClick={() => setTaskSelectorForAssign(assign)}
+                                              className="w-full py-3 bg-slate-50 hover:bg-indigo-600 text-slate-600 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-slate-200 hover:border-indigo-600 flex items-center justify-center gap-2 shadow-sm"
+                                            >
+                                              <Plus size={14} />
+                                              Asignar
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </motion.div>
