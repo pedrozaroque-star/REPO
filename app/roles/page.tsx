@@ -121,6 +121,7 @@ export default function MissionControlRoles() {
   
   // States for Specific Tasks Modal
   const [showSpecificTasksModal, setShowSpecificTasksModal] = useState(false);
+  const [showUnassignedActivitiesModal, setShowUnassignedActivitiesModal] = useState(false);
   const [specificTasksEmployeeId, setSpecificTasksEmployeeId] = useState<string | null>(null);
   const [specificTasksSearch, setSpecificTasksSearch] = useState('');
   const [taskSelectorForAssign, setTaskSelectorForAssign] = useState<any | null>(null);
@@ -942,6 +943,14 @@ export default function MissionControlRoles() {
               Tareas Especificas
             </button>
 
+            <button
+              onClick={() => setShowUnassignedActivitiesModal(true)}
+              className="flex items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-600 px-5 py-3 rounded-2xl border border-rose-200 font-bold text-xs transition-all shadow-sm"
+            >
+              <AlertTriangle size={16} />
+              Actividades sin asignar
+            </button>
+
             <button 
               onClick={saveAssignments}
               disabled={saving}
@@ -1155,14 +1164,14 @@ export default function MissionControlRoles() {
             <div className="flex items-center gap-3 no-print">
               <div className="flex items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-100 rounded-2xl">
                 <Zap className="text-amber-500" size={16} />
-                <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Priorizar las órdenes de la línea</span>
+                <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Priorizar las órdenes</span>
               </div>
               <button 
                 onClick={handlePrint}
                 className="flex items-center gap-3 bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-lg hover:bg-indigo-700 hover:-translate-y-0.5 transition-all active:translate-y-0"
               >
                 <Printer size={18} />
-                Imprimir Reporte
+                Imprimir
               </button>
             </div>
           </div>
@@ -1759,6 +1768,138 @@ export default function MissionControlRoles() {
                   );
                 })()}
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showUnassignedActivitiesModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-50 w-full max-w-5xl max-h-[90vh] rounded-[3rem] shadow-2xl flex flex-col overflow-hidden border border-slate-200"
+            >
+              <div className="p-8 border-b border-slate-200 flex justify-between items-center bg-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-500 shadow-inner">
+                    <AlertTriangle size={32} />
+                  </div>
+                  <div>
+                    <h3 className="text-3xl font-black text-slate-800 tracking-tight">Auditoría de Actividades</h3>
+                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">
+                      Semana del {format(currentWeekStart, "d 'de' MMMM", { locale: es })}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowUnassignedActivitiesModal(false)} 
+                  className="w-12 h-12 bg-white border-2 border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 rounded-2xl flex items-center justify-center transition-all shadow-sm"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                {(() => {
+                  const shiftActivities = activities.filter(a => a.shift === activeShift || a.shift === 'AMBOS' || !a.shift);
+                  const usageMap: Record<string, { assignedTo: string[], isUnassigned: boolean }> = {};
+                  
+                  shiftActivities.forEach(act => {
+                    usageMap[act.name] = { assignedTo: [], isUnassigned: true };
+                  });
+
+                  Object.entries(stationActivities).forEach(([key, tasks]) => {
+                    tasks.forEach(taskName => {
+                      if (usageMap[taskName]) {
+                        const cleanKey = key.replace(/_(AM|PM)(_\d)?$/, ' ($1)');
+                        const label = `Posición: ${cleanKey}`;
+                        if (!usageMap[taskName].assignedTo.includes(label)) {
+                          usageMap[taskName].assignedTo.push(label);
+                          usageMap[taskName].isUnassigned = false;
+                        }
+                      }
+                    });
+                  });
+
+                  assignments.forEach(assignment => {
+                    if (assignment.tasks && Array.isArray(assignment.tasks)) {
+                      assignment.tasks.forEach((taskName: string) => {
+                        if (usageMap[taskName]) {
+                          const employee = employees.find(e => e.id === assignment.employee_id);
+                          const empName = employee ? `${employee.chosen_name || employee.first_name || ''} ${employee.last_name || ''}`.trim() : 'Desconocido';
+                          const dayName = format(new Date(assignment.assignment_date), 'EEEE', { locale: es });
+                          const label = `Empleado: ${empName} (${dayName})`;
+                          if (!usageMap[taskName].assignedTo.includes(label)) {
+                            usageMap[taskName].assignedTo.push(label);
+                            usageMap[taskName].isUnassigned = false;
+                          }
+                        }
+                      });
+                    }
+                  });
+
+                  const unassigned = shiftActivities.filter(a => usageMap[a.name]?.isUnassigned);
+                  const assigned = shiftActivities.filter(a => !usageMap[a.name]?.isUnassigned);
+
+                  return (
+                    <div className="space-y-12">
+                      {/* UNASSIGNED TASKS - HIGH EMPHASIS */}
+                      <div>
+                        <div className="flex items-center gap-3 mb-6">
+                          <h4 className="text-xl font-black text-rose-600 uppercase tracking-widest">Sin Asignar en esta Semana ({activeShift})</h4>
+                          <span className="bg-rose-100 text-rose-600 px-3 py-1 rounded-full text-xs font-bold">{unassigned.length}</span>
+                        </div>
+                        {unassigned.length === 0 ? (
+                          <div className="p-8 bg-emerald-50 rounded-3xl border border-emerald-200 text-center">
+                            <CheckCircle2 size={40} className="text-emerald-500 mx-auto mb-3" />
+                            <p className="text-emerald-700 font-bold">¡Excelente! Todas las actividades están siendo cubiertas.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {unassigned.map(act => (
+                              <div key={act.id} className="p-5 bg-white border-2 border-rose-100 rounded-2xl shadow-sm hover:shadow-md transition-all">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-rose-400 mb-1 block">{act.category}</span>
+                                <p className="text-sm font-black text-slate-800 leading-tight mb-3">{act.name}</p>
+                                {act.shift && (
+                                  <span className="inline-block px-2 py-1 bg-slate-100 text-slate-500 text-[10px] rounded-md font-bold uppercase">{act.shift}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ASSIGNED TASKS - LOWER EMPHASIS */}
+                      <div>
+                        <div className="flex items-center gap-3 mb-6">
+                          <h4 className="text-lg font-black text-slate-400 uppercase tracking-widest">Actividades Asignadas</h4>
+                          <span className="bg-slate-200 text-slate-500 px-3 py-1 rounded-full text-xs font-bold">{assigned.length}</span>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          {assigned.map(act => (
+                            <div key={act.id} className="p-5 bg-white border border-slate-200 rounded-2xl flex flex-col gap-3 opacity-80 hover:opacity-100 transition-opacity">
+                              <div>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-1 block">{act.category}</span>
+                                <p className="text-sm font-bold text-slate-700 leading-tight">{act.name}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2 mt-2 pt-3 border-t border-slate-100">
+                                {usageMap[act.name]?.assignedTo.map((target, idx) => (
+                                  <span key={idx} className="bg-indigo-50 text-indigo-600 text-[10px] px-2 py-1 rounded-md font-bold truncate max-w-full">
+                                    {target}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </motion.div>
           </div>
