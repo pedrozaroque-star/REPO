@@ -5,6 +5,29 @@ const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.co
 
 export const dynamic = 'force-dynamic'
 
+async function getDiningOptionsMap(token: string, storeId: string): Promise<Record<string, string>> {
+    try {
+        const url = new URL(`${TOAST_API_HOST}/config/v2/diningOptions`)
+        const res = await fetch(url.toString(), {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Toast-Restaurant-External-ID': storeId
+            }
+        })
+        if (!res.ok) return {}
+        const data = await res.json()
+        const map: Record<string, string> = {}
+        if (Array.isArray(data)) {
+            data.forEach((opt: any) => {
+                if (opt.guid && opt.name) map[opt.guid] = opt.name
+            })
+        }
+        return map
+    } catch (e) {
+        return {}
+    }
+}
+
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url)
@@ -32,6 +55,16 @@ export async function GET(request: Request) {
         }
 
         const data = await res.json()
+        
+        // Resolver el nombre del Dining Option dinámicamente
+        if (data.diningOption) {
+            const map = await getDiningOptionsMap(token, storeId!)
+            const optId = data.diningOption.guid || data.diningOption.id
+            if (optId && map[optId]) {
+                data.diningOption.name = map[optId]
+            }
+        }
+
         return NextResponse.json({ order: data })
 
     } catch (error: any) {

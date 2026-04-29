@@ -173,8 +173,20 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
                 const isRefundedCheck = check.payments?.some((p:any) => p.refundStatus && p.refundStatus !== 'NONE') || false;
                 if (isRefundedCheck) return;
                 
+                // ESCUDO MATEMÁTICO
+                const subtotalBruto = check.selections?.filter((s:any)=> !s.deleted && !s.voided).reduce((sum: number, sel: any) => {
+                    const qty = sel.quantity || 1;
+                    const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0);
+                    return sum + (unitPrice * qty);
+                }, 0) || 0;
+                const subtotalNeto = Number(check.amount || 0);
+                const totalRealDiscount = Math.max(0, subtotalBruto - subtotalNeto);
+                
+                if (totalRealDiscount < 0.01) return;
+                
                 if (check.appliedDiscounts && check.appliedDiscounts.length > 0) {
                     check.appliedDiscounts.forEach((disc: any) => {
+                        if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
                         const amount = Number(disc.discountAmount || 0)
                         if (amount === 0) return;
                         
@@ -199,6 +211,7 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
 
                         if (sel.appliedDiscounts && sel.appliedDiscounts.length > 0) {
                             sel.appliedDiscounts.forEach((disc: any) => {
+                                if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
                                 const amount = Number(disc.discountAmount || 0)
                                 if (amount === 0) return;
                                 

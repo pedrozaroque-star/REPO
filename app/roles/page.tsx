@@ -547,10 +547,16 @@ export default function MissionControlRoles() {
 
   const finalizeSaveActivity = (force = false) => {
     let updated: any[];
+    let oldName = '';
+    let newName = newActivity.name.trim();
+    let mappingsUpdated = false;
+    let localMappings = { ...stationActivities };
+    let localAssignments = [...assignments];
+
     if (editingActivityId) {
       updated = activities.map(a => {
         if (a.id === editingActivityId) {
-          // CHECK FOR TIME OVERRIDES
+          oldName = a.name;
           const isTimeChanged = a.startTime !== newActivity.startTime || a.endTime !== newActivity.endTime;
           
           const newOverrides = { ...(a.overrides || {}) };
@@ -563,23 +569,47 @@ export default function MissionControlRoles() {
 
           return { 
             ...a, 
-            name: newActivity.name, // Global change
-            category: newActivity.category, // Global change
-            shift: newActivity.shift, // Global change
-            // Root times stay as "Default/Base" if it was new, 
-            // but we don't change root times on EDIT to avoid affecting others
+            name: newName,
+            category: newActivity.category,
+            shift: newActivity.shift,
             overrides: newOverrides
           };
         }
         return a;
       });
+
+      // --- CASCADING RENAME ---
+      // If the name changed, we MUST cascade the update to mappings and assignments
+      if (oldName && oldName !== newName) {
+        // 1. Cascade to Station Mappings
+        Object.keys(localMappings).forEach(key => {
+          if (localMappings[key]?.includes(oldName)) {
+            localMappings[key] = localMappings[key].map((t: string) => t === oldName ? newName : t);
+            mappingsUpdated = true;
+          }
+        });
+
+        // 2. Cascade to Assignments (Specific Tasks)
+        let assignmentsUpdated = false;
+        localAssignments = localAssignments.map(assign => {
+          if (assign.tasks?.includes(oldName)) {
+            assignmentsUpdated = true;
+            return { ...assign, tasks: assign.tasks.map((t: string) => t === oldName ? newName : t) };
+          }
+          return assign;
+        });
+
+        if (mappingsUpdated) setStationActivities(localMappings);
+        if (assignmentsUpdated) setAssignments(localAssignments);
+      }
     } else {
-      const exists = !force && activities.some(a => a.name === newActivity.name);
+      const exists = !force && activities.some(a => a.name === newName);
       if (exists) return;
       
       // New activity: sets the "Base/Default" schedule
       updated = [...activities, { 
         ...newActivity, 
+        name: newName,
         id: Date.now().toString(),
         overrides: {} 
       }];
@@ -588,7 +618,25 @@ export default function MissionControlRoles() {
     setActivities(updated);
     setNewActivity({ name: '', category: 'APERTURA', startTime: '', endTime: '', shift: 'AM' });
     setEditingActivityId(null);
-    saveActivities(updated);
+    
+    // Save master activities & conditionally mappings
+    saveActivities(updated, mappingsUpdated ? localMappings : undefined);
+
+    // Conditionally save assignments to DB in the background
+    if (oldName && oldName !== newName && JSON.stringify(localAssignments) !== JSON.stringify(assignments)) {
+      const start = formatDateISO(getMonday(currentWeekStart));
+      const end = formatDateISO(addDays(getMonday(currentWeekStart), 6));
+      fetch('/api/roles', {
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          assignments: localAssignments, 
+          store_id: selectedStoreGuid,
+          start_date: start,
+          end_date: end
+        })
+      });
+    }
   };
 
   const handlePrint = () => {

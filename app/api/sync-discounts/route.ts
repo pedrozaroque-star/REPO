@@ -75,15 +75,26 @@ export async function POST(request: Request) {
         if (!authRes.ok) throw new Error('Fallo al autenticar Toast')
         const token = (await authRes.json()).token.accessToken
 
-        // 2. Cargar Mapa de Empleados (Supabase)
-        const { data: employees } = await supabase.from('toast_employees').select('toast_guid, first_name, last_name, chosen_name')
-        const employeeMap = new Map<string, string>()
-        if (employees) {
-            employees.forEach(emp => {
-                const name = emp.chosen_name || `${emp.first_name || ''} ${emp.last_name || ''}`.trim()
-                if (name) employeeMap.set(emp.toast_guid, name)
-            })
+        // 2. Cargar Mapa de Empleados (Supabase) con bucle para saltar límite de 1000 registros
+        let allEmployees: any[] = []
+        let empPage = 0
+        while (true) {
+            const { data } = await supabase
+                .from('toast_employees')
+                .select('toast_guid, first_name, last_name, chosen_name')
+                .range(empPage * 1000, (empPage + 1) * 1000 - 1)
+            
+            if (!data || data.length === 0) break
+            allEmployees = [...allEmployees, ...data]
+            if (data.length < 1000) break
+            empPage++
         }
+
+        const employeeMap = new Map<string, string>()
+        allEmployees.forEach(emp => {
+            const name = emp.chosen_name || `${emp.first_name || ''} ${emp.last_name || ''}`.trim()
+            if (name) employeeMap.set(emp.toast_guid, name)
+        })
         
         // 3. Cargar diccionario de Dining Options para resolver transacciones digitales
         const storeDiningMaps: Record<string, Record<string, string>> = {}
@@ -167,13 +178,25 @@ export async function POST(request: Request) {
                         if (check.voided || check.deleted || (check.paymentStatus !== 'CLOSED' && check.paymentStatus !== 'PAID')) return; 
 
                         // Filtro agresivo de Reembolsos (Refunds)
-                        // Toast Web *resta* los descuentos de los tickets reembolsados.
                         const isRefundedCheck = check.payments?.some((p:any) => p.refundStatus && p.refundStatus !== 'NONE') || false;
-                        if (isRefundedCheck) return; // Saltamos TODO el cheque si el pago fue reembolsado
+                        if (isRefundedCheck) return; 
+                        
+                        // ESCUDO MATEMÁTICO: Validar que el cheque realmente tenga un descuento
+                        const subtotalBruto = check.selections?.filter((s:any)=> !s.deleted && !s.voided).reduce((sum: number, sel: any) => {
+                            const qty = sel.quantity || 1;
+                            const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0);
+                            return sum + (unitPrice * qty);
+                        }, 0) || 0;
+                        const subtotalNeto = Number(check.amount || 0);
+                        const totalRealDiscount = Math.max(0, subtotalBruto - subtotalNeto);
+                        
+                        // Si matemáticamente no hubo diferencia entre el cobro y el precio real, no hay descuentos reales.
+                        if (totalRealDiscount < 0.01) return;
                         
                         // Nivel Check
                         if (check.appliedDiscounts) {
                             check.appliedDiscounts.forEach((disc: any) => {
+                                if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
                                 if (Number(disc.discountAmount||0) > 0) {
                                     allDiscountsToInsert.push({
                                         store_id: storeId, store_name: storeName, business_date: dateStr, discount_name: disc.name || 'Unknown', discount_amount: Number(disc.discountAmount), approver_name: buildName(disc.approver, serverNameOrder), server_name: serverNameOrder, order_id: String(order.guid || order.id || 'N/A'), check_id: String(check.displayNumber || order.displayNumber || check.guid || check.id || 'N/A'), opened_date: openedDate
@@ -189,6 +212,7 @@ export async function POST(request: Request) {
 
                                 if (sel.appliedDiscounts) {
                                     sel.appliedDiscounts.forEach((disc: any) => {
+                                        if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
                                         if (Number(disc.discountAmount||0) > 0) {
                                             allDiscountsToInsert.push({
                                                 store_id: storeId, store_name: storeName, business_date: dateStr, discount_name: disc.name || 'Unknown', discount_amount: Number(disc.discountAmount), approver_name: buildName(disc.approver, serverNameOrder), server_name: serverNameOrder, order_id: String(order.guid || order.id || 'N/A'), check_id: String(check.displayNumber || order.displayNumber || check.guid || check.id || 'N/A'), opened_date: openedDate
