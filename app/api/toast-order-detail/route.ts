@@ -39,6 +39,9 @@ export async function GET(request: Request) {
         }
 
         const token = await getAuthToken()
+        if (!token) {
+            return NextResponse.json({ error: 'No se pudo obtener el token de Toast' }, { status: 401 })
+        }
 
         const url = new URL(`${TOAST_API_HOST}/orders/v2/orders/${orderGuid}`)
         
