@@ -582,6 +582,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     const processed = [...augmented].sort((a, b) => {
         const sMsA = new Date(a.start_time).getTime()
         const sMsB = new Date(b.start_time).getTime()
+        const eMsA = new Date(a.end_time).getTime()
+        const eMsB = new Date(b.end_time).getTime()
+        const durA = eMsA - sMsA;
+        const durB = eMsB - sMsB;
+
+        // PRIORIDAD 1: Turnos cortos primero para que tomen sus descansos temprano
+        if (durA !== durB) return durA - durB;
+
         const aCool = countCoolMealSlots(a, sMsA)
         const bCool = countCoolMealSlots(b, sMsB)
         if (aCool !== bCool) return aCool - bCool
@@ -605,7 +613,19 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         meals.forEach((_, mealIdx) => {
             let wStartMs: number, wEndMs: number
             if (mealIdx === 0) {
-                wStartMs = sMs + ms(60 * H_MIN_START)
+                const shiftDurationMs = eMs - sMs;
+                const durationHrs = shiftDurationMs / (1000 * 60 * 60);
+
+                // Lógica Dinámica: Retrasar turnos largos, priorizar cortos
+                let dynamicMinStart = H_MIN_START; // 1.0 hr por defecto
+                if (durationHrs >= 7.5) {
+                    dynamicMinStart = 2.5; // Turnos largos: retrasar hasta la hora 2.5
+                } else if (durationHrs <= 6.5) {
+                    dynamicMinStart = 1.5; // Turnos cortos: pueden iniciar desde la hora 1.5
+                }
+
+                wStartMs = sMs + ms(60 * dynamicMinStart)
+                // LEY: El lunch DEBE iniciar antes de la 5ta hora (H_FIRST_MEAL_MAX = 5.0). Nunca exceder.
                 wEndMs = Math.min(sMs + ms(60 * H_FIRST_MEAL_MAX), endBuf)
             } else {
                 wStartMs = sMs + ms(60 * H_SECOND_MEAL_START)
