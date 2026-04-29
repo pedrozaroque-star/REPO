@@ -147,13 +147,17 @@ export default function AuditoriaDescuentos() {
 
                 while (hasMore) {
                     const { data, error } = await supabase.from('sales_discounts_log')
-                        .select('store_name, discount_name, discount_amount, approver_name, server_name')
+                        .select('*') // Cambiado a select('*') para evitar fallo en .order('id')
                         .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
                         .gte('business_date', sDate)
                         .lte('business_date', eDate)
                         .order('id')
                         .range(from, from + pageSize - 1);
                     
+                    if (error) {
+                        console.error("Error crítico fetching Radar de Anomalías:", error);
+                        break;
+                    }
                     if (data) allRisks = [...allRisks, ...data];
                     if (!data || data.length < pageSize) {
                         hasMore = false;
@@ -208,6 +212,7 @@ export default function AuditoriaDescuentos() {
                             probableCause: cause
                         };
                     })
+                    .filter(r => r.totalRisk > 30) // Escudo de validación: Ignorar riesgos menores a $30
                     .sort((a, b) => b.totalRisk - a.totalRisk)
                     .slice(0, 5); // Solo el Top 5 Empleados de riesgo
 
@@ -546,7 +551,7 @@ export default function AuditoriaDescuentos() {
                                         {seniors.length === 0 && <p className="text-slate-500 text-sm italic">N/A</p>}
                                         {seniors.sort((a,b) => new Date(b.opened_date || b.business_date).getTime() - new Date(a.opened_date || a.business_date).getTime()).map(s => {
                                             const timeString = s.opened_date 
-                                                ? new Date(s.opened_date).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit', hour12:true})
+                                                ? new Date(s.opened_date.endsWith('Z') || s.opened_date.includes('+') ? s.opened_date : s.opened_date + 'Z').toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit', hour12:true, timeZone: 'America/Los_Angeles'})
                                                 : '--:--'
                                             const isRange = startDate !== endDate;
                                             
@@ -824,7 +829,7 @@ export default function AuditoriaDescuentos() {
                                                 {startDate !== endDate && row.business_date && (
                                                     <div className="text-[9px] font-bold tracking-widest text-slate-400 dark:text-slate-500 uppercase">{row.business_date}</div>
                                                 )}
-                                                <div>{row.opened_date ? new Date(row.opened_date).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit', hour12:true}) : '--:--'}</div>
+                                                <div>{row.opened_date ? new Date(row.opened_date.endsWith('Z') || row.opened_date.includes('+') ? row.opened_date : row.opened_date + 'Z').toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit', hour12:true, timeZone: 'America/Los_Angeles'}) : '--:--'}</div>
                                             </td>
                                             <td className="px-4 py-2.5 text-[11px] font-bold tracking-wide uppercase text-slate-700 dark:text-slate-300">{row.store_name}</td>
                                             <td className="px-4 py-2.5 font-bold text-sky-600 dark:text-sky-400 group-hover:text-amber-500 transition-colors">{row.discount_name}</td>
@@ -883,7 +888,7 @@ export default function AuditoriaDescuentos() {
                                     <div className="text-xs text-center border-b border-slate-200 dark:border-slate-800 pb-3">
                                         <div className="font-bold text-[14px] uppercase tracking-wider mb-1">SUCURSAL {orderDetailData.storeName || orderDetailData.data.restaurantService?.name || 'TACOS GAVILAN'}</div>
                                         <div>{orderDetailData.data.diningOption?.name || 'Para Llevar / Dine In'}</div>
-                                        <div>{new Date(orderDetailData.data.openedDate).toLocaleString('es-MX')}</div>
+                                        <div>{new Date(orderDetailData.data.openedDate).toLocaleString('es-MX', { timeZone: 'America/Los_Angeles' })}</div>
                                         <div className="mt-1">Cajero/a: <span className="font-bold">{orderDetailData.cajeraName || orderDetailData.data.server?.name || 'Automático'}</span></div>
                                     </div>
                                     
@@ -900,7 +905,7 @@ export default function AuditoriaDescuentos() {
                                                     const originalLinePrice = unitPrice * qty;
                                                     const finalLinePrice = Number(sel.price || 0);
                                                     const inferredDiscount = originalLinePrice - finalLinePrice;
-                                                    const validDiscounts = sel.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided) || [];
+                                                    const validDiscounts = sel.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED') || [];
 
                                                     return (
                                                         <div key={i} className="flex justify-between items-start text-xs">
@@ -922,7 +927,7 @@ export default function AuditoriaDescuentos() {
                                                     )
                                                 })}
                                                 {/* Mostrar descuentos a nivel ticket solo como referencia visual, pero NO sumarlos al total porque Toast ya los prorrateó en los items */}
-                                                {check.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided).map((d:any, j:number) => (
+                                                {check.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED').map((d:any, j:number) => (
                                                     <div key={`chk-${j}`} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
                                                         <span>REFERENCIA TICKET: {d.name}</span>
                                                         <span>(-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
