@@ -109,6 +109,7 @@ export default function MissionControlRoles() {
   const [activeWeeklyShifts, setActiveWeeklyShifts] = useState<any[]>([]);
   const [showVisualBoard, setShowVisualBoard] = useState(false);
   const [showActivitiesModal, setShowActivitiesModal] = useState(false);
+  const [activitySearchQuery, setActivitySearchQuery] = useState('');
   const [showStationActivitiesModal, setShowStationActivitiesModal] = useState<string | null>(null);
   const [activities, setActivities] = useState<any[]>([]); // Array of { id, name, category, startTime, endTime }
   const [stationActivities, setStationActivities] = useState<Record<string, string[]>>({});
@@ -734,6 +735,31 @@ export default function MissionControlRoles() {
     }
   };
 
+  const cloneMappingsToAllStores = async () => {
+    if (!selectedStoreGuid) return;
+    if (!confirm('¿Estás seguro de clonar las plantillas operativas de esta sucursal a TODA la cadena? Esto sobrescribirá las plantillas de las otras tiendas con la configuración actual.')) return;
+    
+    setSaving(true);
+    try {
+      const response = await fetch('/api/roles/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_store_id: selectedStoreGuid, mappings: stationActivities })
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        alert('🚀 Plantillas clonadas con éxito a todas las sucursales. No olvides guardar los cambios si editaste algo más.');
+      } else {
+        alert(`❌ Error al clonar: ${result.error || 'Desconocido'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error de conexión al intentar clonar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveCurrentAsTemplate = async () => {
     if (!newTemplateName) return alert('Ponle un nombre a la plantilla');
     
@@ -997,6 +1023,20 @@ export default function MissionControlRoles() {
             >
               <AlertTriangle size={16} />
               Actividades sin asignar
+            </button>
+
+            <button 
+              onClick={cloneMappingsToAllStores}
+              disabled={saving}
+              className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-xs tracking-wide shadow-md transition-all active:scale-95 ${
+                saving 
+                ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                : 'bg-teal-600 text-white hover:bg-teal-700 shadow-teal-100'
+              }`}
+              title="Clonar plantillas de esta sucursal a todas las demás tiendas"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Copy size={16} />}
+              Clonar a Todas
             </button>
 
             <button 
@@ -2250,36 +2290,44 @@ export default function MissionControlRoles() {
 
       <AnimatePresence>
         {showActivitiesModal && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 md:p-8 bg-slate-900/40 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 md:p-8 bg-slate-900/40 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }} 
               animate={{ opacity: 1, scale: 1, y: 0 }} 
               exit={{ opacity: 0, scale: 0.9, y: 20 }} 
-              className="bg-white w-full max-w-6xl max-h-[92vh] rounded-[3rem] border border-black/5 shadow-2xl flex flex-col overflow-hidden relative"
+              className="bg-white w-full max-w-6xl max-h-[95vh] md:max-h-[90vh] rounded-[2rem] md:rounded-[3rem] border border-black/5 shadow-2xl flex flex-col overflow-hidden relative"
             >
               {/* --- FIXED HEADER --- */}
-              <div className="p-8 pb-4 border-b border-slate-100 flex items-center justify-between bg-white z-20">
-                <div className="flex items-center gap-5">
-                  <div className="bg-slate-900 text-white p-4 rounded-[1.5rem] shadow-lg shadow-slate-200">
-                    <FileText size={28} />
+              <div className="p-5 md:p-8 pb-4 border-b border-slate-100 flex items-center justify-between bg-white z-20">
+                <div className="flex items-center gap-4 md:gap-5">
+                  <div className="bg-slate-900 text-white p-3 md:p-4 rounded-[1.2rem] md:rounded-[1.5rem] shadow-lg shadow-slate-200 shrink-0">
+                    <FileText size={24} className="md:w-7 md:h-7" />
                   </div>
-                  <div>
-                    <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Centro de Control</h3>
+                  <div className="min-w-0">
+                    <h3 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight truncate">Centro de Control</h3>
                     <div className="flex items-center gap-3 mt-0.5">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Librería Operativa GAVILÁN</p>
                     </div>
                   </div>
                 </div>
-                <button onClick={() => setShowActivitiesModal(false)} className="p-3 hover:bg-red-50 hover:text-red-600 rounded-[1.2rem] transition-all text-slate-400">
+                <button 
+                  onClick={() => {
+                    if (newActivity.name.trim() !== '') {
+                      if (!confirm('¿Estás seguro de que deseas salir? Tienes una tarea en progreso que no se ha registrado.')) return;
+                    }
+                    setShowActivitiesModal(false);
+                  }} 
+                  className="p-3 hover:bg-red-50 hover:text-red-600 rounded-[1.2rem] transition-all text-slate-400"
+                >
                   <X size={22} />
                 </button>
               </div>
 
               {/* --- DUAL PANEL CONTENT --- */}
-              <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row">
                 
-                {/* --- LEFT PANEL: INPUT FORM (FIXED ON MD+) --- */}
-                <div className="w-full md:w-[400px] bg-slate-50/50 p-8 border-r border-slate-100 overflow-y-auto custom-scrollbar">
+                {/* --- LEFT PANEL: INPUT FORM --- */}
+                <div className="w-full lg:w-[450px] shrink-0 bg-slate-50/50 p-6 md:p-8 lg:border-r lg:border-slate-100 overflow-y-auto custom-scrollbar">
                   <h4 className="text-[11px] font-bold text-indigo-600 uppercase tracking-widest mb-6">Editor de Tareas</h4>
                   
                   <div className="space-y-6">
@@ -2489,7 +2537,7 @@ export default function MissionControlRoles() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-3 pb-8 lg:pb-0">
                       <button 
                         onClick={handleSaveActivity}
                         className={`w-full py-5 rounded-[1.5rem] transition-all shadow-lg flex items-center justify-center gap-4 group active:scale-95 ${
@@ -2518,23 +2566,35 @@ export default function MissionControlRoles() {
                 </div>
 
                 {/* --- RIGHT PANEL: LIST AREA (SCROLLABLE) --- */}
-                <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-white">
-                  <div className="flex items-center justify-between mb-8">
+                <div className="flex-1 p-6 md:p-8 lg:overflow-y-auto custom-scrollbar bg-white">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                     <div className="flex flex-col">
                       <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Listado de la Librería</h4>
                       <p className="text-[9px] text-emerald-500 font-bold mt-1 uppercase animate-pulse flex items-center gap-1">
                         <Zap size={10} /> Conectado en tiempo real
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                      <div className="relative flex-1 md:w-64">
+                        <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input 
+                          type="text" 
+                          placeholder="BUSCAR TAREA..." 
+                          value={activitySearchQuery}
+                          onChange={(e) => setActivitySearchQuery(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-full pl-10 pr-4 py-2 text-[10px] font-black uppercase tracking-widest outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all placeholder:text-slate-300"
+                        />
+                      </div>
+                      
                       <button 
                         onClick={() => fetchActivities()}
-                        className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                        className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all shrink-0"
                         title="Refrescar Librería"
                       >
                         <RefreshCw size={16} />
                       </button>
-                      <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-4 py-2 rounded-full border border-slate-200">{activities.length} Tareas</span>
+                      <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-3 py-2 rounded-full border border-slate-200 shrink-0">{activities.length}</span>
                     </div>
                   </div>
 
@@ -2545,11 +2605,22 @@ export default function MissionControlRoles() {
                         La librería está vacía.
                       </div>
                     ) : (
-                      ['APERTURA', 'CIERRE', 'ACTIVIDAD REGULAR', 'OTRO'].map(cat => {
-                        const acts = activities.filter(a => a.category === cat);
-                        if (acts.length === 0) return null;
-                        
-                        return (
+                      (() => {
+                        const normalizeStr = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                        const searchTerms = activitySearchQuery.trim().split(/\s+/).filter(Boolean).map(normalizeStr);
+
+                        return ['APERTURA', 'CIERRE', 'ACTIVIDAD REGULAR', 'OTRO'].map(cat => {
+                          const acts = activities.filter(a => {
+                            if (a.category !== cat) return false;
+                            if (searchTerms.length === 0) return true;
+                            const target = normalizeStr(`${a.name} ${a.shift}`);
+                            // Búsqueda inteligente: todas las palabras escritas deben estar presentes, sin importar orden ni acentos
+                            return searchTerms.every(term => target.includes(term));
+                          });
+
+                          if (acts.length === 0) return null;
+                          
+                          return (
                           <div key={cat} className="relative">
                             <div className="flex items-center gap-4 mb-6 sticky top-0 bg-white z-10 py-1">
                               <h4 className="text-[12px] font-bold text-indigo-600 uppercase tracking-widest">{cat}</h4>
@@ -2652,19 +2723,10 @@ export default function MissionControlRoles() {
                           </div>
                         );
                       })
+                      })()
                     )}
                   </div>
                 </div>
-              </div>
-              
-              {/* --- FIXED FOOTER --- */}
-              <div className="p-8 border-t border-slate-100 bg-white flex justify-end">
-                <button 
-                  onClick={() => setShowActivitiesModal(false)}
-                  className="bg-indigo-600 text-white px-12 py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
-                >
-                  Finalizar Gestión
-                </button>
               </div>
             </motion.div>
           </div>
@@ -2672,22 +2734,32 @@ export default function MissionControlRoles() {
 
         {/* --- STATION ACTIVITIES ASSIGNMENT MODAL --- */}
         {showStationActivitiesModal && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-8 bg-slate-900/40 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white w-full max-w-4xl rounded-[3rem] border border-black/5 p-12 shadow-2xl relative">
-              <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-5">
-                  <div className="bg-indigo-50 text-indigo-600 p-4 rounded-3xl"><ClipboardList size={32} /></div>
-                  <div>
-                    <h3 className="text-2xl font-bold text-slate-900 tracking-tight uppercase">Asignar Tareas</h3>
-                    <p className="text-xs font-medium text-slate-400 mt-1 uppercase tracking-widest">Posición: {showStationActivitiesModal}</p>
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 md:p-8 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.9 }} 
+              className="bg-white w-full max-w-4xl max-h-[95vh] md:max-h-[90vh] flex flex-col rounded-[2rem] md:rounded-[3rem] border border-black/5 shadow-2xl relative overflow-hidden"
+            >
+              <div className="p-5 md:p-8 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+                <div className="flex items-center gap-4 md:gap-5">
+                  <div className="bg-indigo-50 text-indigo-600 p-3 md:p-4 rounded-2xl md:rounded-3xl shrink-0">
+                    <ClipboardList size={24} className="md:w-8 md:h-8" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight uppercase truncate">Asignar Tareas</h3>
+                    <p className="text-[10px] md:text-xs font-medium text-slate-400 mt-1 uppercase tracking-widest truncate">Posición: {showStationActivitiesModal}</p>
                   </div>
                 </div>
-                <button onClick={() => setShowStationActivitiesModal(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400"><X size={24} /></button>
+                <button onClick={() => setShowStationActivitiesModal(null)} className="p-3 hover:bg-slate-50 rounded-2xl transition-colors text-slate-400 shrink-0">
+                  <X size={24} />
+                </button>
               </div>
 
-              {/* Day Selector (Multi-select) */}
-              <div className="bg-slate-50 p-6 rounded-[2rem] mb-8 border border-slate-100 flex flex-col gap-4">
-                <div className="flex items-center justify-between">
+              <div className="p-5 md:p-8 overflow-y-auto custom-scrollbar flex-1 bg-white">
+                {/* Day Selector (Multi-select) */}
+                <div className="bg-slate-50 p-6 rounded-[2rem] mb-8 border border-slate-100 flex flex-col gap-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex flex-col">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Frecuencia de Tareas</span>
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -2863,8 +2935,9 @@ export default function MissionControlRoles() {
                   })()}
                 </div>
               </div>
+              </div> {/* FIN DE SCROLLABLE AREA */}
               
-              <div className="mt-10">
+              <div className="p-5 md:p-8 pt-4 border-t border-slate-100 shrink-0 bg-white z-10">
                 <button 
                   onClick={() => setShowStationActivitiesModal(null)}
                   className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] shadow-xl hover:bg-black transition-all"
