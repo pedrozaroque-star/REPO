@@ -735,30 +735,7 @@ export default function MissionControlRoles() {
     }
   };
 
-  const cloneMappingsToAllStores = async () => {
-    if (!selectedStoreGuid) return;
-    if (!confirm('¿Estás seguro de clonar las plantillas operativas de esta sucursal a TODA la cadena? Esto sobrescribirá las plantillas de las otras tiendas con la configuración actual.')) return;
-    
-    setSaving(true);
-    try {
-      const response = await fetch('/api/roles/clone', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_store_id: selectedStoreGuid, mappings: stationActivities })
-      });
-      const result = await response.json();
-      if (response.ok && result.success) {
-        alert('🚀 Plantillas clonadas con éxito a todas las sucursales. No olvides guardar los cambios si editaste algo más.');
-      } else {
-        alert(`❌ Error al clonar: ${result.error || 'Desconocido'}`);
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Error de conexión al intentar clonar.');
-    } finally {
-      setSaving(false);
-    }
-  };
+
 
   const saveCurrentAsTemplate = async () => {
     if (!newTemplateName) return alert('Ponle un nombre a la plantilla');
@@ -1025,19 +1002,6 @@ export default function MissionControlRoles() {
               Actividades sin asignar
             </button>
 
-            <button 
-              onClick={cloneMappingsToAllStores}
-              disabled={saving}
-              className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-xs tracking-wide shadow-md transition-all active:scale-95 ${
-                saving 
-                ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                : 'bg-teal-600 text-white hover:bg-teal-700 shadow-teal-100'
-              }`}
-              title="Clonar plantillas de esta sucursal a todas las demás tiendas"
-            >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Copy size={16} />}
-              Clonar a Todas
-            </button>
 
             <button 
               onClick={saveAssignments}
