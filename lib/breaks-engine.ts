@@ -316,7 +316,8 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const cat = getRoleCategory(rk)
         const empId = shift.employee_id ?? null
 
-        const heatPenalty = Math.pow(h, 12) * 1e18
+        // Reducimos enormemente el heatPenalty para permitir que distPenalty (basado en targetMs) tenga peso
+        const heatPenalty = Math.pow(h, 4) * 1e12
 
         let peakPenalty = 0
         for (let t = sMs; t < eMs; t += ms(1)) {
@@ -326,7 +327,8 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }
         }
 
-        const distPenalty = Math.abs(midMs(sMs, durMs) - targetMs) / ms(1) * 4e6
+        const distPenalty = Math.abs(midMs(sMs, durMs) - targetMs) / ms(1) * 1e15 // Fuerte atracción hacia targetMs
+
         let wavePenalty = 0
 
         for (const slot of globalSlots) {
@@ -376,7 +378,8 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // ────────────────────────────────────────────────────────────────────────
     function getMealTargetOutsidePeak(wStartMs: number, wEndMs: number, durMs: number, cohortIdx: number, cohortSize: number, shiftStartMs: number, allShiftMealsCount: number, globalMealIndex: number, shiftDurationHrs: number): number {
         const peak = getPeakHoursForShift(shiftStartMs)
-        const refDate = new Date(2000, 0, 1, 0, 0, 0).getTime()
+        const shiftStartDate = new Date(shiftStartMs)
+        const refDate = new Date(shiftStartDate.getFullYear(), shiftStartDate.getMonth(), shiftStartDate.getDate(), 0, 0, 0).getTime()
         const peakStartMs = refDate + ms(60 * peak.start)
         const peakEndMs = refDate + ms(60 * peak.end)
 
@@ -628,6 +631,13 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // ══════════════════════════════════════════════════════════════════════════
     //  PASS 1 — MEALS con distribución equiespaciada post-pico
     // ══════════════════════════════════════════════════════════════════════════
+    console.log("=== PROCESSED SHIFT ORDER ===");
+    processed.forEach((s, i) => {
+        const sMs = new Date(s.start_time).getTime();
+        const eMs = new Date(s.end_time).getTime();
+        console.log(`${i+1}. ${s.employee_name || s.employee_id} - Dur: ${(eMs - sMs) / 3600000}h`);
+    });
+    
     for (const shift of processed) {
         const sMs = new Date(shift.start_time).getTime()
         const eMs = new Date(shift.end_time).getTime()
@@ -655,8 +665,11 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             if (wEndMs - wStartMs < ms(60)) wEndMs = Math.min(endBuf, wStartMs + ms(90))
 
             const targetMs = getMealTargetOutsidePeak(wStartMs, wEndMs, ms(30), mealIdx, totalMealsForShift, sMs, totalMealsForShift, mealIdx, durationHrs)
+            
+            console.log(`[DEBUG MEAL] ${shift.employee_name} (${durationHrs} hrs) - targetMs: ${new Date(targetMs).toLocaleTimeString()} - processed order`)
 
             const best = findSlot(wStartMs, wEndMs, 30, shift.breaks_schedule, shift, true, targetMs, sMs)
+            console.log(`[DEBUG MEAL ASSIGNED] ${shift.employee_name} -> ${best.toLocaleTimeString()}`)
             const bestEnd = new Date(best.getTime() + ms(30))
             shift.breaks_schedule.push({ type: 'meal_30', start_time: toIso(best), end_time: toIso(bestEnd), status: 'scheduled' })
             globalSlots.push({ type: 'meal_30', startMs: best.getTime(), endMs: bestEnd.getTime(), roleKey: getRoleKey(shift), category: getRoleCategory(getRoleKey(shift)), empId: shift.employee_id ?? null })
