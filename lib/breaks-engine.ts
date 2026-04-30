@@ -638,6 +638,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
 
         meals.forEach((_, mealIdx) => {
             let wStartMs: number, wEndMs: number
+            const shiftDurationMs = eMs - sMs;
+            const durationHrs = shiftDurationMs / (1000 * 60 * 60);
+            
             if (mealIdx === 0) {
                 // Adelantar todos los lunches para evitar que caigan en HORA PICO
                 // Las personas con turnos cortos (priorizadas por sort) agarrarán los primeros lugares (1.0 hr).
