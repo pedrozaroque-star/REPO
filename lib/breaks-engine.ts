@@ -125,19 +125,40 @@ function getLocalHourMinute(tMs: number): { hour: number; minute: number } {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ZONA DE PICO SEGÚN TURNO (AM: 12-14h, PM: 19-21h)
+//  ZONA DE PICO SEGÚN TURNO (AM: 11-14h, PM: 18-20h)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getPeakHoursForShift(shiftStartMs: number): { start: number; end: number } {
+function getPeakHoursForShift(shiftStartMs: number, operatingHours: OperatingHour[]): { start: number; end: number } {
     const { hour } = getLocalHourMinute(shiftStartMs)
-    if (hour >= 4 && hour < 12) {
-        return { start: 12, end: 14 }
+    const isAm = hour >= 4 && hour < 12;
+    
+    if (!operatingHours || operatingHours.length === 0) {
+        return isAm ? { start: 11, end: 14 } : { start: 18, end: 20 };
     }
-    return { start: 18, end: 20 }
+
+    let maxSales = 0;
+    let peakHour = isAm ? 12 : 19;
+    const startH = isAm ? 9 : 15;
+    const endH = isAm ? 15 : 22;
+
+    for (const oh of operatingHours) {
+        const h = Number(oh.hour);
+        const s = Number(oh.projected_sales || 0);
+        if (h >= startH && h <= endH && s > maxSales) {
+            maxSales = s;
+            peakHour = h;
+        }
+    }
+
+    if (isAm) {
+        return { start: Math.max(10, peakHour - 1), end: Math.min(16, peakHour + 2) };
+    } else {
+        return { start: Math.max(17, peakHour - 1), end: Math.min(23, peakHour + 1) };
+    }
 }
 
-function isInPeakZoneForShift(tMs: number, shiftStartMs: number): boolean {
-    const peak = getPeakHoursForShift(shiftStartMs)
+function isInPeakZoneForShift(tMs: number, shiftStartMs: number, operatingHours: OperatingHour[]): boolean {
+    const peak = getPeakHoursForShift(shiftStartMs, operatingHours)
     const { hour, minute } = getLocalHourMinute(tMs)
     const hourFloat = hour + minute / 60
     if (hourFloat >= peak.start && hourFloat < peak.end) {
@@ -217,7 +238,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // ────────────────────────────────────────────────────────────────────────
     function heatBlocks(sMs: number, eMs: number, shiftStartMs: number): boolean {
         for (let t = sMs; t < eMs; t += ms(1)) {
-            if (isInPeakZoneForShift(t, shiftStartMs)) {
+            if (isInPeakZoneForShift(t, shiftStartMs, operatingHours)) {
                 console.warn(`🚫 BLOQUEADO por PICO DE TURNO: ${new Date(sMs).toLocaleTimeString()} - ${new Date(eMs).toLocaleTimeString()}`)
                 return true
             }
@@ -301,7 +322,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
 
         let peakPenalty = 0
         for (let t = sMs; t < eMs; t += ms(1)) {
-            if (isInPeakZoneForShift(t, shiftStartMs)) {
+            if (isInPeakZoneForShift(t, shiftStartMs, operatingHours)) {
                 peakPenalty = 1e30
                 break
             }
@@ -357,7 +378,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     //  TARGET PARA LUNCH: distribución equiespaciada dentro del intervalo post-pico
     // ────────────────────────────────────────────────────────────────────────
     function getMealTargetOutsidePeak(wStartMs: number, wEndMs: number, durMs: number, cohortIdx: number, cohortSize: number, shiftStartMs: number, allShiftMealsCount: number, globalMealIndex: number, shiftDurationHrs: number, shift: any): number {
-        const peak = getPeakHoursForShift(shiftStartMs)
+        const peak = getPeakHoursForShift(shiftStartMs, operatingHours)
         const { hour: startHour, minute: startMin } = getLocalHourMinute(shiftStartMs);
         const shiftStartMidnightMs = shiftStartMs - ms(60 * startHour) - ms(startMin);
         
