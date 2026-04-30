@@ -771,6 +771,15 @@ export default function DescansosPage() {
                         {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
                         <span className="hidden lg:inline">{isFullscreen ? 'Salir' : 'Tableta'}</span>
                     </button>
+                    <button
+                        onClick={() => triggerAiRecalculation(absentEmpIds, undefined, true, true)}
+                        disabled={calculating}
+                        className="flex items-center gap-2 bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-lg font-bold text-sm transition-colors border border-amber-200 disabled:opacity-50"
+                        title="Forzar recálculo de descansos"
+                    >
+                        <RefreshCw size={16} className={calculating ? 'animate-spin' : ''} />
+                        <span className="hidden lg:inline">Recalcular</span>
+                    </button>
                     {showRealPunches && (
                         <button
                             onClick={() => pullToastPunches(true)}
