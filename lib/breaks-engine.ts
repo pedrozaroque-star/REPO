@@ -374,7 +374,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // ────────────────────────────────────────────────────────────────────────
     //  TARGET PARA LUNCH: distribución equiespaciada dentro del intervalo post-pico
     // ────────────────────────────────────────────────────────────────────────
-    function getMealTargetOutsidePeak(wStartMs: number, wEndMs: number, durMs: number, cohortIdx: number, cohortSize: number, shiftStartMs: number, allShiftMealsCount: number, globalMealIndex: number): number {
+    function getMealTargetOutsidePeak(wStartMs: number, wEndMs: number, durMs: number, cohortIdx: number, cohortSize: number, shiftStartMs: number, allShiftMealsCount: number, globalMealIndex: number, shiftDurationHrs: number): number {
         const peak = getPeakHoursForShift(shiftStartMs)
         const refDate = new Date(2000, 0, 1, 0, 0, 0).getTime()
         const peakStartMs = refDate + ms(60 * peak.start)
@@ -402,7 +402,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             isAfterPeak = false
         } else {
             // Fallback: toda la ventana
-            const frac = cohortSize > 1 ? cohortIdx / (cohortSize - 1) : 0.5
+            let frac = 0.5
+            if (cohortSize > 1) {
+                frac = cohortIdx / (cohortSize - 1)
+            } else {
+                // Dinámica de priorización: cortos temprano, largos tarde
+                if (shiftDurationHrs <= 7) frac = 0.0 // Pegado al inicio
+                else if (shiftDurationHrs >= 10) frac = 1.0 // Pegado al final
+            }
             return wStartMs + (wEndMs - wStartMs) * frac
         }
 
@@ -421,7 +428,14 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             const step = (targetInterval.end - targetInterval.start - durMs) / (subGroupSize - 1)
             rawTarget = targetInterval.start + step * subGroupIdx
         } else {
-            const frac = subGroupSize > 1 ? subGroupIdx / (subGroupSize - 1) : 0.5
+            let frac = 0.5
+            if (subGroupSize > 1) {
+                frac = subGroupIdx / (subGroupSize - 1)
+            } else {
+                // Dinámica de priorización: cortos temprano, largos tarde
+                if (shiftDurationHrs <= 7) frac = 0.0
+                else if (shiftDurationHrs >= 10) frac = 1.0
+            }
             rawTarget = targetInterval.start + (targetInterval.end - targetInterval.start - durMs) * frac
         }
 
@@ -506,10 +520,11 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         }
 
         if (pool.length === 0) {
-            console.warn(`🔴 FALLBACK NIVEL 2: Rompiendo Peak Zone para ${shift.employee_name}`)
+            console.warn(`🔴 FALLBACK NIVEL 2: Permitiendo empalme de MISMO ROL fuera de Peak Zone para ${shift.employee_name}`)
             
-            // NIVEL 2: Ignorar zona de pico de ventas, seguir evitando solapamiento exacto del mismo rol y leader
+            // NIVEL 2: MANTENER zona de pico protegida. Permitir encimar mismo rol. Evitar empalme de líderes.
             const fb2 = candidates.filter(t => {
+                if (heatBlocks(t, t + durMs, shiftStartMs)) return false // ¡ZONA DE PICO PROTEGIDA!
                 if (personalViolation(t, t + durMs, type, personalBreaks)) return false
                 for (const slot of globalSlots) {
                     if (slot.empId !== null && slot.empId === empId) continue
@@ -519,17 +534,28 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                         const isLeaderFleeing = cat === 'leader' && slot.category !== 'leader'
                         const isSubordinateFleeing = cat !== 'leader' && slot.category === 'leader'
                         if (isLeaderConflict || isLeaderFleeing || isSubordinateFleeing) return false
-                        if (slot.roleKey === rk) return false // NUNCA encimar preps con preps
                     }
                 }
                 return true
-            }).sort((a, b) => spanHeat(a, a + durMs, getHeat) - spanHeat(b, b + durMs, getHeat))
+            })
             pool = fb2
         }
 
         if (pool.length === 0) {
-            console.warn(`💥 FALLBACK TOTAL EXHAUSTO para ${shift.employee_name} (Colisiones permitidas)`)
+            console.warn(`🔴 FALLBACK NIVEL 3: Permitiendo TODOS los empalmes fuera de Peak Zone para ${shift.employee_name}`)
+            
+            // NIVEL 3: MANTENER zona de pico protegida. Permitir cualquier empalme (incluso líderes) con tal de no tocar el pico.
             const fb3 = candidates.filter(t => {
+                if (heatBlocks(t, t + durMs, shiftStartMs)) return false // ¡ZONA DE PICO PROTEGIDA!
+                if (personalViolation(t, t + durMs, type, personalBreaks)) return false
+                return true
+            })
+            pool = fb3
+        }
+
+        if (pool.length === 0) {
+            console.warn(`💥 FALLBACK TOTAL EXHAUSTO para ${shift.employee_name} (Rompiendo Peak Zone por obligación matemática)`)
+            const fb4 = candidates.filter(t => {
                 for (const pb of personalBreaks) {
                     const ps = new Date(pb.start_time).getTime()
                     const pe = new Date(pb.end_time).getTime()
@@ -540,7 +566,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 }
                 return true
             })
-            if (fb3.length) pool = fb3
+            if (fb4.length) pool = fb4
             else {
                 let emergencyStartMs = wStartMs
                 for (const pb of personalBreaks) {
@@ -613,18 +639,10 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         meals.forEach((_, mealIdx) => {
             let wStartMs: number, wEndMs: number
             if (mealIdx === 0) {
-                const shiftDurationMs = eMs - sMs;
-                const durationHrs = shiftDurationMs / (1000 * 60 * 60);
-
-                // Lógica Dinámica: Retrasar turnos largos, priorizar cortos
-                let dynamicMinStart = H_MIN_START; // 1.0 hr por defecto
-                if (durationHrs >= 7.5) {
-                    dynamicMinStart = 2.5; // Turnos largos: retrasar hasta la hora 2.5
-                } else if (durationHrs <= 6.5) {
-                    dynamicMinStart = 1.5; // Turnos cortos: pueden iniciar desde la hora 1.5
-                }
-
-                wStartMs = sMs + ms(60 * dynamicMinStart)
+                // Adelantar todos los lunches para evitar que caigan en HORA PICO
+                // Las personas con turnos cortos (priorizadas por sort) agarrarán los primeros lugares (1.0 hr).
+                // Las personas con turnos largos (últimas en sort) agarrarán lugares post-pico si no caben antes.
+                wStartMs = sMs + ms(60 * H_MIN_START)
                 // LEY: El lunch DEBE iniciar antes de la 5ta hora (H_FIRST_MEAL_MAX = 5.0). Nunca exceder.
                 wEndMs = Math.min(sMs + ms(60 * H_FIRST_MEAL_MAX), endBuf)
             } else {
@@ -633,7 +651,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }
             if (wEndMs - wStartMs < ms(60)) wEndMs = Math.min(endBuf, wStartMs + ms(90))
 
-            const targetMs = getMealTargetOutsidePeak(wStartMs, wEndMs, ms(30), mealIdx, totalMealsForShift, sMs, totalMealsForShift, mealIdx)
+            const targetMs = getMealTargetOutsidePeak(wStartMs, wEndMs, ms(30), mealIdx, totalMealsForShift, sMs, totalMealsForShift, mealIdx, durationHrs)
 
             const best = findSlot(wStartMs, wEndMs, 30, shift.breaks_schedule, shift, true, targetMs, sMs)
             const bestEnd = new Date(best.getTime() + ms(30))
