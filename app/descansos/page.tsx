@@ -22,6 +22,9 @@ export default function DescansosPage() {
     const { user } = useAuth()
     const searchParams = useSearchParams()
 
+    const [mounted, setMounted] = useState(false)
+    useEffect(() => setMounted(true), [])
+
     const containerRef = useRef<HTMLDivElement>(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [calendarOpen, setCalendarOpen] = useState(false)
@@ -43,25 +46,29 @@ export default function DescansosPage() {
     const toggleFullscreen = () => {
         const doc = document as any;
         const elem = containerRef.current as any;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
         if (!isFullscreen) {
-            if (elem?.requestFullscreen) {
+            if (isIOS) {
+                setIsFullscreen(true); // En iOS/iPadOS forzamos CSS (su API de fullscreen suele fallar o limitar a videos)
+            } else if (elem?.requestFullscreen) {
                 elem.requestFullscreen().catch(() => setIsFullscreen(true));
             } else if (elem?.webkitRequestFullscreen) {
                 elem.webkitRequestFullscreen();
-                // En iOS a veces webkitRequestFullscreen no cambia el estado inmediatamente si falla, forzamos CSS:
                 setTimeout(() => { if (!doc.webkitFullscreenElement) setIsFullscreen(true) }, 200);
             } else {
-                setIsFullscreen(true); // Fallback manual (CSS)
+                setIsFullscreen(true);
             }
         } else {
-            if (doc.exitFullscreen && doc.fullscreenElement) {
+            if (isIOS) {
+                setIsFullscreen(false);
+            } else if (doc.exitFullscreen && doc.fullscreenElement) {
                 doc.exitFullscreen().catch(() => setIsFullscreen(false));
             } else if (doc.webkitExitFullscreen && doc.webkitFullscreenElement) {
                 doc.webkitExitFullscreen();
                 setTimeout(() => { if (!doc.webkitFullscreenElement) setIsFullscreen(false) }, 200);
             } else {
-                setIsFullscreen(false); // Fallback manual
+                setIsFullscreen(false);
             }
         }
     }
@@ -332,13 +339,14 @@ export default function DescansosPage() {
     }, [currentTime])
 
     const isTodayLineVisible = useMemo(() => {
+        if (!mounted) return false
         const now = currentTime
         let nowBusinessDate = new Date(now)
         if (now.getHours() < START_HOUR) {
             nowBusinessDate.setDate(nowBusinessDate.getDate() - 1)
         }
         return formatDateISO(currentDate) === formatDateISO(nowBusinessDate)
-    }, [currentDate, currentTime])
+    }, [currentDate, currentTime, mounted])
 
     const currentTimeLeft = useMemo(() => {
         const now = currentTime

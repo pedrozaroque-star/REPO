@@ -294,7 +294,7 @@ function SalesPageContent() {
         return { summary, trendData, storeData, rows }
     }
 
-    const refreshData = async () => {
+    const refreshData = async (forceLive = false) => {
         setLoading(true)
         setLoadingMessage(t('sales.loading_connecting'))
         try {
@@ -365,6 +365,10 @@ function SalesPageContent() {
                 endDate: formatDate(end),
                 groupBy: groupBy
             })
+
+            if (forceLive === true) {
+                query.append('skipCache', 'true')
+            }
 
             setLoadingMessage(t('sales.loading_fetching'))
             // Get Token
@@ -655,7 +659,7 @@ function SalesPageContent() {
                                 </button>
 
                                 <button
-                                    onClick={refreshData}
+                                    onClick={() => refreshData(true)}
                                     disabled={loading}
                                     className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0"
                                     title={t('sales.refresh')}

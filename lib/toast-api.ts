@@ -27,6 +27,7 @@ export interface ToastMetricsOptions {
     skipCache?: boolean
     fastMode?: boolean
     readOnly?: boolean
+    allowDirtyCache?: boolean // NEW: Allows reading "Today's" data from DB to speed up initial UI load
 }
 
 export interface MetricRow {
@@ -980,7 +981,7 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                 const isToday = dateStr === todayStr
                 const isYesterdayEarlyHours = dateStr === yesterdayStr && laHour < 6
 
-                const isDirty = isToday || isYesterdayEarlyHours
+                const isDirty = (isToday || isYesterdayEarlyHours) && !options.allowDirtyCache
 
                 // Use cache ONLY for past dates that are outside the dirty window
                 // SAFETY: Also ignore cache if it reports $0 sales (likely failed sync), ensuring we retry fetching live.

@@ -60,7 +60,7 @@ const WAVE_MIN_REST_MS = 30 * 60_000   // antes 15, ahora 30
 const SLOT_STEP_MS = 10 * 60_000
 const H_MIN_START = 1.0
 const H_END_BUFFER = 1.0
-const H_FIRST_MEAL_MAX = 5.0
+const H_FIRST_MEAL_MAX = 5.5 // CA law allows up to 5h 59m in some waivers, but usually 5.0. Le damos 5.5 de buffer interno para PM.
 const H_SECOND_MEAL_START = 7.0
 const H_SECOND_MEAL_END = 10.0
 
@@ -128,9 +128,12 @@ function getLocalHourMinute(tMs: number): { hour: number; minute: number } {
 //  ZONA DE PICO SEGÚN TURNO (AM: 11-14h, PM: 18-20h)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getPeakHoursForShift(shiftStartMs: number, operatingHours: OperatingHour[]): { start: number; end: number } {
-    const { hour } = getLocalHourMinute(shiftStartMs)
-    const isAm = hour >= 4 && hour < 12;
+function getPeakHoursForShift(shiftStartMs: number, shiftEndMs: number, operatingHours: OperatingHour[]): { start: number; end: number } {
+    const midMs = shiftStartMs + (shiftEndMs - shiftStartMs) / 2;
+    const { hour } = getLocalHourMinute(midMs);
+    // Según reglas: AM inicia 6am hasta 5pm. PM inicia 5pm hasta 5am.
+    // Usamos el PUNTO MEDIO del turno para categorizar si trabajan más en el día o en la noche
+    const isAm = hour >= 6 && hour < 17;
     
     if (!operatingHours || operatingHours.length === 0) {
         return isAm ? { start: 11, end: 14 } : { start: 18, end: 20 };
@@ -138,11 +141,14 @@ function getPeakHoursForShift(shiftStartMs: number, operatingHours: OperatingHou
 
     let maxSales = 0;
     let peakHour = isAm ? 12 : 19;
-    const startH = isAm ? 9 : 15;
-    const endH = isAm ? 15 : 22;
+    
+    // AM window: 6am to 5pm (17)
+    // PM window: 5pm (17) to 5am next day (29)
+    const startH = isAm ? 6 : 17;
+    const endH = isAm ? 17 : 29;
 
     for (const oh of operatingHours) {
-        const h = Number(oh.hour);
+        const h = Number(oh.hour); // h puede llegar hasta 29 en inteligencia
         const s = Number(oh.projected_sales || 0);
         if (h >= startH && h <= endH && s > maxSales) {
             maxSales = s;
@@ -151,22 +157,22 @@ function getPeakHoursForShift(shiftStartMs: number, operatingHours: OperatingHou
     }
 
     if (isAm) {
-        return { start: Math.max(10, peakHour - 1), end: Math.min(16, peakHour + 2) };
+        return { start: Math.max(10, peakHour - 1), end: Math.min(17, peakHour + 2) };
     } else {
-        return { start: Math.max(17, peakHour - 1), end: Math.min(23, peakHour + 1) };
+        const pStart = Math.max(17, peakHour - 1);
+        const pEnd = Math.max(pStart + 1, Math.min(29, peakHour + 1));
+        return { start: pStart, end: pEnd };
     }
 }
 
-function isInPeakZoneForShift(tMs: number, shiftStartMs: number, operatingHours: OperatingHour[]): boolean {
-    const peak = getPeakHoursForShift(shiftStartMs, operatingHours)
+function isInPeakZoneForShift(tMs: number, shiftStartMs: number, shiftEndMs: number, operatingHours: OperatingHour[]): boolean {
+    const peak = getPeakHoursForShift(shiftStartMs, shiftEndMs, operatingHours)
     const { hour, minute } = getLocalHourMinute(tMs)
     const hourFloat = hour + minute / 60
     if (hourFloat >= peak.start && hourFloat < peak.end) {
-        const distToStart = (hourFloat - peak.start) * 60
-        const distToEnd = (peak.end - hourFloat) * 60
-        if (distToStart >= 15 && distToEnd >= 15) {
-            return true
-        }
+        // Bloqueo ESTRICTO: Sin periodo de gracia. 
+        // Garantiza que el empleado termine su break antes de que empiece la zona pico.
+        return true
     }
     return false
 }
@@ -236,13 +242,10 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // ────────────────────────────────────────────────────────────────────────
     //  HEAT BLOCKS: bloqueo de zona de pico para CUALQUIER break (meal o rest)
     // ────────────────────────────────────────────────────────────────────────
-    function heatBlocks(sMs: number, eMs: number, shiftStartMs: number): boolean {
-        for (let t = sMs; t < eMs; t += ms(1)) {
-            if (isInPeakZoneForShift(t, shiftStartMs, operatingHours)) {
-                console.warn(`🚫 BLOQUEADO por PICO DE TURNO: ${new Date(sMs).toLocaleTimeString()} - ${new Date(eMs).toLocaleTimeString()}`)
-                return true
-            }
-        }
+    function heatBlocks(sMs: number, eMs: number, shiftStartMs: number, shiftEndMs: number): boolean {
+        // Bloqueo total si cualquier minuto del break cae en zona pico
+        if (isInPeakZoneForShift(sMs, shiftStartMs, shiftEndMs, operatingHours)) return true
+        if (isInPeakZoneForShift(eMs - 1, shiftStartMs, shiftEndMs, operatingHours)) return true
         return false
     }
 
@@ -321,8 +324,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const heatPenalty = Math.pow(h, 4) * 1e12
 
         let peakPenalty = 0
+        const shiftEndMs = new Date(shift.end_time).getTime()
         for (let t = sMs; t < eMs; t += ms(1)) {
-            if (isInPeakZoneForShift(t, shiftStartMs, operatingHours)) {
+            if (isInPeakZoneForShift(t, shiftStartMs, shiftEndMs, operatingHours)) {
                 peakPenalty = 1e30
                 break
             }
@@ -342,32 +346,30 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             if (isMeal && slot.type === 'meal_30') {
                 if (startDiff < MIN_GAP_LUNCHES_MS) {
                     const ratio = startDiff === 0 ? 1 : (1 - startDiff / MIN_GAP_LUNCHES_MS)
-                    wavePenalty += ratio * 1e15
-                    if (startDiff === 0) wavePenalty += 1e16 // Maximo castigo a colisiones exactas cruzadas
+                    wavePenalty += ratio * 1e20
+                    if (startDiff === 0) wavePenalty += 1e21 // Maximo castigo a colisiones exactas cruzadas
                 }
             }
             // Penalizar cercanía excesiva entre breaks
             if (!isMeal && slot.type === 'rest_10') {
                 if (startDiff < MIN_GAP_BREAKS_MS) {
                     const ratio = startDiff === 0 ? 1 : (1 - startDiff / MIN_GAP_BREAKS_MS)
-                    wavePenalty += ratio * 1e14
-                    if (startDiff === 0) wavePenalty += 1e15
+                    wavePenalty += ratio * 1e19
+                    if (startDiff === 0) wavePenalty += 1e20
                 }
             }
 
             if (isGroup) {
                 if (overlapMs > 0) {
                     const ratio = overlapMs / Math.min(durMs, slot.endMs - slot.startMs)
-                    wavePenalty += ratio * 5e12
+                    wavePenalty += ratio * 1e22 // EL PEOR DE LOS CASOS: MISMO ROL EMPALMADO
                 } else if (slot.type === (isMeal ? 'meal_30' : 'rest_10')) {
                     const diff = Math.abs(sMs - slot.startMs)
                     const ref = isMeal ? WAVE_SAME_ROLE_MEAL_MS : WAVE_SAME_ROLE_REST_MS
                     if (diff < ref) {
                         const prox = 1 - diff / ref
-                        wavePenalty += prox * prox * 4e9
+                        wavePenalty += prox * prox * 1e21
                     }
-                    if (isMeal && diff < 30 * 60_000) wavePenalty += 1e12
-                    if (!isMeal && diff < 45 * 60_000) wavePenalty += 5e11
                 }
             }
         }
@@ -378,7 +380,8 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     //  TARGET PARA LUNCH: distribución equiespaciada dentro del intervalo post-pico
     // ────────────────────────────────────────────────────────────────────────
     function getMealTargetOutsidePeak(wStartMs: number, wEndMs: number, durMs: number, cohortIdx: number, cohortSize: number, shiftStartMs: number, allShiftMealsCount: number, globalMealIndex: number, shiftDurationHrs: number, shift: any): number {
-        const peak = getPeakHoursForShift(shiftStartMs, operatingHours)
+        const shiftEndMs = new Date(shift.end_time).getTime()
+        const peak = getPeakHoursForShift(shiftStartMs, shiftEndMs, operatingHours)
         const { hour: startHour, minute: startMin } = getLocalHourMinute(shiftStartMs);
         const shiftStartMidnightMs = shiftStartMs - ms(60 * startHour) - ms(startMin);
         
@@ -459,7 +462,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // ────────────────────────────────────────────────────────────────────────
     //  FIND SLOT (con shiftStartMs para heatBlocks)
     // ────────────────────────────────────────────────────────────────────────
-    function findSlot(wStartMs: number, wEndMs: number, durationMins: number, personalBreaks: BreakBlock[], shift: any, isMeal: boolean, targetMs: number, shiftStartMs: number): Date {
+    function findSlot(wStartMs: number, wEndMs: number, durationMins: number, personalBreaks: BreakBlock[], shift: any, isMeal: boolean, targetMs: number, shiftStartMs: number, shiftEndMs: number): Date {
         const durMs = ms(durationMins)
         const type = isMeal ? 'meal_30' : 'rest_10'
         console.log(`[DEBUG FINDSLOT] emp: ${shift.employee?.name}, role: ${shift.role?.name}, type: ${type}, targetMs: ${new Date(targetMs).toLocaleTimeString()}`);
@@ -473,14 +476,17 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const empId = shift.employee_id ?? null
 
         const hardValid = candidates.filter(t => {
-            if (heatBlocks(t, t + durMs, shiftStartMs)) return false
+            if (heatBlocks(t, t + durMs, shiftStartMs, shiftEndMs)) return false
             if (personalViolation(t, t + durMs, type, personalBreaks)) return false
             for (const slot of globalSlots) {
                 if (slot.empId !== null && slot.empId === empId) continue
                 const overlapMs = Math.max(0, Math.min(t + durMs, slot.endMs) - Math.max(t, slot.startMs))
                 
                 // NO global blocks anymore. Only block if SAME ROLE!
-                if (slot.roleKey === rk && overlapMs > 0) return false
+                if (slot.roleKey === rk && overlapMs > 0) {
+                    // Excepción: si rol es 'unknown' o vacío, bloquear igual por si acaso
+                    return false
+                }
             }
             return true
         })
@@ -503,7 +509,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             
             // NIVEL 1: Quitar MIN_GAP_LUNCHES y MIN_GAP_BREAKS pero mantener PeakBlocks y cero solapamientos
             const fb1 = candidates.filter(t => {
-                if (heatBlocks(t, t + durMs, shiftStartMs)) return false
+                if (heatBlocks(t, t + durMs, shiftStartMs, shiftEndMs)) return false
                 if (personalViolation(t, t + durMs, type, personalBreaks)) return false
                 for (const slot of globalSlots) {
                     if (slot.empId !== null && slot.empId === empId) continue
@@ -522,7 +528,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             
             // NIVEL 2: MANTENER zona de pico protegida. Permitir encimar mismo rol. Evitar empalme de líderes.
             const fb2 = candidates.filter(t => {
-                if (heatBlocks(t, t + durMs, shiftStartMs)) return false // ¡ZONA DE PICO PROTEGIDA!
+                if (heatBlocks(t, t + durMs, shiftStartMs, shiftEndMs)) return false // ¡ZONA DE PICO PROTEGIDA!
                 if (personalViolation(t, t + durMs, type, personalBreaks)) return false
                 for (const slot of globalSlots) {
                     if (slot.empId !== null && slot.empId === empId) continue
@@ -545,7 +551,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             
             // NIVEL 3: MANTENER zona de pico protegida. Permitir cualquier empalme con tal de no tocar el pico, EXCEPTO empalme del mismo rol.
             const fb3 = candidates.filter(t => {
-                if (heatBlocks(t, t + durMs, shiftStartMs)) return false // ¡ZONA DE PICO PROTEGIDA!
+                if (heatBlocks(t, t + durMs, shiftStartMs, shiftEndMs)) return false // ¡ZONA DE PICO PROTEGIDA!
                 if (personalViolation(t, t + durMs, type, personalBreaks)) return false
                 for (const slot of globalSlots) {
                     if (slot.empId !== null && slot.empId === empId) continue
@@ -610,7 +616,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const wStart = sMs + ms(60 * H_MIN_START)
         let cool = 0
         for (let t = wStart; t <= wEnd - ms(30); t += SLOT_STEP_MS) {
-            if (!heatBlocks(t, t + ms(30), shiftStartMs)) cool++
+            if (!heatBlocks(t, t + ms(30), shiftStartMs, eMs)) cool++
         }
         return cool
     }
@@ -673,7 +679,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
 
             const targetMs = getMealTargetOutsidePeak(wStartMs, wEndMs, ms(30), mealIdx, totalMealsForShift, sMs, totalMealsForShift, mealIdx, durationHrs, shift)
             
-            const best = findSlot(wStartMs, wEndMs, 30, shift.breaks_schedule, shift, true, targetMs, sMs)
+            const best = findSlot(wStartMs, wEndMs, 30, shift.breaks_schedule, shift, true, targetMs, sMs, eMs)
             const bestEnd = new Date(best.getTime() + ms(30))
             shift.breaks_schedule.push({ type: 'meal_30', start_time: toIso(best), end_time: toIso(bestEnd), status: 'scheduled' })
             globalSlots.push({ type: 'meal_30', startMs: best.getTime(), endMs: bestEnd.getTime(), roleKey: getRoleKey(shift), category: getRoleCategory(getRoleKey(shift)), empId: shift.employee_id ?? null })
@@ -746,7 +752,7 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 accum += seg.len
             }
 
-            const best = findSlot(activeSeg.sMs, activeSeg.eMs, 10, shift.breaks_schedule, shift, false, targetMs, sMs)
+            const best = findSlot(activeSeg.sMs, activeSeg.eMs, 10, shift.breaks_schedule, shift, false, targetMs, sMs, eMs)
             const bestEnd = new Date(best.getTime() + ms(10))
             shift.breaks_schedule.push({ type: 'rest_10', start_time: toIso(best), end_time: toIso(bestEnd), status: 'scheduled' })
             globalSlots.push({ type: 'rest_10', startMs: best.getTime(), endMs: bestEnd.getTime(), roleKey: getRoleKey(shift), category: getRoleCategory(getRoleKey(shift)), empId: shift.employee_id ?? null })

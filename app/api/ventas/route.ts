@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
         const startDate = searchParams.get('startDate')
         const endDate = searchParams.get('endDate')
         const groupBy = (searchParams.get('groupBy') as any) || 'day'
+        const skipCache = searchParams.get('skipCache') === 'true'
 
         if (!startDate || !endDate) {
             return NextResponse.json(
@@ -47,7 +48,9 @@ export async function GET(request: NextRequest) {
             storeIds,
             startDate,
             endDate,
-            groupBy
+            groupBy,
+            skipCache,
+            allowDirtyCache: true // Allow reading intra-day cached data if available (populated by cron)
         }
 
         // Logic "Granularity Guard"
