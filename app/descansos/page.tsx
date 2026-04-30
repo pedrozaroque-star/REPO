@@ -29,19 +29,40 @@ export default function DescansosPage() {
 
     useEffect(() => {
         const onFullscreenChange = () => {
-            setIsFullscreen(!!document.fullscreenElement)
+            const doc = document as any;
+            setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement))
         }
         document.addEventListener('fullscreenchange', onFullscreenChange)
-        return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+        return () => {
+            document.removeEventListener('fullscreenchange', onFullscreenChange)
+            document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+        }
     }, [])
 
     const toggleFullscreen = () => {
-        if (!document.fullscreenElement) {
-            containerRef.current?.requestFullscreen().catch(err => {
-                alert(`Error intentando Fullscreen: ${err.message}`)
-            })
+        const doc = document as any;
+        const elem = containerRef.current as any;
+
+        if (!isFullscreen) {
+            if (elem?.requestFullscreen) {
+                elem.requestFullscreen().catch(() => setIsFullscreen(true));
+            } else if (elem?.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+                // En iOS a veces webkitRequestFullscreen no cambia el estado inmediatamente si falla, forzamos CSS:
+                setTimeout(() => { if (!doc.webkitFullscreenElement) setIsFullscreen(true) }, 200);
+            } else {
+                setIsFullscreen(true); // Fallback manual (CSS)
+            }
         } else {
-            document.exitFullscreen()
+            if (doc.exitFullscreen && doc.fullscreenElement) {
+                doc.exitFullscreen().catch(() => setIsFullscreen(false));
+            } else if (doc.webkitExitFullscreen && doc.webkitFullscreenElement) {
+                doc.webkitExitFullscreen();
+                setTimeout(() => { if (!doc.webkitFullscreenElement) setIsFullscreen(false) }, 200);
+            } else {
+                setIsFullscreen(false); // Fallback manual
+            }
         }
     }
 
