@@ -133,7 +133,7 @@ function getPeakHoursForShift(shiftStartMs: number): { start: number; end: numbe
     if (hour >= 4 && hour < 12) {
         return { start: 12, end: 14 }
     }
-    return { start: 19, end: 21 }
+    return { start: 18, end: 20 }
 }
 
 function isInPeakZoneForShift(tMs: number, shiftStartMs: number): boolean {
@@ -273,10 +273,13 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                     }
                 }
                 if (!isMeal && slot.type === 'rest_10') {
-                    const gap = sameRole ? (mode === 'relaxed' ? WAVE_MIN_REST_MS : WAVE_SAME_ROLE_REST_MS) :
-                        sameCat ? (mode === 'relaxed' ? WAVE_MIN_REST_MS : WAVE_SAME_CAT_REST_MS) :
-                            WAVE_CROSS_REST_MS
-                    if (startDiff < gap) return true
+                    if (sameRole) {
+                        const gap = mode === 'relaxed' ? WAVE_MIN_REST_MS : WAVE_SAME_ROLE_REST_MS
+                        if (startDiff < gap) return true
+                    } else if (sameCat) {
+                        const gap = mode === 'relaxed' ? 0 : WAVE_SAME_CAT_REST_MS
+                        if (startDiff < gap) return true
+                    }
                 }
             }
         }
@@ -697,7 +700,16 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         
         for (let i = 0; i < rests.length; i++) {
             // Distribuir equitativamente a lo largo del tiempo total disponible (porcentaje ideal)
-            const idealTargetMs = totalValidMs * ((i + 0.5) / rests.length)
+            let idealFrac = (i + 0.5) / rests.length
+            
+            // Añadir un pequeño "stagger" basado en el cohortIdx para que los empleados del mismo rol no apunten exactamente al mismo minuto
+            if (shift._cohortSize && shift._cohortSize > 1) {
+                const staggerRange = 1.0 / (rests.length * 2) // Un pequeño desvío dentro de su sección
+                const staggerOffset = (shift._cohortIdx / (shift._cohortSize - 1)) * staggerRange - (staggerRange / 2)
+                idealFrac = Math.max(0, Math.min(1, idealFrac + staggerOffset))
+            }
+            
+            const idealTargetMs = totalValidMs * idealFrac
             
             let accum = 0
             let targetMs = validSegments[validSegments.length - 1].sMs + validSegments[validSegments.length - 1].len / 2
