@@ -1012,7 +1012,7 @@ export default function DescansosPage() {
                                                     width: `${getTimelineWidth(shift.start_time, shift.end_time)}%`,
                                                     transformOrigin: 'left'
                                                 }}
-                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-9 bg-indigo-100 border border-indigo-200 rounded-md flex items-center overflow-visible z-20 hover:z-40 focus-within:z-50 shadow-sm`}
+                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-9 bg-indigo-100 border border-indigo-200 rounded-md flex items-center overflow-visible z-[70] shadow-sm`}
                                             >
                                                 {/* Scheduled Breaks */}
                                                 {shift.breaks_schedule?.map((b: any, idx: number) => {
@@ -1030,16 +1030,16 @@ export default function DescansosPage() {
                                                         <div
                                                             key={`plan-${idx}`}
                                                             tabIndex={0}
-                                                            className={`absolute top-0 bottom-0 rounded border group/break cursor-pointer transition-transform hover:scale-105 active:scale-105 focus:outline-none ${isMeal
+                                                            className={`absolute -top-1 -bottom-1 rounded border group/break cursor-pointer transition-transform hover:scale-110 active:scale-110 focus:outline-none min-w-[20px] before:absolute before:content-[''] before:-inset-[10px] before:z-[-1] ${isMeal
                                                                 ? 'bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
                                                                 : 'bg-emerald-500 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
                                                                 }`}
                                                             style={{
                                                                 left: `${relativeLeft}%`,
-                                                                width: `${relativeWidth}%`,
+                                                                width: `max(${relativeWidth}%, 20px)`,
                                                             }}
                                                         >
-                                                            <div className="opacity-0 group-hover/break:opacity-100 group-focus/break:opacity-100 group-active/break:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[14px] font-bold px-3 py-1.5 rounded whitespace-nowrap shadow-lg pointer-events-none z-50 transition-opacity">
+                                                            <div className="opacity-0 group-hover/break:opacity-100 group-focus/break:opacity-100 group-active/break:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[14px] font-bold px-3 py-1.5 rounded whitespace-nowrap shadow-lg pointer-events-none z-[80] transition-opacity">
                                                                 {isMeal ? 'Almuerzo Planeado' : 'Descanso Planeado'}<br />
                                                                 {new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                                                             </div>
