@@ -853,7 +853,29 @@ export default function DescansosPage() {
                                 const h = START_HOUR + i;
                                 const hData = operatingHours?.find(o => o.hour === h || o.hour === (h >= 24 ? h - 24 : -1));
                                 let sales = hData?.projected_sales || 0;
-                                let maxSales = operatingHours?.length > 0 ? Math.max(...operatingHours.map(o => o.projected_sales)) : 0;
+
+                                // ── NORMALIZACIÓN PER-TURNO ──
+                                // Cada hora se normaliza contra el MAX de su PROPIA ventana (AM o PM),
+                                // NO contra el max global del día. Así el rush AM (ej: 12pm=$600)
+                                // se ve tan intenso como el rush PM (ej: 7pm=$900) visualmente.
+                                // AM window: 6-16, PM window: 17-28
+                                const isAmHour = h >= 6 && h < 17;
+                                let maxSales = 0;
+
+                                if (operatingHours?.length > 0) {
+                                    const windowStart = isAmHour ? 6 : 17;
+                                    const windowEnd = isAmHour ? 17 : 29;
+                                    for (const o of operatingHours) {
+                                        const oH = Number(o.hour);
+                                        if (oH >= windowStart && oH < windowEnd && o.projected_sales > maxSales) {
+                                            maxSales = o.projected_sales;
+                                        }
+                                    }
+                                    // Fallback: si la ventana no tiene datos, usar max global
+                                    if (maxSales < 10) {
+                                        maxSales = Math.max(...operatingHours.map(o => o.projected_sales));
+                                    }
+                                }
 
                                 // Fallback dinámico si no hay histórico: curva típica de afluencia (Rush de Mediodía y Tarde)
                                 if (maxSales < 10) {
