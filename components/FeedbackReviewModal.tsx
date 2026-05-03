@@ -250,7 +250,7 @@ export default function FeedbackReviewModal({
 
         if (error) {
             console.error('Error sending comment:', error)
-            alert('Error al enviar mensaje (asegúrate de crear la tabla feedback_comments)')
+            alert('Error sending message (make sure to create the feedback_comments table)')
             setComments(prev => prev.filter(c => c.id !== tempId)) // Revert
         } else {
             fetchComments()
@@ -489,7 +489,7 @@ export default function FeedbackReviewModal({
                                     <input
                                         type="text"
                                         className="flex-1 bg-slate-100 dark:bg-slate-800 border-none rounded-xl px-3 py-2 text-xs outline-none focus:ring-1 focus:ring-indigo-500 transition-all dark:text-white"
-                                        placeholder="Escribe una nota..."
+                                        placeholder="Write a note..."
                                         value={newComment}
                                         onChange={(e) => setNewComment(e.target.value)}
                                         onKeyDown={(e) => e.key === 'Enter' && handleSendComment()}

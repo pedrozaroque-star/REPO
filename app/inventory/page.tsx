@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useLanguage } from '@/lib/i18n'
 import { createBrowserClient } from '@supabase/ssr'
 import Link from 'next/link'
 import { CheckCircle2, Circle, ArrowRight, Utensils, Package, FileText, ChevronRight, AlertCircle, TrendingUp } from 'lucide-react'
@@ -12,6 +13,7 @@ export default function InventoryDashboard() {
         recipes: 0
     })
     const [loading, setLoading] = useState(true)
+    const { t } = useLanguage()
 
     const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,45 +39,45 @@ export default function InventoryDashboard() {
     const steps = [
         {
             id: 1,
-            title: "1. Sincronizar Menú (Toast)",
-            desc: "Trae tus Tacos, Burritos y Platillos desde el POS.",
+            title: t('inventory_setup.step1_title'),
+            desc: t('inventory_setup.step1_desc'),
             icon: Utensils,
             href: "/inventory/menu",
             count: stats.menuItems,
-            target: "items",
+            target: t('inventory_setup.items'),
             status: stats.menuItems > 0 ? 'completed' : 'pending',
-            action: "Ver Menú"
+            action: t('inventory_setup.step1_action')
         },
         {
             id: 2,
-            title: "2. Crear Insumos (Compras)",
-            desc: "Registra tus materias primas: Carne, Aguacate, Tortillas.",
+            title: t('inventory_setup.step2_title'),
+            desc: t('inventory_setup.step2_desc'),
             icon: Package,
             href: "/inventory/items",
             count: stats.ingredients,
-            target: "insumos",
+            target: t('inventory_setup.insumos'),
             status: stats.ingredients > 0 ? 'completed' : 'current',
-            action: "Crear Insumos"
+            action: t('inventory_setup.step2_action')
         },
         {
             id: 3,
-            title: "3. Mapear Recetas (El Puente)",
-            desc: "Conecta: 1 Taco de Asada = 0.15lb Carne.",
+            title: t('inventory_setup.step3_title'),
+            desc: t('inventory_setup.step3_desc'),
             icon: FileText,
             href: "/inventory/menu",
             count: stats.recipes,
-            target: "recetas",
+            target: t('inventory_setup.recetas'),
             status: stats.recipes > 0 ? 'completed' : (stats.ingredients > 0 ? 'current' : 'locked'),
-            action: "Crear Recetas"
+            action: t('inventory_setup.step3_action')
         }
     ]
 
     return (
         <div className="p-8 max-w-6xl mx-auto">
             <header className="mb-10 text-center">
-                <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white mb-2">Configuración de Inventario</h1>
+                <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white mb-2">{t('inventory_setup.title')}</h1>
                 <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-                    Para que el sistema calcule cuánto debes comprar, necesitamos entender cómo se construyen tus platillos. Sigue estos 3 pasos.
+                    {t('inventory_setup.subtitle')}
                 </p>
             </header>
 
@@ -132,7 +134,7 @@ export default function InventoryDashboard() {
                                 </Link>
                             ) : (
                                 <button disabled className="px-6 py-2.5 text-slate-400 cursor-not-allowed font-medium">
-                                    Bloqueado
+                                    {t('inventory_setup.locked')}
                                 </button>
                             )}
                         </div>
@@ -146,7 +148,7 @@ export default function InventoryDashboard() {
                     <div className="w-10 h-10 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                         <TrendingUp size={20} />
                     </div>
-                    Análisis & Reportes
+                    {t('inventory_setup.analysis_title')}
                 </h2>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -160,13 +162,13 @@ export default function InventoryDashboard() {
                         </div>
                         <div>
                             <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                                Reporte de Costos Teóricos
+                                {t('inventory_setup.cost_report_title')}
                             </h3>
                             <p className="text-slate-500 text-sm mb-4">
-                                Analiza el <strong>Food Cost %</strong> de cada platillo basado en tus recetas y precios de compra actuales. Detecta ítems de bajo margen.
+                                {t('inventory_setup.cost_report_desc')}
                             </p>
                             <span className="inline-flex items-center text-sm font-medium text-emerald-600 dark:text-emerald-400 group-hover:underline">
-                                Ver Reporte <ArrowRight size={16} className="ml-1" />
+                                {t('inventory_setup.view_report')} <ArrowRight size={16} className="ml-1" />
                             </span>
                         </div>
                     </div>
@@ -179,11 +181,9 @@ export default function InventoryDashboard() {
                     <AlertCircle size={24} />
                 </div>
                 <div>
-                    <h4 className="font-bold text-blue-900 dark:text-blue-100 text-lg mb-1">¿Por qué necesito esto?</h4>
+                    <h4 className="font-bold text-blue-900 dark:text-blue-100 text-lg mb-1">{t('inventory_setup.help_title')}</h4>
                     <p className="text-blue-800 dark:text-blue-200 leading-relaxed">
-                        El sistema necesita saber <strong>qué vendes</strong> (Toast) y <strong>qué compras</strong> (Insumos) y <strong>cómo se relacionan</strong> (Recetas).
-                        <br /><br />
-                        Solo así podremos generar órdenes de compra automáticas y calcular tu costo real (Food Cost).
+                        {t('inventory_setup.help_text')}
                     </p>
                 </div>
             </div>

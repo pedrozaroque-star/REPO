@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck, Monitor, FileImage, Trash2, MapPin, Save, Link as LinkIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useLanguage } from '@/lib/i18n'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import ImageDropzone from '@/components/ui/ImageDropzone'
 import { getSignedUploadUrlAction, saveDbRecordAction, deleteImageNewAction, updateImageStoresAction } from './actions'
@@ -17,6 +18,7 @@ const STORES = [
 export default function TvMenusAdminPage() {
   const [images, setImages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const { t } = useLanguage()
 
   // Assignment state
   const [activeTab, setActiveTab] = useState(1) // TV 1 to 6
@@ -85,7 +87,7 @@ export default function TvMenusAdminPage() {
   }
 
   const deleteImage = async (id: string, storagePath: string) => {
-    if (!confirm('Are you sure you want to permanently delete this image?')) return;
+    if (!confirm(t('tv_menus_page.confirm_delete'))) return;
 
     try {
       await deleteImageNewAction(id, storagePath)
@@ -149,8 +151,8 @@ export default function TvMenusAdminPage() {
               <Monitor size={18} />
             </div>
             <div>
-              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">TV Direct Web Viewer</h1>
-              <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wider">Permanent Screen Management</p>
+              <h1 className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight leading-none">{t('tv_menus_page.title')}</h1>
+              <p className="hidden md:block text-[10px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wider">{t('tv_menus_page.subtitle')}</p>
             </div>
           </div>
         </div>
@@ -166,8 +168,8 @@ export default function TvMenusAdminPage() {
               className={`flex-1 min-w-[100px] py-3 px-2 rounded-xl font-black text-center transition-all flex flex-col items-center justify-center ${activeTab === screen ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
             >
               <Monitor size={16} className="mb-1 opacity-60" />
-              <span>SCREEN {screen}</span>
-              {screen >= 5 && <span className="text-[9px] opacity-80 uppercase tracking-widest mt-1 bg-white/20 px-2 rounded-md">Vertical</span>}
+              <span>{t('tv_menus_page.screen')} {screen}</span>
+              {screen >= 5 && <span className="text-[9px] opacity-80 uppercase tracking-widest mt-1 bg-white/20 px-2 rounded-md">{t('tv_menus_page.vertical')}</span>}
             </button>
           ))}
         </div>
@@ -175,12 +177,12 @@ export default function TvMenusAdminPage() {
           {/* LEFT COL: UPLOADER */}
           <div className="col-span-1 space-y-6">
             <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm sticky top-24">
-              <h3 className="text-lg font-black text-gray-900 dark:text-white mb-2">Upload to Screen {activeTab}</h3>
+              <h3 className="text-lg font-black text-gray-900 dark:text-white mb-2">{t('tv_menus_page.upload_to_screen')} {activeTab}</h3>
               
               {activeTab >= 5 && (
                 <div className="mb-4 bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 text-xs font-bold p-3 rounded-xl border border-orange-200 dark:border-orange-800/50 flex flex-col gap-1 shadow-sm">
-                  <span>⚠️ Required Format: Vertical (Portrait)</span>
-                  <span className="text-[10px] font-medium opacity-80">Outside Drive-Thru Model: LH55OHFPVBC/GO</span>
+                  <span>{t('tv_menus_page.required_format')}</span>
+                  <span className="text-[10px] font-medium opacity-80">{t('tv_menus_page.outside_model')}</span>
                 </div>
               )}
 
@@ -188,15 +190,15 @@ export default function TvMenusAdminPage() {
                 <label className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                   <input type="radio" checked={isUniversal} onChange={() => setIsUniversal(true)} className="w-4 h-4 text-indigo-600" />
                   <div>
-                    <p className="text-sm font-bold text-gray-900 dark:text-white">Universal Menu</p>
-                    <p className="text-[10px] text-gray-500 leading-tight mt-0.5">Most locations will run this photo permanently.</p>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">{t('tv_menus_page.universal_menu')}</p>
+                    <p className="text-[10px] text-gray-500 leading-tight mt-0.5">{t('tv_menus_page.universal_desc')}</p>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                   <input type="radio" checked={!isUniversal} onChange={() => setIsUniversal(false)} className="w-4 h-4 text-indigo-600" />
                   <div>
-                    <p className="text-sm font-bold text-gray-900 dark:text-white">Exception Menu (Variation)</p>
-                    <p className="text-[10px] text-gray-500 leading-tight mt-0.5">Special version restricted to specific branches (configured below once uploaded).</p>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">{t('tv_menus_page.exception_menu')}</p>
+                    <p className="text-[10px] text-gray-500 leading-tight mt-0.5">{t('tv_menus_page.exception_desc')}</p>
                   </div>
                 </label>
               </div>
@@ -211,13 +213,13 @@ export default function TvMenusAdminPage() {
             {/* UNIVERSAL IMAGE */}
             <div className="space-y-4">
               <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-                <FileImage className="text-indigo-500" /> Universal Version (Company Default)
+                <FileImage className="text-indigo-500" /> {t('tv_menus_page.universal_title')}
               </h2>
-              <p className="text-sm text-gray-500 dark:text-slate-400">If a location does not have a "Variation" assigned, its Screen {activeTab} will ALWAYS display this exact image.</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">{t('tv_menus_page.universal_if_no')} {activeTab} {t('tv_menus_page.will_always_show')}</p>
 
               {universalImages.length === 0 ? (
                 <div className="p-8 border-2 border-dashed border-gray-200 dark:border-slate-700 bg-red-50/20 rounded-3xl text-center text-red-400 font-medium">
-                  Attention! You haven't uploaded an Universal Menu. The TV will display a blank error for unassigned branch locations.
+                  {t('tv_menus_page.attention_no_upload')}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -227,7 +229,7 @@ export default function TvMenusAdminPage() {
                         <img src={img.storage_path} className="w-full h-full object-cover" />
                       </div>
                       <div className="p-3 bg-indigo-50 dark:bg-indigo-900/10 flex justify-between items-center">
-                        <span className="text-[11px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400">Default Company Wide</span>
+                        <span className="text-[11px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400">{t('tv_menus_page.default_company')}</span>
                         <button onClick={() => deleteImage(img.id, img.storage_path)} className="bg-red-500/10 text-red-600 hover:bg-red-500 hover:text-white dark:text-red-400 p-1.5 rounded-lg transition-colors"><Trash2 size={16} /></button>
                       </div>
                     </div>
@@ -239,13 +241,13 @@ export default function TvMenusAdminPage() {
             {/* SPECIFIC STORE IMAGES */}
             <div className="space-y-4 pt-8 border-t border-gray-200 dark:border-slate-800">
               <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-                <MapPin className="text-orange-500" /> Variations (Specific locations only)
+                <MapPin className="text-orange-500" /> {t('tv_menus_page.variations_title')}
               </h2>
-              <p className="text-sm text-gray-500 dark:text-slate-400">These images will permanently override the Universal Version at the stores you check below.</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">{t('tv_menus_page.variations_desc')}</p>
 
               {specificImages.length === 0 ? (
                 <div className="p-8 border-2 border-dashed border-gray-100 dark:border-slate-800 rounded-3xl text-center text-gray-400">
-                  No variations created. All company stores currently share the Universal Menu.
+                  {t('tv_menus_page.no_variations')}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -260,10 +262,10 @@ export default function TvMenusAdminPage() {
                         <div className="p-4 flex flex-col flex-1">
                           <div className="flex justify-between items-center mb-3">
                             <span className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-xs font-black uppercase px-2 py-1 rounded-md">
-                              Limited Variation
+                              {t('tv_menus_page.limited_variation')}
                             </span>
                             <button onClick={() => setEditingImage(editingImage?.id === img.id ? null : img)} className="text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-wider hover:underline flex items-center gap-1">
-                              <MapPin size={12} /> {editingImage?.id === img.id ? 'Close Settings' : 'Assign Stores'}
+                              <MapPin size={12} /> {editingImage?.id === img.id ? t('tv_menus_page.close_settings') : t('tv_menus_page.assign_stores')}
                             </button>
                           </div>
 
@@ -271,9 +273,9 @@ export default function TvMenusAdminPage() {
                             <div className="text-xs text-gray-600 dark:text-slate-400 font-medium">
                               {assignedStores.length > 0
                                 ? <div>
-                                  Visible exclusively at: <span className="font-bold text-gray-900 dark:text-white capitalize">{assignedStores.join(', ').toLowerCase()}</span>
+                                  {t('tv_menus_page.visible_at')} <span className="font-bold text-gray-900 dark:text-white capitalize">{assignedStores.join(', ').toLowerCase()}</span>
                                 </div>
-                                : <span className="text-red-500 font-bold flex items-center gap-1">Warning! No stores assigned. This variation will never be shown.</span>}
+                                : <span className="text-red-500 font-bold flex items-center gap-1">{t('tv_menus_page.warning_no_stores')}</span>}
                             </div>
                           ) : null}
 
@@ -282,7 +284,7 @@ export default function TvMenusAdminPage() {
                             {editingImage?.id === img.id && (
                               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                                 <div className="mt-2 pt-4 border-t border-gray-100 dark:border-slate-700">
-                                  <h4 className="text-[10px] items-center gap-2 font-black uppercase text-gray-400 mb-3 flex bg-gray-50 dark:bg-slate-900 p-2 rounded-lg"><Monitor size={14} /> Check the precise locations to display this custom menu exception:</h4>
+                                  <h4 className="text-[10px] items-center gap-2 font-black uppercase text-gray-400 mb-3 flex bg-gray-50 dark:bg-slate-900 p-2 rounded-lg"><Monitor size={14} /> {t('tv_menus_page.check_locations')}</h4>
 
                                   <div className="grid grid-cols-2 gap-2 h-48 overflow-y-auto pr-2 custom-scrollbar">
                                     {STORES.map((storeOption) => {
@@ -319,10 +321,10 @@ export default function TvMenusAdminPage() {
         {/* URL INSTRUCTIONS */}
         <div className="mt-8 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800/50 rounded-2xl p-6">
           <h3 className="text-sm font-black text-indigo-900 dark:text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <LinkIcon size={16} /> Digital Signage Direct Link URLs
+            <LinkIcon size={16} /> {t('tv_menus_page.signage_title')}
           </h3>
           <p className="text-xs font-medium text-indigo-700/80 dark:text-indigo-300/80 mb-4">
-            To display the content for <strong className="font-black">SCREEN {activeTab}</strong>, open the native web browser installed on the Smart TV of each respective store, type the exact shortcut displayed below, and click the <strong>Start Fullscreen</strong> button.
+            {t('tv_menus_page.signage_desc_pre')} <strong className="font-black">{t('tv_menus_page.screen')} {activeTab}</strong>{t('tv_menus_page.signage_desc_mid')} <strong>{t('tv_menus_page.start_fullscreen')}</strong> button.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 h-48 md:h-auto overflow-y-auto custom-scrollbar pr-2">
             {STORES.map(store => {

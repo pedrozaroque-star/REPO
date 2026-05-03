@@ -415,10 +415,10 @@ export default function ChecklistForm({ user, initialData, type = 'daily' }: { u
         </div>
 
         <div className="pt-4 flex gap-4">
-          <button type="button" onClick={() => { if (confirm('¿Salir? Tu progreso se guardará como borrador y podrás continuarlo después.')) router.back() }} className="flex-1 py-4 bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 font-bold rounded-2xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-all">Cancelar</button>
+          <button type="button" onClick={() => { if (confirm('Exit? Your progress will be saved as a draft and you can continue later.')) router.back() }} className="flex-1 py-4 bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 font-bold rounded-2xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-all">Cancel</button>
           <button onClick={handleSubmit} disabled={loading}
             className={`flex-[2] py-4 rounded-2xl font-black text-white shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 ${styles.bg}`}>
-            {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Save size={20} /><span>{initialData?.id ? 'Guardar Cambios' : 'Finalizar'}</span></>}
+            {loading ? <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin" /> : <><Save size={20} /><span>{initialData?.id ? 'Save Changes' : 'Finish'}</span></>}
           </button>
         </div>
       </div>

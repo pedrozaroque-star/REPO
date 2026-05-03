@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { useLanguage } from '@/lib/i18n'
 import { useRouter } from 'next/navigation'
 import { Star, MessageSquare, MessageCircleMore, ThumbsUp, ThumbsDown, Filter, Calendar, Search, MapPin, TrendingUp, TrendingDown, Minus, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
@@ -14,6 +15,7 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 function FeedbackContent() {
   const router = useRouter()
   const { user } = useAuth()
+  const { t } = useLanguage()
 
   // -- STATE DEFINITIONS --
   const [stats, setStats] = useState({
@@ -336,7 +338,7 @@ function FeedbackContent() {
                   Feedback
                 </h1>
                 <p className="hidden md:block text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
-                  Satisfacción del Cliente & NPS
+                  Customer Satisfaction & NPS
                 </p>
               </div>
             </div>
@@ -349,19 +351,19 @@ function FeedbackContent() {
                   onClick={() => setStatusFilter('all')}
                   className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'all' ? 'bg-white text-slate-900 shadow-lg scale-105' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
                 >
-                  Todos
+                   All
                 </button>
                 <button
                   onClick={() => setStatusFilter('pendiente')}
                   className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'pendiente' ? 'bg-yellow-400 text-yellow-900 shadow-lg scale-105' : 'text-gray-400 hover:text-yellow-400 hover:bg-white/10'}`}
                 >
-                  Pendientes
+                   Pending
                 </button>
                 <button
                   onClick={() => setStatusFilter('cerrado')}
                   className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${statusFilter === 'cerrado' ? 'bg-green-500 text-white shadow-lg scale-105' : 'text-gray-400 hover:text-green-400 hover:bg-white/10'}`}
                 >
-                  Cerrados
+                   Closed
                 </button>
               </div>
 
@@ -383,7 +385,7 @@ function FeedbackContent() {
                   onClick={() => setSourceFilter('internal')}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all uppercase tracking-wide ${sourceFilter === 'internal' ? 'bg-orange-500 text-white shadow-lg scale-105' : 'text-gray-400 hover:text-orange-400 hover:bg-white/10'}`}
                 >
-                  Interno
+                   Internal
                 </button>
               </div>
 
@@ -404,7 +406,7 @@ function FeedbackContent() {
                   onChange={(e) => setStoreFilter(e.target.value)}
                   className="px-4 py-2 rounded-xl bg-white/10 border border-white/10 text-white outline-none focus:ring-2 focus:ring-white/20 text-sm font-bold cursor-pointer hover:bg-white/20 transition-colors"
                 >
-                  <option value="all" className="bg-slate-900 text-gray-300">Todas las tiendas</option>
+                   <option value="all" className="bg-slate-900 text-gray-300">All Stores</option>
                   {stores.map(s => (
                     <option key={s.id} value={s.id} className="bg-slate-900 text-white">{formatStoreName(s.name)}</option>
                   ))}
@@ -427,7 +429,7 @@ function FeedbackContent() {
                 onChange={(e) => setStoreFilter(e.target.value)}
                 className="w-full pl-4 pr-10 py-3 rounded-full bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:border-indigo-300 text-sm font-bold text-gray-900 dark:text-white appearance-none"
               >
-                <option value="all">Todas las tiendas</option>
+                 <option value="all">All Stores</option>
                 {stores.map(s => (
                   <option key={s.id} value={s.id}>{formatStoreName(s.name)}</option>
                 ))}
@@ -439,16 +441,16 @@ function FeedbackContent() {
 
             {/* Mobile Source Filter */}
             <div className="flex bg-white dark:bg-slate-900 mt-2 p-1 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-              <button onClick={() => setSourceFilter('all')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${sourceFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>Todo</button>
+              <button onClick={() => setSourceFilter('all')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${sourceFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>All</button>
               <button onClick={() => setSourceFilter('google')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase flex items-center justify-center gap-1 ${sourceFilter === 'google' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}><GoogleLogo className="w-3 h-3" /> Google</button>
-              <button onClick={() => setSourceFilter('internal')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${sourceFilter === 'internal' ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' : 'text-slate-400 dark:text-slate-500'}`}>Interno</button>
+              <button onClick={() => setSourceFilter('internal')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${sourceFilter === 'internal' ? 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400' : 'text-slate-400 dark:text-slate-500'}`}>Internal</button>
             </div>
 
             {/* Mobile Status Filter */}
             <div className="flex bg-white dark:bg-slate-900 mt-2 p-1 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-              <button onClick={() => setStatusFilter('all')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>Todos</button>
-              <button onClick={() => setStatusFilter('pendiente')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'pendiente' ? 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400' : 'text-slate-400 dark:text-slate-500'}`}>Pendientes</button>
-              <button onClick={() => setStatusFilter('cerrado')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'cerrado' ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>Cerrados</button>
+              <button onClick={() => setStatusFilter('all')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>All</button>
+              <button onClick={() => setStatusFilter('pendiente')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'pendiente' ? 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400' : 'text-slate-400 dark:text-slate-500'}`}>Pending</button>
+              <button onClick={() => setStatusFilter('cerrado')} className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase ${statusFilter === 'cerrado' ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>Closed</button>
             </div>
           </div>
 
@@ -487,7 +489,7 @@ function FeedbackContent() {
               </div>
               <div>
                 <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgService}</p>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Servicio</p>
+                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Service</p>
               </div>
             </div>
 
@@ -500,7 +502,7 @@ function FeedbackContent() {
               </div>
               <div>
                 <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgQuality}</p>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Calidad</p>
+                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quality</p>
               </div>
             </div>
 
@@ -513,7 +515,7 @@ function FeedbackContent() {
               </div>
               <div>
                 <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgCleanliness}</p>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Limpieza</p>
+                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Cleanliness</p>
               </div>
             </div>
 
@@ -526,7 +528,7 @@ function FeedbackContent() {
               </div>
               <div>
                 <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.avgSpeed}</p>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Rapidez</p>
+                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Speed</p>
               </div>
             </div>
           </div>
@@ -535,7 +537,7 @@ function FeedbackContent() {
           {feedbacks.length === 0 ? (
             <div className="text-center py-20 opacity-50">
               <MessageSquare size={64} className="mx-auto text-gray-300 dark:text-slate-700 mb-4" />
-              <p className="text-gray-900 dark:text-slate-400 font-bold">No hay feedbacks registrados</p>
+               <p className="text-gray-900 dark:text-slate-400 font-bold">No feedback records found</p>
             </div>
           ) : (
             <>
@@ -621,15 +623,15 @@ function FeedbackContent() {
                 <table className="w-full text-left border-separate border-spacing-y-2">
                   <thead>
                     <tr className="text-xs font-black text-black dark:text-white uppercase tracking-wider">
-                      <th className="px-4 py-3 whitespace-nowrap">Fecha</th>
-                      <th className="px-4 py-3 whitespace-nowrap">Sucursal</th>
-                      <th className="px-4 py-3 whitespace-nowrap">Cliente</th>
-                      <th className="px-4 py-3 text-center whitespace-nowrap">Origen / Score</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">CALIFICACIÓN</th>
-                      <th className="px-4 py-3 text-center whitespace-nowrap">Evidencia</th>
-                      <th className="px-4 py-3 text-center whitespace-nowrap">Comentario</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">ESTATUS</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">REVISÓ</th>
+                       <th className="px-4 py-3 whitespace-nowrap">Date</th>
+                       <th className="px-4 py-3 whitespace-nowrap">Location</th>
+                       <th className="px-4 py-3 whitespace-nowrap">Customer</th>
+                       <th className="px-4 py-3 text-center whitespace-nowrap">Source / Score</th>
+                       <th className="px-4 py-3 text-left whitespace-nowrap">RATING</th>
+                       <th className="px-4 py-3 text-center whitespace-nowrap">Evidence</th>
+                       <th className="px-4 py-3 text-center whitespace-nowrap">Comment</th>
+                       <th className="px-4 py-3 text-left whitespace-nowrap">STATUS</th>
+                       <th className="px-4 py-3 text-left whitespace-nowrap">REVIEWED BY</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -736,7 +738,7 @@ function FeedbackContent() {
               {/* PAGINATION CONTROLS */}
               <div className="hidden md:flex justify-between items-center mt-6 px-4 py-3 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 shadow-sm">
                 <div className="text-sm font-bold text-gray-500 dark:text-slate-400">
-                  Mostrando <span className="text-indigo-600 dark:text-indigo-400">{feedbacks.length}</span> de <span className="text-gray-900 dark:text-white">{totalItems}</span> resultados
+                   Showing <span className="text-indigo-600 dark:text-indigo-400">{feedbacks.length}</span> of <span className="text-gray-900 dark:text-white">{totalItems}</span> results
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -747,7 +749,7 @@ function FeedbackContent() {
                     <ChevronLeft size={20} />
                   </button>
                   <span className="px-4 py-1 bg-gray-100 dark:bg-slate-800 rounded-lg text-sm font-black text-gray-700 dark:text-slate-300">
-                    Página {page}
+                     Page {page}
                   </span>
                   <button
                     onClick={() => setPage(p => p + 1)}

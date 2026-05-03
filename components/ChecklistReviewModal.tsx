@@ -219,7 +219,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
 
         if (error) {
             console.error('Error sending comment:', error)
-            alert('Error al enviar mensaje')
+            alert('Error sending message')
             setComments(prev => prev.filter(c => c.id !== tempId)) // Revert
         } else {
             fetchComments() // Refresh for real ID
@@ -1271,7 +1271,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 {/* 6. OBSERVATIONS */}
                                 {(checklist.comments || checklist.observaciones) && (
                                     <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 dark:border-yellow-900/50 text-center shadow-sm">
-                                        <h3 className="font-bold text-yellow-700 dark:text-yellow-500 uppercase tracking-widest text-sm mb-4">Notas Finales</h3>
+                                        <h3 className="font-bold text-yellow-700 dark:text-yellow-500 uppercase tracking-widest text-sm mb-4">Final Notes</h3>
                                         <p className="text-lg font-medium text-gray-800 dark:text-slate-200 italic">
                                             "{checklist.comments || checklist.observaciones}"
                                         </p>
@@ -1291,9 +1291,9 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                 <ClipboardCheck size={32} />
                                             </div>
                                             <div>
-                                                <h3 className="text-xl font-black text-white tracking-tight uppercase">Checklist Cerrado</h3>
+                                                <h3 className="text-xl font-black text-white tracking-tight uppercase">Checklist Closed</h3>
                                                 <p className="text-slate-400 text-sm font-medium mt-1">
-                                                    Esta inspección ha sido finalizada y se encuentra en modo de solo lectura.
+                                                    This inspection has been finalized and is in read-only mode.
                                                 </p>
                                             </div>
                                         </div>
@@ -1322,7 +1322,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         <div className="bg-indigo-600 text-white p-3 flex justify-between items-center shadow-md">
                             <div className="flex items-center gap-2">
                                 <MessageSquare size={18} />
-                                <span className="font-bold text-sm">Chat de Revisión</span>
+                                <span className="font-bold text-sm">Review Chat</span>
                             </div>
                             <button onClick={() => setChatOpen(false)} className="p-1 hover:bg-white/20 rounded-full transition">
                                 <X size={16} />
@@ -1341,7 +1341,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                             <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs shadow-sm ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-slate-800 text-white border border-slate-700 rounded-bl-none'}`}>
                                                 {comment.content}
                                             </div>
-                                            <span className="text-[9px] text-gray-400 mt-1 px-1">{isMe ? 'Tú' : comment.user_name} • {formatDateLA(comment.created_at).split(',')[1]}</span>
+                                            <span className="text-[9px] text-gray-400 mt-1 px-1">{isMe ? 'You' : comment.user_name} • {formatDateLA(comment.created_at).split(',')[1]}</span>
                                         </div>
                                     )
                                 })
@@ -1356,7 +1356,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         <div className={`bg-white w-3 h-3 rounded-full shadow-md transform duration-300 ${includeManager ? 'translate-x-4' : ''}`}></div>
                                     </div>
                                     <input type="checkbox" className="hidden" checked={includeManager} onChange={(e) => toggleManager(e.target.checked)} />
-                                    <span className="text-[10px] font-bold text-gray-600">{includeManager && managerName ? `Avisar a ${managerName}` : 'Notificar al Manager'}</span>
+                                    <span className="text-[10px] font-bold text-gray-600">{includeManager && managerName ? `Notify ${managerName}` : 'Notify Manager'}</span>
                                 </label>
                             </div>
                         )}
@@ -1373,11 +1373,11 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 const isClosed = status === 'cerrado' && !isAdmin
                                 const isDisabled = !canWrite || isClosed
 
-                                let placeholderText = "Escribe un mensaje..."
-                                if (isClosed) placeholderText = "El chat está cerrado"
+                                let placeholderText = "Write a message..."
+                                if (isClosed) placeholderText = "Chat is closed"
                                 else if (!canWrite) {
-                                    if (comments.length === 0) placeholderText = "Esperando que un Admin inicie la revisión..."
-                                    else placeholderText = "Solo lectura"
+                                    if (comments.length === 0) placeholderText = "Waiting for an Admin to start the review..."
+                                    else placeholderText = "Read only"
                                 }
 
                                 return (
@@ -1450,7 +1450,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             />
 
                             <p className="text-[13px] font-black leading-tight relative z-10 bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                                Puedes dejar comentarios al Supervisor y/o Manager
+                                You can leave comments for the Supervisor and/or Manager
                             </p>
 
                             {/* Speech bubble arrow */}
@@ -1485,7 +1485,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         exit={{ opacity: 0, y: -5 }}
                                         className="absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
                                     >
-                                        Marcar Pendiente
+                                        Mark as Pending
                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 transform rotate-45" />
                                     </motion.div>
                                 )}
@@ -1508,7 +1508,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         exit={{ opacity: 0, y: -5 }}
                                         className="absolute z-[10001] bg-gray-900 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
                                     >
-                                        Rechazar / Corregir
+                                        Reject / Needs Correction
                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-gray-900 transform rotate-45" />
                                     </motion.div>
                                 )}
@@ -1531,7 +1531,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         exit={{ opacity: 0, y: -5 }}
                                         className="absolute z-[10001] bg-indigo-600 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap pointer-events-none shadow-xl"
                                     >
-                                        Aprobar y Cerrar
+                                        Approve and Close
                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-indigo-600 transform rotate-45" />
                                     </motion.div>
                                 )}
@@ -1550,7 +1550,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         exit={{ scale: 0, x: -20 }}
                         onClick={() => openViewer(0, allInspectionPhotos)}
                         className="fixed bottom-24 left-6 z-[9999] w-12 h-12 rounded-full bg-white text-indigo-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-indigo-100 shadow-xl group"
-                        title="Mostrar Galeria completa de fotos"
+                        title="Show full photo gallery"
                     >
                         <ImageIcon size={24} />
                         <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm group-hover:bg-indigo-700 transition-colors">

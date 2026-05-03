@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLanguage } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -40,7 +41,7 @@ import {
 } from 'lucide-react';
 import { format, startOfWeek, addDays, isSameDay, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { getRoleWeight, getMonday, formatDateISO, formatStoreName } from '../planificador-v2/lib/utils';
+import { getRoleWeight, getMonday, formatDateISO, formatStoreName } from '../planificador/lib/utils';
 
 // SUB-COMPONENTE PARA EL TABLERO VISUAL
 const BoardSlot = ({ label, stationKey, group, assignee, employees, className = "", onClick }: any) => {
@@ -82,6 +83,7 @@ const BoardSlot = ({ label, stationKey, group, assignee, employees, className = 
 
 export default function MissionControlRoles() {
   const supabase = createClient();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [stores, setStores] = useState<any[]>([]);
@@ -219,15 +221,21 @@ export default function MissionControlRoles() {
       const hour = laTime.getHours();
       const minute = laTime.getMinutes();
       
-      // Exact time triggers: 4:50 PM -> PM, 6:00 AM -> AM & New Day
-      if (hour === 16 && minute === 50) {
-        setActiveShift('PM');
-      } else if (hour === 6 && minute === 0) {
-        setActiveShift('AM');
+      // A las 4:50 PM empieza el turno PM, a las 6:00 AM empieza el turno AM
+      const isPMShift = (hour > 16 || (hour === 16 && minute >= 50)) || (hour < 6);
+      const targetShift = isPMShift ? 'PM' : 'AM';
+      
+      setActiveShift(prev => {
+        if (prev !== targetShift) return targetShift;
+        return prev;
+      });
+
+      // Si cruzamos las 6:00 AM exactas, avanzamos el día operativo
+      if (hour === 6 && minute === 0) {
         const newBusinessDay = new Date(laTime.getFullYear(), laTime.getMonth(), laTime.getDate());
-        setActiveDay(newBusinessDay);
+        setActiveDay(prev => prev.getTime() !== newBusinessDay.getTime() ? newBusinessDay : prev);
       }
-    }, 60000); // check every minute
+    }, 60000); // revisar cada minuto
     return () => clearInterval(interval);
   }, []);
 
@@ -729,7 +737,7 @@ export default function MissionControlRoles() {
       }
     } catch (error: any) { 
       console.error('SAVE ERROR:', error); 
-      alert(`❌ ERROR AL GUARDAR: ${error.message}\n\nPor favor, no refresques la página e intenta de nuevo.`);
+      alert(`❌ ERROR SAVING: ${error.message}\n\nPlease do not refresh the page and try again.`);
     } finally { 
       setSaving(false); 
     }
@@ -767,7 +775,7 @@ export default function MissionControlRoles() {
       setShowTemplateSave(false);
       fetchTemplates();
     } else {
-      alert(`❌ ERROR AL GUARDAR PLANTILLA: ${result.error || 'Error desconocido'}`);
+      alert(`❌ ERROR SAVING TEMPLATE: ${result.error || 'Unknown error'}`);
     }
   };
 
@@ -867,7 +875,7 @@ export default function MissionControlRoles() {
       setAssignments(newAssignments);
       alert('📅 Semana anterior copiada con éxito');
     } else {
-      alert('No hay datos la semana pasada');
+      alert('No data from last week');
     }
   };
 
@@ -881,7 +889,7 @@ export default function MissionControlRoles() {
   if (loading && stores.length === 0) return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col items-center justify-center p-12">
       <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mb-6" />
-      <h2 className="text-sm font-bold text-slate-400 uppercase tracking-[0.3em]">Sincronizando Hub</h2>
+      <h2 className="text-sm font-bold text-slate-400 uppercase tracking-[0.3em]">Syncing Hub</h2>
     </div>
   );
 
@@ -897,9 +905,9 @@ export default function MissionControlRoles() {
             </div>
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-                Roles Hub <span className="text-[10px] bg-slate-100 px-3 py-1 rounded-full border border-slate-200 tracking-widest font-black uppercase text-slate-500">Operativo</span>
+                Roles Hub <span className="text-[10px] bg-slate-100 px-3 py-1 rounded-full border border-slate-200 tracking-widest font-black uppercase text-slate-500">Operations</span>
               </h1>
-              <p className="text-xs font-medium text-slate-400 mt-1 uppercase tracking-widest">Asignación Táctica de Estaciones</p>
+              <p className="text-xs font-medium text-slate-400 mt-1 uppercase tracking-widest">Tactical Station Assignment</p>
             </div>
           </div>
 
@@ -921,7 +929,10 @@ export default function MissionControlRoles() {
             
             <div className="flex items-center gap-2 px-2">
               <button 
-                onClick={() => setCurrentWeekStart(subDays(currentWeekStart, 7))}
+                onClick={() => {
+                  setCurrentWeekStart(prev => subDays(prev, 7));
+                  setActiveDay(prev => subDays(prev, 7));
+                }}
                 className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"
               >
                 <ChevronLeft size={20} />
@@ -931,11 +942,14 @@ export default function MissionControlRoles() {
                 <span className="text-sm font-bold text-slate-900 tracking-tight">
                   {format(getMonday(currentWeekStart), 'MMM dd', { locale: es })} - {format(addDays(getMonday(currentWeekStart), 6), 'MMM dd', { locale: es })}
                 </span>
-                <span className="block text-[10px] font-bold text-indigo-500/60 uppercase tracking-widest mt-0.5">Semana Planificada</span>
+                <span className="block text-[10px] font-bold text-indigo-500/60 uppercase tracking-widest mt-0.5">Planned Week</span>
               </div>
 
               <button 
-                onClick={() => setCurrentWeekStart(addDays(currentWeekStart, 7))}
+                onClick={() => {
+                  setCurrentWeekStart(prev => addDays(prev, 7));
+                  setActiveDay(prev => addDays(prev, 7));
+                }}
                 className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"
               >
                 <ChevronRight size={20} />
@@ -943,7 +957,7 @@ export default function MissionControlRoles() {
             </div>
 
             <div className="flex items-center gap-3 px-4 border-l border-slate-100">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Tiene Drive-Thru</span>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Has Drive-Thru</span>
               <button 
                 onClick={() => setHasDriveThru(!hasDriveThru)}
                 className={`relative w-10 h-5 rounded-full transition-all duration-300 ${hasDriveThru ? 'bg-indigo-600 shadow-lg shadow-indigo-100' : 'bg-slate-200'}`}
@@ -1013,7 +1027,7 @@ export default function MissionControlRoles() {
               }`}
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              {saving ? 'Guardando...' : 'Guardar Cambios'}
+              {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </div>
@@ -1518,7 +1532,7 @@ export default function MissionControlRoles() {
   
                        {/* Central DT Area */}
                        <div className="flex-1 flex flex-col gap-1">
-                          <BoardSlot label="Tortas / Quesadillas (DT)" stationKey="TORTILLAS" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTILLAS_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
+                          <BoardSlot label="Tortas / Quesadillas (DT)" stationKey="TORTAS/QUESADILLAS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS (DT)_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
                           <div className="flex-1 grid grid-cols-3 gap-1">
                             <BoardSlot label="Tacos / Burritos (DT)" stationKey="TACOS/BURRITOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TACOS/BURRITOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
                             <BoardSlot label="Ventanilla 2" stationKey="Ventana 2" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 2_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
@@ -1763,13 +1777,13 @@ export default function MissionControlRoles() {
                   /* --- VIEW 2: REASSIGNMENT --- */
                   <div className="space-y-10 max-w-4xl mx-auto w-full">
                     <div className="flex items-center justify-between mb-4">
-                       <h4 className="text-2xl font-black text-slate-400 uppercase tracking-[0.3em] italic">Seleccionar Reemplazo</h4>
+                       <h4 className="text-2xl font-black text-slate-400 uppercase tracking-[0.3em] italic">Select Replacement</h4>
                        {currentEmp && (
                          <button 
                            onClick={() => setIsReassigning(false)} 
                            className="text-xl font-bold text-indigo-600 hover:bg-indigo-50 px-6 py-3 rounded-2xl transition-all"
                          >
-                           Volver a ficha
+                           Back to profile
                          </button>
                        )}
                     </div>
@@ -1979,15 +1993,15 @@ export default function MissionControlRoles() {
                     >
                       <div className="p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50 gap-8">
                         <div className="flex-1">
-                          <h3 className="text-3xl font-black text-slate-800 tracking-tight">Seleccionar Tarea Extra</h3>
+                          <h3 className="text-3xl font-black text-slate-800 tracking-tight">Select Extra Task</h3>
                           <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1 mb-6">
-                            Agregando a: {taskSelectorForAssign.sub_position.replace(/_(AM|PM)$/, '')} ({taskSelectorForAssign.sub_position.includes('AM') ? 'AM' : 'PM'})
+                            Adding to: {taskSelectorForAssign.sub_position.replace(/_(AM|PM)$/, '')} ({taskSelectorForAssign.sub_position.includes('AM') ? 'AM' : 'PM'})
                           </p>
                           <div className="relative max-w-md">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                             <input 
                               type="text" 
-                              placeholder="Buscar tarea o categoría..." 
+                              placeholder="Search task or category..." 
                               className="w-full pl-12 pr-4 py-3 bg-white border-2 border-slate-200 rounded-2xl text-sm font-black text-slate-700 focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
                               value={extraTaskSearchQuery}
                               onChange={e => setExtraTaskSearchQuery(e.target.value)}
@@ -2049,7 +2063,7 @@ export default function MissionControlRoles() {
                             act.name.toLowerCase().includes(extraTaskSearchQuery.toLowerCase()) || 
                             (act.category || '').toLowerCase().includes(extraTaskSearchQuery.toLowerCase())
                           ).length === 0 && (
-                            <div className="col-span-full p-12 text-center text-slate-400 font-bold text-lg">No se encontraron tareas con esa búsqueda.</div>
+                            <div className="col-span-full p-12 text-center text-slate-400 font-bold text-lg">No tasks found matching that search.</div>
                           )}
                         </div>
                       </div>
@@ -2906,7 +2920,7 @@ export default function MissionControlRoles() {
                   onClick={() => setShowStationActivitiesModal(null)}
                   className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] shadow-xl hover:bg-black transition-all"
                 >
-                  Guardar Configuracion de Puesto
+                  Save Station Configuration
                 </button>
               </div>
             </motion.div>

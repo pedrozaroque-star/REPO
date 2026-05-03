@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Calendar, Loader2, Zap, ArrowLeft, History, RefreshCw, Maximize, Minimize, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { getSupabaseClient } from '@/lib/supabase'
-import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } from '@/app/planificador-v2/lib/utils'
-import { Shift, Employee, Job } from '@/app/planificador-v2/lib/types'
+import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } from '@/app/planificador/lib/utils'
+import { Shift, Employee, Job } from '@/app/planificador/lib/types'
 import { useAuth } from '@/components/ProtectedRoute'
 
 import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
@@ -21,6 +22,7 @@ const TOTAL_HOURS = END_HOUR - START_HOUR
 export default function DescansosPage() {
     const { user } = useAuth()
     const searchParams = useSearchParams()
+    const { t } = useLanguage()
 
     const [mounted, setMounted] = useState(false)
     useEffect(() => setMounted(true), [])
@@ -633,12 +635,12 @@ export default function DescansosPage() {
                                 <Zap className="text-amber-500 animate-bounce" size={32} />
                             </div>
                             <h2 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight text-center">
-                                {loading ? 'Sincronizando...' : 'Procesando IA'}
+                                {loading ? t('descansos.loading') : 'AI Processing'}
                             </h2>
                             <p className="text-sm font-medium text-slate-500 text-center mb-6 px-4">
                                 {loading
-                                    ? 'Cargando turnos y configuraciones del Planificador maestro.'
-                                    : 'Calculando coberturas y optimizando descansos en tiempo real.'}
+                                    ? 'Loading shifts and configurations from the master Planner.'
+                                    : 'Calculating coverage and optimizing breaks in real time.'}
                             </p>
                             <Loader2 className="animate-spin text-amber-500" size={36} />
                         </motion.div>
@@ -938,7 +940,7 @@ export default function DescansosPage() {
                     {/* Timeline Headers */}
                     <div className={`flex border-b border-slate-200 bg-slate-50 relative sticky ${isFullscreen ? 'top-[210px] md:top-[80px]' : 'top-[270px] md:top-[144px]'} z-40 shadow-sm rounded-t-xl transition-all duration-300`}>
                         <div className="w-64 shrink-0 border-r border-slate-200 p-3 text-sm font-black text-slate-500 uppercase tracking-wider flex items-center bg-slate-50 rounded-tl-xl">
-                            Empleado
+                            Employee
                         </div>
                         <div className="flex-1 relative h-10 bg-slate-50 rounded-tr-xl">
                             {Array.from({ length: TOTAL_HOURS }).map((_, i) => (
@@ -958,7 +960,7 @@ export default function DescansosPage() {
                     {/* Employees Rows */}
                     <div className="divide-y divide-slate-100 relative z-10">
                         {activeEmployees.length === 0 ? (
-                            <div className="p-8 text-center text-slate-500">No hay turnos planificados ni registros de Toast para este día.</div>
+                            <div className="p-8 text-center text-slate-500">No scheduled shifts or Toast records for this day.</div>
                         ) : activeEmployees.map((emp) => {
                             // Link con los turnos inteligentes (ya traen la data de breaks inyectada)
                             const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id))
@@ -988,7 +990,7 @@ export default function DescansosPage() {
                                             ) : null;
                                         })()}
                                         {isOff ? (
-                                            <div className="text-sm text-slate-400 font-bold mt-0.5">DÍA LIBRE (OFF)</div>
+                                            <div className="text-sm text-slate-400 font-bold mt-0.5">OFF</div>
                                         ) : (
                                             <div className="text-sm text-slate-600 font-bold mt-1">
                                                 {new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
@@ -1040,7 +1042,7 @@ export default function DescansosPage() {
                                                             }}
                                                         >
                                                             <div className="opacity-0 group-hover/break:opacity-100 group-focus/break:opacity-100 group-active/break:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[14px] font-bold px-3 py-1.5 rounded whitespace-nowrap shadow-lg pointer-events-none z-[80] transition-opacity">
-                                                                {isMeal ? 'Almuerzo Planeado' : 'Descanso Planeado'}<br />
+                                                                {isMeal ? 'Planned Meal' : 'Planned Break'}<br />
                                                                 {new Date(b.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                                                             </div>
                                                         </div>
@@ -1115,7 +1117,7 @@ export default function DescansosPage() {
 
                                     {/* Tooltip Globo */}
                                     <div className="opacity-0 group-hover/timeline:opacity-100 bg-slate-900 border border-fuchsia-500/50 text-white text-[13px] font-bold px-4 py-2 rounded-lg shadow-2xl transition-all duration-300 whitespace-nowrap z-[60] translate-y-2 group-hover/timeline:translate-y-0 text-center">
-                                        <div className="text-slate-400 text-[10px] uppercase tracking-widest mb-0.5">Tiempo Real</div>
+                                        <div className="text-slate-400 text-[10px] uppercase tracking-widest mb-0.5">Real Time</div>
                                         <div className="text-fuchsia-400 text-lg tabular-nums tracking-tight">
                                             {currentTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                                         </div>
@@ -1176,7 +1178,7 @@ export default function DescansosPage() {
                                 <Zap size={18} fill="white" />
                             </div>
                             {aiStatus.message}
-                            <div className="ml-2 opacity-50 px-2 py-0.5 rounded-full border border-white/30 text-[10px]">CERRAR</div>
+                            <div className="ml-2 opacity-50 px-2 py-0.5 rounded-full border border-white/30 text-[10px]">CLOSE</div>
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -1188,7 +1190,7 @@ export default function DescansosPage() {
                     <div className="bg-white rounded-3xl shadow-2xl p-10 w-full max-w-xl border border-slate-300">
                         <h3 className="text-4xl font-black text-slate-900 mb-2 flex items-center gap-3">
                             <Calendar size={36} className="text-indigo-600" />
-                            Gestionar Empleado
+                            Manage Employee
                         </h3>
                         <p className="text-slate-900 text-3xl font-black mb-10 pb-8 border-b-2 border-slate-200">
                             {absentModalEmp.first_name} {absentModalEmp.last_name}
@@ -1214,19 +1216,19 @@ export default function DescansosPage() {
                                     }`}
                             >
                                 {absentEmpIds.has(String(absentModalEmp.id))
-                                    ? 'Restaurar Turno (Desmarcar Ausencia)'
-                                    : 'Marcar Ausente (Eliminar del Schedule)'}
+                                    ? 'Restore Shift (Unmark Absence)'
+                                    : 'Mark Absent (Remove from Schedule)'}
                             </button>
                             <button
                                 onClick={() => setAbsentModalEmp(null)}
                                 className="px-8 py-5 rounded-2xl text-xl font-bold text-slate-900 bg-slate-200 hover:bg-slate-300 border-2 border-slate-300 mt-2 transition-colors shadow-sm"
                             >
-                                Cancelar
+                                Cancel
                             </button>
                         </div>
 
                         <div className="mt-10 text-lg text-slate-800 font-bold leading-relaxed text-center bg-amber-50 border border-amber-200 p-5 rounded-xl shadow-inner">
-                            Al excluir a este empleado, la IA reprogramará automáticamente los tiempos de descanso de los demás para cubrir sus horas.
+                            When excluding this employee, the AI will automatically reschedule break times for the rest of the team to cover their hours.
                         </div>
                     </div>
                 </div>

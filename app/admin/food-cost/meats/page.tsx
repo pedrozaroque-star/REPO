@@ -307,7 +307,7 @@ export default function MeatAnalysisPage() {
                             <h3 className="font-semibold text-slate-700 dark:text-slate-200">Product Breakdown</h3>
                             <span className="text-xs text-slate-400">Sorted by usage</span>
                         </div>
-                        <div className="overflow-auto flex-1">
+                        <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 uppercase tracking-wider font-semibold border-b dark:border-slate-700 sticky top-0">
                                     <tr>

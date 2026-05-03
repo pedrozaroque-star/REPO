@@ -348,9 +348,9 @@ export default function AdminPage() {
             {/* Leaderboard Heading */}
             <div className="text-center mb-8">
               <span className="inline-block px-4 py-1.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 text-[10px] font-black uppercase tracking-widest mb-3 border border-yellow-200 dark:border-yellow-900/50">
-                En tiempo real
+                Real Time
               </span>
-              <h2 className="text-3xl md:text-4xl font-black text-gray-900 dark:text-white tracking-tighter">Ranking de Sucursales</h2>
+              <h2 className="text-3xl md:text-4xl font-black text-gray-900 dark:text-white tracking-tighter">Store Rankings</h2>
             </div>
 
             <div className="max-w-4xl mx-auto space-y-4">
@@ -506,7 +506,7 @@ export default function AdminPage() {
                   <div className="bg-gray-100 dark:bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400 dark:text-slate-600">
                     <Search size={24} />
                   </div>
-                  <p className="text-gray-900 dark:text-white font-black uppercase tracking-widest">No se encontraron resultados</p>
+                  <p className="text-gray-900 dark:text-white font-black uppercase tracking-widest">No results found</p>
                 </div>
               )}
             </div>

@@ -9,6 +9,8 @@ export type Shift = {
     notes?: string
     is_open?: boolean
     shift_date: string // YYYY-MM-DD
+    breaks_schedule?: any // Break schedule JSON from breaks-engine
+    is_callback?: boolean // Callback flag for absent employee replacement
 }
 
 export type Employee = {

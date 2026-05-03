@@ -1,4 +1,4 @@
-import { Shift } from '@/app/planificador-v2/lib/types'
+import { Shift } from '@/app/planificador/lib/types'
 import { OperatingHour } from '@/lib/intelligence'
 
 // ══════════════════════════════════════════════════════════════════════════════

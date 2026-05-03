@@ -1341,7 +1341,7 @@ export default function ReportesPage() {
                                             value={weekDate ? weekDate.substring(0, 7) : ''}
                                             onChange={handleWeekDateChange}
                                             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                            title="Seleccionar Mes"
+                                            title="Select Month"
                                         />
                                     ) : (
                                         <input
@@ -1349,7 +1349,7 @@ export default function ReportesPage() {
                                             value={weekDate}
                                             onChange={handleWeekDateChange}
                                             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                            title="Seleccionar Fecha Específica"
+                                            title="Select Specific Date"
                                         />
                                     )}
                                 </div>
@@ -1383,8 +1383,8 @@ export default function ReportesPage() {
                     {loading ? (
                         <div className="h-96 flex flex-col items-center justify-center text-slate-400 animate-pulse bg-white/50 dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800">
                             <Clock size={48} className="mb-4 animate-spin" />
-                            <p className="font-bold">Procesando datos del sistema...</p>
-                            <p className="text-xs">Sincronizando Ventas y Labor AM/PM</p>
+                            <p className="font-bold">Processing system data...</p>
+                            <p className="text-xs">Syncing Sales and Labor AM/PM</p>
                         </div>
                     ) : selectedStore && weekDate ? (
                         activeTab === 'ops' ? (
@@ -1598,7 +1598,7 @@ export default function ReportesPage() {
                         ) : activeTab === 'labor' ? (
                             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4">
                                 {/* DESKTOP TABLE */}
-                                <div className="hidden md:block">
+                                <div className="hidden md:block overflow-x-auto">
                                     <table className="w-full border-collapse">
                                         <thead>
                                             <tr className="bg-slate-50 dark:bg-slate-800/50">
@@ -1790,7 +1790,7 @@ export default function ReportesPage() {
                             // MONTHLY TAB VIEW
                             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4">
                                 {/* DESKTOP TABLE */}
-                                <div className="hidden md:block max-h-[800px] overflow-y-auto">
+                                <div className="hidden md:block max-h-[800px] overflow-x-auto overflow-y-auto custom-scrollbar">
                                     <table className="w-full border-collapse relative">
                                         <thead className="sticky top-0 z-20 shadow-sm">
                                             <tr className="bg-orange-100 dark:bg-orange-900/30">

@@ -294,7 +294,7 @@ export default function NotificationBell({ isCollapsed = false }: { isCollapsed?
                   onClick={() => setIsOpen(false)}
                   className="text-xs text-blue-600 font-medium hover:text-blue-800"
                 >
-                  Cerrar
+                  Close
                 </button>
               </div>
             </div>

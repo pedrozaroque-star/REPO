@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useLanguage } from '@/lib/i18n'
 import { createBrowserClient } from '@supabase/ssr'
 import { Plus, Search, Tag, DollarSign, Scale, Box, Save, X, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react'
 
 export default function InventoryItemsPage() {
+    const { t } = useLanguage()
     const [items, setItems] = useState<any[]>([])
     const [categories, setCategories] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
@@ -185,8 +187,8 @@ export default function InventoryItemsPage() {
         <div className="p-8 max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-8">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Insumos (Ingredients)</h1>
-                    <p className="text-slate-500">Define las materias primas que compras (Cajas, Bolsas, Unidades).</p>
+                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Ingredients</h1>
+                    <p className="text-slate-500">Define the raw materials you purchase (Cases, Bags, Units).</p>
                 </div>
                 <div className="flex gap-3">
                     <button
@@ -195,14 +197,14 @@ export default function InventoryItemsPage() {
                         className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
                     >
                         {syncing ? <RefreshCw size={20} className="animate-spin" /> : <RefreshCw size={20} />}
-                        Sincronizar con Intuit QuickBooks
+                        Sync with Intuit QuickBooks
                     </button>
                     <button
                         onClick={openCreate}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
                     >
                         <Plus size={20} />
-                        Nuevo Insumo
+                        New Item
                     </button>
                 </div>
             </div>
@@ -213,7 +215,7 @@ export default function InventoryItemsPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                     <input
                         type="text"
-                        placeholder="Buscar por nombre, SKU o categoría..."
+                        placeholder="Search by name, SKU, or category..."
                         className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
@@ -231,45 +233,45 @@ export default function InventoryItemsPage() {
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
                                     onClick={() => requestSort('name')}
                                 >
-                                    <div className="flex items-center">Insumo <SortIcon columnKey="name" /></div>
+                                    <div className="flex items-center">Item <SortIcon columnKey="name" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
                                     onClick={() => requestSort('category')}
                                 >
-                                    <div className="flex items-center">Categoría <SortIcon columnKey="category" /></div>
+                                    <div className="flex items-center">Category <SortIcon columnKey="category" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
                                     onClick={() => requestSort('unit_type')}
                                 >
-                                    <div className="flex items-center">Presentación <SortIcon columnKey="unit_type" /></div>
+                                    <div className="flex items-center">Presentation <SortIcon columnKey="unit_type" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
                                     onClick={() => requestSort('is_bodega')}
                                 >
-                                    <div className="flex items-center">Tipo <SortIcon columnKey="is_bodega" /></div>
+                                    <div className="flex items-center">Type <SortIcon columnKey="is_bodega" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-right"
                                     onClick={() => requestSort('purchase_unit_cost')}
                                 >
-                                    <div className="flex items-center justify-end">Costo Compra <SortIcon columnKey="purchase_unit_cost" /></div>
+                                    <div className="flex items-center justify-end">Purchase Cost <SortIcon columnKey="purchase_unit_cost" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-right"
                                     onClick={() => requestSort('unitCost')}
                                 >
-                                    <div className="flex items-center justify-end">Costo Unitario <SortIcon columnKey="unitCost" /></div>
+                                    <div className="flex items-center justify-end">Unit Cost <SortIcon columnKey="unitCost" /></div>
                                 </th>
                                 <th
                                     className="px-4 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group text-center"
                                     onClick={() => requestSort('yield_percent')}
                                 >
-                                    <div className="flex items-center justify-center">Rendimiento <SortIcon columnKey="yield_percent" /></div>
+                                    <div className="flex items-center justify-center">Yield <SortIcon columnKey="yield_percent" /></div>
                                 </th>
-                                <th className="px-4 py-3 text-center">Acción</th>
+                                <th className="px-4 py-3 text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700 text-sm">
@@ -278,7 +280,7 @@ export default function InventoryItemsPage() {
                                     <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                                         <div className="flex flex-col items-center justify-center gap-2">
                                             <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-600 rounded-full animate-spin" />
-                                            <span>Cargando insumos...</span>
+                                            <span>Loading items...</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -286,7 +288,7 @@ export default function InventoryItemsPage() {
                                 <tr>
                                     <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                                         <Box size={48} className="mx-auto mb-2 opacity-20" />
-                                        <p>No se encontraron insumos.</p>
+                                        <p>No items found.</p>
                                     </td>
                                 </tr>
                             ) : (
@@ -305,11 +307,11 @@ export default function InventoryItemsPage() {
                                         <td className="px-4 py-3 text-center">
                                             {item.is_bodega ? (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800 uppercase tracking-widest">
-                                                    Bodega
+                                                    Warehouse
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800 uppercase tracking-widest">
-                                                    Restaurante
+                                                    Restaurant
                                                 </span>
                                             )}
                                         </td>
@@ -333,7 +335,7 @@ export default function InventoryItemsPage() {
                                             <button
                                                 onClick={() => openEdit(item)}
                                                 className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors"
-                                                title="Editar"
+                                                title="Edit"
                                             >
                                                 <Tag size={16} />
                                             </button>
@@ -351,7 +353,7 @@ export default function InventoryItemsPage() {
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden transform transition-all scale-100">
                         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{newItem.id ? 'Editar Insumo' : 'Nuevo Insumo'}</h2>
+                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{newItem.id ? t('Edit Item') : t('New Item')}</h2>
                             <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
                                 <X size={24} />
                             </button>
@@ -360,7 +362,7 @@ export default function InventoryItemsPage() {
                         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
                             {/* Name */}
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre del Insumo *</label>
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Item Name *</label>
                                 <input
                                     type="text"
                                     value={newItem.name}
@@ -374,30 +376,30 @@ export default function InventoryItemsPage() {
                             {/* Category & SKU & Bodega */}
                             <div className="grid grid-cols-3 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoría *</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Category *</label>
                                     <select
                                         value={newItem.category_id}
                                         onChange={e => setNewItem({ ...newItem, category_id: e.target.value })}
                                         className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     >
-                                        <option value="">Seleccionar...</option>
+                                        <option value="">Select...</option>
                                         {categories.map(cat => (
                                             <option key={cat.id} value={cat.id}>{cat.name}</option>
                                         ))}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">SKU (Opcional)</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">SKU (Optional)</label>
                                     <input
                                         type="text"
                                         value={newItem.sku}
                                         onChange={e => setNewItem({ ...newItem, sku: e.target.value })}
-                                        placeholder="Código Proveedor"
+                                        placeholder="Vendor Code"
                                         className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Propósito del Insumo</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Item Purpose</label>
                                     <label className="flex items-center gap-3 p-2 mt-1 border border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                                         <input
                                             type="checkbox"
@@ -406,7 +408,7 @@ export default function InventoryItemsPage() {
                                             className="w-5 h-5 rounded border-slate-300 text-amber-600 focus:ring-amber-600"
                                         />
                                         <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            {newItem.is_bodega ? '📦 Insumo de Bodega' : '🍽️ Insumo de Restaurante'}
+                                            {newItem.is_bodega ? '📦 Warehouse Item' : '🍽️ Restaurant Item'}
                                         </span>
                                     </label>
                                 </div>
@@ -415,7 +417,7 @@ export default function InventoryItemsPage() {
                             {/* Unit & Yield */}
                             <div className="grid grid-cols-3 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo de Compra</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Purchase Type</label>
                                     <input
                                         type="text"
                                         list="containers"
@@ -433,7 +435,7 @@ export default function InventoryItemsPage() {
                                     </datalist>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cantidad</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Quantity</label>
                                     <input
                                         type="number"
                                         value={newItem.quantity_per_unit}
@@ -443,7 +445,7 @@ export default function InventoryItemsPage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Unidad Base</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Base Unit</label>
                                     <select
                                         value={newItem.unit_measure}
                                         onChange={e => setNewItem({ ...newItem, unit_measure: e.target.value })}
@@ -462,7 +464,7 @@ export default function InventoryItemsPage() {
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rendimiento (%)</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Yield (%)</label>
                                     <div className="relative">
                                         <input
                                             type="number"
@@ -476,7 +478,7 @@ export default function InventoryItemsPage() {
                                     <p className="text-[10px] text-slate-400 mt-1">Ej: Aguacate limpio = 85.0%</p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Costo Estimado (Por {newItem.unit_type})</label>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Estimated Cost (Per {newItem.unit_type})</label>
                                     <div className="relative">
                                         <span className="absolute left-3 top-2 text-slate-400">$</span>
                                         <input
@@ -500,14 +502,14 @@ export default function InventoryItemsPage() {
                                 onClick={() => setIsModalOpen(false)}
                                 className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors font-medium text-sm"
                             >
-                                Cancelar
+                                Cancel
                             </button>
                             <button
                                 onClick={handleSave}
                                 disabled={saving}
                                 className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-md transition-all hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium text-sm"
                             >
-                                {saving ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando...</> : <><Save size={18} /> Guardar Insumo</>}
+                                {saving ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</> : <><Save size={18} /> Save Item</>}
                             </button>
                         </div>
                     </div>

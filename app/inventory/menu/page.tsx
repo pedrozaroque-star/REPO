@@ -138,7 +138,7 @@ export default function MenuCatalogPage() {
             alert(`Sincronización Completada: ${data.count} items procesados.`)
             fetchLocalMenu() // Refresh list
         } catch (e) {
-            alert('Error al sincronizar con Toast.')
+            alert('Error syncing with Toast.')
         } finally {
             setSyncing(false)
         }

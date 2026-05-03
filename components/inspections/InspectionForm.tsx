@@ -608,7 +608,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
             <div>
               <h1 className="text-sm font-black text-gray-900 tracking-tight leading-none">{t('inspections.form.supervision_header')}</h1>
               <div className="text-[11px] items-center gap-1 font-bold text-gray-500 uppercase hidden sm:flex">
-                <Store size={12} /> {formatStoreName(stores.find(s => s.id.toString() === formData.store_id)?.name) || 'Selecciona...'}
+                <Store size={12} /> {formatStoreName(stores.find(s => s.id.toString() === formData.store_id)?.name) || 'Select...'}
               </div>
             </div>
           </div>

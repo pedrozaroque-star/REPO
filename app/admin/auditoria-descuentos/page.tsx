@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
 import { Calendar, Store, AlertTriangle, User, Filter, ChevronLeft, ChevronRight, ShieldAlert, Target, Info, X } from 'lucide-react'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
@@ -27,6 +28,7 @@ type DiscountRow = {
 }
 
 export default function AuditoriaDescuentos() {
+    const { t } = useLanguage()
     const [discounts, setDiscounts] = useState<DiscountRow[]>([])
     const [loading, setLoading] = useState(false)
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>('yesterday')
@@ -349,7 +351,7 @@ export default function AuditoriaDescuentos() {
                     <div>
                         <div className="flex items-center gap-3 mb-2">
                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 shadow-sm">
-                                AUDITORÍA ACTIVA
+                                ACTIVE AUDIT
                             </span>
                              <button
                                 onClick={() => setShowWizard(true)}
@@ -361,9 +363,9 @@ export default function AuditoriaDescuentos() {
                         </div>
                         <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                             <AlertTriangle className="text-amber-500 w-8 h-8" />
-                            Reporte de Descuentos
+                            {t('descuentos.title')}
                         </h1>
-                        <p className="text-slate-500 mt-1">Monitoreo y análisis de descuentos aplicados en sistema</p>
+                        <p className="text-slate-500 mt-1">{t('descuentos.subtitle')}</p>
                     </div>
 
                     <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto z-50">
@@ -402,7 +404,7 @@ export default function AuditoriaDescuentos() {
                                 onChange={e => setStoreFilter(e.target.value)}
                                 className="bg-transparent text-slate-700 dark:text-slate-300 border-none outline-none focus:ring-0 text-sm font-medium appearance-none w-full pr-4"
                             >
-                                <option value="all">Todas las Sucursales</option>
+                                <option value="all">{t('descuentos.all_stores')}</option>
                                 {uniqueStores.map(s => (
                                     <option key={s} value={s}>{s}</option>
                                 ))}
@@ -441,7 +443,7 @@ export default function AuditoriaDescuentos() {
                                             alert(`✅ EXTRACCIÓN MASIVA EXITOSA.\nSe sincronizó el día INICIAL seleccionado: ${startDate}.`)
                                             await fetchDiscounts()
                                         } else {
-                                            alert('❌ Error descargando: ' + r.error)
+                                            alert('❌ Download error: ' + r.error)
                                         }
                                     } catch (e) {
                                         console.error(e)
@@ -474,14 +476,14 @@ export default function AuditoriaDescuentos() {
 
                     {/* Other Discounts KPI */}
                     <div className="bg-white dark:bg-slate-900/50 border border-black/5 dark:border-slate-800 p-6 rounded-xl flex flex-col justify-between shadow-sm">
-                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">Otros Descuentos</h2>
+                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">Other Discounts</h2>
                         <div className="text-3xl font-bold text-slate-700 dark:text-slate-200">${totalOtherAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         <div className="mt-2 text-slate-500 text-sm">{others.length.toLocaleString('en-US')} Transacciones ordinarias</div>
                     </div>
 
                     {/* Grand Total */}
                     <div className="bg-slate-50 dark:bg-slate-900/80 border border-black/5 dark:border-slate-800 p-6 rounded-xl flex flex-col justify-between shadow-sm">
-                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">Total General</h2>
+                        <h2 className="text-slate-500 dark:text-slate-400 font-semibold tracking-wide uppercase text-xs mb-1">Grand Total</h2>
                         <div className="text-3xl font-bold text-slate-900 dark:text-white">${(totalSeniorAmount + totalOtherAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         <div className="mt-2 text-slate-500 text-sm">Suma de todos los descuentos del día</div>
                     </div>
@@ -605,15 +607,15 @@ export default function AuditoriaDescuentos() {
                             <div className="p-5 border-b border-black/5 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center">
                                 <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                                     {isSingleStore ? <User className="w-5 h-5 text-emerald-500" /> : <Store className="w-5 h-5 text-sky-500" />}
-                                    {isSingleStore ? 'Impacto por Cajero(a)' : 'Impacto por Sucursal'}
+                                    {isSingleStore ? 'Impact by Cashier' : 'Impact by Location'}
                                 </h3>
                                 <span className="text-[10px] uppercase font-bold text-slate-400">
-                                    {isSingleStore ? `Top 15 - ${storeImpactData[0].name}` : 'Todas'}
+                                    {isSingleStore ? `Top 15 - ${storeImpactData[0].name}` : 'All'}
                                 </span>
                             </div>
                             <div className="p-5 flex-1 w-full min-h-[400px] h-full flex flex-col">
                                 {storeImpactData.length === 0 ? (
-                                    <div className="h-full flex items-center justify-center"><p className="text-slate-400 italic text-sm">No hay información suficiente para graficar.</p></div>
+                                    <div className="h-full flex items-center justify-center"><p className="text-slate-400 italic text-sm">Not enough data to graph.</p></div>
                                 ) : (
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart
@@ -646,13 +648,13 @@ export default function AuditoriaDescuentos() {
                                                         if (isSingleStore) {
                                                             setSelectedModalData({
                                                                 type: 'EMPLOYEE',
-                                                                title: `Cajero: ${e.name} en ${storeImpactData[0].name}`,
+                                                                title: `Cashier: ${e.name} at ${storeImpactData[0].name}`,
                                                                 data: seniors.filter(d => (d.approver_name || d.server_name || 'Autoservicio') === e.name)
                                                             })
                                                         } else {
                                                             setSelectedModalData({
                                                                 type: 'STORE',
-                                                                title: `Sucursal: ${e.name} (${focusKeyword === 'senior' ? 'Senior Discounts' : focusKeyword === 'all' ? 'Todos' : focusKeyword})`,
+                                                                title: `Location: ${e.name} (${focusKeyword === 'senior' ? 'Senior Discounts' : focusKeyword === 'all' ? 'All' : focusKeyword})`,
                                                                 data: seniors.filter(d => d.store_name?.toLowerCase().includes((e.name as string).toLowerCase()))
                                                             })
                                                         }
@@ -805,20 +807,20 @@ export default function AuditoriaDescuentos() {
                                 <thead className="text-[10px] uppercase tracking-wider text-slate-500 bg-white dark:bg-slate-900 sticky top-0 border-b border-slate-100 dark:border-slate-800 z-10 shadow-sm">
                                     <tr>
                                         <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => handleModalSort('hora')}>
-                                            {startDate !== endDate ? 'Fecha y Hora' : 'Hora'} {modalSort.column === 'hora' && (modalSort.direction === 'asc' ? '↑' : '↓')}
+                                            {startDate !== endDate ? 'Date & Time' : 'Time'} {modalSort.column === 'hora' && (modalSort.direction === 'asc' ? '↑' : '↓')}
                                         </th>
                                         <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => handleModalSort('sucursal')}>
-                                            Sucursal {modalSort.column === 'sucursal' && (modalSort.direction === 'asc' ? '↑' : '↓')}
+                                            Location {modalSort.column === 'sucursal' && (modalSort.direction === 'asc' ? '↑' : '↓')}
                                         </th>
                                         <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => handleModalSort('descuento')}>
-                                            Tipo Descuento {modalSort.column === 'descuento' && (modalSort.direction === 'asc' ? '↑' : '↓')}
+                                            Discount Type {modalSort.column === 'descuento' && (modalSort.direction === 'asc' ? '↑' : '↓')}
                                         </th>
                                         <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => handleModalSort('cajero')}>
-                                            Cajero(a) {modalSort.column === 'cajero' && (modalSort.direction === 'asc' ? '↑' : '↓')}
+                                            Cashier {modalSort.column === 'cajero' && (modalSort.direction === 'asc' ? '↑' : '↓')}
                                         </th>
-                                        <th className="px-4 py-3 font-semibold">Orden / Cheque</th>
+                                        <th className="px-4 py-3 font-semibold">Order / Check</th>
                                         <th className="px-4 py-3 font-semibold text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors select-none" onClick={() => handleModalSort('monto')}>
-                                            Monto Descuento {modalSort.column === 'monto' && (modalSort.direction === 'asc' ? '↑' : '↓')}
+                                            Discount Amount {modalSort.column === 'monto' && (modalSort.direction === 'asc' ? '↑' : '↓')}
                                         </th>
                                     </tr>
                                 </thead>

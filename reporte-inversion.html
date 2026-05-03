@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporte de Ciclo de Vida y Ecosistema — TEG Modernizado</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent2: #4f46e5;
+  --green: #059669;
+  --amber: #d97706;
+  --text: #0f172a;
+  --muted: #475569;
+  --brand: #1e293b;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.container{max-width:1100px;margin:0 auto;padding:40px 24px}
+h1{font-size:2.4rem;font-weight:900;color:var(--brand);margin-bottom:8px;line-height:1.2; letter-spacing: -0.5px;}
+h2{font-size:1.6rem;font-weight:800;color:var(--brand);margin:50px 0 20px;padding-bottom:10px;border-bottom:2px solid var(--border);}
+.header{text-align:center;padding:40px 0 50px;border-bottom:1px solid var(--border); margin-bottom: 40px;}
+.header .sub{color:var(--muted);font-size:1.1rem;margin-top:8px;}
+.badge{display:inline-block;background:#eff6ff;color:var(--accent);padding:4px 12px;border-radius:20px;font-size:0.85rem;font-weight:700;border:1px solid #bfdbfe;}
+
+/* Grilla de todos los Módulos */
+.modules-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+    margin-bottom: 40px;
+}
+.mini-module {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+.mini-module-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: var(--brand);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+}
+.mini-module-title::before {
+    content: '▪️';
+    color: var(--accent);
+    margin-right: 8px;
+    font-size: 1.1rem;
+}
+.mini-module-desc {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
+/* Timeline */
+.timeline { position: relative; padding-left: 20px; }
+.timeline::before { content: ''; position: absolute; top: 5px; bottom: 5px; left: 4px; width: 2px; background: #cbd5e1; }
+.update-node { position: relative; margin-bottom: 20px; padding-left: 25px; }
+.update-node:last-child { margin-bottom: 0; }
+.update-node::before { content: ''; position: absolute; top: 6px; left: -19px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 3px solid #eff6ff; }
+.update-date { font-size: 0.85rem; font-weight: 800; color: var(--accent); text-transform: uppercase; margin-bottom: 4px; display: block;}
+.update-title { font-weight: 700; font-size: 1.05rem; color: var(--text); margin-bottom: 4px; }
+.update-desc { font-size: 0.95rem; color: var(--muted); }
+
+/* Metrics */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:30px 0}
+.metric{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;text-align:center;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);}
+.metric .val{font-size:2rem;font-weight:900;color:var(--accent); line-height: 1;}
+.metric .label{font-size:.85rem;color:var(--muted);margin-top:8px;font-weight:600;}
+
+table{width:100%;border-collapse:collapse;margin:20px 0;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);}
+th{background:#f1f5f9;color:var(--brand);font-weight:800;text-align:left;padding:16px;border-bottom:2px solid var(--border);font-size:.9rem;}
+td{padding:16px;border-bottom:1px solid var(--border);font-size:0.95rem;}
+tr:last-child td{border-bottom:none;}
+
+.footer{text-align:center;margin-top:60px;padding:30px;color:var(--muted);font-size:.85rem;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+<span class="badge">Auditoría Técnica Oficial</span>
+<h1 style="margin-top:15px;">Ciclo de Vida y Ecosistema Completo</h1>
+<p style="font-size:1.3rem;font-weight:600;color:var(--text);margin-bottom:8px;">Sistema TEG Modernizado — Tacos El Gavilan</p>
+<p class="sub">Catálogo íntegro extraído de la Barra de Navegación Principal (TopNav)</p>
+</div>
+
+<!-- NUEVA SECCIÓN: EXACTAMENTE EL TOPNAV -->
+<h2>📚 Ecosistema Operativo de Tienda (TopNav)</h2>
+<p style="margin-bottom: 25px; font-size: 1.05rem; color: var(--muted);">Este es el catálogo exacto de los módulos desplegados actualmente en el menú principal del sistema <strong>(TopNav)</strong>, agrupados tal y como los gerentes, supervisores y el equipo administrativo los operan en el día a día para las 15 tiendas:</p>
+
+<h3 style="color:var(--accent); margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom:5px;">1. Operaciones</h3>
+<div class="modules-grid">
+    <div class="mini-module"><div class="mini-module-title">Dashboard Operativo</div><div class="mini-module-desc">Centro de mando y métricas principales por sucursal.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Horarios de Personal</div><div class="mini-module-desc">Editor de turnos visual (drag-and-drop).</div></div>
+    <div class="mini-module"><div class="mini-module-title">Inspecciones / Auditorías</div><div class="mini-module-desc">Formularios dinámicos con captura fotográfica.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Manager de Plantillas</div><div class="mini-module-desc">Creación administrativa de checklists.</div></div>
+</div>
+
+<h3 style="color:var(--accent); margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom:5px;">2. Análisis y Ventas</h3>
+<div class="modules-grid">
+    <div class="mini-module"><div class="mini-module-title">Ventas en Vivo (Toast)</div><div class="mini-module-desc">Integración directa a la facturación de POS.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Planificador / Proyecciones</div><div class="mini-module-desc">Cálculo de eficiencia: Labor vs Ventas futuras.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Descansos AI</div><div class="mini-module-desc">Motor Gantt Térmico para Breaks en ley de California.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Auditoría de Descuentos</div><div class="mini-module-desc">Radar anti-fraude para vigilar Promociones/Senior.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Reportes Analíticos</div><div class="mini-module-desc">Generador estadístico consolidado para gerencia.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Centro de Feedback</div><div class="mini-module-desc">Bandeja de seguimiento de quejas/sugerencias.</div></div>
+</div>
+
+<h3 style="color:var(--accent); margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom:5px;">3. Inventario y Food Cost</h3>
+<div class="modules-grid">
+    <div class="mini-module"><div class="mini-module-title">Dashboard Inventario</div><div class="mini-module-desc">Métricas maestras de bodega y línea de cocina.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Catálogo Menú / Ingredientes</div><div class="mini-module-desc">Digitalización de recetas y materias primas.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Costeo de Preparaciones</div><div class="mini-module-desc">Rendimiento y margen monetario por receta.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Quiosco Preparador</div><div class="mini-module-desc">Pantalla táctil en cocina con alertas audibles de rotación.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Reporte Global Food Cost</div><div class="mini-module-desc">Cruces financieros a nivel contable corporativo.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Meat Analysis (Mermas)</div><div class="mini-module-desc">Auditoría forense de carne cruda ingresada vs vendida.</div></div>
+</div>
+
+<h3 style="color:var(--accent); margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom:5px;">4. Equipo y Personal</h3>
+<div class="modules-grid">
+    <div class="mini-module"><div class="mini-module-title">Mis Horarios (Self-Schedule)</div><div class="mini-module-desc">Portal móvil para que el empleado consulte su semana.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Auto-Schedule</div><div class="mini-module-desc">Sistema de aprobación de cambios de turnos propuestos.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Roles (RBAC)</div><div class="mini-module-desc">Configuración estricta de jerarquías y visibilidad por local.</div></div>
+</div>
+
+<h3 style="color:var(--accent); margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom:5px;">5. Gestión Administrativa y Kioscos</h3>
+<div class="modules-grid">
+    <div class="mini-module"><div class="mini-module-title">Directorio de Tiendas</div><div class="mini-module-desc">Configuraciones base (horarios de apertura/cierre) de locaciones.</div></div>
+    <div class="mini-module"><div class="mini-module-title">TV Menús (Digital Signage)</div><div class="mini-module-desc">Control remoto de las pantallas Smart TV Samsung.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Gestión de Usuarios</div><div class="mini-module-desc">Expedientes de acceso del equipo corporativo.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Kiosco de Clientes (QR)</div><div class="mini-module-desc">Portal público para encuestas de satisfacción.</div></div>
+    <div class="mini-module"><div class="mini-module-title">Kiosco de Evaluación</div><div class="mini-module-desc">Portal para encuestar o certificar a personal en turno.</div></div>
+</div>
+
+
+<h2>⏱️ Evolución Cronológica (Dic 2025 - Abr 2026)</h2>
+<div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:30px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
+    <div class="timeline">
+        <div class="update-node">
+            <span class="update-date">Diciembre 2025</span>
+            <div class="update-title">Fundación Base</div>
+            <div class="update-desc">Creación de <strong>Autenticación, Dashboard, Tiendas y Configuración Core</strong>.</div>
+        </div>
+        <div class="update-node">
+            <span class="update-date">Enero 2026</span>
+            <div class="update-title">Operaciones & Dinero</div>
+            <div class="update-desc">Nacimiento de <strong>Horarios, Ventas (Toast API), Planificador v1, Inspecciones, Evaluaciones, Roles y Usuarios</strong>.</div>
+        </div>
+        <div class="update-node">
+            <span class="update-date">Febrero 2026</span>
+            <div class="update-title">Analítica & Autoservicio</div>
+            <div class="update-desc">Lanzamiento de <strong>Inventario/Food Cost, Planificador v2 (IA), Mis Horarios (Self-Schedule), Clientes y Estadísticas</strong>.</div>
+        </div>
+        <div class="update-node">
+            <span class="update-date">Marzo 2026</span>
+            <div class="update-title">Ecosistema Físico</div>
+            <div class="update-desc">Despliegue de <strong>TV Menus, Centro de Control (Admin), Notificaciones (Compliance) y Gestión Operativa</strong>.</div>
+        </div>
+        <div class="update-node">
+            <span class="update-date">Abril 2026</span>
+            <div class="update-title">Inteligencia Artificial Total</div>
+            <div class="update-desc">Reescritura de <strong>Descansos (IA Engine), Reportes Automáticos, Buscador Global y Meat Analysis</strong>.</div>
+        </div>
+    </div>
+</div>
+
+<h2>🎯 Volumen Real de Trabajo (Git)</h2>
+<div class="metrics">
+<div class="metric"><div class="val">83</div><div class="label">Días de Código<br>(Sesiones Únicas documentadas)</div></div>
+<div class="metric"><div class="val">67,936</div><div class="label">Líneas de Código<br>(Sistema Operando en Producción)</div></div>
+<div class="metric"><div class="val">400+</div><div class="label">Despliegues<br>(Commits al Servidor Activo)</div></div>
+</div>
+
+<h2>💳 Análisis de Inversión Tecnológica Mensual</h2>
+<p style="margin-bottom:20px; font-size:1.05rem; color:var(--text);"><strong>El fin de RunHosting:</strong> Migrar a una arquitectura que soporte los módulos del menú obligó a abandonar los servidores viejos compartidos en favor de la nube empresarial (Next.js Edge Networks y PostgreSQL).</p>
+
+<table>
+<tr><th>Plataforma e Infraestructura Base</th><th>Costo Pagado Acumulado (4 Meses)</th></tr>
+<tr><td><strong>Google AI Ultra (30 TB)</strong> — Inteligencia artificial y arquitectura de código.</td><td>$624.96 USD</td></tr>
+<tr><td><strong>Vercel (Plan Pro)</strong> — Servidor frontend y potencia de Cron Jobs.</td><td>~$80.00 USD</td></tr>
+<tr><td><strong>Supabase (Plan Pro)</strong> — Base de Datos PostgreSQL y Realtime.</td><td>~$100.00 USD</td></tr>
+<tr style="background:#f0fdf4;"><td style="text-align:right; font-weight:800; color:var(--green); font-size:1.1rem;">TOTAL INVERTIDO EN SERVIDORES:</td><td style="font-weight:900; color:var(--green); font-size:1.3rem;">~$804.96 USD</td></tr>
+</table>
+
+<div class="footer">
+<p>Documento forense generado con metadatos de las rutas reales del control de versiones (Git).</p>
+<p style="margin-top:10px; font-family: monospace; font-size: 0.8rem; background: #e2e8f0; padding: 6px 12px; border-radius: 6px; display: inline-block;">> git log --all --pretty=format:"%ad : %s" --date=short</p>
+</div>
+
+</div>
+</body>
+</html>

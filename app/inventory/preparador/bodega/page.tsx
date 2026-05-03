@@ -483,14 +483,14 @@ export default function BodegaPWA() {
                 
                 <div className="z-10 bg-slate-800/80 p-10 rounded-3xl border border-slate-700 max-w-xl w-full text-center shadow-2xl backdrop-blur-sm">
                     <AlertOctagon className="w-24 h-24 text-red-500 mx-auto mb-6 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]" />
-                    <h1 className="text-4xl font-black tracking-tighter mb-4 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400">TABLETA BODEGA</h1>
-                    <p className="text-slate-400 font-medium mb-12 text-lg">Debes inicializar el sistema físicamente para que el navegador permita reproducir la alarma sonora cuando entre un pedido.</p>
+                    <h1 className="text-4xl font-black tracking-tighter mb-4 text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400">WAREHOUSE TABLET</h1>
+                    <p className="text-slate-400 font-medium mb-12 text-lg">You must physically initialize the system so the browser allows the alarm to play when an order comes in.</p>
                     
                     <button 
                         onClick={startSystem}
                         className="w-full py-6 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-2xl font-black text-white shadow-[0_10px_40px_rgba(220,38,38,0.4)] transition-all active:scale-95 flex items-center justify-center gap-3"
                     >
-                        <Play fill="currentColor" /> INICIAR SISTEMA
+                        <Play fill="currentColor" /> START SYSTEM
                     </button>
                     
                     {/* Elemento oculto para precargar el audio de la alarma */}
@@ -535,7 +535,7 @@ export default function BodegaPWA() {
                     <button 
                         onClick={toggleFullscreen}
                         className={`p-3 rounded-full transition-colors ${isFullscreen ? 'bg-white/20 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                        title="Modo Tableta (Pantalla Completa)"
+                        title="Tablet Mode (Fullscreen)"
                     >
                         {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
                     </button>
@@ -564,21 +564,21 @@ export default function BodegaPWA() {
                                 <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500" />
                                 <div>
                                     <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-wider flex items-center gap-3">
-                                        Ritmo de Cocción
+                                        Cooking Pace
                                         {intelligenceAcelerador !== 1.0 && (
                                             <span className={`text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
-                                                Ritmo {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
+                                                Pace {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
                                             </span>
                                         )}
                                     </h2>
-                                    <p className="text-slate-400 font-medium md:text-lg">Proyección Viva de Hoy (Bodega)</p>
+                                    <p className="text-slate-400 font-medium md:text-lg">Live Projection for Today (Warehouse)</p>
                                 </div>
                             </div>
 
                             {fetchingMeat ? (
                                 <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4">
                                     <Loader2 className="w-12 h-12 animate-spin text-blue-500" />
-                                    <p className="font-bold text-lg">Calculando proyecciones...</p>
+                                    <p className="font-bold text-lg">Calculating projections...</p>
                                 </div>
                             ) : (
                                 <div 
@@ -637,7 +637,7 @@ export default function BodegaPWA() {
                                                             {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
                                                             <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
                                                                 <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
-                                                                    {isRealCurrent && isTop ? 'AHORA' : (!isTop && activeIndex === 0 ? 'SIGUIENTE' : 'PROYECCIÓN')}
+                                                                    {isRealCurrent && isTop ? 'NOW' : (!isTop && activeIndex === 0 ? 'NEXT' : 'PROJECTION')}
                                                                     {isTop && <HelpCircle size={20} className="text-blue-500/50" />}
                                                                 </span>
                                                                 <span className={`text-base md:text-xl font-bold [font-feature-settings:'tnum'] ${isTop ? 'opacity-90' : 'opacity-60'}`}>
@@ -707,8 +707,8 @@ export default function BodegaPWA() {
                         {/* LADO DERECHO: ESTADO SISTEMA (ESPERA) */}
                         <div className="w-full lg:w-1/2 flex flex-col items-center justify-center opacity-30 animate-pulse py-10 lg:py-0 shrink-0 lg:shrink">
                             <CheckCircle2 size={160} className="text-white mb-6 md:mb-10 w-32 h-32 md:w-40 md:h-40 shrink-0" />
-                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">SISTEMA EN ESPERA</h2>
-                            <p className="text-xl md:text-2xl text-white/70 mt-4 md:mt-6 text-center">No hay pedidos pendientes de línea.</p>
+                            <h2 className="text-3xl md:text-5xl font-black text-white tracking-widest text-center">SYSTEM ON STANDBY</h2>
+                            <p className="text-xl md:text-2xl text-white/70 mt-4 md:mt-6 text-center">No pending line orders.</p>
                         </div>
                     </div>
                 ) : (
@@ -722,7 +722,7 @@ export default function BodegaPWA() {
                                 {/* Peticiones (Items) */}
                                 <div className="flex-1 p-8 md:p-14 flex flex-col justify-center text-white">
                                     <h3 className={`${(req as any).is_sys ? 'text-orange-200' : 'text-red-200'} font-bold tracking-widest uppercase text-sm md:text-xl mb-6`}>
-                                        {(req as any).is_sys ? 'CUOTA ALCANZADA (PROYECCIÓN):' : 'FALTA EN LÍNEA:'}
+                                        {(req as any).is_sys ? 'QUOTA REACHED (PROJECTION):' : 'MISSING ON LINE:'}
                                     </h3>
                                     <div className="flex flex-wrap gap-4 md:gap-6">
                                         {req.items.map((item: string, i: number) => (
@@ -732,7 +732,7 @@ export default function BodegaPWA() {
                                         ))}
                                     </div>
                                     <p className={`mt-8 ${(req as any).is_sys ? 'text-orange-200/60' : 'text-red-200/60'} font-medium text-lg flex items-center gap-2`}>
-                                        <Clock size={20} /> {(req as any).is_sys ? 'Alerta ' : 'Pedido '} {new Date(req.created_at).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
+                                        <Clock size={20} /> {(req as any).is_sys ? 'Alert ' : 'Order '} {new Date(req.created_at).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'})}
                                     </p>
                                 </div>
 
@@ -749,7 +749,7 @@ export default function BodegaPWA() {
                                         className="w-full h-full min-h-[150px] md:min-h-full rounded-3xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 border-4 border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.5)] flex flex-col items-center justify-center gap-4 text-white hover:scale-[1.02] transition-transform active:scale-95"
                                     >
                                         <CheckCircle2 size={80} strokeWidth={3} />
-                                        <span className="font-black text-4xl uppercase tracking-tighter">ENTREGADO</span>
+                                        <span className="font-black text-4xl uppercase tracking-tighter">DELIVERED</span>
                                     </button>
                                 </div>
                             </div>
@@ -788,25 +788,25 @@ export default function BodegaPWA() {
                             </button>
                             
                             <h2 className="text-3xl md:text-5xl font-black text-white mb-2 tracking-tight">
-                                Proyecciones de Bodega
+                                Warehouse Projections
                             </h2>
                             <p className="text-slate-400 mb-6 md:mb-8 border-b border-slate-800 pb-4 md:pb-6 text-lg md:text-2xl shrink-0">
-                                Cómo el sistema de Inteligencia Artificial calcula estas cantidades históricas para tu tienda:
+                                How the AI system calculates these historical quantities for your store:
                             </p>
                             
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8 text-slate-300 overflow-y-auto shrink pb-2 pr-2">
                                 <div className="bg-slate-800/40 p-6 md:p-8 rounded-3xl border border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
-                                        <span className="text-3xl">☕</span> Bebidas Lentas
+                                        <span className="text-3xl">☕</span> Slow Beverages
                                     </h3>
                                     <p className="mb-6 text-slate-400 font-medium leading-relaxed text-lg md:text-xl">
-                                        El sistema <b className="text-white">monitorea en tiempo real</b> las proyecciones y se adelanta al futuro según el tiempo de preparación de cada bebida. Al alcanzar una cuota, dispara una alerta de producción con suficiente anticipación.
+                                        The system <b className="text-white">monitors in real time</b> the projections and looks ahead based on the preparation time of each beverage. When a quota is reached, it fires a production alert with enough lead time.
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b className="text-orange-400">Champurrado (6 horas):</b> La IA suma toda la demanda de las próximas 6 horas de vida del producto. Si requiere 2.2 Galones, pide <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">3 GALONES ENTEROS</b> garantizando abasto sin cocinar decimales imposibles.</span>
+                                            <span><b className="text-orange-400">Champurrado (6 hours):</b> The AI sums all demand for the next 6 hours of the product's shelf life. If it requires 2.2 Gallons, it requests <b className="text-white bg-orange-700/50 px-2 py-0.5 rounded">3 WHOLE GALLONS</b> ensuring supply without cooking impossible decimals.</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -814,23 +814,23 @@ export default function BodegaPWA() {
                                 <div className="bg-slate-800/40 p-6 md:p-8 rounded-3xl border border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
-                                        <span className="text-3xl">🥩</span> Alimentos Lentos
+                                        <span className="text-3xl">🥩</span> Slow-Cook Items
                                     </h3>
                                     <p className="mb-6 text-slate-400 font-medium text-lg md:text-xl">
-                                        Para Carnes y Acompañamientos (Frijol/Arroz/Guaca), los números representan la demanda proyectada.
+                                        For Meats and Sides (Beans/Rice/Guac), the numbers represent the projected demand.
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b>Aguacate (Guacamole):</b> Se calcula la demanda total en onzas, se convierte a libras y se divide <b className="text-white">entre 2</b> para indicarte directamente el número de <b>Bolsas de 2lb</b>.</span>
+                                            <span><b>Avocado (Guacamole):</b> Total demand is calculated in ounces, converted to pounds and divided <b className="text-white">by 2</b> to directly indicate the number of <b>2lb Bags</b>.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b>Frijol y Arroz:</b> Se incluye tanto lo servido en platillos como lo vendido extra en Sides (Libras directas).</span>
+                                            <span><b>Beans and Rice:</b> Includes both what is served in dishes and what is sold as extra Sides (direct Pounds).</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b>Carnes:</b> Aplica la merma estándar de Tacos Gavilan hacia atrás para darte Libras Crudas que sacarás de congelador.</span>
+                                            <span><b>Meats:</b> Applies the standard Tacos Gavilan cooking shrinkage in reverse to give you Raw Pounds to pull from the freezer.</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -838,23 +838,23 @@ export default function BodegaPWA() {
                                 <div className="bg-slate-800/40 p-5 md:p-6 rounded-3xl border border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-xl md:text-2xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
-                                        <span className="text-2xl">📅</span> Promedio Histórico
+                                        <span className="text-2xl">📅</span> Historical Average
                                     </h3>
                                     <p className="mb-5 text-slate-400 font-medium">
-                                        ¿De dónde saca la IA estos números que me pide descongelar o hervir?
+                                        Where does the AI get these numbers it asks me to thaw or boil?
                                     </p>
                                     <ul className="list-inside space-y-4 font-medium">
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-400 mt-1">✔</span> 
-                                            <span>El sistema lee automáticamente todas las ventas de los últimos <b>años</b> de tu tienda.</span>
+                                            <span>The system automatically reads all sales from the last <b>years</b> of your store.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-400 mt-1">✔</span> 
-                                            <span>Filtra específicamente <b>este bloque de 30 minutos</b> para reaccionar a tu hora pico (Rush) de la manera más exacta posible en tiempo real sin obligarte a adivinar.</span>
+                                            <span>It specifically filters <b>this 30-minute block</b> to react to your peak hour (Rush) as precisely as possible in real time without forcing you to guess.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-500 mt-1">✔</span> 
-                                            <span><b>Cabeza/Lengua:</b> Se muestra exactamente lo que la línea física de Preparadores va a demandar en la siguiente media hora para que la Bodega vaya descogelando a ritmo exacto.</span>
+                                            <span><b>Cabeza/Lengua:</b> Shows exactly what the physical Prep line will demand in the next half hour so the Warehouse can thaw at the exact pace.</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -862,23 +862,23 @@ export default function BodegaPWA() {
                                 <div className="xl:col-span-2 bg-slate-800/40 p-6 md:p-8 rounded-3xl border border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-white uppercase mb-4 flex items-center gap-3">
-                                        ⏱️ RITMO EN VIVO (IA INTRADAY)
+                                        ⏱️ LIVE PACE (INTRADAY AI)
                                     </h3>
                                     <p className="mb-6 font-medium text-lg md:text-2xl text-slate-400">
-                                        ¿Cómo te protege el algoritmo de un desabasto sorpresivo hoy?
+                                        How does the algorithm protect you from a surprise shortage today?
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed text-slate-300">
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-500 mt-1">⚡</span> 
-                                            <span><b>Detección de Picos:</b> Cada 30 minutos, la IA se conecta directamente a Toast para sumar todo el dinero en efectivo y tarjetas que ha entrado a tu caja registradora <b>HOY</b> desde que abriste.</span>
+                                            <span><b>Peak Detection:</b> Every 30 minutes, the AI connects directly to Toast to sum all cash and card money that has entered your register <b>TODAY</b> since you opened.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-500 mt-1">⚡</span> 
-                                            <span><b>El Acelerador:</b> Si la IA detecta que hoy ha entrado un 20% más dinero de lo que "debería" haber entrado a esta hora, concluye que la tienda está sufriendo un pico (por ejemplo, un evento local) y genera un <b>Acelerador (+20%)</b>.</span>
+                                            <span><b>The Accelerator:</b> If the AI detects that 20% more money has come in today than "should have" entered by this hour, it concludes the store is experiencing a peak (for example, a local event) and generates an <b>Accelerator (+20%)</b>.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-500 mt-1">⚡</span> 
-                                            <span><b>Ajuste Automático:</b> Todas las proyecciones de esta pantalla (Café, Guacamole, Arroz) sufrirán este aumento automático asegurando que la Bodega mande el abasto adicional antes de que falte enfrente.</span>
+                                            <span><b>Auto Adjustment:</b> All projections on this screen (Coffee, Guacamole, Rice) will receive this automatic increase, ensuring the Warehouse sends additional supply before it runs out up front.</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -889,7 +889,7 @@ export default function BodegaPWA() {
                                     onClick={() => setShowInfoModal(false)}
                                     className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-2xl tracking-widest py-5 md:py-6 rounded-2xl transition-all shadow-xl shadow-blue-500/30"
                                 >
-                                    ¡Comprendido!
+                                    Understood!
                                 </button>
                             </div>
                         </motion.div>

@@ -109,7 +109,7 @@ function UsuariosPage() {
 
         if (!result.success) {
           console.error('❌ Error en actualización:', result.error)
-          throw new Error(result.error || 'Error actualizando usuario')
+          throw new Error(result.error || 'Error updating user')
         }
 
         if (!result.data || result.data.length === 0) {
@@ -129,7 +129,7 @@ function UsuariosPage() {
 
           if (plainError) {
             console.error('Error actualizando password simple:', plainError)
-            alert('Advertencia: No se pudo guardar la contraseña para el login: ' + plainError.message)
+            alert('Warning: Could not save login password: ' + plainError.message)
           }
 
           // 2. Intentar sincronizar con Supabase Auth (Opcional)
@@ -178,7 +178,7 @@ function UsuariosPage() {
 
         if (!result.success) {
           console.error('❌ Error API crear usuario:', result.error)
-          throw new Error(result.error || 'Error al crear usuario')
+          throw new Error(result.error || 'Error creating user')
         }
 
         console.log('✅ Usuario creado exitosamente:', result.data)
@@ -288,14 +288,14 @@ function UsuariosPage() {
                 <button
                   onClick={() => setViewMode('grid')}
                   className={`p-1.5 rounded-full transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-slate-700 shadow-sm text-gray-900 dark:text-white ring-1 ring-black/5 dark:ring-white/10' : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'}`}
-                  title="Vista Cuadrícula"
+                  title="Grid View"
                 >
                   <LayoutGrid size={16} />
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
                   className={`p-1.5 rounded-full transition-all ${viewMode === 'list' ? 'bg-white dark:bg-slate-700 shadow-sm text-gray-900 dark:text-white ring-1 ring-black/5 dark:ring-white/10' : 'text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'}`}
-                  title="Vista Lista"
+                  title="List View"
                 >
                   <List size={16} />
                 </button>
@@ -352,7 +352,7 @@ function UsuariosPage() {
           ) : (
             <>
               {viewMode === 'list' ? (
-                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all">
+                <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-x-auto animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-50/50 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
                       <tr>

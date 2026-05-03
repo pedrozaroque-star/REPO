@@ -4,14 +4,16 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import NotificationBell from './NotificationBell'
 import ThemeToggle from './ThemeToggle'
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAuth } from './ProtectedRoute'
 import { getSupabaseClient } from '@/lib/supabase'
 import {
     LogOut, ChevronDown, ChevronRight, ChevronLeft, User, QrCode, ClipboardList,
     Briefcase, CheckSquare, Clock, LayoutDashboard, Store, Users, FileEdit,
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
-    Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft
+    Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
+    Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
+    CalendarDays, Sparkles, Info, UserCircle
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -86,6 +88,19 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         operaciones: true, gestion: true, analisis: true,
         inventario: true, kioskos: true, equipo: true, food_cost: true,
     })
+    const [userDropdownOpen, setUserDropdownOpen] = useState(false)
+    const dropdownRef = useRef<HTMLDivElement>(null)
+
+    // Close dropdown on click outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setUserDropdownOpen(false)
+            }
+        }
+        if (userDropdownOpen) document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [userDropdownOpen])
 
     // Menu groups (same as TopNav)
     const menuGroups: MenuGroup[] = [
@@ -103,7 +118,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             title: t('sections.management'), id: 'gestion',
             items: [
                 { name: t('items.stores'), plainName: 'Tiendas', path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
-                { name: 'TV Menús', plainName: 'TV Menús', path: '/admin/tv-menus', icon: <Monitor size={20} />, roles: ['admin', 'supervisor'] },
+                { name: t('items.tv_menus'), plainName: 'TV Menús', path: '/admin/tv-menus', icon: <Monitor size={20} />, roles: ['admin', 'supervisor'] },
                 { name: t('items.users'), plainName: 'Usuarios', path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
                 { name: t('items.templates'), plainName: 'Plantillas', path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
             ]
@@ -112,7 +127,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
             title: t('sections.analysis'), id: 'analisis',
             items: [
                 { name: t('items.sales'), plainName: 'Ventas', path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: 'Descuentos', plainName: 'Descuentos', path: '/admin/auditoria-descuentos', icon: <ClipboardList size={20} />, roles: ['admin', 'supervisor', 'manager'] },
+                { name: t('items.discounts'), plainName: 'Descuentos', path: '/admin/auditoria-descuentos', icon: <ClipboardList size={20} />, roles: ['admin', 'supervisor', 'manager'] },
                 {
                     name: t('items.reports'), plainName: 'Reportes',
                     path: '/ventas/reportes',
@@ -128,7 +143,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     roles: ['manager', 'supervisor', 'admin']
                 },
                 { name: t('items.planner'), plainName: 'Planificador', path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: 'Descansos AI', plainName: 'Descansos', path: '/descansos', icon: <Zap size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.breaks_ai'), plainName: 'Descansos', path: '/descansos', icon: <Zap size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.feedback'), plainName: 'Feedback', path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
             ]
         },
@@ -139,7 +154,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.ingredients'), plainName: 'Insumos', path: '/inventory/items', icon: <Store size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.menu_catalog'), plainName: 'Catálogo', path: '/inventory/menu', icon: <ClipboardList size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.food_costs'), plainName: 'Costos', path: '/inventory/costs', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
-                { name: 'Preparador', plainName: 'Preparador', path: '/inventory/preparador', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
+                { name: t('items.prep'), plainName: 'Preparador', path: '/inventory/preparador', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
             ]
         },
         {
@@ -162,7 +177,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         {
             title: t('sections.team'), id: 'equipo',
             items: [
-                { name: 'ROLES', plainName: 'Roles', path: '/roles', icon: <Users size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
+                { name: t('items.roles'), plainName: 'Roles', path: '/roles', icon: <Users size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
                 { name: t('items.my_schedule'), plainName: 'Mi Horario', path: '/mis-horarios', icon: <CalendarCheck size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
                 { name: t('items.self_scheduling'), plainName: 'Auto-Schedule', path: '/gestion/auto-schedule', icon: <UserCog size={20} />, roles: ['supervisor', 'admin'] },
             ]
@@ -280,7 +295,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
 
     // Shared nav content
     const renderNavContent = (isMobile: boolean = false) => (
-        <nav className="flex-1 overflow-y-auto overflow-x-visible px-3 py-3 space-y-1 no-scrollbar">
+        <nav className={`flex-1 px-3 py-3 space-y-1 no-scrollbar ${isCollapsed ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden'}`}>
             {filteredGroups.map((group) => {
                 const isOpen = expandedGroups[group.id] ?? true
                 return (
@@ -340,59 +355,208 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                         )}
                     </Link>
                 </div>
-
-                {/* Navigation */}
-                {renderNavContent(false)}
-
-                {/* User Section */}
-                <div className="flex-shrink-0 border-t border-slate-100 dark:border-slate-800/80 p-3 space-y-2">
-                    {/* User info */}
-                    <div className={`flex items-center gap-2.5 px-1 ${isCollapsed ? 'justify-center' : ''}`}>
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-xs font-bold shadow-sm ring-2 ring-white dark:ring-slate-950">
-                            {user?.name?.[0] || <User size={14} />}
-                        </div>
-                        {!isCollapsed && (
-                            <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{user?.name?.split(' ')[0] || 'Usuario'}</p>
-                                <p className="text-[10px] text-slate-400 dark:text-slate-500 capitalize truncate">{user?.role || 'Staff'}</p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className={`flex items-center ${isCollapsed ? 'flex-col gap-1' : 'justify-between'}`}>
-                        <div className={`flex items-center ${isCollapsed ? 'flex-col gap-0.5' : 'gap-0.5'}`}>
-                            <button
-                                onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
-                                className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-[10px] font-black flex items-center gap-0.5"
-                            >
-                                <span className={language === 'en' ? 'text-red-600' : 'text-slate-400'}>EN</span>
-                                <span className="text-slate-300 dark:text-slate-700">/</span>
-                                <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
-                            </button>
-                            <ThemeToggle />
-                            <NotificationBell />
-                        </div>
-                        {!isCollapsed && (
-                            <button
-                                onClick={handleLogout}
-                                className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-500 transition-colors"
-                                title={t('nav.logout')}
-                            >
-                                <LogOut size={16} />
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Collapse toggle */}
+                
+                {/* Sidebar Collapse Button (Moved to top) */}
+                <div className="flex-shrink-0 border-b border-slate-100 dark:border-slate-800/80 p-2">
                     <button
                         onClick={() => setIsCollapsed(!isCollapsed)}
                         className="w-full flex items-center justify-center gap-2 py-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs"
                     >
-                        {isCollapsed ? <PanelLeft size={16} /> : <><PanelLeftClose size={16} /><span className="font-medium">Colapsar</span></>}
+                        {isCollapsed ? <PanelLeft size={16} /> : <><PanelLeftClose size={16} /><span className="font-medium">{language === 'es' ? 'Colapsar' : 'Collapse'}</span></>}
                     </button>
                 </div>
+
+                {/* Navigation */}
+                {renderNavContent(false)}
+
             </aside>
+
+            {/* ============ DESKTOP TOP-RIGHT TOOLBAR ============ */}
+            <div className={`hidden lg:flex fixed top-3 right-4 z-50 items-center gap-1.5 rounded-2xl px-2.5 py-1.5 bg-white/70 dark:bg-slate-900/70 backdrop-blur-lg border border-slate-200/50 dark:border-slate-800/50 shadow-sm transition-all`}>
+                <button
+                    onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-[10px] font-black flex items-center gap-0.5"
+                >
+                    <span className={language === 'en' ? 'text-red-600' : 'text-slate-400'}>EN</span>
+                    <span className="text-slate-300 dark:text-slate-700">/</span>
+                    <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
+                </button>
+                <ThemeToggle />
+                <NotificationBell />
+
+                {/* Separator */}
+                <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+
+                {/* User Avatar + Dropdown */}
+                <div ref={dropdownRef} className="relative">
+                    <button
+                        onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                        className="flex items-center gap-2 rounded-xl p-1 pr-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                    >
+                        <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm ring-2 ring-white dark:ring-slate-900">
+                            {user?.name?.[0] || <User size={12} />}
+                        </div>
+                        <div className="hidden sm:block text-left">
+                            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 leading-tight">{user?.name?.split(' ')[0] || 'Usuario'}</p>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 capitalize leading-tight">{user?.role || 'Staff'}</p>
+                        </div>
+                        <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${userDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    <AnimatePresence>
+                        {userDropdownOpen && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                                transition={{ duration: 0.15 }}
+                                className="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-1.5 shadow-2xl ring-1 ring-black/5 z-[100]"
+                            >
+                                {/* ── Profile Header ── */}
+                                <div className="px-3 py-2.5 mb-1">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-sm font-bold shadow-md ring-2 ring-white dark:ring-slate-950">
+                                            {user?.name?.[0] || <User size={16} />}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{user?.name || 'Usuario'}</p>
+                                            <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">{user?.email || ''}</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-2 flex items-center gap-1.5">
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30">
+                                            <Shield size={10} />
+                                            {user?.role || 'Staff'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                                {/* ── Quick Links ── */}
+                                <div className="py-1">
+                                    <Link
+                                        href="/configuracion"
+                                        onClick={() => setUserDropdownOpen(false)}
+                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                                    >
+                                        <Settings size={15} className="text-slate-500" />
+                                        {language === 'es' ? 'Configuración' : 'Settings'}
+                                    </Link>
+                                    <Link
+                                        href="/feedback"
+                                        onClick={() => setUserDropdownOpen(false)}
+                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                                    >
+                                        <MessageSquare size={15} className="text-emerald-500" />
+                                        Feedback
+                                    </Link>
+                                    <Link
+                                        href="/dashboard"
+                                        onClick={() => setUserDropdownOpen(false)}
+                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                                    >
+                                        <LayoutDashboard size={15} className="text-blue-500" />
+                                        Dashboard
+                                    </Link>
+                                </div>
+
+                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                                {/* ── Appearance ── */}
+                                <div className="py-1">
+                                    <div className="px-3 py-1.5">
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">{language === 'es' ? 'Apariencia' : 'Appearance'}</p>
+                                    </div>
+                                    {/* Theme inline toggle */}
+                                    <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
+                                        <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                                            <Moon size={15} className="text-indigo-500" />
+                                            <span>{language === 'es' ? 'Modo Oscuro' : 'Dark Mode'}</span>
+                                        </div>
+                                        <ThemeToggle />
+                                    </div>
+                                    {/* Language inline toggle */}
+                                    <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
+                                        <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                                            <Globe size={15} className="text-green-500" />
+                                            <span>{language === 'es' ? 'Idioma' : 'Language'}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+                                            className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-[10px] font-black flex items-center gap-1"
+                                        >
+                                            <span className={language === 'en' ? 'text-red-600' : 'text-slate-400'}>EN</span>
+                                            <span className="text-slate-300 dark:text-slate-600">/</span>
+                                            <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                                {/* ── Utilities ── */}
+                                <div className="py-1">
+                                    <button
+                                        onClick={() => { window.location.reload(); setUserDropdownOpen(false) }}
+                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                                    >
+                                        <RefreshCw size={15} className="text-blue-500" />
+                                        {t('nav.update')}
+                                    </button>
+                                    <button
+                                        onClick={() => setUserDropdownOpen(false)}
+                                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <Keyboard size={15} className="text-slate-400" />
+                                            <span>{language === 'es' ? 'Atajos' : 'Shortcuts'}</span>
+                                        </div>
+                                        <kbd className="text-[9px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded">Ctrl+K</kbd>
+                                    </button>
+                                    <a
+                                        href="https://tacosgavilan.com"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <HelpCircle size={15} className="text-amber-500" />
+                                            <span>{language === 'es' ? 'Ayuda' : 'Help'}</span>
+                                        </div>
+                                        <ExternalLink size={12} className="text-slate-300 dark:text-slate-600" />
+                                    </a>
+                                </div>
+
+                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                                {/* ── App Info ── */}
+                                <div className="px-3 py-1.5 flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 text-[10px] text-slate-300 dark:text-slate-600">
+                                        <Sparkles size={10} />
+                                        <span>SM TEG v6.0</span>
+                                    </div>
+                                    <span className="text-[9px] text-slate-300 dark:text-slate-700">2026</span>
+                                </div>
+
+                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                                {/* ── Logout ── */}
+                                <div className="py-1">
+                                    <button
+                                        onClick={() => { handleLogout(); setUserDropdownOpen(false) }}
+                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors font-medium"
+                                    >
+                                        <LogOut size={15} />
+                                        {t('nav.logout')}
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            </div>
 
             {/* ============ MOBILE TOP BAR ============ */}
             <header className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-4">

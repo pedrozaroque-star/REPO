@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic'
 // Carga dinámica del mapa (Leaflet no funciona en SSR)
 const MapPicker = dynamic(() => import('@/components/StoreMapPicker'), {
   ssr: false,
-  loading: () => <div className="h-[300px] w-full bg-slate-100 dark:bg-slate-800 animate-pulse rounded-xl flex items-center justify-center text-xs text-slate-400">Cargando Mapa...</div>
+  loading: () => <div className="h-[300px] w-full bg-slate-100 dark:bg-slate-800 animate-pulse rounded-xl flex items-center justify-center text-xs text-slate-400">Loading Map...</div>
 })
 
 // Helper to format time values for <input type="time">
@@ -46,7 +46,7 @@ export default function TiendasPage() {
   const [syncing, setSyncing] = useState(false)
 
   const handleSync = async () => {
-    if (!confirm('Esto actualizará direcciones y teléfonos desde Toast. ¿Continuar?')) return
+    if (!confirm('This will update addresses and phones from Toast. Continue?')) return
     setSyncing(true)
     try {
       const token = localStorage.getItem('teg_token')
@@ -58,13 +58,13 @@ export default function TiendasPage() {
       })
       const data = await res.json()
       if (data.success) {
-        alert(`Sincronización Exitosa:\n- Creadas: ${data.created}\n- Actualizadas: ${data.updated}\n- Errores: ${data.errors}`)
+        alert(`Sync Successful:\n- Created: ${data.created}\n- Updated: ${data.updated}\n- Errors: ${data.errors}`)
         fetchData()
       } else {
-        alert('Error: ' + (data.error || 'Desconocido'))
+        alert('Error: ' + (data.error || 'Unknown'))
       }
     } catch (e: any) {
-      alert('Error de conexión: ' + e.message)
+      alert('Connection error: ' + e.message)
     } finally {
       setSyncing(false)
     }
@@ -192,7 +192,7 @@ export default function TiendasPage() {
       fetchData()
     } catch (err) {
       console.error('Error al guardar:', err)
-      alert('Error al guardar la sucursal')
+      alert('Error saving location')
     } finally {
       setSaving(false)
     }
@@ -230,7 +230,7 @@ export default function TiendasPage() {
               className="hidden md:flex items-center gap-2 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-4 py-2.5 text-sm font-bold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all disabled:opacity-50 shadow-sm"
             >
               <RefreshCw size={18} className={syncing ? 'animate-spin' : ''} />
-              {syncing ? 'Sincronizando...' : 'Sync Toast'}
+              {syncing ? 'Syncing...' : 'Sync Toast'}
             </button>
 
             <button
@@ -392,7 +392,7 @@ export default function TiendasPage() {
                         value={editingStore.name}
                         onChange={e => setEditingStore({ ...editingStore, name: e.target.value })}
                         required
-                        placeholder="Ej: Reforma"
+                        placeholder="e.g.: Reforma"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -402,7 +402,7 @@ export default function TiendasPage() {
                         value={editingStore.code}
                         onChange={e => setEditingStore({ ...editingStore, code: e.target.value })}
                         required
-                        placeholder="Ej: S001"
+                        placeholder="e.g.: S001"
                       />
                     </div>
                     <div className="space-y-1.5 md:col-span-2">
@@ -412,7 +412,7 @@ export default function TiendasPage() {
                         value={editingStore.address}
                         onChange={e => setEditingStore({ ...editingStore, address: e.target.value })}
                         rows={2}
-                        placeholder="Calle, Número, Colonia..."
+                        placeholder="Street, Number, Suite..."
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -421,7 +421,7 @@ export default function TiendasPage() {
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.city}
                         onChange={e => setEditingStore({ ...editingStore, city: e.target.value })}
-                        placeholder="Ej: CDMX"
+                        placeholder="e.g.: Los Angeles"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -430,7 +430,7 @@ export default function TiendasPage() {
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.state}
                         onChange={e => setEditingStore({ ...editingStore, state: e.target.value })}
-                        placeholder="Ej: CDMX"
+                        placeholder="e.g.: CA"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -448,7 +448,7 @@ export default function TiendasPage() {
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.supervisor_name}
                         onChange={e => setEditingStore({ ...editingStore, supervisor_name: e.target.value })}
-                        placeholder="Nombre del supervisor"
+                        placeholder="Supervisor name"
                       />
                     </div>
                   </div>
@@ -457,10 +457,10 @@ export default function TiendasPage() {
                   <div className="mt-8 space-y-3">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">
-                        Ubicación Exacta (Mapa Interactive)
+                        Exact Location (Interactive Map)
                       </label>
                       <span className="text-[10px] text-orange-500 font-bold bg-orange-50 dark:bg-orange-900/20 px-2 py-0.5 rounded-full">
-                        {editingStore.latitude ? '📍 Coordenadas OK' : '⚠️ Sin ubicación'}
+                        {editingStore.latitude ? '📍 Coordinates OK' : '⚠️ No location'}
                       </span>
                     </div>
 
@@ -471,13 +471,13 @@ export default function TiendasPage() {
                       onChange={(lat, lng) => setEditingStore((prev: any) => ({ ...prev, latitude: lat, longitude: lng }))}
                     />
                     <p className="text-[10px] text-gray-400 text-center">
-                      Arrastra el marcador rojo para afinar la ubicación exacta de la tienda.
+                      Drag the red marker to fine-tune the exact store location.
                     </p>
                   </div>
 
                   <div className="border-t border-gray-100 dark:border-slate-800 my-8"></div>
 
-                  <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest mb-4">Configuración de Horarios</h3>
+                  <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest mb-4">Schedule Configuration</h3>
 
                   <div className="grid grid-cols-1 gap-5">
 
@@ -486,7 +486,7 @@ export default function TiendasPage() {
                     <div className="grid grid-cols-2 gap-5">
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest ml-1">
-                          ⏱️ Apertura (Público)
+                          ⏱️ Opening (Public)
                         </label>
                         <input
                           type="time"
@@ -494,11 +494,11 @@ export default function TiendasPage() {
                           value={formatTimeForInput(editingStore.opening_time)}
                           onChange={e => setEditingStore({ ...editingStore, opening_time: e.target.value })}
                         />
-                        <p className="text-[9px] text-gray-400 pl-1">Las ventas antes de esta hora serán 0.</p>
+                        <p className="text-[9px] text-gray-400 pl-1">Sales before this time will be 0.</p>
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest ml-1">
-                          ⏱️ Cierre (Público)
+                          ⏱️ Closing (Public)
                         </label>
                         <input
                           type="time"
@@ -506,7 +506,7 @@ export default function TiendasPage() {
                           value={formatTimeForInput(editingStore.closing_time)}
                           onChange={e => setEditingStore({ ...editingStore, closing_time: e.target.value })}
                         />
-                        <p className="text-[9px] text-gray-400 pl-1">Última hora de venta proyectada.</p>
+                        <p className="text-[9px] text-gray-400 pl-1">Last projected sales hour.</p>
                       </div>
                     </div>
                   </div>
@@ -514,12 +514,12 @@ export default function TiendasPage() {
                   {/* HORARIO SEMANAL DETALLADO */}
                   <div className="mt-4 bg-gray-50 dark:bg-slate-800/50 rounded-2xl p-4 border border-gray-100 dark:border-slate-800">
                     <div className="flex justify-between items-center mb-4">
-                      <h4 className="text-xs font-black text-gray-700 dark:text-gray-300 uppercase tracking-widest">Horario Semanal Detallado</h4>
-                      <p className="text-[10px] text-gray-400">Define apertura y cierre por día</p>
+                      <h4 className="text-xs font-black text-gray-700 dark:text-gray-300 uppercase tracking-widest">Detailed Weekly Schedule</h4>
+                      <p className="text-[10px] text-gray-400">Define opening and closing by day</p>
                     </div>
 
                     <div className="space-y-2">
-                      {['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map((dayName, index) => {
+                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((dayName, index) => {
                         let jsDay = index + 1
                         if (index === 6) jsDay = 0 // Domingo = 0
 

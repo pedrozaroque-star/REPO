@@ -91,7 +91,7 @@ function EditManagerChecklistContent() {
       setLoading(false)
     } catch (err) {
       console.error('Error loading checklist:', err)
-      setErrorMessage('Error al cargar el checklist')
+      setErrorMessage('Error loading checklist')
       setLoading(false)
     }
   }

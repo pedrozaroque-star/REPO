@@ -103,7 +103,7 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
       if (nextItem) setSelectedId(nextItem.id)
       else onClose()
     } catch (err) {
-      alert('Error al guardar')
+      alert('Error saving')
       setSaving(false)
     }
   }
@@ -336,9 +336,9 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
                             onChange={(e) => setReviewStatus(e.target.value)}
                             className="w-full p-2 border border-indigo-200 rounded-lg font-bold text-sm bg-white text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none"
                           >
-                            <option value="pendiente">⏳ Pendiente</option>
-                            <option value="cerrado">✅ Aprobar y Cerrar</option>
-                            <option value="rechazado">❌ Rechazar (Corregir)</option>
+                            <option value="pendiente">⏳ Pending</option>
+                            <option value="cerrado">✅ Approve and Close</option>
+                            <option value="rechazado">❌ Reject (Needs Correction)</option>
                           </select>
                         </div>
 
@@ -347,7 +347,7 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
                           <textarea
                             value={reviewComment}
                             onChange={(e) => setReviewComment(e.target.value)}
-                            placeholder="Escribe un comentario o feedback..."
+                            placeholder="Write a comment or feedback..."
                             className="w-full p-3 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 resize-none h-20"
                           />
                         </div>
@@ -357,7 +357,7 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
                           disabled={saving}
                           className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
                         >
-                          {saving ? 'Guardando...' : '💾 Guardar Revisión'}
+                          {saving ? 'Saving...' : '💾 Save Review'}
                         </button>
                       </div>
                     </div>
@@ -369,7 +369,7 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-300 bg-gray-50/50">
               <span className="text-4xl mb-2">👈</span>
-              <p className="text-lg font-medium">Selecciona una inspección de la lista</p>
+              <p className="text-lg font-medium">Select an inspection from the list</p>
             </div>
           )}
         </div>
@@ -378,7 +378,7 @@ export default function ReviewModal({ isOpen, onClose, checklists, checklistType
         <button
           onClick={onClose}
           className="absolute top-4 right-4 bg-white/90 p-2 rounded-full shadow-lg text-gray-500 hover:text-red-600 hover:bg-white hover:scale-110 transition-all z-50"
-          title="Cerrar (Esc)"
+          title="Close (Esc)"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
         </button>

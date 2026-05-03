@@ -459,7 +459,7 @@ function DashboardContent() {
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900">
                             <h3 className="font-black text-slate-900 dark:text-white text-base flex items-center gap-3"><Store size={22} className="text-blue-600 dark:text-blue-400" /> {t('dashboard.store_ranking')}</h3>
                         </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                        <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-black text-[11px] uppercase tracking-widest sticky top-0 z-10">
                                     <tr><th className="pl-6 py-4">#</th><th className="py-4">{t('dashboard.store')}</th><th className="pr-6 py-4 text-right">{t('dashboard.score')}</th></tr>
@@ -513,7 +513,7 @@ function DashboardContent() {
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
                     feedback={selectedFeedback}
-                    currentUser={user || { id: '', full_name: 'Cargando...', role: '' }}
+                    currentUser={user || { id: '', full_name: 'Loading...', role: '' }}
                     onUpdate={fetchStats}
                 />
             )}

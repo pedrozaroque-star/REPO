@@ -190,12 +190,12 @@ export async function POST(req: Request) {
         // --- 6. SMART BREAKS GENERATION (Fidelity Alignment with Tablet) ---
         const { data: allJobs } = await supabase.from('toast_jobs').select('*')
 
-        // DEEP AUDIT: If the Tablet (Descansos Page) already optimized the schedule, 
-        // we MUST NOT recalculate here. We only fill gaps for shifts that have NO schedule.
-        const needsCalcShifts = shifts.filter(s => !s.breaks_schedule || (Array.isArray(s.breaks_schedule) && s.breaks_schedule.length === 0))
+        // POR PETICIÓN DEL USUARIO: Forzar el recálculo de TODOS los turnos 
+        // usando el motor inteligente al publicar, y guardarlo en la BD.
+        const needsCalcShifts = shifts;
 
         if (needsCalcShifts.length > 0) {
-            console.log(`🤖 [API] Filling break gaps for ${needsCalcShifts.length} shifts. Priority: Tablet Integrity.`)
+            console.log(`🤖 [API] Recalculando breaks para TODOS los ${needsCalcShifts.length} shifts al Publicar.`)
             
             const datesToProcess = [...new Set(needsCalcShifts.map(s => s.shift_date))]
             
@@ -205,7 +205,7 @@ export async function POST(req: Request) {
                     const { data: dayShifts } = await supabase.from('shifts').select('*').eq('store_id', store_id).eq('shift_date', dateStr)
                     if (!dayShifts) continue
 
-                    // Get Forecast (Using existing logic but ONLY if missing)
+                    // Get Forecast
                     const { hours: hoursToDraw } = await generateSmartForecast(store_id, dateStr)
                     
                     // Identify employees for this day context
@@ -245,16 +245,14 @@ export async function POST(req: Request) {
 
                     const augmented = scheduleBreaksWithDemand(shiftsForAi as any, hoursToDraw || [])
                     
-                    // Apply ONLY to the shifts that were missing data in our original list
+                    // Aplicar y Guardar a TODOS los turnos recalculados
                     for (const aug of augmented) {
                         const originalIdx = shifts.findIndex(ls => ls.id === aug.id)
                         if (originalIdx !== -1) {
-                            // If they were already set, DON'T touch them (Tablet wins)
-                            if (!shifts[originalIdx].breaks_schedule || shifts[originalIdx].breaks_schedule.length === 0) {
-                                shifts[originalIdx].breaks_schedule = aug.breaks_schedule
-                                // Persist to DB so Tablet sees the same
-                                await supabase.from('shifts').update({ breaks_schedule: aug.breaks_schedule }).eq('id', aug.id)
-                            }
+                            // Forzamos la actualización en memoria para el email
+                            shifts[originalIdx].breaks_schedule = aug.breaks_schedule
+                            // Forzamos el guardado en la BD para que quede grabado
+                            await supabase.from('shifts').update({ breaks_schedule: aug.breaks_schedule }).eq('id', aug.id)
                         }
                     }
                 } catch (e) {
@@ -262,6 +260,14 @@ export async function POST(req: Request) {
                 }
             }
         }
+        // --- 5.1 ACTIVITIES TEMPLATE FETCH (Tablero Logic) ---
+        const { data: configTemplate } = await supabase
+            .from('station_templates')
+            .select('data')
+            .eq('store_id', store_id)
+            .eq('template_name', '__CONFIG_ACTIVITIES__')
+            .maybeSingle();
+        const activitiesConfig = configTemplate?.data?.station_mappings || {};
 
         // 6. Send Email Notifications (VIA GMAIL API REST - NO SMTP)
         const results = { email: 0, errors: 0 }
@@ -291,19 +297,53 @@ export async function POST(req: Request) {
                     const end = endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
 
                     // BUSCAR POSICION / STATION
-                    const dayStr = startDate.toISOString().split('T')[0]
+                    const dayStr = s.shift_date; // Usar la fecha del shift mapeada correctamente en DB en vez de la conversión UTC
                     const myPosition = (stationAssignments || []).find(a => 
                         a.employee_id === emp.id && 
                         a.assignment_date === dayStr
                     )
 
                     let positionBadge = '';
+                    let tasksHtml = '';
                     if (myPosition) {
+                        const shiftStation = myPosition.sub_position || myPosition.main_station;
                         positionBadge = `
                             <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
-                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Posición:</span> ${myPosition.sub_position || myPosition.main_station}
+                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Posición:</span> ${shiftStation}
                             </div>
                         `;
+
+                        // Replicar la lógica del Tablero (Roles): dailyTasks + specificDayTasks
+                        // IMPORTANTE: La UI usa índice Mon-based (Lun=0, Mar=1...Dom=6)
+                        // JS getDay() usa Sun-based (Dom=0, Lun=1...Sáb=6)
+                        // Debemos convertir para que coincida con lo guardado en station_mappings
+                        const laDateStr = startDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+                        const jsDay = new Date(laDateStr).getDay(); // 0=Sunday, 6=Saturday
+                        const myDayIndex = jsDay === 0 ? 6 : jsDay - 1; // Mon=0, Tue=1...Sun=6 (IGUAL QUE LA UI)
+                        const dailyTasks = activitiesConfig[shiftStation] || [];
+                        const specificDayTasks = activitiesConfig[`${shiftStation}_${myDayIndex}`] || [];
+                        
+                        let finalTasks = [...dailyTasks, ...specificDayTasks];
+                        
+                        // Si no hay mapeo en template, usar el tasks legacy de BD
+                        if (finalTasks.length === 0 && myPosition.tasks && Array.isArray(myPosition.tasks)) {
+                            finalTasks = myPosition.tasks;
+                        }
+
+                        if (finalTasks.length > 0) {
+                            const tasksList = finalTasks.map((taskStr: string) => {
+                                return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 2px;">${taskStr}</li>`
+                            }).join('');
+                            
+                            tasksHtml = `
+                                <div style="margin-top: 8px; text-align: left; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                    <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 800; margin-bottom: 4px;">Actividades Asignadas:</div>
+                                    <ul style="margin: 0; padding-left: 16px; font-weight: 600; font-size: 11px;">
+                                        ${tasksList}
+                                    </ul>
+                                </div>
+                            `;
+                        }
                     }
 
                     let breaksHtml = '';
@@ -333,6 +373,7 @@ export async function POST(req: Request) {
                             <td style="padding: 16px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 16px; font-weight: 600; color: #1f2937;">
                                 <div>${start} - ${end}</div>
                                 ${positionBadge}
+                                ${tasksHtml}
                                 ${breaksHtml}
                             </td>
                         </tr>

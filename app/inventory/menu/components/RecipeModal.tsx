@@ -85,7 +85,7 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
 
         } catch (e) {
             console.error(e)
-            alert('Error cargando datos')
+            alert('Error loading data')
         } finally {
             setLoading(false)
         }
@@ -178,7 +178,7 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
             onClose()
         } catch (e: any) {
             console.error(e)
-            alert(`Error guardando receta: ${e.message}`)
+            alert(`Error saving recipe: ${e.message}`)
         } finally {
             setSaving(false)
         }
@@ -411,7 +411,7 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                                     </div>
                                 ) : ingredients.length === 0 ? (
                                     <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center text-slate-400">
-                                        <p>Agrega ingredientes o empaques buscando arriba ☝️</p>
+                                        <p>Add ingredients or packages by searching above ☝️</p>
                                     </div>
                                 ) : (
                                     <div>
@@ -448,7 +448,7 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                         disabled={saving}
                         className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow font-medium flex items-center gap-2 disabled:opacity-50 text-sm"
                     >
-                        {saving ? 'Guardando...' : <><Save size={16} /> Guardar Receta</>}
+                        {saving ? 'Saving...' : <><Save size={16} /> Save Recipe</>}
                     </button>
                 </div>
             </motion.div>

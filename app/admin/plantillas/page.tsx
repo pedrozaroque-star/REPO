@@ -46,7 +46,7 @@ export default function TemplatesPage() {
             setTemplates(data)
         } catch (error) {
             console.error('Error:', error)
-            alert('Error cargando plantillas')
+            alert('Error loading templates')
         } finally {
             setLoading(false)
         }

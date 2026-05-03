@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useLanguage } from '@/lib/i18n'
 import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
@@ -36,6 +37,7 @@ const DESECHABLES = [
 
 export default function PreparadorLineaPage() {
     const { user, loading: authLoading } = useAuth()
+    const { t } = useLanguage()
     const supabase = createClient()
 
     const [mounted, setMounted] = useState(false)
@@ -416,7 +418,7 @@ export default function PreparadorLineaPage() {
     if (!mounted || authLoading) return <div className="p-8 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
 
     if (!user || !['admin', 'manager', 'supervisor'].includes(user.role?.toLowerCase() || '')) {
-        return <div className="p-8 text-center text-red-500 text-2xl font-bold">🚫 ACCESO DENEGADO</div>
+        return <div className="p-8 text-center text-red-500 text-2xl font-bold">🚫 ACCESS DENIED</div>
     }
 
     return (
@@ -440,10 +442,10 @@ export default function PreparadorLineaPage() {
                         >
                             <BellRing size={120} className="text-red-500 animate-bounce mb-8" />
                             <h2 className="text-4xl md:text-6xl font-black text-white px-4 leading-tight uppercase mb-6 tracking-tighter">
-                                ¡PREPARA EL SIGUIENTE BLOQUE!
+                                PREPARE THE NEXT BLOCK!
                             </h2>
                             <p className="text-red-200 font-medium text-2xl md:text-4xl mb-12 uppercase tracking-wide bg-red-950/50 py-4 px-8 rounded-2xl border border-red-500/30">
-                                SIGUIENTE HORARIO:<br/>
+                                NEXT SCHEDULE:<br/>
                                 <span className="text-white font-black">{nextBlockLabel}</span>
                             </p>
                             <button 
@@ -462,7 +464,7 @@ export default function PreparadorLineaPage() {
                                 className="w-full md:w-[400px] bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-3xl px-10 py-8 rounded-3xl shadow-[0_0_50px_rgba(16,185,129,0.3)] transition-transform active:scale-95 border-b-8 border-emerald-700 flex flex-col items-center justify-center"
                             >
                                 <CheckCircle2 size={40} className="mb-2" />
-                                ENTENDIDO
+                                UNDERSTOOD
                             </button>
                         </motion.div>
                     </motion.div>
@@ -476,8 +478,8 @@ export default function PreparadorLineaPage() {
                         <ChefHat size={24} />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-slate-800 dark:text-white leading-tight">PREPARADOR (LÍNEA)</h1>
-                        <p className="text-xs text-slate-500 font-medium">Control de Ritmo y Abastecimiento</p>
+                        <h1 className="text-xl font-black text-slate-800 dark:text-white leading-tight">PREP LINE</h1>
+                        <p className="text-xs text-slate-500 font-medium">Pace Control & Supply Management</p>
                     </div>
                 </div>
                 
@@ -488,7 +490,7 @@ export default function PreparadorLineaPage() {
                         title="Modo Tableta (Pantalla Completa)"
                     >
                         {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                        <span className="hidden sm:inline">{isFullscreen ? 'SALIR' : 'TABLETA'}</span>
+                        <span className="hidden sm:inline">{isFullscreen ? 'EXIT' : 'TABLET'}</span>
                     </button>
                     
                     {(() => {
@@ -510,7 +512,7 @@ export default function PreparadorLineaPage() {
                     
                     <a href="/inventory/preparador/bodega" target="_blank" className="flex items-center gap-2 bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-slate-900/20">
                         <BellRing size={16} className="animate-pulse" />
-                        <span className="hidden sm:inline">ABRIR BODEGA</span>
+                        <span className="hidden sm:inline">OPEN WAREHOUSE</span>
                     </a>
                 </div>
             </div>
@@ -525,25 +527,25 @@ export default function PreparadorLineaPage() {
                             <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
                             <div>
                                 <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg lg:text-2xl flex items-center gap-2">
-                                    Ritmo de Cocción
+                                    Cooking Pace
                                     {intelligenceAcelerador !== 1.0 && (
                                         <span className={`text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
-                                            Ritmo {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
+                                            Pace {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
                                         </span>
                                     )}
                                 </h2>
-                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">Proyección viva (Promedio x Ritmo de hoy)</p>
+                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">Live Projection (Average x Today's Pace)</p>
                             </div>
                         </div>
                         <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 md:px-6 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm ml-2">
-                            VER DÍA
+                            VIEW DAY
                         </button>
                     </div>
 
                     {fetchingMeat ? (
                         <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-3">
                             <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
-                            <p className="font-bold">Calculando Histórico...</p>
+                            <p className="font-bold">Calculating History...</p>
                         </div>
                     ) : (
                         <div 
@@ -603,7 +605,7 @@ export default function PreparadorLineaPage() {
                                                     {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
                                                             <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
                                                                 <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
-                                                                    {isRealCurrent ? 'AHORA' : (localIndex === 1 && activeIndex === currentBucketIndex ? 'SIGUIENTE' : (activeIndex < currentBucketIndex ? 'PASADO' : 'PROYECCIÓN'))}
+                                                                    {isRealCurrent ? 'NOW' : (localIndex === 1 && activeIndex === currentBucketIndex ? 'NEXT' : (activeIndex < currentBucketIndex ? 'PAST' : 'PROJECTION'))}
                                                                     {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
                                                                 </span>
                                                                 <span className={`text-2xl md:text-4xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
@@ -641,7 +643,7 @@ export default function PreparadorLineaPage() {
                                                                     )}
                                                                 </div>
                                                             </div>
-                                                )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">No hay proyectado</p>}
+                                                )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">No projection data</p>}
                                             </div>
                                         </div>
                                     </motion.div>
@@ -669,14 +671,14 @@ export default function PreparadorLineaPage() {
                             className={`flex-1 py-4 font-black flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm
                                 ${activeTab === 'alimentos' ? 'bg-orange-100 text-orange-700 border-2 border-orange-500 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
-                            <UtensilsCrossed size={20} /> ALIMENTOS
+                            <UtensilsCrossed size={20} /> FOOD ITEMS
                         </button>
                         <button 
                             onClick={() => setActiveTab('desechables')}
                             className={`flex-1 py-4 font-black flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm
                                 ${activeTab === 'desechables' ? 'bg-blue-100 text-blue-700 border-2 border-blue-500 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
-                            <PackageOpen size={20} /> DESECHABLES
+                            <PackageOpen size={20} /> DISPOSABLES
                         </button>
                     </div>
 
@@ -745,7 +747,7 @@ export default function PreparadorLineaPage() {
                                     {sending ? <Loader2 className="animate-spin w-8 h-8" /> : (
                                         <>
                                             <AlertTriangle size={30} className="animate-pulse" />
-                                            ENVIAR
+                                            SEND
                                         </>
                                     )}
                                 </button>
@@ -764,8 +766,8 @@ export default function PreparadorLineaPage() {
                             {/* Header */}
                             <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 shrink-0">
                                 <div>
-                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">Proyección del Día</h2>
-                                    <p className="text-slate-500 font-medium text-sm">Consumo promedio histórico esperado por hora (Libras Crudas)</p>
+                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">Day Projection</h2>
+                                    <p className="text-slate-500 font-medium text-sm">Historical average consumption per hour (Raw Pounds)</p>
                                 </div>
                                 <button onClick={() => setShowDayModal(false)} className="bg-slate-200 hover:bg-red-500 hover:text-white cursor-pointer dark:bg-slate-800 dark:hover:bg-red-600 text-slate-700 dark:text-slate-300 p-2 rounded-full transition-colors active:scale-95 shadow-sm">
                                     <X size={28} />
@@ -773,7 +775,7 @@ export default function PreparadorLineaPage() {
                             </div>
                             
                             {/* Body (Tabla) */}
-                            <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-950">
+                            <div className="flex-1 overflow-x-auto overflow-y-auto bg-slate-100 dark:bg-slate-950 custom-scrollbar">
                                 <table className="w-full text-left border-collapse">
                                     <thead className="bg-white dark:bg-slate-800 sticky top-0 shadow-sm z-10">
                                         <tr>
@@ -783,7 +785,7 @@ export default function PreparadorLineaPage() {
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">PASTOR</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">CABEZA</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">LENGUA</th>
-                                            <th className="p-4 font-black text-slate-800 dark:text-white tracking-widest pr-6 text-right">HORA TOTAL</th>
+                                            <th className="p-4 font-black text-slate-800 dark:text-white tracking-widest pr-6 text-right">HOUR TOTAL</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -823,7 +825,7 @@ export default function PreparadorLineaPage() {
                                 </div>
                                 
                                 <div className="bg-slate-800 text-white dark:bg-white dark:text-slate-900 px-8 py-4 rounded-2xl flex flex-col items-center justify-center shadow-lg shrink-0">
-                                    <span className="text-xs uppercase font-bold text-blue-200 dark:text-blue-700 tracking-widest">Ritmo Diario Total</span>
+                                    <span className="text-xs uppercase font-bold text-blue-200 dark:text-blue-700 tracking-widest">Daily Pace Total</span>
                                     <span className="font-black text-4xl">{grandTotal.toFixed(1)} <span className="text-sm opacity-60 ml-1">LBS</span></span>
                                 </div>
                             </div>
@@ -859,33 +861,33 @@ export default function PreparadorLineaPage() {
                             </button>
                             
                             <h2 className="text-3xl md:text-5xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">
-                                Proyección de Carnes
+                                Meat Projection
                             </h2>
                             <p className="text-slate-500 mb-6 md:mb-8 border-b border-slate-200 dark:border-slate-800 pb-4 md:pb-6 text-lg md:text-2xl shrink-0">
-                                Cómo la Inteligencia Artificial calcula estas libras históricas para la mesa de línea:
+                                How the AI calculates these historical pounds for the prep line:
                             </p>
                             
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8 text-slate-600 dark:text-slate-300 overflow-y-auto shrink pb-2 pr-2">
                                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 dark:bg-red-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        🥩 LIBRAS CRUDAS
+                                        🥩 RAW POUNDS
                                     </h3>
                                     <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        Para Asada, Pastor, Pollo, Cabeza y Lengua, los números gigantes representan la demanda física proyectada en <b className="text-red-600 dark:text-red-400">Libras Crudas (No Cocidas)</b>.
+                                        For Asada, Pastor, Pollo, Cabeza, and Lengua, the large numbers represent the projected physical demand in <b className="text-red-600 dark:text-red-400">Raw Pounds (Not Cooked)</b>.
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-600 dark:text-emerald-500 mt-1">1.</span> 
-                                            <span>El sistema extrae el número de mulitas, tacos, burritos, etc., vendidos a esta hora a lo largo de los años.</span>
+                                            <span>The system extracts the number of mulitas, tacos, burritos, etc., sold at this hour throughout the years.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-600 dark:text-emerald-500 mt-1">2.</span> 
-                                            <span>Multiplica cada platillo por su peso de receta en onzas y luego aplica la <b className="text-slate-800 dark:text-white">merma de cocción (Yield)</b> en reversa para saber cuánto pesaba la carne cruda original.</span>
+                                            <span>It multiplies each dish by its recipe weight in ounces and then applies the <b className="text-slate-800 dark:text-white">cooking shrinkage (Yield)</b> in reverse to determine how much the original raw meat weighed.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-600 dark:text-emerald-500 mt-1">3.</span> 
-                                            <span><b>Explicación final:</b> El número en pantalla es exactamente la cantidad de carne cruda que el preparador o taquero deberá sacer y poner a la lumbre o plancha para sostener el ritmo de esa media hora, sin que le falte ni le sobre demasiado.</span>
+                                            <span><b>Final explanation:</b> The number on screen is exactly the amount of raw meat the prep cook or taquero should take out and put on the grill to sustain the pace of that half-hour window, without running short or having too much left over.</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -893,23 +895,23 @@ export default function PreparadorLineaPage() {
                                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        📅 PROMEDIO HISTÓRICO
+                                        📅 HISTORICAL AVERAGE
                                     </h3>
                                     <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        ¿De dónde saca la IA estos números que me pide cocinar?
+                                        Where does the AI get these numbers it tells me to cook?
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span>El sistema lee el historial analítico de transacciones de los últimos <b>años</b> de esta misma sucursal.</span>
+                                            <span>The system reads the analytical transaction history from the last <b>years</b> of this same location.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span>Busca específicamente <b>este día de la semana</b> (ej. si hoy es Lunes, promedia todos los últimos Lunes).</span>
+                                            <span>It specifically searches for <b>this day of the week</b> (e.g., if today is Monday, it averages all recent Mondays).</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span>Promedia exclusivamente <b>este bloque de media hora</b>, garantizando que el Ritmo de Cocción siga fielmente la hora pico local de la tienda sin que tengas que adivinar.</span>
+                                            <span>It averages exclusively <b>this half-hour block</b>, ensuring that the Cooking Pace faithfully follows the local peak hours of the store without you having to guess.</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -917,23 +919,23 @@ export default function PreparadorLineaPage() {
                                 <div className="xl:col-span-2 bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 dark:bg-amber-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        ⏱️ RITMO EN VIVO (IA INTRADAY)
+                                        ⏱️ LIVE PACE (INTRADAY AI)
                                     </h3>
                                     <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        ¿Cómo te protege el algoritmo de un desabasto sorpresivo hoy?
+                                        How does the algorithm protect you from a surprise shortage today?
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span><b>Detección de Picos:</b> Cada 30 minutos, la IA se conecta directamente a Toast para sumar todo el dinero en efectivo y tarjetas que ha entrado a tu caja registradora <b>HOY</b> desde que abriste.</span>
+                                            <span><b>Peak Detection:</b> Every 30 minutes, the AI connects directly to Toast to sum all cash and card money that has entered your register <b>TODAY</b> since you opened.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span><b>El Acelerador:</b> Si la IA detecta que hoy ha entrado un 20% más dinero de lo que "debería" haber entrado a esta hora, concluye que la tienda está sufriendo un pico (por ejemplo, un evento local) y genera un <b>Acelerador (+20%)</b>.</span>
+                                            <span><b>The Accelerator:</b> If the AI detects that 20% more money has come in today than "should have" entered by this hour, it concludes the store is experiencing a peak (for example, a local event) and generates an <b>Accelerator (+20%)</b>.</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span><b>Ajuste Automático:</b> Inmediatamente, la tableta multiplicará ese +20% a tus "Libras Crudas" de manera agresiva para exigirte más carne a la plancha, previniendo que se te agote el inventario cocinado en la siguiente media hora.</span>
+                                            <span><b>Auto Adjustment:</b> Immediately, the tablet will multiply that +20% to your "Raw Pounds" aggressively to demand more meat on the grill, preventing your cooked inventory from running out in the next half hour.</span>
                                         </li>
                                     </ul>
                                 </div>
@@ -944,7 +946,7 @@ export default function PreparadorLineaPage() {
                                     onClick={() => setShowInfoModal(false)}
                                     className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-2xl tracking-widest py-5 md:py-6 rounded-2xl transition-all shadow-xl shadow-blue-500/30"
                                 >
-                                    ¡Comprendido!
+                                    Understood!
                                 </button>
                             </div>
                         </motion.div>

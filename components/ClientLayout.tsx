@@ -68,7 +68,7 @@ export default function ClientLayout({
                             isCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[260px]'
                         } ${
                             /* Mobile: offset by top bar height + floating bottom tab bar */
-                            'pt-14 pb-[90px] lg:pt-0 lg:pb-0'
+                            'pt-14 pb-[90px] lg:pt-14 lg:pb-0'
                         }`}
                     >
                         <main

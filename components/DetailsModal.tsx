@@ -219,7 +219,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
           's3': 'Additional'
         }
         sections[sectionId] = {
-          title: sectionTitles[sectionId] || `Sección ${match[1]}`,
+          title: sectionTitles[sectionId] || `Section ${match[1]}`,
           questions: []
         }
       }
@@ -315,8 +315,8 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
     const titles: { [key: string]: string } = {
       'daily': 'Daily Checklist',
       'recorrido': 'Recorrido de Limpieza',
-      'apertura': 'Inspección de Apertura',
-      'cierre': 'Inspección de Cierre'
+      'apertura': 'Opening Inspection',
+      'cierre': 'Closing Inspection'
     }
 
     return [{
@@ -500,7 +500,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                 return (
                   <div key={level} className="bg-white border border-gray-200 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-bold text-gray-900">Revisión de {levelNames[level]}</h4>
+                      <h4 className="font-bold text-gray-900">Review by {levelNames[level]}</h4>
                       {status && (
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
                           {status.toUpperCase()}
@@ -517,7 +517,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                           </div>
                           {date && (
                             <div>
-                              <p className="text-xs text-gray-600">Fecha de revisión:</p>
+                              <p className="text-xs text-gray-600">Review date:</p>
                               <p className="text-sm font-semibold text-gray-900">{formatDateLA(date)}</p>
                             </div>
                           )}
@@ -531,7 +531,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
                         )}
                       </>
                     ) : (
-                      <p className="text-sm text-gray-500 italic">Pendiente de revisión</p>
+                      <p className="text-sm text-gray-500 italic">Pending review</p>
                     )}
                   </div>
                 )
@@ -544,7 +544,7 @@ export default function DetailsModal({ isOpen, onClose, checklist, type }: Detai
           <button
             onClick={onClose}
             className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition-all">
-            Cerrar
+            Close
           </button>
         </div>
       </div>

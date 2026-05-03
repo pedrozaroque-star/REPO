@@ -293,7 +293,7 @@ export default function AdminAutoSchedulePage() {
                             })
                             .catch(err => {
                                 console.error('Launch Email Failed:', err)
-                                alert('❌ Error al iniciar envío de correos: ' + err.message)
+                                alert('❌ Error starting email send: ' + err.message)
                             })
                     } catch (e: any) {
                         console.error('Error parsing user for email:', e)

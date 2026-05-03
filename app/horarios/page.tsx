@@ -890,7 +890,7 @@ function ScheduleManager() {
 
         } catch (e: any) {
             console.error("FULL Error replicating week:", e);
-            alert(`Hubo un error al replicar: ${e.message || 'Error desconocido'}. Revisa la consola para más detalles.`);
+            alert(`There was an error replicating: ${e.message || 'Unknown error'}. Check the console for more details.`);
         } finally {
             setReplicationLoading(false);
         }

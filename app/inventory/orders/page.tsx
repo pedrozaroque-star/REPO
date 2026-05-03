@@ -204,7 +204,7 @@ export default function InventoryOrdersPage() {
             alert("¡Datos inyectados a la BD correctamente!");
             await loadData();
         } catch (error) {
-            alert("Error al inyectar datos");
+            alert("Error injecting data");
         }
         setLoading(false);
     }
@@ -236,7 +236,7 @@ export default function InventoryOrdersPage() {
             setLastSundayCounts(lsMap)
         } catch (error) {
             console.error(error)
-            alert("Error cargando los datos")
+            alert("Error loading data")
         } finally {
             setLoading(false)
         }
@@ -488,7 +488,7 @@ export default function InventoryOrdersPage() {
 
             {loading ? (
                 <div className="bg-white p-12 text-center text-slate-500 rounded-xl shadow-sm border border-slate-200 flex justify-center">
-                    Cargando información del Excel...
+                    Loading Excel data...
                 </div>
             ) : (
                 <div className="bg-white border border-slate-200 shadow-sm overflow-x-auto rounded-b-xl rounded-tr-xl">

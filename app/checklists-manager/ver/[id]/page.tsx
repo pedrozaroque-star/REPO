@@ -42,12 +42,12 @@ export default function VerManagerChecklistPage() {
           router.push('/checklists-manager')
         }
       } else {
-        alert('Error al cargar checklist')
+        alert('Error loading checklist')
         router.push('/checklists-manager')
       }
     } catch (error) {
       console.error('Error:', error)
-      alert('Error al cargar checklist')
+      alert('Error loading checklist')
       router.push('/checklists-manager')
     } finally {
       setLoading(false)

@@ -10,7 +10,7 @@ export function PrintModal({ isOpen, onClose, url }: any) {
         if (iframe && iframe.contentWindow) {
             iframe.contentWindow.print()
         } else {
-            toast.error('Error al cargar la vista de impresión')
+            toast.error('Error loading print view')
         }
     }
 

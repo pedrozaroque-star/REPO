@@ -400,7 +400,7 @@ export default function SchedulePlanner() {
                         router.replace('/planificador')
                     } else {
                         console.error('❌ Database Update Failed:', error)
-                        toast.error('Error guardando credenciales DB: ' + error.message)
+                        toast.error('Error saving DB credentials: ' + error.message)
                     }
                 }
             }
@@ -1077,7 +1077,7 @@ export default function SchedulePlanner() {
                     setIsGmailModalOpen(true)
                     throw new Error(t('planner.toasts.gmail_auth_failed') || 'Tu conexión a Gmail ha expirado o fue revocada. Por favor, vuelve a conectarlo para enviar los correos.')
                 }
-                throw new Error(notifyData.error || 'Error al enviar notificaciones')
+                throw new Error(notifyData.error || 'Error sending notifications')
             }
 
             // SAVE BUDGET SNAPSHOT

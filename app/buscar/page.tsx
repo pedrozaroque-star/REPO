@@ -130,7 +130,7 @@ export default function BuscarPage() {
               {totalResults === 0 ? (
                 <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-gray-100 dark:border-slate-800">
                   <div className="text-6xl mb-4">🔍</div>
-                  <p className="text-gray-600 dark:text-slate-400 font-bold">No se encontraron resultados para "{query}"</p>
+                  <p className="text-gray-600 dark:text-slate-400 font-bold">No results found for "{query}"</p>
                 </div>
               ) : (
                 <>

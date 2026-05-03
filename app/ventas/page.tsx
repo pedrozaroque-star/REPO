@@ -662,7 +662,7 @@ function SalesPageContent() {
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                                     </span>
-                                    Sincronizando en vivo...
+                                    Syncing live...
                                 </div>
                             )}
 
@@ -691,7 +691,7 @@ function SalesPageContent() {
                                     onClick={() => refreshData(true)}
                                     disabled={loading || isLiveSyncing}
                                     className={`p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0 ${isLiveSyncing ? 'opacity-70 cursor-wait' : ''}`}
-                                    title={isLiveSyncing ? "Sincronizando últimos minutos..." : t('sales.refresh')}
+                                    title={isLiveSyncing ? "Syncing latest minutes..." : t('sales.refresh')}
                                 >
                                     <RefreshCw size={18} className={(loading || isLiveSyncing) ? 'animate-spin text-emerald-500' : ''} />
                                 </button>

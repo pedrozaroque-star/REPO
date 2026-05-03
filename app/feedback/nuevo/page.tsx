@@ -237,7 +237,7 @@ function NuevoFeedbackContent() {
           ) : templateError ? (
             <div className="bg-red-50 p-4 rounded-xl border border-red-200 text-red-700 flex items-center gap-3">
               <AlertCircle size={20} />
-              <p>Error al cargar la plantilla: {templateError}</p>
+              <p>Error loading template: {templateError}</p>
             </div>
           ) : (
             template?.sections?.map((section) => (
@@ -269,9 +269,9 @@ function NuevoFeedbackContent() {
               {loading ? (
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Guardando...
+                  Saving...
                 </div>
-              ) : '✅ Guardar Registro'}
+              ) : '✅ Save Record'}
             </button>
           </div>
         </form>

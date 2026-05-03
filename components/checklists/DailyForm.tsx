@@ -91,7 +91,7 @@ export default function DailyForm({ user, initialData }: { user: any, initialDat
 
     } catch (err: any) {
       console.error(err)
-      alert('❌ Error al guardar: ' + err.message)
+      alert('❌ Error saving: ' + err.message)
     } finally {
       setLoading(false)
     }
@@ -181,7 +181,7 @@ export default function DailyForm({ user, initialData }: { user: any, initialDat
           onChange={handleChange}
           rows={3}
           className="w-full border p-3 rounded-lg"
-          placeholder="Escribe aquí cualquier observación..."
+          placeholder="Write any observations here..."
         />
         
         <div className="mt-6 flex justify-end">
@@ -190,7 +190,7 @@ export default function DailyForm({ user, initialData }: { user: any, initialDat
             disabled={loading}
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
           >
-            {loading ? 'Guardando...' : initialData ? '💾 Guardar Cambios' : '🚀 Enviar Checklist'}
+            {loading ? 'Saving...' : initialData ? '💾 Save Changes' : '🚀 Submit Checklist'}
           </button>
         </div>
       </div>

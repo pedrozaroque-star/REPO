@@ -42,12 +42,12 @@ export default function VerAssistantChecklistPage() {
           router.push('/checklists')
         }
       } else {
-        alert('Error al cargar checklist')
+        alert('Error loading checklist')
         router.push('/checklists')
       }
     } catch (error) {
       console.error('Error:', error)
-      alert('Error al cargar checklist')
+      alert('Error loading checklist')
       router.push('/checklists')
     } finally {
       setLoading(false)
