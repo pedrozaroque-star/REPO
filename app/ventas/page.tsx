@@ -23,6 +23,7 @@ function SalesPageContent() {
         if (d.getHours() < 6) d.setDate(d.getDate() - 1)
         return d.toISOString().split('T')[0]
     })
+    const [isLiveSyncing, setIsLiveSyncing] = useState(false)
     const [data, setData] = useState<any>(null)
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
     const [loadingMessage, setLoadingMessage] = useState('')
@@ -294,9 +295,13 @@ function SalesPageContent() {
         return { summary, trendData, storeData, rows }
     }
 
-    const refreshData = async (forceLive = false) => {
-        setLoading(true)
-        setLoadingMessage(t('sales.loading_connecting'))
+    const refreshData = async (forceLive = false, isBackground = false) => {
+        if (!isBackground) {
+            setLoading(true)
+            setLoadingMessage(t('sales.loading_connecting'))
+        } else {
+            setIsLiveSyncing(true)
+        }
         try {
             const now = new Date()
             if (now.getHours() < 6) now.setDate(now.getDate() - 1)
@@ -370,7 +375,7 @@ function SalesPageContent() {
                 query.append('skipCache', 'true')
             }
 
-            setLoadingMessage(t('sales.loading_fetching'))
+            if (!isBackground) setLoadingMessage(t('sales.loading_fetching'))
             // Get Token
             const token = localStorage.getItem('teg_token')
 
@@ -381,12 +386,13 @@ function SalesPageContent() {
             })
 
             if (res.status === 401 || res.status === 403) {
-                setLoadingMessage(t('sales.access_denied'))
+                if (!isBackground) setLoadingMessage(t('sales.access_denied'))
                 setLoading(false)
+                setIsLiveSyncing(false)
                 return
             }
 
-            setLoadingMessage(t('sales.loading_processing'))
+            if (!isBackground) setLoadingMessage(t('sales.loading_processing'))
             const json = await res.json()
 
             if (json.meta?.connectionError) {
@@ -410,14 +416,27 @@ function SalesPageContent() {
             console.error('Error fetching sales data:', e)
         } finally {
             setLastUpdated(new Date())
-            setLoading(false)
-            setLoadingMessage('')
+            if (!isBackground) {
+                setLoading(false)
+                setLoadingMessage('')
+            } else {
+                setIsLiveSyncing(false)
+            }
         }
     }
 
     useEffect(() => {
         if (period !== 'custom') {
-            refreshData()
+            const loadAndSync = async () => {
+                // 1. Initial Load (Fast from Cache if available)
+                await refreshData(false, false)
+                
+                // 2. Background Sync for "Today" (Stale-While-Revalidate pattern)
+                if (period === 'today') {
+                    refreshData(true, true)
+                }
+            }
+            loadAndSync()
             setIntegrityStatus('idle') // Reset status on new fetch
         }
     }, [period]) // Removed startDate/endDate from dep array to avoid double fetch on custom change
@@ -637,6 +656,16 @@ function SalesPageContent() {
 
                             <div className="hidden sm:block w-[1px] h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
+                            {isLiveSyncing && (
+                                <div className="hidden sm:flex items-center gap-2 px-2 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-medium animate-pulse">
+                                    <span className="relative flex h-2 w-2">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                    </span>
+                                    Sincronizando en vivo...
+                                </div>
+                            )}
+
                             <div className="flex items-center gap-2">
                                 {isAdmin && (
                                     <button
@@ -660,11 +689,11 @@ function SalesPageContent() {
 
                                 <button
                                     onClick={() => refreshData(true)}
-                                    disabled={loading}
-                                    className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0"
-                                    title={t('sales.refresh')}
+                                    disabled={loading || isLiveSyncing}
+                                    className={`p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0 ${isLiveSyncing ? 'opacity-70 cursor-wait' : ''}`}
+                                    title={isLiveSyncing ? "Sincronizando últimos minutos..." : t('sales.refresh')}
                                 >
-                                    <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                                    <RefreshCw size={18} className={(loading || isLiveSyncing) ? 'animate-spin text-emerald-500' : ''} />
                                 </button>
                             </div>
                         </div>
