@@ -77,13 +77,13 @@ function hMinStartRest(durationHrs: number): number {
     return 1.0                         // 1h buffer (vs 1.25h para meals)
 }
 const H_END_BUFFER = 1.0
-// Ley CA: meal debe INICIAR antes de la 5ta hora de trabajo (5.0h).
-// Usamos 5.0h como límite duro de ventana para maximizar espacio post-peak.
-// El peak avoidance + hMinStart reducido se encargan de colocar meals ANTES
-// del pico naturalmente. El 5.0 es solo la red de seguridad legal.
-// NOTA: 4.75 parecía mejor (15 min margen), pero ELIMINABA el espacio
-// post-peak para PM shifts → FULL WINDOW → meals EN el rush. Peor.
-const H_FIRST_MEAL_MAX = 5.0
+// Ley CA: meal debe INICIAR ANTES de la 5ta hora de trabajo.
+// Usamos 4.75h (15 min margen de seguridad) para que el engine NUNCA
+// coloque un meal justo en el límite legal (ej: Luisa 10AM → límite 3PM,
+// con 4.75 la ventana cierra a 2:45PM → meal a las 2:30-2:45PM máximo).
+// ANTES esto eliminaba espacio post-peak para PM shifts, PERO ahora con
+// la estrategia heat-compare + safeBeforeEnd extendido, pre-peak es viable.
+const H_FIRST_MEAL_MAX = 4.75
 const H_SECOND_MEAL_START = 7.0
 const H_SECOND_MEAL_END = 10.0
 
@@ -933,17 +933,13 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }))
             let heatBest = targetMs
             let heatBestScore = Infinity
-            // Para turnos cortos (≤6h): limitar el scan a ±45 min del target.
-            // Sin meal barriers, el segmento = todo el shift (~4h).
-            // Si escaneamos todo, el heat-snap arrastra el rest al extremo
-            // más frío (inicio o final), alejándolo del centro ideal.
-            // Para turnos largos: escanear todo el segmento (hay barriers que lo acotan).
-            const heatScanStart = shiftDurationHrs <= 6
-                ? Math.max(activeSeg.sMs, targetMs - ms(45))
-                : activeSeg.sMs
-            const heatScanEnd = shiftDurationHrs <= 6
-                ? Math.min(activeSeg.eMs, targetMs + ms(45))
-                : activeSeg.eMs
+            // Limitar el scan a ±45 min del target para TODOS los turnos.
+            // Sin este límite, turnos largos con segmentos post-meal de 3+ horas
+            // (ej: Juan Perez 7PM-3AM, seg=[23:15-2:20]=3h) arrastran el rest
+            // al extremo más frío del turno (heat=0.00 a las 2AM) en vez de
+            // mantenerlo cerca de su posición ideal natural (~1:10AM).
+            const heatScanStart = Math.max(activeSeg.sMs, targetMs - ms(45))
+            const heatScanEnd = Math.min(activeSeg.eMs, targetMs + ms(45))
             for (let t = heatScanStart; t + ms(10) <= heatScanEnd; t += SLOT_STEP_MS) {
                 // Saltar si está demasiado cerca de un break personal existente
                 const tooClose = existingPersonalBreaks.some(pb => {
