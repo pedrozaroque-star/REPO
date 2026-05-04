@@ -110,6 +110,18 @@ const dictionaries: Record<Language, any> = {
         },
         // SALES
         sales: {
+            welcome_modal: {
+                title: 'Velocidad Relámpago ⚡',
+                part1: 'Hemos actualizado el motor de ventas para el día de ',
+                today_highlight: '"HOY"',
+                part2: '. Al abrir el módulo, la información cargará ',
+                instant_highlight: 'al instante',
+                part3: ' mostrando los datos hasta la última media hora guardada.',
+                part4: 'Silenciosamente en segundo plano, el sistema conectará con Toast para traerte ',
+                live_highlight: 'los últimos minutos en vivo',
+                part5: ', sin hacerte esperar.',
+                button: '¡Entendido!'
+            },
             title: 'Dashboard de Ventas',
             subtitle: 'Monitoreo en tiempo real de 15 sucursales (Toast API)',
             live_connected: 'LIVE API CONNECTED',
@@ -1149,6 +1161,18 @@ const dictionaries: Record<Language, any> = {
         },
         // SALES
         sales: {
+            welcome_modal: {
+                title: 'Lightning Speed ⚡',
+                part1: 'We have updated the sales engine for ',
+                today_highlight: '"TODAY"',
+                part2: '. When you open the module, the information will load ',
+                instant_highlight: 'instantly',
+                part3: ' showing data up to the last saved half hour.',
+                part4: 'Silently in the background, the system will connect with Toast to bring you ',
+                live_highlight: 'the latest live minutes',
+                part5: ', without making you wait.',
+                button: 'Understood!'
+            },
             title: 'Sales Dashboard',
             subtitle: 'Real-time monitoring of 15 locations (Toast API)',
             live_connected: 'LIVE API CONNECTED',

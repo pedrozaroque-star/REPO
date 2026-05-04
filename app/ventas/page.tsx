@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { Calendar, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown } from 'lucide-react'
+import { Calendar, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
@@ -32,9 +32,39 @@ function SalesPageContent() {
     const [integrityStatus, setIntegrityStatus] = useState<'idle' | 'verifying' | 'fixed' | 'ok'>('idle')
     const [selectedStore, setSelectedStore] = useState<string>('all') // Store filter for KPIs and Trend
     const [storeList, setStoreList] = useState<string[]>([]) // Available stores
+    const [showWelcomeModal, setShowWelcomeModal] = useState(false)
     const { user } = useAuth()
     const { t } = useLanguage()
     const isAdmin = user?.role === 'admin'
+
+    useEffect(() => {
+        setShowWelcomeModal(true)
+    }, [])
+
+
+    const shiftDate = (days: number) => {
+        const [sYear, sMonth, sDay] = startDate.split('-').map(Number);
+        const [eYear, eMonth, eDay] = endDate.split('-').map(Number);
+        
+        const currentStart = new Date(sYear, sMonth - 1, sDay);
+        const currentEnd = new Date(eYear, eMonth - 1, eDay);
+        
+        currentStart.setDate(currentStart.getDate() + days);
+        currentEnd.setDate(currentEnd.getDate() + days);
+        
+        const formatD = (d: Date) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        
+        setPeriod('custom');
+        setStartDate(formatD(currentStart));
+        setEndDate(formatD(currentEnd));
+    }
+
+    const todayStr = (() => {
+        const d = new Date();
+        if (d.getHours() < 6) d.setDate(d.getDate() - 1);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    const isTodayOrFuture = endDate >= todayStr;
 
     const handleStoreClick = (storeId: string) => {
         if (!storeId) return
@@ -426,20 +456,18 @@ function SalesPageContent() {
     }
 
     useEffect(() => {
-        if (period !== 'custom') {
-            const loadAndSync = async () => {
-                // 1. Initial Load (Fast from Cache if available)
-                await refreshData(false, false)
-                
-                // 2. Background Sync for "Today" (Stale-While-Revalidate pattern)
-                if (period === 'today') {
-                    refreshData(true, true)
-                }
+        const loadAndSync = async () => {
+            // 1. Initial Load (Fast from Cache if available)
+            await refreshData(false, false)
+            
+            // 2. Background Sync for "Today" (Stale-While-Revalidate pattern)
+            if (period === 'today') {
+                refreshData(true, true)
             }
-            loadAndSync()
-            setIntegrityStatus('idle') // Reset status on new fetch
         }
-    }, [period]) // Removed startDate/endDate from dep array to avoid double fetch on custom change
+        loadAndSync()
+        setIntegrityStatus('idle') // Reset status on new fetch
+    }, [period, startDate, endDate]) 
 
     // INTEGRITY CHECK HOOK
     useEffect(() => {
@@ -580,6 +608,41 @@ function SalesPageContent() {
                 {/* Header Content */}
                 <div className="relative z-10 space-y-6">
 
+                    {/* Welcome Modal */}
+                    {showWelcomeModal && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative">
+                                <button 
+                                    onClick={() => setShowWelcomeModal(false)}
+                                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
+                                >
+                                    <X size={20} />
+                                </button>
+                                <div className="p-8">
+                                    <div className="w-16 h-16 bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
+                                        <Zap size={32} />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-3">
+                                        {t('sales.welcome_modal.title')}
+                                    </h2>
+                                    <p className="text-slate-600 dark:text-slate-400 leading-relaxed mb-6">
+                                        {t('sales.welcome_modal.part1')} <strong className="text-slate-900 dark:text-white font-semibold">{t('sales.welcome_modal.today_highlight')}</strong>
+                                        {t('sales.welcome_modal.part2')} <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">{t('sales.welcome_modal.instant_highlight')}</strong>
+                                        {t('sales.welcome_modal.part3')} <br/><br/>
+                                        {t('sales.welcome_modal.part4')} <strong className="text-blue-600 dark:text-blue-400 font-semibold">{t('sales.welcome_modal.live_highlight')}</strong>
+                                        {t('sales.welcome_modal.part5')}
+                                    </p>
+                                    <button 
+                                        onClick={() => setShowWelcomeModal(false)}
+                                        className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 cursor-pointer"
+                                    >
+                                        {t('sales.welcome_modal.button')}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Connection Error Banner */}
                     {connError && (
                         <div className="bg-rose-500 text-white px-4 py-3 rounded-xl flex items-center gap-3 shadow-lg animate-in slide-in-from-top-2">
@@ -612,9 +675,18 @@ function SalesPageContent() {
                                     )}
                                 </span>
                             </div>
-                            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">
-                                {t('sales.title')}
-                            </h1>
+                            <div className="flex items-center gap-3">
+                                <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">
+                                    {t('sales.title')}
+                                </h1>
+                                <button 
+                                    onClick={() => setShowWelcomeModal(true)}
+                                    className="p-1.5 text-blue-500 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 rounded-full transition-colors cursor-pointer"
+                                    title="¿Cómo funciona el modo Relámpago?"
+                                >
+                                    <Info size={18} />
+                                </button>
+                            </div>
                             <p className="text-slate-500 dark:text-slate-400 mt-1">
                                 {t('sales.subtitle')}
                             </p>
@@ -623,16 +695,33 @@ function SalesPageContent() {
                         {/* Dynamic Date Label & Filter */}
                         <div className="flex flex-col sm:flex-row items-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto z-50">
 
-                            <DateRangeFilter
-                                period={period}
-                                startDate={startDate}
-                                endDate={endDate}
-                                onChange={(p, s, e) => {
-                                    setPeriod(p as any)
-                                    setStartDate(s)
-                                    setEndDate(e)
-                                }}
-                            />
+                            <div className="flex items-center gap-1 mx-1">
+                                <button 
+                                    onClick={() => shiftDate(-1)}
+                                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                                    title="Día Anterior"
+                                >
+                                    <ChevronLeft className="w-5 h-5" />
+                                </button>
+                                <DateRangeFilter
+                                    period={period}
+                                    startDate={startDate}
+                                    endDate={endDate}
+                                    onChange={(p, s, e) => {
+                                        setPeriod(p as any)
+                                        setStartDate(s)
+                                        setEndDate(e)
+                                    }}
+                                />
+                                <button 
+                                    onClick={() => shiftDate(1)}
+                                    disabled={isTodayOrFuture}
+                                    className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                    title="Día Siguiente"
+                                >
+                                    <ChevronRight className="w-5 h-5" />
+                                </button>
+                            </div>
 
                             {/* Store Filter */}
                             {storeList.length > 0 && (
