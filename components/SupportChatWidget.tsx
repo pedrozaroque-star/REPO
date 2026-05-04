@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MessageSquare, X, Send, Bot, User, Loader2, Maximize2, Minimize2, Sparkles, ArrowRight, Plus, Compass, ChevronDown } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface Message { id: string; role: 'user' | 'assistant'; content: string }
 
@@ -134,8 +136,31 @@ export default function SupportChatWidget() {
             <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-1 ${msg.role === 'user' ? 'bg-slate-200 dark:bg-slate-800 rounded-full' : 'bg-gradient-to-br from-indigo-500 to-purple-600'}`}>
               {msg.role === 'user' ? <User size={13} className="text-slate-600 dark:text-slate-400" /> : <Bot size={13} className="text-white" />}
             </div>
-            <div className={`px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap ${msg.role === 'user' ? 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white rounded-tr-sm shadow-md' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-700 shadow-sm rounded-tl-sm'}`}>
-              {msg.content}
+            <div className={`px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed break-words ${msg.role === 'user' ? 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white rounded-tr-sm shadow-md' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-100 dark:border-slate-700 shadow-sm rounded-tl-sm w-full overflow-hidden'}`}>
+              {msg.role === 'user' ? (
+                <div className="whitespace-pre-wrap">{msg.content}</div>
+              ) : (
+                <div className="w-full overflow-hidden">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      table: ({node, ...props}) => <div className="overflow-x-auto my-4"><table className="w-full border-collapse text-xs sm:text-[13px]" {...props} /></div>,
+                      th: ({node, ...props}) => <th className="border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 p-2 sm:p-2.5 text-left font-semibold text-slate-800 dark:text-slate-200" {...props} />,
+                      td: ({node, ...props}) => <td className="border border-slate-200 dark:border-slate-700 p-2 sm:p-2.5 text-slate-700 dark:text-slate-300" {...props} />,
+                      p: ({node, ...props}) => <p className="mb-3 last:mb-0 leading-relaxed" {...props} />,
+                      a: ({node, ...props}) => <a className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-4 space-y-1" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal pl-5 mb-4 space-y-1" {...props} />,
+                      li: ({node, ...props}) => <li className="pl-1" {...props} />,
+                      h3: ({node, ...props}) => <h3 className="text-[15px] font-semibold mt-5 mb-2.5 text-slate-900 dark:text-white flex items-center gap-2" {...props} />,
+                      h4: ({node, ...props}) => <h4 className="text-[14px] font-semibold mt-4 mb-2 text-slate-800 dark:text-slate-100" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-semibold text-slate-900 dark:text-white" {...props} />
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           </div>
         </div>

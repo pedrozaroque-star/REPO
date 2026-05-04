@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-// Model fallback chain: highly resilient list of known-good aliases
-const GEMINI_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-flash-latest',
-  'gemini-pro-latest'
-];
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // Reliable PST business date (matches toast-api.ts pattern exactly)
@@ -272,48 +266,40 @@ export async function POST(req: NextRequest) {
 
     if (validContents.length === 0) return NextResponse.json({ error: 'Sin mensajes.' }, { status: 400 });
 
-    // Try models in fallback chain
-    let lastError = '';
-    for (const model of GEMINI_MODELS) {
-      try {
-        const url = `${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`;
-        console.log(`[TEG Assistant] Trying model: ${model}`);
-        
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: fullPrompt }] },
-            contents: validContents,
-            generationConfig: { temperature: 0.3, maxOutputTokens: 1500 }
-          })
-        });
+    // ─── Single direct call to Gemini (no retries, fail fast) ───
+    const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    console.log(`[TEG Assistant] Calling ${GEMINI_MODEL}...`);
 
-        const data = await response.json();
-        
-        if (!response.ok) {
-          const errMsg = data.error?.message || 'Error desconocido';
-          console.warn(`[TEG Assistant] ${model} failed (${response.status}): ${errMsg}`);
-          lastError = errMsg;
-          // Continue to the next model regardless of the error type (404, 429, 500, etc.)
-          // This ensures maximum resilience if a model name is deprecated or temporarily unavailable.
-          continue;
-        }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: fullPrompt }] },
+        contents: validContents,
+        generationConfig: { temperature: 0.3, maxOutputTokens: 1500 }
+      })
+    });
 
-        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!reply) { lastError = 'Sin respuesta'; continue; }
+    const data = await response.json();
 
-        console.log(`[TEG Assistant] ✅ Success with ${model}`);
-        return NextResponse.json({ reply });
-      } catch (e: any) {
-        console.warn(`[TEG Assistant] ${model} exception:`, e.message);
-        lastError = e.message;
-        continue;
+    if (!response.ok) {
+      const errMsg = data.error?.message || 'Error desconocido';
+      console.warn(`[TEG Assistant] ${GEMINI_MODEL} failed (${response.status}): ${errMsg}`);
+      if (response.status === 429) {
+        return NextResponse.json({ 
+          error: 'La IA tiene mucho tráfico en este momento. Espera unos segundos y vuelve a intentar.' 
+        }, { status: 429 });
       }
+      return NextResponse.json({ error: errMsg }, { status: response.status });
     }
 
-    // All models failed
-    return NextResponse.json({ error: `Todos los modelos están sobrecargados. ${lastError}` }, { status: 429 });
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!reply) {
+      return NextResponse.json({ error: 'La IA no generó respuesta. Intenta de nuevo.' }, { status: 500 });
+    }
+
+    console.log(`[TEG Assistant] ✅ OK`);
+    return NextResponse.json({ reply });
   } catch (error: any) {
     console.error('[TEG Assistant] Error:', error);
     return NextResponse.json({ error: 'Error inesperado.', details: error.message }, { status: 500 });

@@ -153,11 +153,11 @@ export default function AuditoriaDescuentos() {
                         .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
                         .gte('business_date', sDate)
                         .lte('business_date', eDate)
-                        .order('id')
+                        .order('id', { ascending: true })
                         .range(from, from + pageSize - 1);
                     
                     if (error) {
-                        console.error("Error crítico fetching Radar de Anomalías:", error);
+                        console.error("Error crítico fetching Radar de Anomalías:", error?.message || error?.details || JSON.stringify(error));
                         break;
                     }
                     if (data) allRisks = [...allRisks, ...data];
