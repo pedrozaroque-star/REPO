@@ -75,21 +75,25 @@ async function fetchRangeTotals(startDate: string, endDate: string) {
     else hasMore = false;
   }
   // Aggregate by store
-  const byStore: Record<string, { sales: number, orders: number, labor: number }> = {};
+  const byStore: Record<string, { sales: number, orders: number, labor: number, uber: number, dd: number }> = {};
   let total = 0, orders = 0, labor = 0, uber = 0, dd = 0, gh = 0;
   for (const r of allRows) {
     const s = Number(r.net_sales) || 0;
     const o = Number(r.order_count) || 0;
     const l = Number(r.labor_cost) || 0;
+    const u = Number(r.uber_sales) || 0;
+    const d = Number(r.doordash_sales) || 0;
     total += s; orders += o; labor += l;
-    uber += Number(r.uber_sales) || 0;
-    dd += Number(r.doordash_sales) || 0;
+    uber += u;
+    dd += d;
     gh += Number(r.grubhub_sales) || 0;
     const name = clean(r.store_name);
-    if (!byStore[name]) byStore[name] = { sales: 0, orders: 0, labor: 0 };
+    if (!byStore[name]) byStore[name] = { sales: 0, orders: 0, labor: 0, uber: 0, dd: 0 };
     byStore[name].sales += s;
     byStore[name].orders += o;
     byStore[name].labor += l;
+    byStore[name].uber += u;
+    byStore[name].dd += d;
   }
   const sorted = Object.entries(byStore).sort((a,b) => b[1].sales - a[1].sales);
   return { total, orders, labor, uber, dd, gh, byStore: sorted, rowCount: allRows.length };
@@ -113,10 +117,12 @@ async function fetchSystemContext(): Promise<string> {
     const todayLabor = (todaySales || []).reduce((s, r) => s + (Number(r.labor_cost) || 0), 0);
 
     if (todaySales && todayTotal > 0) {
+      const todayUber = (todaySales || []).reduce((s, r) => s + (Number(r.uber_sales) || 0), 0);
+      const todayDD = (todaySales || []).reduce((s, r) => s + (Number(r.doordash_sales) || 0), 0);
       const lines = todaySales.filter(s => Number(s.net_sales) > 0).map(s =>
-        `  ${clean(s.store_name)}: ${fmt$(Number(s.net_sales))} (${s.order_count} órd)`
+        `  ${clean(s.store_name)}: Total ${fmt$(Number(s.net_sales))} (Uber: ${fmt$(Number(s.uber_sales) || 0)} | DD: ${fmt$(Number(s.doordash_sales) || 0)})`
       ).join('\n');
-      sections.push(`📊 VENTAS HOY (${today}):\nTotal: ${fmt$(todayTotal)} | Órdenes: ${todayOrders} | Labor: ${fmt$(todayLabor)} (${todayTotal > 0 ? ((todayLabor/todayTotal)*100).toFixed(1) : 0}%)\nPor tienda:\n${lines}`);
+      sections.push(`📊 VENTAS HOY (${today}):\nTotal: ${fmt$(todayTotal)} | Órdenes: ${todayOrders} | Labor: ${fmt$(todayLabor)} (${todayTotal > 0 ? ((todayLabor/todayTotal)*100).toFixed(1) : 0}%)\nGlobal Uber: ${fmt$(todayUber)} | Global DD: ${fmt$(todayDD)}\nDesglose por tienda (Top 15):\n${lines}`);
     } else {
       sections.push(`📊 VENTAS HOY (${today}): Día en curso, datos actualizándose desde Toast POS.`);
     }
@@ -124,8 +130,8 @@ async function fetchSystemContext(): Promise<string> {
     // ─── 2. Yesterday ───
     const yest = await fetchRangeTotals(yesterday, yesterday);
     if (yest.total > 0) {
-      const lines = yest.byStore.slice(0, 5).map(([n,v]) => `  ${n}: ${fmt$(v.sales)}`).join('\n');
-      sections.push(`📊 VENTAS AYER (${yesterday}):\nTotal: ${fmt$(yest.total)} | Órdenes: ${yest.orders} | Labor: ${fmt$(yest.labor)} (${((yest.labor/yest.total)*100).toFixed(1)}%)\nTop 5:\n${lines}`);
+      const lines = yest.byStore.map(([n,v]) => `  ${n}: Total ${fmt$(v.sales)} (Uber: ${fmt$(v.uber)} | DD: ${fmt$(v.dd)})`).join('\n');
+      sections.push(`📊 VENTAS AYER (${yesterday}):\nTotal: ${fmt$(yest.total)} | Órdenes: ${yest.orders} | Labor: ${fmt$(yest.labor)} (${((yest.labor/yest.total)*100).toFixed(1)}%)\nGlobal Uber: ${fmt$(yest.uber)} | Global DD: ${fmt$(yest.dd)}\nDesglose por tienda (Top 15):\n${lines}`);
     }
 
     // ─── 3. Hoy vs Ayer ───
@@ -138,17 +144,20 @@ async function fetchSystemContext(): Promise<string> {
     const thisMonday = getMonday(today);
     const thisWeek = await fetchRangeTotals(thisMonday, today);
     if (thisWeek.total > 0) {
-      const lines = thisWeek.byStore.slice(0, 5).map(([n,v]) => `  ${n}: ${fmt$(v.sales)}`).join('\n');
-      sections.push(`📅 ESTA SEMANA (${thisMonday} a ${today}):\nTotal: ${fmt$(thisWeek.total)} | Órdenes: ${thisWeek.orders} | Labor: ${fmt$(thisWeek.labor)} (${((thisWeek.labor/thisWeek.total)*100).toFixed(1)}%)\nUber: ${fmt$(thisWeek.uber)} | DoorDash: ${fmt$(thisWeek.dd)}\nTop 5:\n${lines}`);
+      const lines = thisWeek.byStore.map(([n,v]) => `  ${n}: Total ${fmt$(v.sales)} (Uber: ${fmt$(v.uber)} | DD: ${fmt$(v.dd)})`).join('\n');
+      sections.push(`📅 ESTA SEMANA (${thisMonday} a ${today}):\nTotal: ${fmt$(thisWeek.total)} | Órdenes: ${thisWeek.orders} | Labor: ${fmt$(thisWeek.labor)} (${((thisWeek.labor/thisWeek.total)*100).toFixed(1)}%)\nGlobal Uber: ${fmt$(thisWeek.uber)} | Global DD: ${fmt$(thisWeek.dd)}\nDesglose por tienda (Top 15):\n${lines}`);
     }
 
     // ─── 5. Last Week (Mon-Sun) ───
-    const lastMonday = addDays(thisMonday, -7);
-    const lastSunday = addDays(thisMonday, -1);
+    const [y,m,d] = thisMonday.split('-').map(Number);
+    const dtLastMon = new Date(y, m-1, d - 7);
+    const dtLastSun = new Date(y, m-1, d - 1);
+    const lastMonday = fmtDate(dtLastMon);
+    const lastSunday = fmtDate(dtLastSun);
     const lastWeek = await fetchRangeTotals(lastMonday, lastSunday);
     if (lastWeek.total > 0) {
-      const lines = lastWeek.byStore.slice(0, 5).map(([n,v]) => `  ${n}: ${fmt$(v.sales)}`).join('\n');
-      sections.push(`📅 SEMANA PASADA (${lastMonday} a ${lastSunday}):\nTotal: ${fmt$(lastWeek.total)} | Órdenes: ${lastWeek.orders} | Labor: ${fmt$(lastWeek.labor)} (${((lastWeek.labor/lastWeek.total)*100).toFixed(1)}%)\nTop 5:\n${lines}`);
+      const lines = lastWeek.byStore.map(([n,v]) => `  ${n}: Total ${fmt$(v.sales)} (Uber: ${fmt$(v.uber)} | DD: ${fmt$(v.dd)})`).join('\n');
+      sections.push(`📅 SEMANA PASADA (${lastMonday} a ${lastSunday}):\nTotal: ${fmt$(lastWeek.total)} | Órdenes: ${lastWeek.orders} | Labor: ${fmt$(lastWeek.labor)} (${((lastWeek.labor/lastWeek.total)*100).toFixed(1)}%)\nGlobal Uber: ${fmt$(lastWeek.uber)} | Global DD: ${fmt$(lastWeek.dd)}\nDesglose por tienda (Top 15):\n${lines}`);
     }
 
     // ─── 6. Week vs Week comparison ───
@@ -237,11 +246,31 @@ export async function POST(req: NextRequest) {
 
     const fullPrompt = BASE_SYSTEM_PROMPT + langInstruction + liveContext;
 
-    const contents = messages
-      .filter((m: any) => m.role === 'user' || m.role === 'model')
-      .map((msg: any) => ({ role: msg.role, parts: [{ text: msg.content }] }));
+    // Normalize history: Gemini API strictly requires alternating user/model turns, and must start with a user.
+    const validContents: { role: string; parts: { text: string }[] }[] = [];
+    let lastRole = '';
 
-    if (contents.length === 0) return NextResponse.json({ error: 'Sin mensajes.' }, { status: 400 });
+    messages.forEach((msg: any) => {
+      if (msg.role !== 'user' && msg.role !== 'model') return;
+      
+      // Filter out internal system messages that confuse the AI's memory
+      if (msg.role === 'model' && (msg.content.includes('Soy TEG Assistant') || msg.content.includes('Error de conexión') || msg.content.includes('Todos los modelos'))) return;
+
+      if (msg.role === lastRole && validContents.length > 0) {
+        // Group consecutive messages from the same role to maintain strict alternation
+        validContents[validContents.length - 1].parts[0].text += '\n\n' + msg.content;
+      } else {
+        validContents.push({ role: msg.role, parts: [{ text: msg.content }] });
+        lastRole = msg.role;
+      }
+    });
+
+    // API requirement: History MUST start with a 'user' message
+    if (validContents.length > 0 && validContents[0].role === 'model') {
+      validContents.shift();
+    }
+
+    if (validContents.length === 0) return NextResponse.json({ error: 'Sin mensajes.' }, { status: 400 });
 
     // Try models in fallback chain
     let lastError = '';
@@ -255,7 +284,7 @@ export async function POST(req: NextRequest) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             system_instruction: { parts: [{ text: fullPrompt }] },
-            contents,
+            contents: validContents,
             generationConfig: { temperature: 0.3, maxOutputTokens: 1500 }
           })
         });
