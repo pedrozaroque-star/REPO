@@ -18,7 +18,7 @@
         },
         {
             "path": "/api/cron/integrity-check",
-            "schedule": "0 18 * * *"
+            "schedule": "15 13 * * *"
         },
         {
             "path": "/api/cron/sync-pmix",
@@ -46,7 +46,7 @@
         },
         {
             "path": "/api/cron/sync-sales-today",
-            "schedule": "*/30 * * * *"
+            "schedule": "*/5 * * * *"
         }
     ]
 }
