@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation'
 import AppSidebar from './AppSidebar'
 import BottomTabBar from './BottomTabBar'
+import SupportChatWidget from './SupportChatWidget'
 import { useState, useEffect } from 'react'
 import { LanguageProvider } from '@/lib/i18n'
 
@@ -84,6 +85,9 @@ export default function ClientLayout({
 
                     {/* Bottom Tab Bar (mobile only) */}
                     <BottomTabBar onOpenDrawer={() => setMobileDrawerOpen(true)} />
+                    
+                    {/* TEG Assistant Chat Widget */}
+                    <SupportChatWidget />
                 </div>
             )}
         </LanguageProvider>
