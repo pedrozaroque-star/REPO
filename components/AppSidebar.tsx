@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle
+    CalendarDays, Sparkles, Info, UserCircle, Menu
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -90,11 +90,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     })
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
+    const mobileDropdownRef = useRef<HTMLDivElement>(null)
 
     // Close dropdown on click outside
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+            const isOutsideDesktop = dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+            const isOutsideMobile = mobileDropdownRef.current && !mobileDropdownRef.current.contains(e.target as Node)
+            if (isOutsideDesktop && isOutsideMobile) {
                 setUserDropdownOpen(false)
             }
         }
@@ -325,6 +328,160 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         </nav>
     )
 
+    const renderUserDropdownMenu = () => (
+        <AnimatePresence>
+            {userDropdownOpen && (
+                <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 mt-2 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto origin-top-right rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-1.5 shadow-2xl ring-1 ring-black/5 z-[100]"
+                >
+                    {/* ── Profile Header ── */}
+                    <div className="px-3 py-2.5 mb-1">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-sm font-bold shadow-md ring-2 ring-white dark:ring-slate-950">
+                                {user?.name?.[0] || <User size={16} />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{user?.name || 'Usuario'}</p>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">{user?.email || ''}</p>
+                            </div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30">
+                                <Shield size={10} />
+                                {user?.role || 'Staff'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                    {/* ── Quick Links ── */}
+                    <div className="py-1">
+                        <Link
+                            href="/configuracion"
+                            onClick={() => setUserDropdownOpen(false)}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                        >
+                            <Settings size={15} className="text-slate-500" />
+                            {language === 'es' ? 'Configuración' : 'Settings'}
+                        </Link>
+                        <Link
+                            href="/feedback"
+                            onClick={() => setUserDropdownOpen(false)}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                        >
+                            <MessageSquare size={15} className="text-emerald-500" />
+                            Feedback
+                        </Link>
+                        <Link
+                            href="/dashboard"
+                            onClick={() => setUserDropdownOpen(false)}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                        >
+                            <LayoutDashboard size={15} className="text-blue-500" />
+                            Dashboard
+                        </Link>
+                    </div>
+
+                    <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                    {/* ── Appearance ── */}
+                    <div className="py-1">
+                        <div className="px-3 py-1.5">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">{language === 'es' ? 'Apariencia' : 'Appearance'}</p>
+                        </div>
+                        {/* Theme inline toggle */}
+                        <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
+                            <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                                <Moon size={15} className="text-indigo-500" />
+                                <span>{language === 'es' ? 'Modo Oscuro' : 'Dark Mode'}</span>
+                            </div>
+                            <ThemeToggle />
+                        </div>
+                        {/* Language inline toggle */}
+                        <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
+                            <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                                <Globe size={15} className="text-green-500" />
+                                <span>{language === 'es' ? 'Idioma' : 'Language'}</span>
+                            </div>
+                            <button
+                                onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
+                                className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-[10px] font-black flex items-center gap-1"
+                            >
+                                <span className={language === 'en' ? 'text-red-600' : 'text-slate-400'}>EN</span>
+                                <span className="text-slate-300 dark:text-slate-600">/</span>
+                                <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                    {/* ── Utilities ── */}
+                    <div className="py-1">
+                        <button
+                            onClick={() => { window.location.reload(); setUserDropdownOpen(false) }}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                        >
+                            <RefreshCw size={15} className="text-blue-500" />
+                            {t('nav.update')}
+                        </button>
+                        <button
+                            onClick={() => setUserDropdownOpen(false)}
+                            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                        >
+                            <div className="flex items-center gap-2.5">
+                                <Keyboard size={15} className="text-slate-400" />
+                                <span>{language === 'es' ? 'Atajos' : 'Shortcuts'}</span>
+                            </div>
+                            <kbd className="text-[9px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded">Ctrl+K</kbd>
+                        </button>
+                        <a
+                            href="https://tacosgavilan.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
+                        >
+                            <div className="flex items-center gap-2.5">
+                                <HelpCircle size={15} className="text-amber-500" />
+                                <span>{language === 'es' ? 'Ayuda' : 'Help'}</span>
+                            </div>
+                            <ExternalLink size={12} className="text-slate-300 dark:text-slate-600" />
+                        </a>
+                    </div>
+
+                    <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                    {/* ── App Info ── */}
+                    <div className="px-3 py-1.5 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-300 dark:text-slate-600">
+                            <Sparkles size={10} />
+                            <span>SM TEG v6.0</span>
+                        </div>
+                        <span className="text-[9px] text-slate-300 dark:text-slate-700">2026</span>
+                    </div>
+
+                    <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                    {/* ── Logout ── */}
+                    <div className="py-1">
+                        <button
+                            onClick={() => { handleLogout(); setUserDropdownOpen(false) }}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors font-medium"
+                        >
+                            <LogOut size={15} />
+                            {t('nav.logout')}
+                        </button>
+                    </div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+    )
+
     return (
         <>
             {/* ============ DESKTOP SIDEBAR ============ */}
@@ -404,185 +561,169 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                     </button>
 
                     {/* Dropdown Menu */}
-                    <AnimatePresence>
-                        {userDropdownOpen && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                                transition={{ duration: 0.15 }}
-                                className="absolute right-0 mt-2 w-64 origin-top-right rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-1.5 shadow-2xl ring-1 ring-black/5 z-[100]"
-                            >
-                                {/* ── Profile Header ── */}
-                                <div className="px-3 py-2.5 mb-1">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-sm font-bold shadow-md ring-2 ring-white dark:ring-slate-950">
-                                            {user?.name?.[0] || <User size={16} />}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{user?.name || 'Usuario'}</p>
-                                            <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">{user?.email || ''}</p>
-                                        </div>
-                                    </div>
-                                    <div className="mt-2 flex items-center gap-1.5">
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30">
-                                            <Shield size={10} />
-                                            {user?.role || 'Staff'}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
-
-                                {/* ── Quick Links ── */}
-                                <div className="py-1">
-                                    <Link
-                                        href="/configuracion"
-                                        onClick={() => setUserDropdownOpen(false)}
-                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
-                                    >
-                                        <Settings size={15} className="text-slate-500" />
-                                        {language === 'es' ? 'Configuración' : 'Settings'}
-                                    </Link>
-                                    <Link
-                                        href="/feedback"
-                                        onClick={() => setUserDropdownOpen(false)}
-                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
-                                    >
-                                        <MessageSquare size={15} className="text-emerald-500" />
-                                        Feedback
-                                    </Link>
-                                    <Link
-                                        href="/dashboard"
-                                        onClick={() => setUserDropdownOpen(false)}
-                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
-                                    >
-                                        <LayoutDashboard size={15} className="text-blue-500" />
-                                        Dashboard
-                                    </Link>
-                                </div>
-
-                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
-
-                                {/* ── Appearance ── */}
-                                <div className="py-1">
-                                    <div className="px-3 py-1.5">
-                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">{language === 'es' ? 'Apariencia' : 'Appearance'}</p>
-                                    </div>
-                                    {/* Theme inline toggle */}
-                                    <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
-                                        <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
-                                            <Moon size={15} className="text-indigo-500" />
-                                            <span>{language === 'es' ? 'Modo Oscuro' : 'Dark Mode'}</span>
-                                        </div>
-                                        <ThemeToggle />
-                                    </div>
-                                    {/* Language inline toggle */}
-                                    <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
-                                        <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
-                                            <Globe size={15} className="text-green-500" />
-                                            <span>{language === 'es' ? 'Idioma' : 'Language'}</span>
-                                        </div>
-                                        <button
-                                            onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
-                                            className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-[10px] font-black flex items-center gap-1"
-                                        >
-                                            <span className={language === 'en' ? 'text-red-600' : 'text-slate-400'}>EN</span>
-                                            <span className="text-slate-300 dark:text-slate-600">/</span>
-                                            <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
-
-                                {/* ── Utilities ── */}
-                                <div className="py-1">
-                                    <button
-                                        onClick={() => { window.location.reload(); setUserDropdownOpen(false) }}
-                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
-                                    >
-                                        <RefreshCw size={15} className="text-blue-500" />
-                                        {t('nav.update')}
-                                    </button>
-                                    <button
-                                        onClick={() => setUserDropdownOpen(false)}
-                                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-2.5">
-                                            <Keyboard size={15} className="text-slate-400" />
-                                            <span>{language === 'es' ? 'Atajos' : 'Shortcuts'}</span>
-                                        </div>
-                                        <kbd className="text-[9px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded">Ctrl+K</kbd>
-                                    </button>
-                                    <a
-                                        href="https://tacosgavilan.com"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-2.5">
-                                            <HelpCircle size={15} className="text-amber-500" />
-                                            <span>{language === 'es' ? 'Ayuda' : 'Help'}</span>
-                                        </div>
-                                        <ExternalLink size={12} className="text-slate-300 dark:text-slate-600" />
-                                    </a>
-                                </div>
-
-                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
-
-                                {/* ── App Info ── */}
-                                <div className="px-3 py-1.5 flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5 text-[10px] text-slate-300 dark:text-slate-600">
-                                        <Sparkles size={10} />
-                                        <span>SM TEG v6.0</span>
-                                    </div>
-                                    <span className="text-[9px] text-slate-300 dark:text-slate-700">2026</span>
-                                </div>
-
-                                <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
-
-                                {/* ── Logout ── */}
-                                <div className="py-1">
-                                    <button
-                                        onClick={() => { handleLogout(); setUserDropdownOpen(false) }}
-                                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors font-medium"
-                                    >
-                                        <LogOut size={15} />
-                                        {t('nav.logout')}
-                                    </button>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    {renderUserDropdownMenu()}
                 </div>
             </div>
 
             {/* ============ MOBILE TOP BAR ============ */}
-            <header className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-4">
-                <Link href="/dashboard" className="flex items-center gap-2.5 group">
-                    <img src="/logo.png" alt="TEG" className="w-8 h-8 object-contain transition-transform group-hover:scale-110" />
-                    <span className="text-base font-black text-slate-900 dark:text-white">
-                        SM<span className="text-red-600 font-semibold ml-0.5">TEG</span>
-                    </span>
-                </Link>
+            <header className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-2">
+                <div className="flex items-center gap-1">
+                    <button onClick={() => setMobileDrawerOpen(true)} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                        <Menu size={20} />
+                    </button>
+                    <Link href="/dashboard" className="flex items-center gap-2 group">
+                        <img src="/logo.png" alt="TEG" className="w-7 h-7 object-contain transition-transform group-hover:scale-110" />
+                        <span className="text-sm font-black text-slate-900 dark:text-white">
+                            SM<span className="text-red-600 font-semibold ml-0.5">TEG</span>
+                        </span>
+                    </Link>
+                </div>
 
                 <div className="flex items-center gap-1">
                     <button
                         onClick={() => setLanguage(language === 'es' ? 'en' : 'es')}
-                        className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-[10px] font-black flex items-center gap-0.5"
+                        className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-[10px] font-black hidden sm:flex items-center gap-0.5"
                     >
                         <span className={language === 'en' ? 'text-red-600' : 'text-slate-400'}>EN</span>
                         <span className="text-slate-300 dark:text-slate-700">/</span>
                         <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
                     </button>
-                    <ThemeToggle />
+                    <div className="hidden sm:block"><ThemeToggle /></div>
                     <NotificationBell />
-                    <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold ring-2 ring-white dark:ring-slate-900">
+                    <button 
+                        onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                        className="ml-1 flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-[10px] font-bold ring-2 ring-white dark:ring-slate-900 shadow-sm"
+                    >
                         {user?.name?.[0] || '?'}
-                    </div>
+                    </button>
                 </div>
             </header>
+
+            {/* ============ MOBILE USER DROPDOWN (fixed, outside header) ============ */}
+            <AnimatePresence>
+                {userDropdownOpen && (
+                    <div className="lg:hidden fixed inset-0 z-[90]" ref={mobileDropdownRef}>
+                        {/* Backdrop */}
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-black/20"
+                            onClick={() => setUserDropdownOpen(false)}
+                        />
+                        {/* Dropdown panel */}
+                        <motion.div
+                            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute right-2 top-[3.75rem] w-72 max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-1.5 shadow-2xl ring-1 ring-black/5"
+                        >
+                            {/* ── Profile Header ── */}
+                            <div className="px-3 py-2.5 mb-1">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-red-500 to-orange-500 flex items-center justify-center text-white text-sm font-bold shadow-md ring-2 ring-white dark:ring-slate-950">
+                                        {user?.name?.[0] || <User size={16} />}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{user?.name || 'Usuario'}</p>
+                                        <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">{user?.email || ''}</p>
+                                    </div>
+                                </div>
+                                <div className="mt-2 flex items-center gap-1.5">
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30">
+                                        <Shield size={10} />
+                                        {user?.role || 'Staff'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                            {/* ── Quick Links ── */}
+                            <div className="py-1">
+                                <Link href="/configuracion" onClick={() => setUserDropdownOpen(false)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                    <Settings size={15} className="text-slate-500" />
+                                    {language === 'es' ? 'Configuración' : 'Settings'}
+                                </Link>
+                                <Link href="/feedback" onClick={() => setUserDropdownOpen(false)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                    <MessageSquare size={15} className="text-emerald-500" />
+                                    Feedback
+                                </Link>
+                                <Link href="/dashboard" onClick={() => setUserDropdownOpen(false)} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                    <LayoutDashboard size={15} className="text-blue-500" />
+                                    Dashboard
+                                </Link>
+                            </div>
+
+                            <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                            {/* ── Appearance ── */}
+                            <div className="py-1">
+                                <div className="px-3 py-1.5">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">{language === 'es' ? 'Apariencia' : 'Appearance'}</p>
+                                </div>
+                                <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
+                                    <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                                        <Moon size={15} className="text-indigo-500" />
+                                        <span>{language === 'es' ? 'Modo Oscuro' : 'Dark Mode'}</span>
+                                    </div>
+                                    <ThemeToggle />
+                                </div>
+                                <div className="flex items-center justify-between px-3 py-1.5 rounded-lg">
+                                    <div className="flex items-center gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                                        <Globe size={15} className="text-green-500" />
+                                        <span>{language === 'es' ? 'Idioma' : 'Language'}</span>
+                                    </div>
+                                    <button onClick={() => setLanguage(language === 'es' ? 'en' : 'es')} className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-[10px] font-black flex items-center gap-1">
+                                        <span className={language === 'en' ? 'text-red-600' : 'text-slate-400'}>EN</span>
+                                        <span className="text-slate-300 dark:text-slate-600">/</span>
+                                        <span className={language === 'es' ? 'text-red-600' : 'text-slate-400'}>ES</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                            {/* ── Utilities ── */}
+                            <div className="py-1">
+                                <button onClick={() => { window.location.reload(); setUserDropdownOpen(false) }} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                    <RefreshCw size={15} className="text-blue-500" />
+                                    {t('nav.update')}
+                                </button>
+                                <a href="https://tacosgavilan.com" target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors">
+                                    <div className="flex items-center gap-2.5">
+                                        <HelpCircle size={15} className="text-amber-500" />
+                                        <span>{language === 'es' ? 'Ayuda' : 'Help'}</span>
+                                    </div>
+                                    <ExternalLink size={12} className="text-slate-300 dark:text-slate-600" />
+                                </a>
+                            </div>
+
+                            <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                            {/* ── App Info ── */}
+                            <div className="px-3 py-1.5 flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-300 dark:text-slate-600">
+                                    <Sparkles size={10} />
+                                    <span>SM TEG v6.0</span>
+                                </div>
+                                <span className="text-[9px] text-slate-300 dark:text-slate-700">2026</span>
+                            </div>
+
+                            <div className="h-px bg-slate-100 dark:bg-slate-800 mx-1" />
+
+                            {/* ── Logout ── */}
+                            <div className="py-1">
+                                <button onClick={() => { handleLogout(); setUserDropdownOpen(false) }} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors font-medium">
+                                    <LogOut size={15} />
+                                    {t('nav.logout')}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
 
             {/* ============ MOBILE DRAWER OVERLAY ============ */}
             <AnimatePresence>
