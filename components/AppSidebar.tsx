@@ -285,20 +285,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {(!isCollapsed || isMobile) && (
                     <span className="truncate">{item.name}</span>
                 )}
-                {/* Collapsed tooltip */}
-                {isCollapsed && !isMobile && (
-                    <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-900 dark:bg-slate-700 text-white text-xs font-medium rounded-md shadow-lg opacity-0 group-hover/item:opacity-100 pointer-events-none transition-opacity duration-150 whitespace-nowrap z-[200]">
-                        {item.plainName || item.name}
-                        <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-slate-900 dark:border-r-slate-700" />
-                    </div>
-                )}
+
             </Link>
         )
     }
 
     // Shared nav content
     const renderNavContent = (isMobile: boolean = false) => (
-        <nav className={`flex-1 px-3 py-3 space-y-1 no-scrollbar ${isCollapsed ? 'overflow-visible' : 'overflow-y-auto overflow-x-hidden'}`}>
+        <nav className={`flex-1 px-3 py-3 space-y-1 overflow-y-auto overflow-x-hidden no-scrollbar`}>
             {filteredGroups.map((group) => {
                 const isOpen = expandedGroups[group.id] ?? true
                 return (

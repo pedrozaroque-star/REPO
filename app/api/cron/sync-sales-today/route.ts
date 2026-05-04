@@ -23,10 +23,10 @@ export async function GET(request: Request) {
         
         const currentHour = laNow.getHours()
 
-        // Restricción de horario: Solo correr entre las 7 AM y las 11:59 PM
-        // currentHour va de 0 a 23. Así que requerimos currentHour >= 7.
-        if (currentHour < 7) {
-            console.log(`⏳ [CRON TODAY] Ejecución omitida. Fuera de horario operativo (7am-11:59pm). Hora actual LA: ${currentHour}:00`)
+        // Restricción de horario: Correr entre las 7 AM y las 4:59 AM del día siguiente.
+        // Omitimos únicamente las 5 AM y 6 AM (horas muertas donde se cierra el día).
+        if (currentHour === 5 || currentHour === 6) {
+            console.log(`⏳ [CRON TODAY] Ejecución omitida. Fuera de horario operativo (7am-4:59am). Hora actual LA: ${currentHour}:00`)
             return NextResponse.json({ success: true, message: 'Skipped: Outside operating hours' })
         }
 
