@@ -318,14 +318,14 @@ export default function SupportChatWidget() {
       {isOpen && isExpanded && createPortal(
         <AnimatePresence>
           <motion.div key="bd" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={toggleExpand}
-            className="fixed inset-0 z-[9998] cursor-pointer" style={{background:'radial-gradient(ellipse at center,rgba(99,102,241,0.12) 0%,rgba(0,0,0,0.5) 100%)',backdropFilter:'blur(4px)'}}/>
+            className="fixed inset-0 z-[9998] cursor-pointer" style={{background:'radial-gradient(ellipse at center, rgba(99,102,241,0.45) 0%, rgba(139,92,246,0.35) 25%, rgba(79,70,229,0.25) 50%, rgba(15,10,40,0.8) 100%)',backdropFilter:'blur(8px)'}}/>
           <motion.div key="glow" initial={{opacity:0}} animate={{opacity:[0.25,0.5,0.25]}} transition={{duration:6,repeat:Infinity,ease:'easeInOut'}}
             className="fixed inset-0 z-[9998] pointer-events-none flex items-center justify-center">
-            <div className="w-[750px] h-[650px] rounded-full" style={{background:'radial-gradient(circle,rgba(99,102,241,0.25) 0%,transparent 70%)',filter:'blur(60px)'}}/>
+            <div className="w-[2000px] h-[1500px] rounded-full" style={{background:'radial-gradient(circle,rgba(99,102,241,0.35) 0%,rgba(139,92,246,0.2) 30%,rgba(79,70,229,0.08) 55%,transparent 75%)',filter:'blur(100px)'}}/>
           </motion.div>
           <motion.div key="modal" initial={{opacity:0,scale:0.92,y:20}} animate={{opacity:1,scale:1,y:0,...glow}} exit={{opacity:0,scale:0.95,y:10}}
             transition={{type:'spring',stiffness:300,damping:28,boxShadow:{duration:6,repeat:Infinity,ease:'easeInOut'},backgroundPosition:{duration:6,repeat:Infinity,ease:'linear'}}}
-            className="fixed z-[9999] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95vw] max-w-[800px] h-[85vh] max-h-[720px] rounded-2xl overflow-hidden flex flex-col p-[2px]" style={{backgroundImage: 'linear-gradient(90deg, #6366f1, #a855f7, #ec4899, #06b6d4, #6366f1)', backgroundSize: '400% 100%'}}>
+            className="fixed z-[9999] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95vw] max-w-[1100px] h-[90vh] max-h-[850px] rounded-2xl overflow-hidden flex flex-col p-[2px]" style={{backgroundImage: 'linear-gradient(90deg, #6366f1, #a855f7, #ec4899, #06b6d4, #6366f1)', backgroundSize: '400% 100%'}}>
             <div className="flex flex-col h-full w-full bg-white dark:bg-slate-900 rounded-[14px] overflow-hidden">
               {renderHeader(true)}
               <div className="flex flex-1 overflow-hidden">
