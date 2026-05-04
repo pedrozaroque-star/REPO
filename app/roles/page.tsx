@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useLanguage } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase-client';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1413,13 +1414,14 @@ export default function MissionControlRoles() {
         )}
       </AnimatePresence>
 
+      {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>
         {showVisualBoard && (
            <motion.div 
              initial={{ opacity: 0 }}
              animate={{ opacity: 1 }}
              exit={{ opacity: 0 }}
-             className="fixed inset-0 z-[200] bg-white flex flex-col overflow-hidden"
+             className="fixed inset-0 z-[9999] bg-white flex flex-col overflow-hidden"
            >
               {/* BOARD HEADER (CLEAN LIGHT) */}
               <div className="bg-zinc-50 border-b-2 border-black/5 px-10 py-3 flex items-center justify-between">
@@ -1560,6 +1562,7 @@ export default function MissionControlRoles() {
             </motion.div>
         )}
       </AnimatePresence>
+      , document.body)}
 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 6px; }

@@ -222,7 +222,7 @@ function SettingsPage() {
   // Password strength
   const passStrength = passwords.new_password.length === 0 ? 0
     : passwords.new_password.length < 6 ? 1
-    : passwords.new_password.length < 10 ? 2 : 3
+      : passwords.new_password.length < 10 ? 2 : 3
   const strengthColors = ['bg-slate-200 dark:bg-slate-700', 'bg-red-400', 'bg-yellow-400', 'bg-emerald-500']
   const strengthLabels = ['', 'Weak', 'Good', 'Strong']
 

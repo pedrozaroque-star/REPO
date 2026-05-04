@@ -5,8 +5,20 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from './ProtectedRoute'
 import { LayoutDashboard, ClipboardList, DollarSign, Calendar, Clock, Grid3X3, Users } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
-import { useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react'
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
+
+// Match sidebar GROUP_COLORS for each tab
+const TAB_COLORS: Record<string, { icon: string; activeIcon: string; activeBg: string; activeText: string; indicatorColor: string }> = {
+    home:     { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-blue-600 dark:text-blue-400',    activeBg: 'bg-blue-50 dark:bg-blue-950/40',       activeText: 'text-blue-600 dark:text-blue-400',    indicatorColor: 'bg-blue-500' },
+    inspect:  { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-blue-600 dark:text-blue-400',    activeBg: 'bg-blue-50 dark:bg-blue-950/40',       activeText: 'text-blue-600 dark:text-blue-400',    indicatorColor: 'bg-blue-500' },
+    tasks:    { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-blue-600 dark:text-blue-400',    activeBg: 'bg-blue-50 dark:bg-blue-950/40',       activeText: 'text-blue-600 dark:text-blue-400',    indicatorColor: 'bg-blue-500' },
+    sales:    { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-orange-600 dark:text-orange-400', activeBg: 'bg-orange-50 dark:bg-orange-950/40',   activeText: 'text-orange-600 dark:text-orange-400', indicatorColor: 'bg-orange-500' },
+    planner:  { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-orange-600 dark:text-orange-400', activeBg: 'bg-orange-50 dark:bg-orange-950/40',   activeText: 'text-orange-600 dark:text-orange-400', indicatorColor: 'bg-orange-500' },
+    roles:    { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-cyan-600 dark:text-cyan-400',    activeBg: 'bg-cyan-50 dark:bg-cyan-950/40',       activeText: 'text-cyan-600 dark:text-cyan-400',    indicatorColor: 'bg-cyan-500' },
+    schedule: { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-cyan-600 dark:text-cyan-400',    activeBg: 'bg-cyan-50 dark:bg-cyan-950/40',       activeText: 'text-cyan-600 dark:text-cyan-400',    indicatorColor: 'bg-cyan-500' },
+    more:     { icon: 'text-slate-400 dark:text-slate-500', activeIcon: 'text-slate-600 dark:text-slate-300',  activeBg: 'bg-slate-50 dark:bg-slate-800/40',     activeText: 'text-slate-600 dark:text-slate-300',  indicatorColor: 'bg-slate-400' },
+}
 
 interface BottomTabBarProps {
     onOpenDrawer: () => void
@@ -15,9 +27,7 @@ interface BottomTabBarProps {
 export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
     const pathname = usePathname()
     const { user } = useAuth()
-    const { t } = useLanguage()
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
+    const { language } = useLanguage()
 
     const userRole = (user?.role || user?.user_type || '').toLowerCase()
 
@@ -35,21 +45,21 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
         }
 
         if (['admin', 'manager', 'supervisor'].includes(userRole)) {
-            items.push({ label: 'Ventas', icon: DollarSign, path: '/ventas', id: 'sales' })
+            items.push({ label: language === 'es' ? 'Ventas' : 'Sales', icon: DollarSign, path: '/ventas', id: 'sales' })
             items.push({ label: 'Planner', icon: Calendar, path: '/planificador', id: 'planner' })
         } else {
             items.push({ label: 'Roles', icon: Users, path: '/roles', id: 'roles' })
-            items.push({ label: 'Horario', icon: Clock, path: '/mis-horarios', id: 'schedule' })
+            items.push({ label: language === 'es' ? 'Horario' : 'Schedule', icon: Clock, path: '/mis-horarios', id: 'schedule' })
         }
 
         return items
-    }, [userRole])
+    }, [userRole, language])
 
     // All items including "Más"
     const allItems = useMemo(() => [
         ...tabs,
-        { label: 'Más', icon: Grid3X3, path: '__drawer__', id: 'more' }
-    ], [tabs])
+        { label: language === 'es' ? 'Más' : 'More', icon: Grid3X3, path: '__drawer__', id: 'more' }
+    ], [tabs, language])
 
     // Find active index
     const activeIndex = useMemo(() => {
@@ -57,118 +67,54 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
         return idx >= 0 ? idx : -1
     }, [pathname, allItems])
 
-    // Calculate indicator position based on active tab
-    useLayoutEffect(() => {
-        if (activeIndex < 0 || !containerRef.current) return
-        const container = containerRef.current
-        const items = container.querySelectorAll('[data-tab-item]')
-        const activeItem = items[activeIndex] as HTMLElement
-        if (!activeItem) return
-
-        const containerRect = container.getBoundingClientRect()
-        const itemRect = activeItem.getBoundingClientRect()
-
-        setIndicatorStyle({
-            left: itemRect.left - containerRect.left + (itemRect.width / 2) - 20,
-            width: 40,
-        })
-    }, [activeIndex, allItems])
-
-    // Recalculate on resize
-    useEffect(() => {
-        const handleResize = () => {
-            if (activeIndex < 0 || !containerRef.current) return
-            const container = containerRef.current
-            const items = container.querySelectorAll('[data-tab-item]')
-            const activeItem = items[activeIndex] as HTMLElement
-            if (!activeItem) return
-            const containerRect = container.getBoundingClientRect()
-            const itemRect = activeItem.getBoundingClientRect()
-            setIndicatorStyle({
-                left: itemRect.left - containerRect.left + (itemRect.width / 2) - 20,
-                width: 40,
-            })
-        }
-        window.addEventListener('resize', handleResize)
-        return () => window.removeEventListener('resize', handleResize)
-    }, [activeIndex])
-
     return (
         <div
-            className="lg:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
-            style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
+            className="lg:hidden fixed bottom-0 left-0 right-0 z-50"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-            {/* Floating Pill Container */}
-            <div
-                ref={containerRef}
-                className="pointer-events-auto relative mx-4 w-full max-w-[420px] rounded-2xl overflow-hidden"
-                style={{
-                    background: 'rgba(15, 23, 42, 0.85)',
-                    backdropFilter: 'blur(20px) saturate(180%)',
-                    WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-                }}
-            >
-                {/* Animated active indicator glow */}
-                {activeIndex >= 0 && (
-                    <motion.div
-                        className="absolute top-0 h-[3px] rounded-full"
-                        style={{
-                            background: 'linear-gradient(90deg, #ef4444, #f97316, #ef4444)',
-                            filter: 'blur(1px)',
-                        }}
-                        animate={{
-                            left: indicatorStyle.left,
-                            width: indicatorStyle.width,
-                        }}
-                        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    />
-                )}
-
+            {/* Clean card container matching sidebar style */}
+            <div className="bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800">
                 {/* Tabs Row */}
-                <div className="flex items-center justify-around h-[58px] px-2">
+                <div className="flex items-stretch justify-around h-[60px]">
                     {allItems.map((tab, index) => {
                         const isActive = index === activeIndex
                         const isDrawer = tab.path === '__drawer__'
                         const Icon = tab.icon
+                        const colors = TAB_COLORS[tab.id] || TAB_COLORS.more
 
                         const content = (
                             <div
-                                data-tab-item
-                                className={`relative flex flex-col items-center justify-center gap-[3px] py-1.5 px-3 rounded-xl transition-all duration-300 ${
-                                    isActive
-                                        ? ''
-                                        : 'active:scale-90'
+                                className={`relative flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-all duration-200 ${
+                                    isActive ? '' : 'active:scale-95'
                                 }`}
                             >
-                                {/* Icon container with glow effect when active */}
-                                <div className="relative">
-                                    <Icon
-                                        size={isActive ? 22 : 20}
-                                        strokeWidth={isActive ? 2.5 : 1.6}
-                                        className={`transition-all duration-300 ${
-                                            isActive
-                                                ? 'text-white drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]'
-                                                : 'text-slate-400'
-                                        }`}
+                                {/* Active top indicator bar */}
+                                {isActive && (
+                                    <motion.div
+                                        layoutId="bottomTabIndicator"
+                                        className={`absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-b-full ${colors.indicatorColor}`}
+                                        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                                     />
-                                    {/* Active dot indicator below icon */}
-                                    {isActive && (
-                                        <motion.div
-                                            initial={{ scale: 0, opacity: 0 }}
-                                            animate={{ scale: 1, opacity: 1 }}
-                                            className="absolute -bottom-[2px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]"
-                                        />
-                                    )}
+                                )}
+
+                                {/* Icon */}
+                                <div className={`transition-all duration-200 ${
+                                    isActive
+                                        ? `${colors.activeIcon} scale-110`
+                                        : colors.icon
+                                }`}>
+                                    <Icon
+                                        size={20}
+                                        strokeWidth={isActive ? 2.5 : 1.8}
+                                    />
                                 </div>
 
                                 {/* Label */}
                                 <span
-                                    className={`text-[10px] leading-none transition-all duration-300 ${
+                                    className={`text-[10px] leading-none transition-all duration-200 ${
                                         isActive
-                                            ? 'text-white font-bold tracking-wide'
-                                            : 'text-slate-500 font-medium'
+                                            ? `${colors.activeText} font-bold`
+                                            : 'text-slate-400 dark:text-slate-500 font-medium'
                                     }`}
                                 >
                                     {tab.label}
@@ -181,7 +127,7 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
                                 <button
                                     key={tab.id}
                                     onClick={onOpenDrawer}
-                                    className="outline-none focus:outline-none"
+                                    className="flex-1 outline-none focus:outline-none"
                                 >
                                     {content}
                                 </button>
@@ -192,7 +138,7 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
                             <Link
                                 key={tab.id}
                                 href={tab.path}
-                                className="outline-none focus:outline-none"
+                                className="flex-1 outline-none focus:outline-none"
                             >
                                 {content}
                             </Link>
