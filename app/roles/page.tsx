@@ -1599,11 +1599,12 @@ export default function MissionControlRoles() {
         }
       `}</style>
       {/* EMPLOYEE CONTACT & REASSIGNMENT MODAL */}
+      {typeof document !== 'undefined' && createPortal(<>
       <AnimatePresence>
         {selectedSlotForCard && (
           <div 
             onClick={() => setSelectedSlotForCard(null)}
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md cursor-pointer"
+            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md cursor-pointer"
           >
             <motion.div 
               onClick={(e) => e.stopPropagation()}
@@ -1842,6 +1843,7 @@ export default function MissionControlRoles() {
           </div>
         )}
       </AnimatePresence>
+      </>, document.body)}
 
       <AnimatePresence>
         {showUnassignedActivitiesModal && (

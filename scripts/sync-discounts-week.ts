@@ -188,7 +188,7 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
                     check.appliedDiscounts.forEach((disc: any) => {
                         if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
                         const amount = Number(disc.discountAmount || 0)
-                        if (amount === 0) return;
+                        if (amount === 0 || amount > totalRealDiscount + 0.05) return;
                         
                         allDiscountsToInsert.push({
                             store_id: storeId,
@@ -209,11 +209,17 @@ async function syncStoreDiscountsForDate(token: string, storeId: string, storeNa
                     check.selections.forEach((sel: any) => {
                         if (sel.voided || sel.deleted || sel.deferred || sel.state === 'VOIDED' || sel.state === 'REMOVED' || sel.refundDetails) return;
 
+                        const qty = sel.quantity || 1;
+                        const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0);
+                        const originalLinePrice = unitPrice * qty;
+                        const finalLinePrice = Number(sel.price || 0);
+                        const inferredDiscount = originalLinePrice - finalLinePrice;
+
                         if (sel.appliedDiscounts && sel.appliedDiscounts.length > 0) {
                             sel.appliedDiscounts.forEach((disc: any) => {
                                 if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
                                 const amount = Number(disc.discountAmount || 0)
-                                if (amount === 0) return;
+                                if (amount === 0 || amount > inferredDiscount + 0.05) return;
                                 
                                 allDiscountsToInsert.push({
                                     store_id: storeId,

@@ -197,7 +197,7 @@ export async function POST(request: Request) {
                         if (check.appliedDiscounts) {
                             check.appliedDiscounts.forEach((disc: any) => {
                                 if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
-                                if (Number(disc.discountAmount||0) > 0) {
+                                if (Number(disc.discountAmount||0) > 0 && Number(disc.discountAmount||0) <= totalRealDiscount + 0.05) {
                                     allDiscountsToInsert.push({
                                         store_id: storeId, store_name: storeName, business_date: dateStr, discount_name: disc.name || 'Unknown', discount_amount: Number(disc.discountAmount), approver_name: buildName(disc.approver, serverNameOrder), server_name: serverNameOrder, order_id: String(order.guid || order.id || 'N/A'), check_id: String(check.displayNumber || order.displayNumber || check.guid || check.id || 'N/A'), opened_date: openedDate
                                     })
@@ -210,10 +210,16 @@ export async function POST(request: Request) {
                                 // Quitamos receiptLinePrice === 0 porque los descuentos de 100% hacen que la linea valga 0, pero SÍ son descuentos validos.
                                 if (sel.voided || sel.deleted || sel.deferred || sel.state === 'VOIDED' || sel.state === 'REMOVED' || sel.refundDetails) return; 
 
+                                const qty = sel.quantity || 1;
+                                const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0);
+                                const originalLinePrice = unitPrice * qty;
+                                const finalLinePrice = Number(sel.price || 0);
+                                const inferredDiscount = originalLinePrice - finalLinePrice;
+
                                 if (sel.appliedDiscounts) {
                                     sel.appliedDiscounts.forEach((disc: any) => {
                                         if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
-                                        if (Number(disc.discountAmount||0) > 0) {
+                                        if (Number(disc.discountAmount||0) > 0 && Number(disc.discountAmount||0) <= inferredDiscount + 0.05) {
                                             allDiscountsToInsert.push({
                                                 store_id: storeId, store_name: storeName, business_date: dateStr, discount_name: disc.name || 'Unknown', discount_amount: Number(disc.discountAmount), approver_name: buildName(disc.approver, serverNameOrder), server_name: serverNameOrder, order_id: String(order.guid || order.id || 'N/A'), check_id: String(check.displayNumber || order.displayNumber || check.guid || check.id || 'N/A'), opened_date: openedDate
                                             })
