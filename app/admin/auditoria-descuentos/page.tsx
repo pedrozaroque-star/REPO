@@ -65,17 +65,67 @@ export default function AuditoriaDescuentos() {
 
     const todayStr = (() => {
         const d = new Date();
+        if (d.getHours() < 6) d.setDate(d.getDate() - 1);
         return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     })();
     const isTodayOrFuture = endDate >= todayStr;
 
     useEffect(() => {
         fetchDiscounts()
-    }, [startDate, endDate, storeFilter])
+    }, [period, startDate, endDate, storeFilter])
 
     const fetchDiscounts = async () => {
         setLoading(true)
         try {
+            // 1. Resolve exact dates based on period
+            const now = new Date()
+            if (now.getHours() < 6) now.setDate(now.getDate() - 1)
+            const today = now
+
+            let start = new Date(today)
+            let end = new Date(today)
+
+            if (period === 'custom' || period === 'last_week' || period === 'last_7' || period === 'last_month') {
+                const s = new Date(startDate + 'T00:00:00')
+                const e = new Date(endDate + 'T00:00:00')
+                start = s
+                end = e
+            } else if (period === 'today') {
+                start = today
+                end = today
+            } else if (period === 'yesterday') {
+                const y = new Date(today)
+                y.setDate(y.getDate() - 1)
+                start = y
+                end = y
+            } else if (period === 'week') {
+                const day = today.getDay()
+                const diff = today.getDate() - day + (day === 0 ? -6 : 1)
+                start = new Date(today.setDate(diff))
+                end = new Date()
+            } else if (period === 'month') {
+                start = new Date(today.getFullYear(), today.getMonth(), 1)
+            } else if (period === 'quarter') {
+                const quarterAgo = new Date(today)
+                quarterAgo.setDate(quarterAgo.getDate() - 90)
+                start = quarterAgo
+            }
+
+            const formatDate = (d: Date) => {
+                const year = d.getFullYear()
+                const month = String(d.getMonth() + 1).padStart(2, '0')
+                const day = String(d.getDate()).padStart(2, '0')
+                return `${year}-${month}-${day}`
+            }
+
+            const computedStart = formatDate(start);
+            const computedEnd = formatDate(end);
+
+            // Sync state so the UI calendar matches the actual fetched data
+            if (computedStart !== startDate) setStartDate(computedStart);
+            if (computedEnd !== endDate) setEndDate(computedEnd);
+
+            // 2. Fetch Data
             let allData: any[] = [];
             let from = 0;
             const pageSize = 1000;
@@ -84,13 +134,12 @@ export default function AuditoriaDescuentos() {
             while (hasMore) {
                 let query = supabase.from('sales_discounts_log').select('*')
                 
-                if (startDate && endDate) {
-                    if (startDate === endDate) {
-                        query = query.eq('business_date', startDate)
-                    } else {
-                        query = query.gte('business_date', startDate).lte('business_date', endDate)
-                    }
+                if (computedStart === computedEnd) {
+                    query = query.eq('business_date', computedStart)
+                } else {
+                    query = query.gte('business_date', computedStart).lte('business_date', computedEnd)
                 }
+                
                 if (storeFilter !== 'all') {
                     query = query.eq('store_name', storeFilter)
                 }
