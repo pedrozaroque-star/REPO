@@ -50,7 +50,7 @@ const BoardSlot = ({ label, stationKey, group, assignee, employees, className = 
   
   const sUpper = stationKey?.toUpperCase();
   const isGreenGroup = sUpper === 'ENTREGA' || sUpper === 'TORTILLAS';
-  const isYellowGroup = sUpper === 'CAJA 2' || sUpper === 'VENTANA 2' || sUpper === 'VENTANILLA 2';
+  const isYellowGroup = sUpper === 'CAJA 2' || sUpper === 'VENTANA 2' || sUpper === 'VENTANILLA 2' || sUpper === 'VENTANA 2 (B)';
 
   return (
     <div 
@@ -164,7 +164,7 @@ export default function MissionControlRoles() {
 
   // Dynamic SECTIONS based on Drive-Thru toggle and dynamic cashiers
   const SECTIONS = useMemo(() => {
-    const baseCajeras = ['Ventana 1', 'Ventana 2', 'Caja 1 / Salón'];
+    const baseCajeras = ['Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'Caja 1 / Salón'];
     const extrasCajeras = ['Caja 2', 'Caja 3', 'Caja 4', 'Caja 5'];
     
     const visibleExtras = extrasCajeras.filter((name, idx) => {
@@ -173,7 +173,7 @@ export default function MissionControlRoles() {
     });
 
     const finalCajeras = [...baseCajeras, ...visibleExtras, 'Uber + Salsas', 'ENTREGA', 'LIMPIEZA'].filter(s => {
-      if (!hasDriveThru && (s === 'Ventana 1' || s === 'Ventana 2')) return false;
+      if (!hasDriveThru && (s === 'Ventana 1' || s === 'Ventana 2' || s === 'Ventana 2 (B)')) return false;
       return true;
     });
 
@@ -1182,11 +1182,7 @@ export default function MissionControlRoles() {
                             >
                               <option value="">Vacante</option>
                               {employees.map(e => {
-                                const isBusy = assignedIdsInShift.has(String(e.id));
                                 const isCurrent = String(e.id) === String(currentAssigned?.employee_id);
-                                
-                                // Hide if busy elsewhere, but show if it's the current one
-                                if (isBusy && !isCurrent) return null;
 
                                 return (
                                   <option key={e.id} value={e.id}>
@@ -1534,11 +1530,14 @@ export default function MissionControlRoles() {
   
                        {/* Central DT Area */}
                        <div className="flex-1 flex flex-col gap-1">
-                          <BoardSlot label="Tortas / Quesadillas (DT)" stationKey="TORTAS/QUESADILLAS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS (DT)_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
+                          <div className="grid grid-cols-2 gap-1">
+                            <BoardSlot label="Tortas / Quesadillas (DT)" stationKey="TORTAS/QUESADILLAS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TORTAS/QUESADILLAS (DT)_${activeShift}`)} employees={employees} className="h-14 w-full" onClick={handleSlotClick} />
+                            <BoardSlot label="Descansos" stationKey="CUBRIR DESCANSOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `CUBRIR DESCANSOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                          </div>
                           <div className="flex-1 grid grid-cols-3 gap-1">
                             <BoardSlot label="Tacos / Burritos (DT)" stationKey="TACOS/BURRITOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `TACOS/BURRITOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
                             <BoardSlot label="Ventanilla 2" stationKey="Ventana 2" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 2_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
-                            <BoardSlot label="Descansos" stationKey="CUBRIR DESCANSOS (DT)" group="Drive-Thru" assignee={getAssignee(activeDay, `CUBRIR DESCANSOS (DT)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
+                            <BoardSlot label="Ventanilla 2 (B)" stationKey="Ventana 2 (B)" group="Drive-Thru" assignee={getAssignee(activeDay, `Ventana 2 (B)_${activeShift}`)} employees={employees} className="h-14" onClick={handleSlotClick} />
                           </div>
                        </div>
                     </div>
