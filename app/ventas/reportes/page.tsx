@@ -1520,7 +1520,7 @@ export default function ReportesPage() {
                                         const distToMon = currentDay === 0 ? -6 : (1 - currentDay)
                                         d.setUTCDate(d.getUTCDate() + distToMon)
                                         d.setUTCDate(d.getUTCDate() + i);
-                                        const dateLabel = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+                                        const dateLabel = `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}/${d.getUTCFullYear()}`;
 
                                         return (
                                             <div key={day.key} className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -1718,7 +1718,7 @@ export default function ReportesPage() {
                                                 <div className="flex justify-between items-center mb-3">
                                                     <div>
                                                         <h3 className="font-black text-slate-800 dark:text-white text-lg">{day.dayLabel}</h3>
-                                                        <p className="text-xs text-slate-400 font-bold">{dateObj.toLocaleDateString()}</p>
+                                                        <p className="text-xs text-slate-400 font-bold">{`${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getDate()).padStart(2, '0')}/${dateObj.getFullYear()}`}</p>
                                                     </div>
                                                     <div className={`text-xl font-black ${tNum > threshold ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-white'}`}>
                                                         {day.total}%
@@ -1808,9 +1808,7 @@ export default function ReportesPage() {
                                                 // Format Date for display (MM/DD/YY)
                                                 // Format Date for display (MM/DD/YY) or (DD/MM/YY)
                                                 const [y, m, d] = dateKey.split('-')
-                                                const dateDisp = language === 'es'
-                                                    ? `${d}/${m}/${y.substring(2)}`
-                                                    : `${m}/${d}/${y.substring(2)}`
+                                                const dateDisp = `${m}/${d}/${y}`
                                                 const dayOfWeek = new Date(dateKey + 'T12:00:00').getDay()
                                                 const isSunday = dayOfWeek === 0 // 0 is Sunday
                                                 const isWeekend = dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0 // Fri, Sat, Sun
@@ -1872,9 +1870,7 @@ export default function ReportesPage() {
                                     {Object.keys(monthlyData).sort().map((dateKey, idx) => {
                                         const row = monthlyData[dateKey]
                                         const [y, m, d] = dateKey.split('-')
-                                        const dateDisp = language === 'es'
-                                            ? `${d}/${m}/${y.substring(2)}`
-                                            : `${m}/${d}/${y.substring(2)}`
+                                        const dateDisp = `${m}/${d}/${y}`
                                         const dateObj = new Date(dateKey + 'T12:00:00')
                                         const dayOfWeek = dateObj.toLocaleDateString('en-US', { weekday: 'short' })
                                         const isSunday = dateObj.getDay() === 0
