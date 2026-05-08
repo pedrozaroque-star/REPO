@@ -10,6 +10,7 @@ import DynamicQuestion from '@/components/checklists/DynamicQuestion'
 import { getSafeLADateISO } from '@/lib/checklistPermissions'
 import { getNumericValue } from '@/lib/scoreCalculator'
 import { useLanguage } from '@/lib/i18n'
+import { GmailConnectModal } from '@/app/planificador/components/GmailConnectModal'
 
 interface Store {
   id: string
@@ -24,6 +25,25 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   const { t } = useLanguage()
   const [loading, setLoading] = useState(false)
   const isSubmittingRef = useRef(false)
+
+  const [googleConnected, setGoogleConnected] = useState(true)
+  const [isGmailModalOpen, setIsGmailModalOpen] = useState(false)
+
+  const checkGoogleAuth = async () => {
+    if (!user?.id) return
+    const supabase = await getSupabaseClient()
+    const { data } = await supabase.from('users').select('google_refresh_token').eq('id', user.id).single()
+    if (data?.google_refresh_token) {
+      setGoogleConnected(true)
+    } else {
+      setGoogleConnected(false)
+      setIsGmailModalOpen(true)
+    }
+  }
+
+  useEffect(() => {
+    checkGoogleAuth()
+  }, [user?.id])
 
   // Dynamic Hooks
   const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('supervisor_inspection_v1')
@@ -267,6 +287,12 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!googleConnected) {
+      setIsGmailModalOpen(true)
+      return
+    }
+
     if (loading) return // BLOCK DOUBLE SUBMISSIONS
 
     if (!user) return alert(t('inspections.form.alerts.session_expired'))
@@ -832,6 +858,13 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         )}
       </div>
 
+      <GmailConnectModal
+        isOpen={isGmailModalOpen}
+        onClose={() => {
+          setIsGmailModalOpen(false)
+          checkGoogleAuth()
+        }}
+      />
     </div>
   )
 }

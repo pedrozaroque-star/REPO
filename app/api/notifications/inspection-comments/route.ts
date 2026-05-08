@@ -12,21 +12,37 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 /**
  * Fallback: Obtain Gmail API access using Carlos's master account.
  */
-async function getSystemTransporter() {
-    const { data: user, error } = await supabase.from('users')
-        .select('id, google_refresh_token, google_email_connected')
-        .eq('email', 'carlos@tacosgavilan.com')
-        .single();
+async function getSystemTransporter(inspectorId?: string) {
+    let userToUse = null;
 
-    if (error || !user?.google_refresh_token) {
-        throw new Error('No se encontró la cuenta de respaldo (carlos@tacosgavilan.com) o no tiene token configurado.');
+    if (inspectorId) {
+        const { data: inspector } = await supabase.from('users')
+            .select('id, google_refresh_token, google_email_connected')
+            .eq('id', inspectorId)
+            .single();
+
+        if (inspector?.google_refresh_token && inspector?.google_email_connected) {
+            userToUse = inspector;
+        }
+    }
+
+    if (!userToUse) {
+        const { data: fallbackUser, error } = await supabase.from('users')
+            .select('id, google_refresh_token, google_email_connected')
+            .eq('email', 'carlos@tacosgavilan.com')
+            .single();
+
+        if (error || !fallbackUser?.google_refresh_token) {
+            throw new Error('No se encontró la cuenta de respaldo (carlos@tacosgavilan.com) o no tiene token configurado.');
+        }
+        userToUse = fallbackUser;
     }
 
     const tokenUrl = 'https://oauth2.googleapis.com/token';
     const params = new URLSearchParams();
     params.append('client_id', process.env.GOOGLE_CLIENT_ID!);
     params.append('client_secret', process.env.GOOGLE_CLIENT_SECRET!);
-    params.append('refresh_token', user.google_refresh_token);
+    params.append('refresh_token', userToUse.google_refresh_token);
     params.append('grant_type', 'refresh_token');
 
     const refreshRes = await fetch(tokenUrl, {
@@ -35,10 +51,10 @@ async function getSystemTransporter() {
         body: params
     });
 
-    if (!refreshRes.ok) throw new Error('Falló la actualización del token de la cuenta de sistema.');
+    if (!refreshRes.ok) throw new Error('Falló la actualización del token de correo.');
 
     const tokens = await refreshRes.json();
-    return { accessToken: tokens.access_token, fromEmail: user.google_email_connected };
+    return { accessToken: tokens.access_token, fromEmail: userToUse.google_email_connected };
 }
 
 export async function POST(req: Request) {
@@ -113,7 +129,8 @@ export async function POST(req: Request) {
         }
 
         // 4. Authenticate System Transporter
-        const { accessToken, fromEmail } = await getSystemTransporter()
+        // Uses supervisor's email if connected, otherwise falls back to system account
+        const { accessToken, fromEmail } = await getSystemTransporter(inspection.inspector_id)
 
         // 5. Build HTML Email
         const storeName = inspection.store?.name || 'Tienda Gavilán'
