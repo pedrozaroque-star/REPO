@@ -55,16 +55,16 @@ interface ChecklistReviewModalProps {
     onUpdate: () => void
 }
 
-// Gradient configs per checklist type
-const TYPE_THEMES: Record<string, { gradient: string, accent: string, icon: any, label: string }> = {
-    'temperaturas': { gradient: 'from-red-500 to-orange-400', accent: 'orange', icon: Thermometer, label: 'Control de Temperaturas' },
-    'daily': { gradient: 'from-blue-600 to-indigo-500', accent: 'indigo', icon: ClipboardCheck, label: 'Checklist Diario' },
-    'apertura': { gradient: 'from-emerald-500 to-teal-400', accent: 'teal', icon: Sunrise, label: 'Checklist de Apertura' },
-    'cierre': { gradient: 'from-purple-500 to-pink-400', accent: 'pink', icon: Moon, label: 'Checklist de Cierre' },
-    'recorrido': { gradient: 'from-cyan-500 to-blue-400', accent: 'blue', icon: Store, label: 'Recorrido de Tienda' },
-    'sobrante': { gradient: 'from-amber-500 to-yellow-400', accent: 'yellow', icon: Award, label: 'Producto Sobrante' },
-    'manager': { gradient: 'from-slate-600 to-gray-500', accent: 'gray', icon: User, label: 'Checklist de Manager' },
-    'supervisor': { gradient: 'from-violet-600 to-purple-500', accent: 'purple', icon: Star, label: 'Inspección de Supervisor' },
+// Gradient configs per checklist type (labels are now i18n keys)
+const TYPE_THEMES: Record<string, { gradient: string, accent: string, icon: any, labelEs: string, labelEn: string }> = {
+    'temperaturas': { gradient: 'from-red-500 to-orange-400', accent: 'orange', icon: Thermometer, labelEs: 'Control de Temperaturas', labelEn: 'Temperature Control' },
+    'daily': { gradient: 'from-blue-600 to-indigo-500', accent: 'indigo', icon: ClipboardCheck, labelEs: 'Checklist Diario', labelEn: 'Daily Checklist' },
+    'apertura': { gradient: 'from-emerald-500 to-teal-400', accent: 'teal', icon: Sunrise, labelEs: 'Checklist de Apertura', labelEn: 'Opening Checklist' },
+    'cierre': { gradient: 'from-purple-500 to-pink-400', accent: 'pink', icon: Moon, labelEs: 'Checklist de Cierre', labelEn: 'Closing Checklist' },
+    'recorrido': { gradient: 'from-cyan-500 to-blue-400', accent: 'blue', icon: Store, labelEs: 'Recorrido de Tienda', labelEn: 'Store Walkthrough' },
+    'sobrante': { gradient: 'from-amber-500 to-yellow-400', accent: 'yellow', icon: Award, labelEs: 'Producto Sobrante', labelEn: 'Leftover Product' },
+    'manager': { gradient: 'from-slate-600 to-gray-500', accent: 'gray', icon: User, labelEs: 'Checklist de Manager', labelEn: 'Manager Checklist' },
+    'supervisor': { gradient: 'from-violet-600 to-purple-500', accent: 'purple', icon: Star, labelEs: 'Inspección de Supervisor', labelEn: 'Supervisor Inspection' },
 }
 
 // ... helper components ...
@@ -72,11 +72,11 @@ const TYPE_THEMES: Record<string, { gradient: string, accent: string, icon: any,
 
 
 
-const STATUS_CONFIG: Record<string, { bg: string, text: string, border: string, icon: any, label: string }> = {
-    'pendiente': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-300', icon: Clock, label: 'Pendiente' },
-    'aprobado': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-300', icon: CheckCircle, label: 'Aprobado' },
-    'rechazado': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-300', icon: XCircle, label: 'Rechazado' },
-    'cerrado': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-300', icon: ClipboardCheck, label: 'Cerrado' },
+const STATUS_CONFIG: Record<string, { bg: string, text: string, border: string, icon: any, labelEs: string, labelEn: string }> = {
+    'pendiente': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-300', icon: Clock, labelEs: 'Pendiente', labelEn: 'Pending' },
+    'aprobado': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-300', icon: CheckCircle, labelEs: 'Aprobado', labelEn: 'Approved' },
+    'rechazado': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-300', icon: XCircle, labelEs: 'Rechazado', labelEn: 'Rejected' },
+    'cerrado': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-300', icon: ClipboardCheck, labelEs: 'Cerrado', labelEn: 'Closed' },
 }
 
 const SECTION_SCORES_MAP: Record<string, string> = {
@@ -107,7 +107,7 @@ const isNew = (dateStr?: string) => {
 }
 
 export default function ChecklistReviewModal({ isOpen, onClose, checklist, currentUser, onUpdate }: ChecklistReviewModalProps) {
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
     const [activeTab, setActiveTab] = useState<'answers' | 'photos'>('answers')
     const [reviewComment, setReviewComment] = useState('') // Deprecated for UI but kept for logic compat if needed
     const [saving, setSaving] = useState(false)
@@ -635,12 +635,12 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                 })
             }
 
-            alert(`Checklist actualizado a: ${newStatus.toUpperCase()}`)
+            alert(language === 'en' ? `Checklist updated to: ${newStatus.toUpperCase()}` : `Checklist actualizado a: ${newStatus.toUpperCase()}`)
             onUpdate()
             onClose()
         } catch (e: any) {
             console.error(e)
-            alert('Error al actualizar: ' + e.message)
+            alert((language === 'en' ? 'Error updating: ' : 'Error al actualizar: ') + e.message)
         } finally {
             setSaving(false)
         }
@@ -679,10 +679,10 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                         <ArrowLeft size={24} strokeWidth={3} />
                                     </button>
                                     <div className="flex flex-col gap-0.5">
-                                        <h1 className="text-lg font-black text-gray-900 dark:text-white tracking-tight leading-none uppercase">{theme.label}</h1>
+                                        <h1 className="text-lg font-black text-gray-900 dark:text-white tracking-tight leading-none uppercase">{language === 'en' ? theme.labelEn : theme.labelEs}</h1>
                                         <div className="flex items-center gap-3 hidden sm:flex">
                                             <div className="text-xs flex items-center gap-1 font-bold text-gray-600 dark:text-slate-400 uppercase">
-                                                <Store size={14} strokeWidth={2.5} /> {checklist.store_name || 'Tienda'}
+                                                <Store size={14} strokeWidth={2.5} /> {checklist.store_name || (language === 'en' ? 'Store' : 'Tienda')}
                                             </div>
                                             {checklist.supervisor_name && (
                                                 <div className="text-xs flex items-center gap-1 font-bold text-gray-600 dark:text-slate-400 uppercase border-l-2 border-gray-300 dark:border-slate-700 pl-3">
@@ -1271,7 +1271,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                 {/* 6. OBSERVATIONS */}
                                 {(checklist.comments || checklist.observaciones) && (
                                     <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm rounded-[2.5rem] p-8 border-2 border-dashed border-yellow-400 dark:border-yellow-900/50 text-center shadow-sm">
-                                        <h3 className="font-bold text-yellow-700 dark:text-yellow-500 uppercase tracking-widest text-sm mb-4">Final Notes</h3>
+                                        <h3 className="font-bold text-yellow-700 dark:text-yellow-500 uppercase tracking-widest text-sm mb-4">{language === 'en' ? 'Final Notes' : 'Notas Finales'}</h3>
                                         <p className="text-lg font-medium text-gray-800 dark:text-slate-200 italic">
                                             "{checklist.comments || checklist.observaciones}"
                                         </p>
@@ -1291,9 +1291,9 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                                                 <ClipboardCheck size={32} />
                                             </div>
                                             <div>
-                                                <h3 className="text-xl font-black text-white tracking-tight uppercase">Checklist Closed</h3>
+                                                <h3 className="text-xl font-black text-white tracking-tight uppercase">{language === 'en' ? 'Checklist Closed' : 'Checklist Cerrado'}</h3>
                                                 <p className="text-slate-400 text-sm font-medium mt-1">
-                                                    This inspection has been finalized and is in read-only mode.
+                                                    {language === 'en' ? 'This inspection has been finalized and is in read-only mode.' : 'Esta inspección ha sido finalizada y está en modo de solo lectura.'}
                                                 </p>
                                             </div>
                                         </div>

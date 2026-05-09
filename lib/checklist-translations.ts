@@ -180,7 +180,8 @@ export const TEMPLATE_TRANSLATIONS: Record<string, { en: string }> = {
     "recorrido_v1": { en: "Cleaning Walkthrough" },
     "sobrante_v1": { en: "Leftover Product" },
     "temperaturas_v1": { en: "Temperature Control" },
-    "manager_checklist_v1": { en: "Manager Checklist" }
+    "manager_checklist_v1": { en: "Manager Checklist" },
+    "supervisor_inspection_v1": { en: "Supervisor Inspection" }
 }
 
 export function getTranslatedQuestion(id: string, originalText: string, lang: 'es' | 'en'): string {

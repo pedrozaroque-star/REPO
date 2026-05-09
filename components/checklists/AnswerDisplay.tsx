@@ -15,7 +15,7 @@ interface AnswerDisplayProps {
 }
 
 export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }: AnswerDisplayProps) {
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
     let value = rawValue
     // Normalización del objeto valor (para compatibilidad con diferentes versiones de datos)
     if (value && typeof value === 'object') {
@@ -30,7 +30,7 @@ export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }:
     const numValue = Number(value)
 
     if (!isAnswered && displayValue === 'N/A') {
-        return <span className="text-gray-300 dark:text-slate-600 text-xs italic">Sin respuesta</span>
+        return <span className="text-gray-300 dark:text-slate-600 text-xs italic">{language === 'en' ? 'No answer' : 'Sin respuesta'}</span>
     }
 
     // YES/NO TYPE (Blocky Buttons style)
@@ -159,5 +159,5 @@ export function AnswerDisplay({ question, value: rawValue, type, sectionTitle }:
         )
     }
 
-    return <span className="text-gray-300 dark:text-slate-600 text-xs italic">Sin respuesta</span>
+    return <span className="text-gray-300 dark:text-slate-600 text-xs italic">{language === 'en' ? 'No answer' : 'Sin respuesta'}</span>
 }
