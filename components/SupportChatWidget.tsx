@@ -82,6 +82,18 @@ export default function SupportChatWidget() {
   useEffect(() => { if (isOpen && inputRef.current) setTimeout(() => inputRef.current?.focus(), 300) }, [isOpen, isExpanded, showExplore])
   useEffect(() => { if (isExpanded) { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } } }, [isExpanded])
 
+  // ─── FAB expanding pill animation (Meta AI style) ───
+  const [fabExpanded, setFabExpanded] = useState(true)
+  useEffect(() => {
+    if (isOpen) return
+    const initialTimer = setTimeout(() => setFabExpanded(false), 4000)
+    const interval = setInterval(() => {
+      setFabExpanded(true)
+      setTimeout(() => setFabExpanded(false), 4000)
+    }, 10000)
+    return () => { clearTimeout(initialTimer); clearInterval(interval) }
+  }, [isOpen])
+
   if (!mounted) return null
 
   const openChat = () => { setIsOpen(true); setIsExpanded(false) }
@@ -283,18 +295,52 @@ export default function SupportChatWidget() {
 
 
 
+
+
   return (
     <>
-      {/* FAB */}
+      {/* FAB - Meta AI "Ask" Style */}
       <AnimatePresence>
         {!isOpen && (
-          <motion.button initial={{scale:0,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0,opacity:0}} whileHover={{scale:1.1}} whileTap={{scale:0.9}}
-            onClick={openChat} className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[100] group">
-            <span className="absolute inset-0 rounded-full bg-indigo-500/30 animate-ping"/>
-            <span className="absolute -inset-1 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 opacity-60 blur-sm group-hover:opacity-90 transition-opacity animate-[spin_4s_linear_infinite]"/>
-            <span className="relative flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-br from-indigo-600 to-purple-700 text-white shadow-2xl border border-white/20">
-              <Sparkles size={24} className="fill-white/20"/>
-            </span>
+          <motion.button
+            layout
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={openChat}
+            className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[100] group"
+          >
+            {/* Outer glow ring - spinning gradient */}
+            <span className="absolute -inset-1 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 opacity-50 blur-sm group-hover:opacity-80 transition-opacity animate-[spin_4s_linear_infinite]"/>
+            {/* Main pill container */}
+            <motion.span
+              layout
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="relative flex items-center gap-2.5 rounded-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 text-white shadow-2xl border border-white/20 overflow-hidden"
+              style={{ padding: fabExpanded ? '12px 20px 12px 14px' : '14px' }}
+            >
+              {/* Icon */}
+              <motion.span layout="position" className="flex-shrink-0">
+                <Sparkles size={fabExpanded ? 20 : 24} className="fill-white/20" />
+              </motion.span>
+              {/* Expanding text */}
+              <AnimatePresence mode="popLayout">
+                {fabExpanded && (
+                  <motion.span
+                    key="fab-text"
+                    initial={{ opacity: 0, width: 0 }}
+                    animate={{ opacity: 1, width: 'auto' }}
+                    exit={{ opacity: 0, width: 0 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    className="whitespace-nowrap text-sm font-bold tracking-tight overflow-hidden"
+                  >
+                    Ask TEG AI
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.span>
           </motion.button>
         )}
       </AnimatePresence>

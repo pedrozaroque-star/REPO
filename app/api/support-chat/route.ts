@@ -182,16 +182,339 @@ async function fetchSystemContext(): Promise<string> {
     const { count } = await supabaseAdmin.from('tiendas').select('id', { count: 'exact', head: true }).eq('activa', true);
     if (count) sections.push(`🏪 Tiendas activas: ${count}`);
 
-    // ─── 10. Recent inspections ───
-    const { data: inspections } = await supabaseAdmin
-      .from('inspecciones')
-      .select('tienda_nombre, puntaje_total, created_at')
-      .order('created_at', { ascending: false })
-      .limit(3);
-    if (inspections && inspections.length > 0) {
-      const lines = inspections.map(i => `  ${clean(i.tienda_nombre)}: ${i.puntaje_total}% (${new Date(i.created_at).toLocaleDateString('es')})`).join('\n');
-      sections.push(`📋 ÚLTIMAS INSPECCIONES:\n${lines}`);
-    }
+    // ─── 10. Inspections (comprehensive weekly summary) ───
+    try {
+      const { data: thisWeekInsp } = await supabaseAdmin
+        .from('supervisor_inspections')
+        .select('id, store_id, inspector_id, overall_score, inspection_date, estatus_admin, shift')
+        .gte('inspection_date', thisMonday)
+        .lte('inspection_date', today)
+        .order('inspection_date', { ascending: false });
+
+      const { data: lastWeekInsp } = await supabaseAdmin
+        .from('supervisor_inspections')
+        .select('id, store_id, inspector_id, overall_score, inspection_date, estatus_admin, shift')
+        .gte('inspection_date', lastMonday)
+        .lte('inspection_date', lastSunday)
+        .order('inspection_date', { ascending: false });
+
+      // Get users for name mapping (reusable across modules)
+      const { data: allUsers } = await supabaseAdmin
+        .from('users')
+        .select('id, full_name, role, email, store_id');
+
+      const { data: allStores } = await supabaseAdmin
+        .from('stores')
+        .select('id, name, external_id');
+
+      const userMap: Record<string, string> = {};
+      const userRoleMap: Record<string, string> = {};
+      (allUsers || []).forEach(u => { userMap[u.id] = u.full_name || 'Desconocido'; userRoleMap[u.id] = u.role || ''; });
+      const storeMap: Record<string, string> = {};
+      const storeIdMap: Record<string, string> = {};
+      (allStores || []).forEach(s => { storeMap[s.id] = clean(s.name); storeIdMap[s.external_id] = clean(s.name); });
+
+      // Users summary
+      if (allUsers && allUsers.length > 0) {
+        const byRole: Record<string, number> = {};
+        allUsers.forEach(u => { byRole[u.role || 'sin_rol'] = (byRole[u.role || 'sin_rol'] || 0) + 1; });
+        const roleLines = Object.entries(byRole).sort((a,b) => b[1] - a[1]).map(([r,c]) => `${r}: ${c}`).join(' | ');
+        sections.push(`👥 USUARIOS REGISTRADOS: ${allUsers.length} total\nPor rol: ${roleLines}`);
+      }
+
+      // Stores summary
+      if (allStores && allStores.length > 0) {
+        sections.push(`🏪 TIENDAS: ${allStores.length} activas → ${allStores.map(s => clean(s.name)).join(', ')}`);
+      }
+
+      // This week inspections
+      if (thisWeekInsp && thisWeekInsp.length > 0) {
+        const avgScore = Math.round(thisWeekInsp.reduce((s, i) => s + (i.overall_score || 0), 0) / thisWeekInsp.length);
+        const pending = thisWeekInsp.filter(i => (i.estatus_admin || 'pendiente') === 'pendiente').length;
+        const approved = thisWeekInsp.filter(i => ['aprobado','cerrado'].includes(i.estatus_admin || '')).length;
+        const rejected = thisWeekInsp.filter(i => i.estatus_admin === 'rechazado').length;
+
+        const bySup: Record<string, { count: number; totalScore: number }> = {};
+        thisWeekInsp.forEach(i => {
+          const name = userMap[i.inspector_id] || 'Desconocido';
+          if (!bySup[name]) bySup[name] = { count: 0, totalScore: 0 };
+          bySup[name].count++; bySup[name].totalScore += (i.overall_score || 0);
+        });
+        const supLines = Object.entries(bySup).sort((a,b) => b[1].count - a[1].count)
+          .map(([name, v]) => `  ${name}: ${v.count} inspecciones (Promedio: ${Math.round(v.totalScore / v.count)}%)`).join('\n');
+
+        const byStore: Record<string, { count: number; totalScore: number }> = {};
+        thisWeekInsp.forEach(i => {
+          const name = storeMap[i.store_id] || 'Desconocida';
+          if (!byStore[name]) byStore[name] = { count: 0, totalScore: 0 };
+          byStore[name].count++; byStore[name].totalScore += (i.overall_score || 0);
+        });
+        const storeLines = Object.entries(byStore).sort((a,b) => b[1].count - a[1].count)
+          .map(([name, v]) => `  ${name}: ${v.count} inspecciones (${Math.round(v.totalScore / v.count)}%)`).join('\n');
+
+        sections.push(`📋 INSPECCIONES ESTA SEMANA (${thisMonday} a ${today}):\nTotal: ${thisWeekInsp.length} | Promedio: ${avgScore}% | Pendientes: ${pending} | Aprobadas: ${approved} | Rechazadas: ${rejected}\nPor Supervisor:\n${supLines}\nPor Tienda:\n${storeLines}`);
+      } else {
+        sections.push(`📋 INSPECCIONES ESTA SEMANA: 0 registradas.`);
+      }
+
+      // Last week inspections
+      if (lastWeekInsp && lastWeekInsp.length > 0) {
+        const avgScore = Math.round(lastWeekInsp.reduce((s, i) => s + (i.overall_score || 0), 0) / lastWeekInsp.length);
+        const pending = lastWeekInsp.filter(i => (i.estatus_admin || 'pendiente') === 'pendiente').length;
+        const approved = lastWeekInsp.filter(i => ['aprobado','cerrado'].includes(i.estatus_admin || '')).length;
+
+        const bySup: Record<string, { count: number; totalScore: number }> = {};
+        lastWeekInsp.forEach(i => {
+          const name = userMap[i.inspector_id] || 'Desconocido';
+          if (!bySup[name]) bySup[name] = { count: 0, totalScore: 0 };
+          bySup[name].count++; bySup[name].totalScore += (i.overall_score || 0);
+        });
+        const supLines = Object.entries(bySup).sort((a,b) => b[1].count - a[1].count)
+          .map(([name, v]) => `  ${name}: ${v.count} inspecciones (${Math.round(v.totalScore / v.count)}%)`).join('\n');
+
+        sections.push(`📋 INSPECCIONES SEMANA PASADA (${lastMonday} a ${lastSunday}):\nTotal: ${lastWeekInsp.length} | Promedio: ${avgScore}% | Pendientes: ${pending} | Aprobadas: ${approved}\nPor Supervisor:\n${supLines}`);
+      }
+    } catch (e) { console.warn('[TEG Assistant] Inspections fetch error:', e); }
+
+    // ─── 11. Employees (Toast) ───
+    try {
+      const { data: employees } = await supabaseAdmin
+        .from('toast_employees')
+        .select('id, first_name, last_name, store_id, job_title, deleted')
+        .eq('deleted', false);
+      if (employees && employees.length > 0) {
+        const byStore: Record<string, number> = {};
+        employees.forEach(e => {
+          const name = storeIdMap[e.store_id] || e.store_id || 'Sin tienda';
+          byStore[name] = (byStore[name] || 0) + 1;
+        });
+        const storeLines = Object.entries(byStore).sort((a,b) => b[1] - a[1])
+          .map(([name, c]) => `${name}: ${c}`).join(' | ');
+        sections.push(`🧑‍🍳 EMPLEADOS ACTIVOS (Toast): ${employees.length} total\nPor Tienda: ${storeLines}`);
+      }
+    } catch (e) { console.warn('[TEG Assistant] Employees fetch error:', e); }
+
+    // ─── 12. Labor (Punches this week) ───
+    try {
+      const { data: punches, count: punchCount } = await supabaseAdmin
+        .from('punches')
+        .select('employee_name, store_id, in_date, hours_worked, is_overtime', { count: 'exact' })
+        .gte('in_date', thisMonday)
+        .lte('in_date', today);
+      if (punches && punches.length > 0) {
+        const totalHours = punches.reduce((s, p) => s + (Number(p.hours_worked) || 0), 0);
+        const overtimeCount = punches.filter(p => p.is_overtime).length;
+        const uniqueEmployees = new Set(punches.map(p => p.employee_name)).size;
+        sections.push(`⏰ LABOR ESTA SEMANA (Punches ${thisMonday} a ${today}):\nTotal registros: ${punchCount} | Horas trabajadas: ${totalHours.toFixed(1)}h | Overtime: ${overtimeCount} registros | Empleados únicos: ${uniqueEmployees}`);
+      }
+    } catch (e) { console.warn('[TEG Assistant] Punches fetch error:', e); }
+
+    // ─── 13. Shifts (scheduled this week) ───
+    try {
+      const { data: shifts, count: shiftCount } = await supabaseAdmin
+        .from('shifts')
+        .select('employee_id, store_id, shift_date, start_time, end_time, status', { count: 'exact' })
+        .gte('shift_date', thisMonday)
+        .lte('shift_date', addDays(thisMonday, 6));
+      if (shifts && shifts.length > 0) {
+        const published = shifts.filter(s => s.status === 'published').length;
+        const draft = shifts.filter(s => s.status === 'draft' || !s.status).length;
+        sections.push(`📅 TURNOS PROGRAMADOS ESTA SEMANA: ${shiftCount} total | Publicados: ${published} | Borrador: ${draft}`);
+      }
+    } catch (e) { console.warn('[TEG Assistant] Shifts fetch error:', e); }
+
+    // ─── 14. Punch Violations ───
+    try {
+      const { data: violations } = await supabaseAdmin
+        .from('punch_violations')
+        .select('type, employee_name, store_id, violation_date')
+        .gte('violation_date', thisMonday)
+        .lte('violation_date', today);
+      if (violations && violations.length > 0) {
+        const byType: Record<string, number> = {};
+        violations.forEach(v => { byType[v.type || 'otro'] = (byType[v.type || 'otro'] || 0) + 1; });
+        const typeLine = Object.entries(byType).map(([t,c]) => `${t}: ${c}`).join(' | ');
+        sections.push(`⚠️ VIOLACIONES LABORALES ESTA SEMANA: ${violations.length} total\nPor tipo: ${typeLine}`);
+      }
+    } catch (e) { /* table may not exist */ }
+
+    // ─── 15. Customer Feedback / Google Reviews ───
+    try {
+      const { data: reviews } = await supabaseAdmin
+        .from('customer_feedback')
+        .select('store_name, rating, source, created_at')
+        .gte('created_at', addDays(today, -30))
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (reviews && reviews.length > 0) {
+        const avgRating = (reviews.reduce((s, r) => s + (Number(r.rating) || 0), 0) / reviews.length).toFixed(1);
+        const bySource: Record<string, number> = {};
+        reviews.forEach(r => { bySource[r.source || 'google'] = (bySource[r.source || 'google'] || 0) + 1; });
+        const srcLine = Object.entries(bySource).map(([s,c]) => `${s}: ${c}`).join(' | ');
+        sections.push(`⭐ RESEÑAS CLIENTES (últimos 30 días): ${reviews.length} reseñas | Rating promedio: ${avgRating}★\nPor fuente: ${srcLine}`);
+      }
+    } catch (e) { /* table may not exist */ }
+
+    // ─── 16. Discount Audit ───
+    try {
+      const { data: discounts } = await supabaseAdmin
+        .from('discount_audit_log')
+        .select('discount_name, store_name, discount_amount, business_date')
+        .gte('business_date', thisMonday)
+        .lte('business_date', today);
+      if (discounts && discounts.length > 0) {
+        const totalAmt = discounts.reduce((s, d) => s + (Math.abs(Number(d.discount_amount)) || 0), 0);
+        const byType: Record<string, { count: number; amount: number }> = {};
+        discounts.forEach(d => {
+          const name = d.discount_name || 'Desconocido';
+          if (!byType[name]) byType[name] = { count: 0, amount: 0 };
+          byType[name].count++;
+          byType[name].amount += Math.abs(Number(d.discount_amount)) || 0;
+        });
+        const topDiscounts = Object.entries(byType).sort((a,b) => b[1].amount - a[1].amount).slice(0, 8)
+          .map(([name, v]) => `  ${name}: ${v.count}x (${fmt$(v.amount)})`).join('\n');
+        sections.push(`🏷️ DESCUENTOS ESTA SEMANA: ${discounts.length} aplicados | Total: ${fmt$(totalAmt)}\nTop descuentos:\n${topDiscounts}`);
+      }
+    } catch (e) { /* table may not exist */ }
+
+    // ─── 17. Internal Feedback (employee suggestions) ───
+    try {
+      const { data: feedback } = await supabaseAdmin
+        .from('feedback')
+        .select('id, category, status, created_at')
+        .gte('created_at', addDays(today, -30))
+        .order('created_at', { ascending: false });
+      if (feedback && feedback.length > 0) {
+        const pending = feedback.filter(f => (f.status || 'pendiente') === 'pendiente').length;
+        const byCat: Record<string, number> = {};
+        feedback.forEach(f => { byCat[f.category || 'general'] = (byCat[f.category || 'general'] || 0) + 1; });
+        const catLine = Object.entries(byCat).map(([c,n]) => `${c}: ${n}`).join(' | ');
+        sections.push(`💬 FEEDBACK INTERNO (30 días): ${feedback.length} total | Pendientes: ${pending}\nPor categoría: ${catLine}`);
+      }
+    } catch (e) { /* table may not exist */ }
+
+    // ─── 18. Notifications (recent) ───
+    try {
+      const { count: notifCount } = await supabaseAdmin
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', addDays(today, -7));
+      if (notifCount && notifCount > 0) {
+        sections.push(`🔔 NOTIFICACIONES (última semana): ${notifCount} enviadas`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 19. Toast Jobs (positions) ───
+    try {
+      const { data: jobs } = await supabaseAdmin
+        .from('toast_jobs')
+        .select('guid, title');
+      if (jobs && jobs.length > 0) {
+        sections.push(`💼 PUESTOS DE TRABAJO (Toast): ${jobs.length} → ${jobs.map(j => j.title).join(', ')}`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 20. Assistant Checklists ───
+    try {
+      const { count: asstCount } = await supabaseAdmin
+        .from('assistant_checklists')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', addDays(today, -30));
+      if (asstCount && asstCount > 0) {
+        sections.push(`✅ CHECKLISTS ASISTENTES (30 días): ${asstCount} completados`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 21. Manager Checklists ───
+    try {
+      const { count: mgrCount } = await supabaseAdmin
+        .from('manager_checklists')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', addDays(today, -30));
+      if (mgrCount && mgrCount > 0) {
+        sections.push(`📝 CHECKLISTS MANAGERS (30 días): ${mgrCount} completados`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 22. Inspection Comments ───
+    try {
+      const { count: commCount } = await supabaseAdmin
+        .from('inspection_comments')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', addDays(today, -7));
+      if (commCount && commCount > 0) {
+        sections.push(`💬 COMENTARIOS DE INSPECCIONES (7 días): ${commCount} comentarios`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 23. Inventory Items ───
+    try {
+      const { data: invItems } = await supabaseAdmin
+        .from('inventory_items')
+        .select('id, name, category, unit, cost_per_unit');
+      if (invItems && invItems.length > 0) {
+        const byCat: Record<string, number> = {};
+        invItems.forEach(i => { byCat[i.category || 'sin categoría'] = (byCat[i.category || 'sin categoría'] || 0) + 1; });
+        const catLine = Object.entries(byCat).sort((a,b) => b[1] - a[1]).map(([c,n]) => `${c}: ${n}`).join(' | ');
+        sections.push(`📦 INVENTARIO INSUMOS: ${invItems.length} items registrados\nPor categoría: ${catLine}`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 24. Recipes ───
+    try {
+      const { count: recipeCount } = await supabaseAdmin
+        .from('recipes')
+        .select('id', { count: 'exact', head: true });
+      if (recipeCount && recipeCount > 0) {
+        sections.push(`🍽️ RECETAS: ${recipeCount} recetas registradas`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 25. Toast Menu Items ───
+    try {
+      const { count: menuCount } = await supabaseAdmin
+        .from('toast_menu_items')
+        .select('id', { count: 'exact', head: true });
+      if (menuCount && menuCount > 0) {
+        sections.push(`🍔 ITEMS MENÚ (Toast): ${menuCount} productos en catálogo`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 26. Weekly Budgets ───
+    try {
+      const { data: budgets } = await supabaseAdmin
+        .from('weekly_budgets')
+        .select('store_id, week_start, target_labor_pct, target_sales')
+        .gte('week_start', lastMonday)
+        .order('week_start', { ascending: false })
+        .limit(30);
+      if (budgets && budgets.length > 0) {
+        sections.push(`💰 PRESUPUESTOS SEMANALES: ${budgets.length} registros activos (desde ${lastMonday})`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 27. Schedule Templates ───
+    try {
+      const { count: tmpCount } = await supabaseAdmin
+        .from('schedule_templates')
+        .select('id', { count: 'exact', head: true });
+      if (tmpCount && tmpCount > 0) {
+        sections.push(`📋 PLANTILLAS DE HORARIO: ${tmpCount} templates guardados`);
+      }
+    } catch (e) { /* silent */ }
+
+    // ─── 28. Staff Evaluations ───
+    try {
+      const { data: evals } = await supabaseAdmin
+        .from('staff_evaluations')
+        .select('id, store_id, overall_rating, created_at')
+        .gte('created_at', addDays(today, -30))
+        .order('created_at', { ascending: false });
+      if (evals && evals.length > 0) {
+        const avgRating = (evals.reduce((s, e) => s + (Number(e.overall_rating) || 0), 0) / evals.length).toFixed(1);
+        sections.push(`🌟 EVALUACIONES STAFF (30 días): ${evals.length} evaluaciones | Rating promedio: ${avgRating}/5`);
+      }
+    } catch (e) { /* silent */ }
 
     return '\n\n--- DATOS EN TIEMPO REAL DEL SISTEMA ---\n' + sections.join('\n\n');
   } catch (error) {
@@ -204,22 +527,47 @@ const BASE_SYSTEM_PROMPT = `Eres "TEG Assistant", el asistente virtual interno o
 Tu trabajo es ayudar a gerentes, asistentes y supervisores a usar la plataforma, resolver dudas operativas y guiar paso a paso.
 
 TONO: Profesional, amable, conciso, bilingüe (responde en el idioma que te hablen).
-FORMATO: Usa listas, negritas (**), y emojis para claridad. No des respuestas excesivamente largas.
+FORMATO: Usa tablas markdown, listas, negritas (**), y emojis para claridad. No des respuestas excesivamente largas.
 
-MÓDULOS:
-1. TABLERO OPERATIVO (Roles): Asignar estaciones (Cashier, Cocina, Drive Thru). "Modo Inmersivo" para monitores.
-2. VENTAS Y REPORTES: Net Sales desde Toast POS. "6 AM Rule" (día laboral: 6AM - 5:59AM siguiente).
-3. PLANIFICADOR: Schedules semanales con Smart-Hybrid forecasting.
-4. AUDITORÍA DESCUENTOS: Radar de anomalías para detectar fraudes.
-5. INSPECCIONES/CHECKLISTS: Auditorías de calidad, temperaturas, limpieza.
-6. INVENTARIO Y COSTOS: Food Cost, insumos, catálogos.
-7. CONFIGURACIÓN: Perfil, contraseña, preferencias.
-8. DESCANSOS (AI): Breaks automáticos con California labor law (10 min rest, 30 min meal antes 5ta hora).
+MÓDULOS DEL SISTEMA:
+1. VENTAS Y REPORTES: Net Sales desde Toast POS. "6 AM Rule" (día laboral: 6AM - 5:59AM siguiente). Canales: Uber Eats, DoorDash, EBT.
+2. INSPECCIONES/CHECKLISTS: Auditorías de calidad por supervisores. Puntaje, estatus (pendiente/aprobado/rechazado), desglose por tienda y supervisor.
+3. PLANIFICADOR LABORAL: Turnos semanales, Smart-Hybrid forecasting, drag & drop, templates.
+4. LABOR/PUNCHES: Registros de entrada/salida (Toast), horas trabajadas, overtime, violaciones laborales.
+5. EMPLEADOS: Roster completo de Toast, distribución por tienda, puestos de trabajo.
+6. TABLERO OPERATIVO (Roles): Asignar estaciones (Cashier, Cocina, Drive Thru). "Modo Inmersivo" para monitores.
+7. AUDITORÍA DESCUENTOS: Radar de anomalías, tipos de descuento, montos, frecuencia.
+8. INVENTARIO Y COSTOS: Food Cost, insumos, catálogos de menú, preparador.
+9. FEEDBACK: Comentarios internos de empleados y sugerencias.
+10. RESEÑAS CLIENTES: Google Reviews, ratings promedio, tendencias.
+11. DESCANSOS (AI): Breaks automáticos con California labor law (10 min rest, 30 min meal antes 5ta hora).
+12. NOTIFICACIONES: Alertas del sistema, comentarios de inspección, actualizaciones.
+13. CONFIGURACIÓN: Perfil, contraseña, tiendas, preferencias.
+
+DATOS EN TIEMPO REAL QUE TIENES ACCESO:
+- Ventas: Hoy, ayer, esta semana, semana pasada, mes actual, mes anterior. Desglose por tienda, canal (Uber/DD), labor cost %. 
+- Inspecciones: Esta semana y semana pasada. Conteo por supervisor, por tienda, promedio de puntaje, estatus.
+- Empleados: Total activos, distribución por tienda, puestos de trabajo disponibles.
+- Labor: Punches de esta semana, horas totales, overtime, empleados únicos.
+- Turnos: Programados esta semana (publicados vs borrador). Templates de horarios guardados.
+- Violaciones laborales: Tipo y frecuencia semanal.
+- Reseñas de clientes: Últimos 30 días, rating promedio, fuentes.
+- Descuentos: Tipos, montos, frecuencia semanal.
+- Feedback interno: Últimos 30 días, categorías, pendientes.
+- Notificaciones: Conteo semanal.
+- Usuarios: Total registrados, desglose por rol.
+- Tiendas: Listado completo de ubicaciones activas.
+- Checklists: Asistentes y Managers completados (30 días). Comentarios de inspección (7 días).
+- Inventario: Items registrados por categoría. Recetas. Menú de Toast (catálogo completo).
+- Presupuestos: Semanales por tienda (target labor %, target sales).
+- Evaluaciones Staff: Rating promedio, cantidad (30 días).
 
 REGLAS CRÍTICAS:
 - SIEMPRE que tengas datos reales del sistema, ÚSALOS. Da cifras exactas, porcentajes, y nombres de tiendas.
+- NUNCA digas "no tengo acceso a esos datos" si los datos están en tu contexto. Búscalos primero.
 - Si el día de hoy muestra $0, explica que el día está en curso y los datos se actualizan en tiempo real desde Toast.
-- Cuando compares días, muestra la diferencia en $ y en %.
+- Cuando compares períodos, muestra la diferencia en valores absolutos Y porcentaje.
+- Para tablas de datos, usa formato markdown con encabezados claros.
 - Eres parte exclusiva de Tacos Gavilan.`;
 
 export async function POST(req: NextRequest) {
