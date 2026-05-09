@@ -68,51 +68,6 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     }
   }, [])
 
-  // ===== AUTO-GUARDADO CONTINUO =====
-  // Cada vez que cambian respuestas/comentarios/fotos/formData, se guarda automáticamente
-  // Así NUNCA se pierde la captura sin importar cómo salga el supervisor
-  const saveDraftToStorage = useRef(() => {})
-  saveDraftToStorage.current = () => {
-    try {
-      // No guardar si no hay datos significativos
-      const hasData = Object.keys(answers).length > 0 || formData.store_id
-      if (!hasData) return
-
-      const draft = {
-        formData,
-        answers,
-        questionComments,
-        questionPhotos,
-        startTime,
-        inspectorPhoto,
-        locationValidated,
-        _savedAt: Date.now()
-      }
-      localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(draft))
-    } catch (e) { /* silent */ }
-  }
-
-  // Auto-guardar cuando cambian los datos importantes (debounced 2s)
-  useEffect(() => {
-    // No auto-guardar en el primer render ni durante la restauración
-    if (draftRestoredRef.current) {
-      draftRestoredRef.current = false
-      return
-    }
-    const timer = setTimeout(() => {
-      saveDraftToStorage.current()
-    }, 2000)
-    return () => clearTimeout(timer)
-  }, [answers, questionComments, questionPhotos, formData, inspectorPhoto, locationValidated])
-
-  const saveDraftAndRedirect = () => {
-    // Guardar inmediatamente (sin debounce)
-    saveDraftToStorage.current()
-    console.log('💾 Borrador guardado en localStorage antes de OAuth')
-    // Desactivar la alerta "¿Deseas abandonar?" antes de redirigir
-    allowNavigation.current = true
-    window.location.href = '/api/auth/google/start?returnUrl=/inspecciones/nueva'
-  }
 
   // Dynamic Hooks
   const { data: template, loading: checklistLoading, error: checklistError, isCached } = useDynamicChecklist('supervisor_inspection_v1')
@@ -317,6 +272,52 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [completionStatus.answered])
+
+  // ===== AUTO-GUARDADO CONTINUO =====
+  // Cada vez que cambian respuestas/comentarios/fotos/formData, se guarda automáticamente
+  // Así NUNCA se pierde la captura sin importar cómo salga el supervisor
+  const saveDraftToStorage = useRef(() => {})
+  saveDraftToStorage.current = () => {
+    try {
+      // No guardar si no hay datos significativos
+      const hasData = Object.keys(answers).length > 0 || formData.store_id
+      if (!hasData) return
+
+      const draft = {
+        formData,
+        answers,
+        questionComments,
+        questionPhotos,
+        startTime,
+        inspectorPhoto,
+        locationValidated,
+        _savedAt: Date.now()
+      }
+      localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(draft))
+    } catch (e) { /* silent */ }
+  }
+
+  // Auto-guardar cuando cambian los datos importantes (debounced 2s)
+  useEffect(() => {
+    // No auto-guardar en el primer render ni durante la restauración
+    if (draftRestoredRef.current) {
+      draftRestoredRef.current = false
+      return
+    }
+    const timer = setTimeout(() => {
+      saveDraftToStorage.current()
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [answers, questionComments, questionPhotos, formData, inspectorPhoto, locationValidated])
+
+  const saveDraftAndRedirect = () => {
+    // Guardar inmediatamente (sin debounce)
+    saveDraftToStorage.current()
+    console.log('💾 Borrador guardado en localStorage antes de OAuth')
+    // Desactivar la alerta "¿Deseas abandonar?" antes de redirigir
+    allowNavigation.current = true
+    window.location.href = '/api/auth/google/start?returnUrl=/inspecciones/nueva'
+  }
 
   const handleBack = () => {
     if (completionStatus.answered > 0) {
