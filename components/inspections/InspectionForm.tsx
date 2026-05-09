@@ -327,7 +327,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
     console.log('💾 Borrador guardado en localStorage antes de OAuth')
     // Desactivar la alerta "¿Deseas abandonar?" antes de redirigir
     allowNavigation.current = true
-    window.location.href = '/api/auth/google/start?returnUrl=/inspecciones/nueva'
+    // Pasar userId para que el callback guarde el token al usuario correcto
+    window.location.href = `/api/auth/google/start?returnUrl=${encodeURIComponent('/inspecciones/nueva')}&userId=${user?.id || ''}`
   }
 
   const handleBack = () => {

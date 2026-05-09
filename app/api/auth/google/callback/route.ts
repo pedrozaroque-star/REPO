@@ -8,7 +8,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 export async function GET(req: Request) {
     const { searchParams, origin } = new URL(req.url)
     const code = searchParams.get('code')
-    const state = searchParams.get('state') // returnUrl
+    const stateRaw = searchParams.get('state') || ''
     const error = searchParams.get('error')
 
     if (error) {
@@ -18,6 +18,20 @@ export async function GET(req: Request) {
     if (!code) {
         return NextResponse.redirect(`${origin}/planificador?error=no_code`)
     }
+
+    // Parse state: puede ser JSON (nuevo formato) o string plana (legacy Planificador)
+    let returnUrl = '/planificador'
+    let userId = ''
+    try {
+        const parsed = JSON.parse(stateRaw)
+        returnUrl = parsed.returnUrl || '/planificador'
+        userId = parsed.userId || ''
+    } catch {
+        // Legacy: state es solo la URL de retorno (string plana)
+        returnUrl = stateRaw || '/planificador'
+    }
+
+    const isLoginMode = returnUrl.includes('/auth/sso')
 
     try {
         // 1. Intercambiar código por tokens
@@ -47,8 +61,6 @@ export async function GET(req: Request) {
         const googleEmail = googleUser.email
 
         // 3. LOGIC SWITCH: Login (SSO) vs Connect (Link)
-        const isLoginMode = state?.includes('/auth/sso')
-
         if (isLoginMode) {
             // --- SSO LOGIN FLOW ---
             const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -74,16 +86,9 @@ export async function GET(req: Request) {
             await supabase.from('users').update(updates).eq('id', user.id)
 
             // CREATE SESSION PAYLOAD (Similar to /api/login)
-            // In a real app we would sign a JWT here. 
-            // For now, consistent with current login, we use a simple token or user object.
-            // Looking at login/page.tsx, it expects { token, user }
-
-            // Generate a simple session token (or reuse ID for now if no JWT secret avail)
-            // Fix: Ensure we pass a string to Buffer.from based on user.id (which might be int)
             const tokenSource = String(user.id) + '-' + String(Date.now())
             const sessionToken = `g_sso_${Buffer.from(tokenSource).toString('base64')}`
 
-            // Construct Payload for Client (MATCHING /api/login STRUCTURE)
             const userPayload = {
                 id: user.id,
                 email: user.email,
@@ -91,7 +96,6 @@ export async function GET(req: Request) {
                 role: user.role,
                 store_scope: user.store_scope,
                 store_id: user.store_id,
-                // Extra fields for robustness
                 first_name: user.first_name,
                 last_name: user.last_name
             }
@@ -100,28 +104,43 @@ export async function GET(req: Request) {
 
         } else {
             // --- CONNECT FLOW (Inspecciones, Planificador, etc.) ---
-            // Guardar tokens DIRECTAMENTE en la DB usando el email de Google
-            // Esto asegura que funcione para CUALQUIER módulo sin procesamiento adicional
             const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
             const updates: any = { google_email_connected: googleEmail }
             if (tokens.refresh_token) {
                 updates.google_refresh_token = tokens.refresh_token
-                console.log('✅ [OAuth Connect] Refresh token saved for:', googleEmail)
-            } else {
-                console.warn('⚠️ [OAuth Connect] No refresh_token received for:', googleEmail)
             }
 
-            // Buscar usuario por email (case insensitive) y guardar tokens
-            const { error: updateError } = await supabase
-                .from('users')
-                .update(updates)
-                .ilike('email', googleEmail)
+            // ESTRATEGIA: Intentar guardar por userId (preciso) -> fallback a email
+            let saved = false
 
-            if (updateError) {
-                console.error('❌ [OAuth Connect] DB update failed:', updateError)
-            } else {
-                console.log('✅ [OAuth Connect] DB updated successfully for:', googleEmail)
+            if (userId) {
+                // Método 1: userId directo del state (100% confiable)
+                const { error: err1 } = await supabase
+                    .from('users')
+                    .update(updates)
+                    .eq('id', userId)
+
+                if (!err1) {
+                    saved = true
+                    console.log(`✅ [OAuth Connect] Token saved for userId=${userId} (${googleEmail})`)
+                } else {
+                    console.warn(`⚠️ [OAuth Connect] userId update failed:`, err1)
+                }
+            }
+
+            if (!saved) {
+                // Método 2: Fallback por email (para Planificador u otros sin userId)
+                const { error: err2 } = await supabase
+                    .from('users')
+                    .update(updates)
+                    .ilike('email', googleEmail)
+
+                if (!err2) {
+                    console.log(`✅ [OAuth Connect] Token saved via email fallback (${googleEmail})`)
+                } else {
+                    console.error(`❌ [OAuth Connect] Both methods failed for ${googleEmail}:`, err2)
+                }
             }
 
             // Redirigir de vuelta con parámetros (retrocompatibilidad con Planificador)
@@ -130,7 +149,7 @@ export async function GET(req: Request) {
             safeParams.set('ge', googleEmail)
             safeParams.set('success', 'true')
 
-            return NextResponse.redirect(`${origin}${state}?${safeParams.toString()}`)
+            return NextResponse.redirect(`${origin}${returnUrl}?${safeParams.toString()}`)
         }
 
     } catch (error: any) {
