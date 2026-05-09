@@ -1316,7 +1316,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         initial={{ opacity: 0, scale: 0.9, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                        className="fixed bottom-20 right-4 z-[10000] w-[350px] max-w-[90vw] h-[500px] max-h-[60vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 flex flex-col overflow-hidden"
+                        className="fixed bottom-20 left-4 lg:left-auto lg:right-4 lg:bottom-28 z-[10000] w-[350px] max-w-[90vw] h-[400px] max-h-[50vh] lg:h-[500px] lg:max-h-[55vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 flex flex-col overflow-hidden"
                     >
                         {/* Chat Header */}
                         <div className="bg-indigo-600 text-white p-3 flex justify-between items-center shadow-md">
@@ -1425,7 +1425,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             }
                         }}
                         exit={{ opacity: 0, scale: 0.5, y: 20, transition: { duration: 0.2 } }}
-                        className="fixed bottom-[152px] right-6 z-[10002] flex flex-col items-end pointer-events-none"
+                        className="fixed hidden lg:flex bottom-[72px] left-4 lg:left-auto lg:right-6 lg:bottom-[152px] z-[10002] flex-col items-start lg:items-end pointer-events-none"
                     >
                         <motion.div
                             animate={{
@@ -1454,7 +1454,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                             </p>
 
                             {/* Speech bubble arrow */}
-                            <div className="absolute -bottom-1.5 right-6 w-3 h-3 bg-white border-b border-r border-indigo-100 transform rotate-45 shadow-sm" />
+                            <div className="absolute -bottom-1.5 left-6 lg:left-auto lg:right-6 w-3 h-3 bg-white border-b border-r border-indigo-100 transform rotate-45 shadow-sm" />
                         </motion.div>
                     </motion.div>
                 )}
@@ -1467,7 +1467,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         initial={{ opacity: 0, y: 100 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 100 }}
-                        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1 p-2 bg-white/80 backdrop-blur-xl rounded-full border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.2)] ml-1 mr-1"
+                        className="fixed bottom-[88px] lg:bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-1 p-2 bg-white/80 backdrop-blur-xl rounded-full border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.2)]"
                     >
                         <button
                             onClick={() => handleStatusChange('pendiente')}
@@ -1549,7 +1549,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         animate={{ scale: 1, x: 0 }}
                         exit={{ scale: 0, x: -20 }}
                         onClick={() => openViewer(0, allInspectionPhotos)}
-                        className="fixed bottom-24 left-6 z-[9999] w-12 h-12 rounded-full bg-white text-indigo-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-indigo-100 shadow-xl group"
+                        className="fixed bottom-[88px] lg:bottom-24 left-6 z-[9999] w-12 h-12 rounded-full bg-white text-indigo-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-indigo-100 shadow-xl group"
                         title="Show full photo gallery"
                     >
                         <ImageIcon size={24} />
@@ -1568,7 +1568,7 @@ export default function ChecklistReviewModal({ isOpen, onClose, checklist, curre
                         animate={{ scale: 1 }}
                         exit={{ scale: 0 }}
                         onClick={() => setChatOpen(!chatOpen)}
-                        className={`fixed bottom-6 right-6 z-[9999] w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-white/20 shadow-2xl ${chatOpen ? 'bg-white text-indigo-600' : 'bg-indigo-600 text-white'}`}
+                        className={`fixed bottom-[148px] lg:bottom-24 left-4 lg:left-auto lg:right-6 z-[9999] w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 border-2 border-white/20 shadow-2xl ${chatOpen ? 'bg-white text-indigo-600' : 'bg-indigo-600 text-white'}`}
                     >
                         {comments.length > 0 && !chatOpen && <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-white"></span>}
                         {chatOpen ? <X size={24} /> : <MessageSquare size={24} />}

@@ -32,7 +32,7 @@ export interface Template {
     sections: Section[]
 }
 
-const CACHE_PREFIX = 'checklist_template_v2_'
+const CACHE_PREFIX = 'checklist_template_v3_'
 
 export function useDynamicChecklist(templateCode: string) {
     const { language } = useLanguage()
