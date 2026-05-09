@@ -99,12 +99,32 @@ export async function GET(req: Request) {
             return NextResponse.redirect(`${origin}/auth/sso?token=${sessionToken}&user=${encodeURIComponent(JSON.stringify(userPayload))}`)
 
         } else {
-            // --- EXISTING CONNECT FLOW (Planificador) ---
+            // --- CONNECT FLOW (Inspecciones, Planificador, etc.) ---
+            // Guardar tokens DIRECTAMENTE en la DB usando el email de Google
+            // Esto asegura que funcione para CUALQUIER módulo sin procesamiento adicional
+            const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-            // Safety: We can't easily validate user identity here without session context.
-            // We rely on the client-side check we just added in Planificador page.
-            // Or we could pass 'userId' in state if we wanted to be super secure server-side.
+            const updates: any = { google_email_connected: googleEmail }
+            if (tokens.refresh_token) {
+                updates.google_refresh_token = tokens.refresh_token
+                console.log('✅ [OAuth Connect] Refresh token saved for:', googleEmail)
+            } else {
+                console.warn('⚠️ [OAuth Connect] No refresh_token received for:', googleEmail)
+            }
 
+            // Buscar usuario por email (case insensitive) y guardar tokens
+            const { error: updateError } = await supabase
+                .from('users')
+                .update(updates)
+                .ilike('email', googleEmail)
+
+            if (updateError) {
+                console.error('❌ [OAuth Connect] DB update failed:', updateError)
+            } else {
+                console.log('✅ [OAuth Connect] DB updated successfully for:', googleEmail)
+            }
+
+            // Redirigir de vuelta con parámetros (retrocompatibilidad con Planificador)
             const safeParams = new URLSearchParams()
             if (tokens.refresh_token) safeParams.set('rt', tokens.refresh_token)
             safeParams.set('ge', googleEmail)

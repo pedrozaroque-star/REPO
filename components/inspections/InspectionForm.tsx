@@ -41,6 +41,17 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
 
   useEffect(() => {
     checkGoogleAuth()
+
+    // Limpiar parámetros OAuth de la URL si venimos de vuelta del callback
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      if (url.searchParams.has('success') || url.searchParams.has('rt')) {
+        url.searchParams.delete('rt')
+        url.searchParams.delete('ge')
+        url.searchParams.delete('success')
+        window.history.replaceState({}, '', url.pathname)
+      }
+    }
   }, [user?.id])
 
   // Restaurar borrador de localStorage si venimos de vuelta del OAuth
