@@ -183,6 +183,8 @@ async function fetchSystemContext(): Promise<string> {
     if (count) sections.push(`🏪 Tiendas activas: ${count}`);
 
     // ─── 10. Inspections (comprehensive weekly summary) ───
+    // Declare maps outside try so they're accessible across sections
+    const storeIdMap: Record<string, string> = {};
     try {
       const { data: thisWeekInsp } = await supabaseAdmin
         .from('supervisor_inspections')
@@ -211,7 +213,6 @@ async function fetchSystemContext(): Promise<string> {
       const userRoleMap: Record<string, string> = {};
       (allUsers || []).forEach(u => { userMap[u.id] = u.full_name || 'Desconocido'; userRoleMap[u.id] = u.role || ''; });
       const storeMap: Record<string, string> = {};
-      const storeIdMap: Record<string, string> = {};
       (allStores || []).forEach(s => { storeMap[s.id] = clean(s.name); storeIdMap[s.external_id] = clean(s.name); });
 
       // Users summary
