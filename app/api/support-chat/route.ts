@@ -213,7 +213,13 @@ async function fetchSystemContext(): Promise<string> {
       const userRoleMap: Record<string, string> = {};
       (allUsers || []).forEach(u => { userMap[u.id] = u.full_name || 'Desconocido'; userRoleMap[u.id] = u.role || ''; });
       const storeMap: Record<string, string> = {};
-      (allStores || []).forEach(s => { storeMap[s.id] = clean(s.name); storeIdMap[s.external_id] = clean(s.name); });
+      (allStores || []).forEach(s => { 
+        storeMap[s.id] = clean(s.name); 
+        storeIdMap[s.external_id] = clean(s.name); 
+        // Also map by numeric id (schedules/users use numeric store_id)
+        storeIdMap[String(s.id)] = clean(s.name);
+        storeIdMap[s.id] = clean(s.name);
+      });
 
       // Users summary
       if (allUsers && allUsers.length > 0) {
@@ -310,17 +316,201 @@ async function fetchSystemContext(): Promise<string> {
       }
     } catch (e) { console.warn('[TEG Assistant] Punches fetch error:', e); }
 
-    // ─── 13. Shifts (scheduled this week) ───
+    // ─── 13. HORARIOS (módulo /horarios — tabla 'schedules' + 'users') ───
     try {
-      const { data: shifts, count: shiftCount } = await supabaseAdmin
+      const thisSunday = addDays(thisMonday, 6);
+
+      // Fetch users (the people who appear in the Horarios module)
+      const { data: usersData } = await supabaseAdmin
+        .from('users')
+        .select('id, full_name, role, store_id, position_type')
+        .eq('is_active', true)
+        .limit(1000);
+
+      // Build user lookup: user.id → { name, role, store }
+      const userLookup: Record<string, { name: string; role: string; store: string; position: string }> = {};
+      (usersData || []).forEach((u: any) => {
+        // Build descriptive role: "manager" or "asistente (cashier)" or "supervisor"
+        const posLabel = u.position_type ? ` (${u.position_type})` : '';
+        const fullRole = `${u.role || ''}${posLabel}`.trim();
+        userLookup[String(u.id)] = {
+          name: u.full_name || 'Sin nombre',
+          role: fullRole,
+          store: storeIdMap[u.store_id] || storeIdMap[String(u.store_id)] || u.store_id || '',
+          position: u.position_type || ''
+        };
+      });
+
+      // Fetch schedules for this week (this is the table supervisors fill)
+      const { data: schedules } = await supabaseAdmin
+        .from('schedules')
+        .select('user_id, store_id, date, start_time, end_time, shift_label, role')
+        .gte('date', thisMonday)
+        .lte('date', thisSunday)
+        .limit(10000);
+
+      // Format time helper (HH:mm → readable)
+      const fmtHHMM = (time: string): string => {
+        if (!time) return '?';
+        try {
+          const [hStr, mStr] = time.split(':');
+          const h = parseInt(hStr);
+          const ampm = h >= 12 ? 'pm' : 'am';
+          const h12 = h % 12 || 12;
+          const min = mStr === '00' ? '' : `:${mStr}`;
+          return `${h12}${min}${ampm}`;
+        } catch { return time; }
+      };
+
+      if (schedules && schedules.length > 0) {
+        const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+        const allDates: string[] = [];
+        for (let i = 0; i < 7; i++) allDates.push(addDays(thisMonday, i));
+
+        // Build per-user schedule
+        const userSchedule: Record<string, { name: string; role: string; store: string; days: Record<string, string> }> = {};
+        schedules.forEach((s: any) => {
+          if (!s.user_id) return;
+          const uid = String(s.user_id);
+          const user = userLookup[uid];
+
+          if (!userSchedule[uid]) {
+            userSchedule[uid] = {
+              name: user?.name || `Usuario ${uid.slice(0,6)}`,
+              role: user?.role || '',
+              store: user?.store || (storeIdMap[s.store_id] || s.store_id || ''),
+              days: {}
+            };
+            allDates.forEach(d => { userSchedule[uid].days[d] = 'OFF'; });
+          }
+          // Mark the day with the shift time
+          const timeStr = (s.start_time && s.end_time) 
+            ? `${fmtHHMM(s.start_time)}-${fmtHHMM(s.end_time)}`
+            : (s.shift_label || 'Asignado');
+          userSchedule[uid].days[s.date] = timeStr;
+        });
+
+        // Build readable schedule lines
+        const schedLines: string[] = [];
+        for (const [, u] of Object.entries(userSchedule)) {
+          const role = u.role ? ` (${u.role})` : '';
+          const store = u.store ? ` [${u.store}]` : '';
+          const days = allDates.map((d, i) => `${weekDays[i]}:${u.days[d]}`).join(' | ');
+          schedLines.push(`  ${u.name}${role}${store}: ${days}`);
+        }
+
+        // Days off summary — include role for identification
+        const offSummary = allDates.map((d, i) => {
+          const day = weekDays[i];
+          const offs = Object.values(userSchedule)
+            .filter(u => u.days[d] === 'OFF')
+            .map(u => u.role ? `${u.name} (${u.role})` : u.name);
+          return offs.length > 0 ? `  ${day}: ${offs.join(', ')}` : `  ${day}: Todos trabajan`;
+        }).join('\n');
+
+        sections.push(`📅 MÓDULO HORARIOS ESTA SEMANA (${thisMonday} a ${thisSunday}):\nTotal entradas: ${schedules.length} | Empleados: ${Object.keys(userSchedule).length}\n\nHORARIO POR EMPLEADO:\n${schedLines.join('\n')}\n\nDÍAS LIBRES (OFF):\n${offSummary}`);
+      }
+    } catch (e) { console.warn('[TEG Assistant] Schedules fetch error:', e); }
+
+    // ─── 13b. PLANIFICADOR (módulo /planificador — tabla 'shifts' + 'toast_employees' + 'toast_jobs') ───
+    // Contiene puestos específicos: Cashier, Line Cook, etc.
+    try {
+      const thisSunday = addDays(thisMonday, 6);
+
+      // Fetch toast_jobs for job title resolution
+      const { data: jobsData } = await supabaseAdmin
+        .from('toast_jobs')
+        .select('id, guid, title');
+      const jobIdToTitle: Record<string, string> = {};
+      (jobsData || []).forEach((j: any) => {
+        jobIdToTitle[String(j.id)] = j.title;
+        if (j.guid) jobIdToTitle[String(j.guid)] = j.title;
+      });
+
+      // Fetch active toast employees
+      const { data: allEmps } = await supabaseAdmin
+        .from('toast_employees')
+        .select('id, first_name, last_name, toast_guid, store_ids, job_references, chosen_name')
+        .eq('deleted', false)
+        .limit(1000);
+
+      const empNameMap: Record<string, { name: string; job: string; store: string }> = {};
+      (allEmps || []).forEach((e: any) => {
+        const displayName = e.chosen_name
+          || `${e.first_name || ''} ${e.last_name || ''}`.trim()
+          || 'Sin nombre';
+        const storeId = Array.isArray(e.store_ids) ? e.store_ids[0] : (e.store_ids || '');
+        const entry = {
+          name: displayName,
+          job: '',
+          store: storeIdMap[storeId] || storeId || ''
+        };
+        empNameMap[String(e.id)] = entry;
+        if (e.toast_guid) empNameMap[String(e.toast_guid)] = entry;
+      });
+
+      // Fetch shifts for this week
+      const { data: rawShifts } = await supabaseAdmin
         .from('shifts')
-        .select('employee_id, store_id, shift_date, start_time, end_time, status', { count: 'exact' })
+        .select('employee_id, store_id, shift_date, start_time, end_time, status, job_id')
         .gte('shift_date', thisMonday)
-        .lte('shift_date', addDays(thisMonday, 6));
-      if (shifts && shifts.length > 0) {
-        const published = shifts.filter(s => s.status === 'published').length;
-        const draft = shifts.filter(s => s.status === 'draft' || !s.status).length;
-        sections.push(`📅 TURNOS PROGRAMADOS ESTA SEMANA: ${shiftCount} total | Publicados: ${published} | Borrador: ${draft}`);
+        .lte('shift_date', thisSunday)
+        .not('employee_id', 'is', null)
+        .limit(10000);
+
+      const fmtISO = (iso: string): string => {
+        try {
+          const d = new Date(iso);
+          const h = d.getHours(); const m = d.getMinutes();
+          const ampm = h >= 12 ? 'pm' : 'am';
+          const h12 = h % 12 || 12;
+          return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+        } catch { return iso; }
+      };
+
+      if (rawShifts && rawShifts.length > 0) {
+        const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+        const allDates: string[] = [];
+        for (let i = 0; i < 7; i++) allDates.push(addDays(thisMonday, i));
+
+        const empSched: Record<string, { name: string; job: string; store: string; days: Record<string, string> }> = {};
+        rawShifts.forEach((s: any) => {
+          if (!s.employee_id) return;
+          const eid = String(s.employee_id);
+          const emp = empNameMap[eid] || empNameMap[s.employee_id];
+          const jobFromShift = s.job_id ? (jobIdToTitle[String(s.job_id)] || '') : '';
+
+          if (!empSched[eid]) {
+            empSched[eid] = {
+              name: emp?.name || `Empleado ${eid.slice(0,6)}`,
+              job: jobFromShift || emp?.job || '',
+              store: emp?.store || (storeIdMap[s.store_id] || s.store_id || ''),
+              days: {}
+            };
+            allDates.forEach(d => { empSched[eid].days[d] = 'OFF'; });
+          }
+          if (jobFromShift && !empSched[eid].job) empSched[eid].job = jobFromShift;
+          empSched[eid].days[s.shift_date] = `${fmtISO(s.start_time)}-${fmtISO(s.end_time)}`;
+        });
+
+        const planLines: string[] = [];
+        for (const [, e] of Object.entries(empSched)) {
+          const job = e.job ? ` (${e.job})` : '';
+          const store = e.store ? ` [${e.store}]` : '';
+          const days = allDates.map((d, i) => `${weekDays[i]}:${e.days[d]}`).join(' | ');
+          planLines.push(`  ${e.name}${job}${store}: ${days}`);
+        }
+
+        const planOff = allDates.map((d, i) => {
+          const day = weekDays[i];
+          const offs = Object.values(empSched)
+            .filter(e => e.days[d] === 'OFF')
+            .map(e => e.job ? `${e.name} (${e.job})` : e.name);
+          return offs.length > 0 ? `  ${day}: ${offs.join(', ')}` : `  ${day}: Todos trabajan`;
+        }).join('\n');
+
+        const published = rawShifts.filter((s: any) => s.status === 'published').length;
+        sections.push(`📋 MÓDULO PLANIFICADOR ESTA SEMANA (${thisMonday} a ${thisSunday}):\nTotal turnos: ${rawShifts.length} | Publicados: ${published}\nNOTA: Los puestos (Cashier, Line Cook, etc.) vienen de Toast POS.\n\nHORARIO POR EMPLEADO:\n${planLines.join('\n')}\n\nDÍAS LIBRES (OFF):\n${planOff}`);
       }
     } catch (e) { console.warn('[TEG Assistant] Shifts fetch error:', e); }
 
@@ -550,7 +740,7 @@ DATOS EN TIEMPO REAL QUE TIENES ACCESO:
 - Inspecciones: Esta semana y semana pasada. Conteo por supervisor, por tienda, promedio de puntaje, estatus.
 - Empleados: Total activos, distribución por tienda, puestos de trabajo disponibles.
 - Labor: Punches de esta semana, horas totales, overtime, empleados únicos.
-- Turnos: Programados esta semana (publicados vs borrador). Templates de horarios guardados.
+- Horarios/Turnos: DETALLE COMPLETO por empleado incluyendo nombre, puesto, tienda, y horario día por día (Lun-Dom). Incluye quién tiene OFF cada día. SIEMPRE responde con nombres completos, NUNCA con IDs.
 - Violaciones laborales: Tipo y frecuencia semanal.
 - Reseñas de clientes: Últimos 30 días, rating promedio, fuentes.
 - Descuentos: Tipos, montos, frecuencia semanal.
@@ -625,7 +815,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: fullPrompt }] },
         contents: validContents,
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1500 }
+        generationConfig: { temperature: 0.3, maxOutputTokens: 4096 }
       })
     });
 
