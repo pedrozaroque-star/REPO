@@ -143,6 +143,21 @@ export async function POST(req: Request) {
         }
 
         // 2. Fetch Published Shifts
+        // FIX RACE CONDITION: When shift_ids are explicitly provided, the client JUST updated
+        // them to 'published' via anon key. To prevent a race where this server-side query
+        // (via service role) runs before the client write propagates, we FIRST ensure the
+        // update is applied atomically here, then query.
+        if (body.shift_ids && Array.isArray(body.shift_ids) && body.shift_ids.length > 0) {
+            console.log(`🔄 [API] Ensuring ${body.shift_ids.length} shifts are marked as 'published' (atomic guarantee)...`)
+            const { error: ensureError } = await supabase
+                .from('shifts')
+                .update({ status: 'published' })
+                .in('id', body.shift_ids)
+            if (ensureError) {
+                console.error('❌ [API] Failed to ensure publish status:', ensureError)
+            }
+        }
+
         let query = supabase
             .from('shifts')
             .select('*')
@@ -157,8 +172,14 @@ export async function POST(req: Request) {
 
         const { data: shifts, error: shiftError } = await query
 
-        if (shiftError || !shifts || shifts.length === 0) {
-            return NextResponse.json({ message: 'No published shifts found to notify' })
+        if (shiftError) {
+            console.error('❌ [API] Error querying shifts:', shiftError)
+            return NextResponse.json({ success: false, error: 'Database error fetching shifts: ' + shiftError.message }, { status: 500 })
+        }
+
+        if (!shifts || shifts.length === 0) {
+            console.warn('⚠️ [API] No published shifts found for store:', store_id, 'IDs:', body.shift_ids?.length || 0)
+            return NextResponse.json({ success: true, stats: { email: 0, errors: 0 }, message: 'No published shifts found to notify' })
         }
 
         // 3. Identify Employees (Target explicit list or all in view)
