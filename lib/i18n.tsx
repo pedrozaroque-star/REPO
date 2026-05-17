@@ -164,7 +164,13 @@ const dictionaries: Record<Language, any> = {
                 total_orders: 'Total Órdenes',
                 orders: 'Órdenes',
                 guests: 'Invitados',
-                labor_cost: 'Costo Laboral %'
+                labor_cost: 'Costo Laboral %',
+                food_cost: 'Food Cost %',
+                theo_cost: 'C. Teórico',
+                fc_critical: 'Nivel Crítico',
+                fc_warning: 'Alerta',
+                fc_healthy: 'Rango Saludable',
+                fc_loading: 'Calculando costos...'
             },
             // Mobile cards
             sales_label: 'Ventas',
@@ -187,6 +193,17 @@ const dictionaries: Record<Language, any> = {
             last_week: 'Semana pasada',
             last_7: 'Últimos 7 días',
             last_month: 'Mes pasado',
+            // Day-of-Week Filter
+            day_filter: {
+                all_days: 'Todos los días',
+                monday: 'Lunes',
+                tuesday: 'Martes',
+                wednesday: 'Miércoles',
+                thursday: 'Jueves',
+                friday: 'Viernes',
+                saturday: 'Sábado',
+                sunday: 'Domingo'
+            },
             history_page: {
                 title: "Historial Anual",
                 subtitle: "Matriz de rendimiento mensual",
@@ -1215,7 +1232,13 @@ const dictionaries: Record<Language, any> = {
                 total_orders: 'Total Orders',
                 orders: 'Orders',
                 guests: 'Guests',
-                labor_cost: 'Labor Cost %'
+                labor_cost: 'Labor Cost %',
+                food_cost: 'Food Cost %',
+                theo_cost: 'T. Cost',
+                fc_critical: 'Critical Level',
+                fc_warning: 'Warning',
+                fc_healthy: 'Healthy Range',
+                fc_loading: 'Calculating costs...'
             },
             // Mobile cards
             sales_label: 'Sales',
@@ -1238,6 +1261,17 @@ const dictionaries: Record<Language, any> = {
             last_week: 'Last week',
             last_7: 'Last 7 days',
             last_month: 'Last month',
+            // Day-of-Week Filter
+            day_filter: {
+                all_days: 'All days',
+                monday: 'Monday',
+                tuesday: 'Tuesday',
+                wednesday: 'Wednesday',
+                thursday: 'Thursday',
+                friday: 'Friday',
+                saturday: 'Saturday',
+                sunday: 'Sunday'
+            },
             history_page: {
                 title: "Annual History",
                 subtitle: "Monthly Performance Matrix",

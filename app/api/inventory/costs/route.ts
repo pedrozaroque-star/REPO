@@ -21,7 +21,7 @@ export async function GET() {
         // Note: The 'recipes' table structure is essentially (id, toast_menu_item_guid, inventory_item_id, quantity, unit)
         const { data: recipeRows, error: recipeError } = await supabase
             .from('recipes')
-            .select('toast_menu_item_guid, inventory_item_id, quantity, unit')
+            .select('toast_menu_item_guid, inventory_item_id, quantity, unit, type')
 
         if (recipeError) throw recipeError
 
@@ -38,7 +38,7 @@ export async function GET() {
                 inventory_item_id: row.inventory_item_id,
                 quantity: row.quantity,
                 unit: row.unit,
-                type: 'raw' // Default to raw if missing
+                type: row.type || 'cooked' // Use real type from DB (cooked applies yield)
             })
         })
 
@@ -63,11 +63,16 @@ export async function GET() {
             let breakdown: any[] = []
 
             if (hasRecipe) {
+                // Filter ONLY 'food' ingredients for theoretical cost
+                // COGS (packaging: cogs_dine_in, cogs_takeout, cogs_delivery) are excluded
+                // to match the base recipe cost shown in /inventory/menu
+                const foodIngredients = ingredients.filter((i: any) => i.type === 'food' || !i.type)
+
                 // Construct a temporary Recipe object for the calculator
                 const recipeObj: Recipe = {
                     id: menuItem.guid, // Fake ID
                     toast_menu_item_guid: menuItem.guid,
-                    ingredients: ingredients
+                    ingredients: foodIngredients
                 }
 
                 const costResult = calculateRecipeCost(recipeObj, inventoryItems || [])

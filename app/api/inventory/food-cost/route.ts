@@ -570,6 +570,55 @@ export async function GET(request: NextRequest) {
         // Default Sort: Quantity Desc
         report.sort((a, b) => b.quantity - a.quantity)
 
+        // ═══ WRITE-THROUGH CACHE ═══
+        // When this is a single-day request, cache the aggregate per store
+        // so the Sales module can read it instantly instead of recalculating
+        if (startDate === endDate) {
+            try {
+                const storeAgg = new Map<string, any>()
+                report.forEach(item => {
+                    const sid = item.store_id || 'unknown'
+                    if (!storeAgg.has(sid)) {
+                        storeAgg.set(sid, {
+                            business_date: startDate,
+                            store_id: sid,
+                            store_name: item.store_name || 'Unknown',
+                            total_cost: 0,
+                            net_sales: 0,
+                            total_items: 0,
+                            items_with_recipe: 0,
+                            total_meat_lbs: 0
+                        })
+                    }
+                    const agg = storeAgg.get(sid)
+                    agg.total_cost += item.total_cost || 0
+                    agg.net_sales += item.net_sales || 0
+                    agg.total_items += 1
+                    if (item.has_recipe) agg.items_with_recipe += 1
+                    agg.total_meat_lbs += item.total_meat_lbs || 0
+                })
+
+                const cacheRows = Array.from(storeAgg.values()).map(s => ({
+                    ...s,
+                    cost_percentage: s.net_sales > 0 ? Number(((s.total_cost / s.net_sales) * 100).toFixed(2)) : 0,
+                    updated_at: new Date().toISOString()
+                }))
+
+                const { error: cacheError } = await supabase
+                    .from('food_cost_daily_cache')
+                    .upsert(cacheRows, { onConflict: 'business_date, store_id' })
+
+                if (cacheError) {
+                    console.warn('[FoodCostAPI] ⚠️ Cache write failed:', cacheError.message)
+                } else {
+                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate}`)
+                }
+            } catch (cacheErr) {
+                console.warn('[FoodCostAPI] Cache write error (non-blocking):', cacheErr)
+            }
+        }
+        // ═══ END WRITE-THROUGH CACHE ═══
+
         return NextResponse.json({ data: report })
 
     } catch (e: any) {

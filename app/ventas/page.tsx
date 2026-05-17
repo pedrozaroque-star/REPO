@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
-import { Calendar, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap } from 'lucide-react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { Calendar, CalendarDays, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import SalesCharts from '@/components/sales/SalesCharts'
@@ -9,6 +9,60 @@ import { formatStoreName } from '@/lib/supabase'
 import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { useLanguage } from '@/lib/i18n'
+
+// Helper to filter a single row by a time range
+// Returns null for hourly rows outside the range (to be filtered out)
+const applyTimeFilterToRow = (row: any, timeFilter: string): any | null => {
+    if (timeFilter === 'all') return row
+
+    const [startH, endH] = timeFilter.split('-').map(Number)
+    let hours: number[] = []
+
+    if (startH > endH) {
+        // Wrapping range (e.g. 23-4 = 23,0,1,2,3)
+        for (let i = startH; i < 24; i++) hours.push(i)
+        for (let i = 0; i < endH; i++) hours.push(i)
+    } else {
+        for (let i = startH; i < endH; i++) hours.push(i)
+    }
+
+    // CASE 1: Hourly row (single-day view) — periodStart contains time like "2026-05-15 11:00"
+    const periodStart = row.periodStart || ''
+    if (periodStart.includes(':')) {
+        const hourStr = periodStart.split(' ')[1]?.split(':')[0]
+        const rowHour = parseInt(hourStr || '0')
+        // Exclude this row entirely if outside the time range
+        return hours.includes(rowHour) ? row : null
+    }
+
+    // CASE 2: Daily row (multi-day view) — extract hourly subtotals from JSONB
+    let netSales = 0
+    let laborCost = 0
+    let orderCount = 0
+
+    hours.forEach(h => {
+        netSales += (row.hourlySales?.[h] || 0)
+        laborCost += (row.hourlyLabor?.[h] || 0)
+        orderCount += (row.hourlyTickets?.[h] || 0)
+    })
+
+    // Proportional estimate for fields without hourly breakdown
+    const totalNetSales = row.netSales || 0
+    const proportion = totalNetSales > 0 ? netSales / totalNetSales : 0
+
+    return {
+        ...row,
+        netSales,
+        laborCost,
+        orderCount,
+        grossSales: (row.grossSales || 0) * proportion,
+        discounts: (row.discounts || 0) * proportion,
+        tips: (row.tips || 0) * proportion,
+        taxes: (row.taxes || 0) * proportion,
+        guestCount: Math.round((row.guestCount || 0) * proportion),
+        totalHours: (row.totalHours || 0) * proportion
+    }
+}
 
 function SalesPageContent() {
     const [loading, setLoading] = useState(false)
@@ -32,10 +86,21 @@ function SalesPageContent() {
     const [integrityStatus, setIntegrityStatus] = useState<'idle' | 'verifying' | 'fixed' | 'ok'>('idle')
     const [selectedStore, setSelectedStore] = useState<string>('all') // Store filter for KPIs and Trend
     const [storeList, setStoreList] = useState<string[]>([]) // Available stores
+    const [dayOfWeekFilter, setDayOfWeekFilter] = useState<number | null>(null) // null = all days, 0=Sun, 1=Mon...6=Sat
+    const [timeFilter, setTimeFilter] = useState<string>('all') // 'all', '6-11', '11-16', '16-23', '23-4', 'custom'
+    const [customHourStart, setCustomHourStart] = useState(6)
+    const [customHourEnd, setCustomHourEnd] = useState(14)
     const [showWelcomeModal, setShowWelcomeModal] = useState(false)
     const { user } = useAuth()
     const { t } = useLanguage()
     const isAdmin = user?.role === 'admin'
+
+    // Food Cost Integration State
+    const [foodCostData, setFoodCostData] = useState<{ totalCost: number, totalSales: number, costPercentage: number, byStore?: Record<string, { totalCost: number, netSales: number, costPercentage: number }> } | null>(null)
+    const [foodCostLoading, setFoodCostLoading] = useState(false)
+
+    // AbortController: cancels in-flight HTTP requests when user changes filter
+    const abortControllerRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
         setShowWelcomeModal(true)
@@ -85,7 +150,55 @@ function SalesPageContent() {
 
     const sortedStoreData = useMemo(() => {
         if (!data?.storeData) return []
-        let sortableItems = [...data.storeData]
+        let sourceData = [...data.storeData]
+
+        // Resolve 'custom' to actual hour range
+        const resolvedTime = timeFilter === 'custom' ? `${customHourStart}-${customHourEnd}` : timeFilter
+
+        // 📅 When day-of-week or time filter is active, re-aggregate store data from filtered raw rows
+        if ((dayOfWeekFilter !== null || resolvedTime !== 'all') && data.rawRows) {
+            let filteredRows = data.rawRows
+
+            if (dayOfWeekFilter !== null) {
+                filteredRows = filteredRows.filter((r: any) => {
+                    if (!r.periodStart) return false
+                    const dateStr = r.periodStart.split(' ')[0]
+                    const d = new Date(dateStr + 'T12:00:00')
+                    return d.getDay() === dayOfWeekFilter
+                })
+            }
+
+            if (resolvedTime !== 'all') {
+                filteredRows = filteredRows.map((r: any) => applyTimeFilterToRow(r, resolvedTime)).filter(Boolean)
+            }
+            // Re-aggregate by store from the filtered rows
+            const storeMap = new Map<string, any>()
+            filteredRows.forEach((row: any) => {
+                const storeName = row.storeName || 'Unknown'
+                if (!storeMap.has(storeName)) {
+                    storeMap.set(storeName, {
+                        name: storeName, storeName, storeId: row.storeId,
+                        amount: 0, netSales: 0, orderCount: 0, guestCount: 0,
+                        laborCost: 0, laborPercentage: 0, totalHours: 0,
+                        projectedSales: 0, projectedToDate: 0
+                    })
+                }
+                const s = storeMap.get(storeName)
+                s.amount += (row.netSales || 0)
+                s.netSales += (row.netSales || 0)
+                s.orderCount += (row.orderCount || 0)
+                s.guestCount += (row.guestCount || 0)
+                s.laborCost += (row.laborCost || 0)
+                s.totalHours += (row.totalHours || 0)
+                s.projectedSales += (row.projectedSales || 0)
+            })
+            sourceData = Array.from(storeMap.values()).map((s: any) => ({
+                ...s,
+                laborPercentage: s.netSales > 0 ? (s.laborCost / s.netSales) * 100 : 0
+            }))
+        }
+
+        let sortableItems = [...sourceData]
         if (sortConfig !== null) {
             sortableItems.sort((a: any, b: any) => {
                 let aValue: any = a[sortConfig.key]
@@ -105,6 +218,9 @@ function SalesPageContent() {
                 } else if (sortConfig.key === 'laborPercentage') {
                     aValue = Number(a.laborPercentage)
                     bValue = Number(b.laborPercentage)
+                } else if (sortConfig.key === 'foodCostPct') {
+                    aValue = foodCostData?.byStore?.[a.storeId]?.costPercentage || 0
+                    bValue = foodCostData?.byStore?.[b.storeId]?.costPercentage || 0
                 }
 
                 if (aValue < bValue) {
@@ -117,7 +233,7 @@ function SalesPageContent() {
             })
         }
         return sortableItems
-    }, [data, sortConfig])
+    }, [data, sortConfig, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd, foodCostData])
 
     // Helper to process raw rows into UI Data Structure
     const processData = (rows: any[], groupByMode: string, referenceDate: string) => {
@@ -242,31 +358,13 @@ function SalesPageContent() {
             const hourlyProjCounts: Record<string, { sum: number, count: number }> = {}
 
             rows.forEach((row: any) => {
-                if (row.hourlySales) {
-                    Object.entries(row.hourlySales).forEach(([h, amount]) => {
-                        const hourInt = parseInt(h)
-                        const isNext = hourInt < 6
-                        const dStr = isNext ? nextDateStr : baseDateStr
-                        const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-                        const bucket = trendMap.get(key)
-                        if (bucket) {
-                            bucket.amount += (Number(amount) || 0)
-                        }
-                    })
-                }
-
-                // Aggregate Hourly Labor
-                if (row.hourlyLabor) {
-                    Object.entries(row.hourlyLabor).forEach(([h, cost]) => {
-                        const hourInt = parseInt(h)
-                        const isNext = hourInt < 6
-                        const dStr = isNext ? nextDateStr : baseDateStr
-                        const key = `${dStr} ${hourInt.toString().padStart(2, '0')}:00`
-                        const bucket = trendMap.get(key)
-                        if (bucket) {
-                            bucket.labor += (Number(cost) || 0)
-                        }
-                    })
+                // For hourly rows, use periodStart to match the correct time bucket
+                // Each row represents one hour for one store, with netSales = that hour's sales
+                const rowPeriod = row.periodStart || ''
+                if (rowPeriod && trendMap.has(rowPeriod)) {
+                    const bucket = trendMap.get(rowPeriod)!
+                    bucket.amount += (row.netSales || 0)
+                    bucket.labor += (row.laborCost || 0)
                 }
 
                 // Use projected hourly if available from API response
@@ -326,6 +424,9 @@ function SalesPageContent() {
     }
 
     const refreshData = async (forceLive = false, isBackground = false) => {
+        // Use the current abort signal (set by useEffect)
+        const signal = abortControllerRef.current?.signal
+
         if (!isBackground) {
             setLoading(true)
             setLoadingMessage(t('sales.loading_connecting'))
@@ -351,7 +452,7 @@ function SalesPageContent() {
                 // Single day = hourly view, multi-day = daily or weekly
                 if (diff === 0) {
                     groupBy = 'hour'
-                } else if (diff > 31) {
+                } else if (diff > 31 && dayOfWeekFilter === null && timeFilter === 'all') {
                     groupBy = 'week'
                 } else {
                     groupBy = 'day'
@@ -376,11 +477,11 @@ function SalesPageContent() {
                 start = new Date(today.getFullYear(), today.getMonth(), 1)
                 groupBy = 'day'
             } else if (period === 'quarter') {
-                // Últimos 90 días, agrupado por SEMANA
+                // Últimos 90 días, agrupado por SEMANA (or day if day-of-week/time filter active)
                 const quarterAgo = new Date(today)
                 quarterAgo.setDate(quarterAgo.getDate() - 90)
                 start = quarterAgo
-                groupBy = 'week'
+                groupBy = (dayOfWeekFilter !== null || timeFilter !== 'all') ? 'day' : 'week'
             }
 
             const formatDate = (d: Date) => {
@@ -412,7 +513,8 @@ function SalesPageContent() {
             const res = await fetch(`/api/ventas?${query}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                signal // Attach abort signal — request is cancelled if user changes filter
             })
 
             if (res.status === 401 || res.status === 403) {
@@ -442,7 +544,9 @@ function SalesPageContent() {
                 setStoreList([])
             }
 
-        } catch (e) {
+        } catch (e: any) {
+            // AbortError is expected when user changes filter — silently ignore
+            if (e?.name === 'AbortError') return
             console.error('Error fetching sales data:', e)
         } finally {
             setLastUpdated(new Date())
@@ -455,7 +559,78 @@ function SalesPageContent() {
         }
     }
 
+    // ═══ FOOD COST: CACHE-FIRST STRATEGY ═══
+    // 1. Try reading pre-calculated data from Supabase cache (instant ~50ms)
+    // 2. If cache miss + single day: fall back to full calculation (which also populates cache)
+    // 3. If cache miss + multi-day: show nothing (user visits /admin/food-cost to populate)
+    const fetchFoodCost = async (sDate: string, eDate: string) => {
+        setFoodCostLoading(true)
+        try {
+            // Step 1: Try Cache (instant)
+            const cacheRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`)
+            const cacheJson = await cacheRes.json()
+
+            if (cacheJson.totalCost > 0) {
+                // Cache hit — use pre-calculated data
+                setFoodCostData({
+                    totalCost: cacheJson.totalCost,
+                    totalSales: cacheJson.totalSales,
+                    costPercentage: cacheJson.costPercentage,
+                    byStore: cacheJson.byStore || {}
+                })
+                console.log(`[FoodCost] ⚡ Cache hit: ${cacheJson.daysWithData}/${cacheJson.totalDaysInRange} days`)
+                return
+            }
+
+            // Step 2: Cache miss — only do full calculation for single-day views
+            // (Today/Yesterday are worth the wait; multi-day ranges would be too slow)
+            if (sDate === eDate) {
+                console.log(`[FoodCost] 🔄 Cache miss for ${sDate}, falling back to full calculation...`)
+                const fullRes = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${sDate}&endDate=${eDate}`)
+                const fullJson = await fullRes.json()
+                if (fullJson.data && fullJson.data.length > 0) {
+                    let totalCost = 0
+                    let totalSales = 0
+                    const storeMap: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
+                    fullJson.data.forEach((item: any) => {
+                        totalCost += item.total_cost || 0
+                        totalSales += item.net_sales || 0
+                        // Aggregate by store
+                        const sid = item.store_id || 'unknown'
+                        if (!storeMap[sid]) storeMap[sid] = { totalCost: 0, netSales: 0, costPercentage: 0 }
+                        storeMap[sid].totalCost += item.total_cost || 0
+                        storeMap[sid].netSales += item.net_sales || 0
+                    })
+                    // Calculate per-store percentages
+                    Object.values(storeMap).forEach(s => {
+                        s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
+                    })
+                    const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
+                    setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap })
+                    // Note: The full API now writes to cache automatically (write-through)
+                    console.log(`[FoodCost] ✅ Calculated & cached for ${sDate}`)
+                    return
+                }
+            }
+
+            // No data available
+            setFoodCostData(null)
+        } catch (e) {
+            console.error('Error fetching food cost data:', e)
+            setFoodCostData(null)
+        } finally {
+            setFoodCostLoading(false)
+        }
+    }
+
     useEffect(() => {
+        // Cancel any in-flight requests from the previous filter
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+        }
+        // Create a new controller for this filter's requests
+        abortControllerRef.current = new AbortController()
+
         const loadAndSync = async () => {
             // 1. Initial Load (Fast from Cache if available)
             await refreshData(false, false)
@@ -466,8 +641,17 @@ function SalesPageContent() {
             }
         }
         loadAndSync()
+        
+        // 3. Parallel Food Cost Fetch (non-blocking)
+        fetchFoodCost(startDate, endDate)
+        
         setIntegrityStatus('idle') // Reset status on new fetch
-    }, [period, startDate, endDate]) 
+
+        // Cleanup: cancel requests if component unmounts
+        return () => {
+            abortControllerRef.current?.abort()
+        }
+    }, [period, startDate, endDate, dayOfWeekFilter !== null, timeFilter !== 'all']) // Only re-fetch on groupBy-affecting transitions; day/hour changes are client-side via useMemo
 
     // INTEGRITY CHECK HOOK
     useEffect(() => {
@@ -536,12 +720,61 @@ function SalesPageContent() {
         }
 
         // Filter rows by selected store - if 'all', use all rows
-        const filteredRows = selectedStore === 'all'
+        let filteredRows = selectedStore === 'all'
             ? data.rawRows
             : data.rawRows.filter((r: any) => (r.storeName || t('sales.unknown_store')) === selectedStore)
 
+        // 📅 DAY-OF-WEEK FILTER: Filter rows to only include a specific day of the week
+        if (dayOfWeekFilter !== null) {
+            filteredRows = filteredRows.filter((r: any) => {
+                if (!r.periodStart) return false
+                const dateStr = r.periodStart.split(' ')[0] // Safety: handle "2026-05-06" or "2026-05-06 00:00"
+                const d = new Date(dateStr + 'T12:00:00') // Use noon to avoid timezone edge cases
+                return d.getDay() === dayOfWeekFilter
+            })
+        }
+
+        // 🕒 TIME FILTER: Filter hourly data within rows
+        const resolvedTime = timeFilter === 'custom' ? `${customHourStart}-${customHourEnd}` : timeFilter
+        if (resolvedTime !== 'all') {
+            // For hourly rows (single-day view), redistribute concentrated values
+            // before filtering. Orders, guests, labor, gross are ALL on the i=0 row (hour 7).
+            // We need to spread them proportionally across all hours by netSales share.
+            if (data.groupByMode === 'hour') {
+                const storeGroups = new Map<string, any[]>()
+                filteredRows.forEach((r: any) => {
+                    if (!storeGroups.has(r.storeId)) storeGroups.set(r.storeId, [])
+                    storeGroups.get(r.storeId)!.push(r)
+                })
+
+                const redistributed: any[] = []
+                storeGroups.forEach((rows) => {
+                    // Find the concentrated row (has orderCount > 0 or laborCost > 0)
+                    const concRow = rows.find((r: any) => (r.orderCount || 0) > 0 || (r.laborCost || 0) > 0)
+                    const totalSales = rows.reduce((sum: number, r: any) => sum + (r.netSales || 0), 0)
+
+                    rows.forEach((r: any) => {
+                        const proportion = totalSales > 0 ? (r.netSales || 0) / totalSales : 0
+                        redistributed.push({
+                            ...r,
+                            orderCount: concRow ? Math.round((concRow.orderCount || 0) * proportion) : 0,
+                            guestCount: concRow ? Math.round((concRow.guestCount || 0) * proportion) : 0,
+                            laborCost: concRow ? (concRow.laborCost || 0) * proportion : 0,
+                            totalHours: concRow ? (concRow.totalHours || 0) * proportion : 0,
+                            grossSales: concRow ? (concRow.grossSales || 0) * proportion : 0,
+                            discounts: concRow ? (concRow.discounts || 0) * proportion : 0,
+                            tips: concRow ? (concRow.tips || 0) * proportion : 0,
+                            taxes: concRow ? (concRow.taxes || 0) * proportion : 0,
+                        })
+                    })
+                })
+                filteredRows = redistributed
+            }
+
+            filteredRows = filteredRows.map((r: any) => applyTimeFilterToRow(r, resolvedTime)).filter(Boolean)
+        }
+
         // ALWAYS Reprocess data to ensure correct Date Reference in trendMap
-        // (Even if 'all', we must regenerate trendData if startDate changed but data didn't re-fetch yet, though typically they update together)
         const reprocessed = processData(filteredRows, data.groupByMode, startDate)
 
         return {
@@ -549,7 +782,22 @@ function SalesPageContent() {
             filteredTrendData: reprocessed.trendData,
             storeRanking: data.storeData || [] // Always full data for Top 5 and Detail
         }
-    }, [data, selectedStore, startDate]) // Include startDate in dependency array
+    }, [data, selectedStore, startDate, dayOfWeekFilter, timeFilter, customHourStart, customHourEnd]) // Include timeFilter + custom hours in dependency array
+
+    // 🍽️ FILTERED FOOD COST: Recompute food cost for selected store
+    const filteredFoodCost = useMemo(() => {
+        if (!foodCostData || foodCostLoading) {
+            return foodCostLoading ? { totalCost: 0, costPercentage: 0, loading: true } : null
+        }
+        // When "all" stores, use the raw aggregated data
+        // Note: per-store food cost filtering would require raw item-level data
+        // which we don't store in this view. The aggregate is still valuable.
+        return {
+            totalCost: foodCostData.totalCost,
+            costPercentage: foodCostData.costPercentage,
+            loading: false
+        }
+    }, [foodCostData, foodCostLoading])
 
     // Early return for loading state
     if (!data) return (
@@ -711,6 +959,10 @@ function SalesPageContent() {
                                         setPeriod(p as any)
                                         setStartDate(s)
                                         setEndDate(e)
+                                        // Reset day-of-week filter when switching to single-day views
+                                        if (['today', 'yesterday'].includes(p)) {
+                                            setDayOfWeekFilter(null)
+                                        }
                                     }}
                                 />
                                 <button 
@@ -742,6 +994,129 @@ function SalesPageContent() {
                                     <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                 </div>
                             )}
+
+                            {/* Day-of-Week Comparison Filter — always visible, disabled for single-day */}
+                            {(() => {
+                                const isMultiDay = startDate !== endDate
+                                // Calculate which days of the week exist in the date range
+                                const daysInRange = new Set<number>()
+                                if (isMultiDay) {
+                                    const [sY, sM, sD] = startDate.split('-').map(Number)
+                                    const [eY, eM, eD] = endDate.split('-').map(Number)
+                                    const cur = new Date(sY, sM - 1, sD)
+                                    const end = new Date(eY, eM - 1, eD)
+                                    // If range covers 7+ days, all days exist
+                                    const diffDays = Math.round((end.getTime() - cur.getTime()) / 86400000)
+                                    if (diffDays >= 6) {
+                                        for (let i = 0; i < 7; i++) daysInRange.add(i)
+                                    } else {
+                                        while (cur <= end) {
+                                            daysInRange.add(cur.getDay())
+                                            cur.setDate(cur.getDate() + 1)
+                                        }
+                                    }
+                                }
+                                const dayOptions = [
+                                    { value: '1', label: t('sales.day_filter.monday') },
+                                    { value: '2', label: t('sales.day_filter.tuesday') },
+                                    { value: '3', label: t('sales.day_filter.wednesday') },
+                                    { value: '4', label: t('sales.day_filter.thursday') },
+                                    { value: '5', label: t('sales.day_filter.friday') },
+                                    { value: '6', label: t('sales.day_filter.saturday') },
+                                    { value: '0', label: t('sales.day_filter.sunday') },
+                                ]
+                                return (
+                                    <div className="relative">
+                                        <select
+                                            value={dayOfWeekFilter === null ? 'all' : String(dayOfWeekFilter)}
+                                            onChange={(e) => setDayOfWeekFilter(e.target.value === 'all' ? null : Number(e.target.value))}
+                                            disabled={!isMultiDay}
+                                            className={`appearance-none pl-8 pr-8 py-2 rounded-xl text-xs font-medium transition-colors border cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${
+                                                !isMultiDay
+                                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 border-black/5 dark:border-slate-700 opacity-50 cursor-not-allowed'
+                                                    : dayOfWeekFilter !== null
+                                                        ? 'bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-500/30'
+                                                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-black/5 dark:border-slate-700'
+                                            }`}
+                                        >
+                                            <option value="all">{t('sales.day_filter.all_days')}</option>
+                                            {dayOptions.filter(d => daysInRange.has(Number(d.value))).map(d => (
+                                                <option key={d.value} value={d.value}>{d.label}</option>
+                                            ))}
+                                        </select>
+                                        <CalendarDays size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${dayOfWeekFilter !== null && isMultiDay ? 'text-indigo-500' : 'text-slate-400'}`} />
+                                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    </div>
+                                )
+                            })()}
+
+                            {/* Time Comparison Filter */}
+                            <div className="flex items-center gap-1.5">
+                                <div className="relative">
+                                    <select
+                                        value={timeFilter}
+                                        onChange={(e) => {
+                                            const val = e.target.value
+                                            if (val === 'custom') {
+                                                setTimeFilter(`${customHourStart}-${customHourEnd}`)
+                                                // We'll show the pickers via a separate flag
+                                                setTimeFilter('custom')
+                                            } else {
+                                                setTimeFilter(val)
+                                            }
+                                        }}
+                                        className={`appearance-none pl-8 pr-8 py-2 rounded-xl text-xs font-medium transition-colors border cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 ${
+                                            timeFilter !== 'all'
+                                                ? 'bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-500/30'
+                                                : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-black/5 dark:border-slate-700'
+                                        }`}
+                                    >
+                                        <option value="all">All Hours</option>
+                                        <option value="6-11">Breakfast (6am - 11am)</option>
+                                        <option value="11-16">Lunch (11am - 4pm)</option>
+                                        <option value="16-23">Dinner (4pm - 11pm)</option>
+                                        <option value="23-4">Late Night (11pm - 4am)</option>
+                                        <option value="custom">Custom Hours</option>
+                                    </select>
+                                    <Clock size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${timeFilter !== 'all' ? 'text-fuchsia-500' : 'text-slate-400'}`} />
+                                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                </div>
+                                {timeFilter === 'custom' && (
+                                    <div className="flex items-center gap-1">
+                                        <select
+                                            value={customHourStart}
+                                            onChange={(e) => {
+                                                const newStart = Number(e.target.value)
+                                                setCustomHourStart(newStart)
+                                                setTimeFilter('custom')
+                                            }}
+                                            className="appearance-none px-2 py-2 rounded-lg text-xs font-medium bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-200 dark:border-fuchsia-500/30 cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
+                                        >
+                                            {Array.from({ length: 24 }, (_, i) => (
+                                                <option key={i} value={i}>
+                                                    {i === 0 ? '12am' : i < 12 ? `${i}am` : i === 12 ? '12pm' : `${i - 12}pm`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <span className="text-slate-400 text-xs">→</span>
+                                        <select
+                                            value={customHourEnd}
+                                            onChange={(e) => {
+                                                const newEnd = Number(e.target.value)
+                                                setCustomHourEnd(newEnd)
+                                                setTimeFilter('custom')
+                                            }}
+                                            className="appearance-none px-2 py-2 rounded-lg text-xs font-medium bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300 border border-fuchsia-200 dark:border-fuchsia-500/30 cursor-pointer focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
+                                        >
+                                            {Array.from({ length: 24 }, (_, i) => (
+                                                <option key={i} value={i}>
+                                                    {i === 0 ? '12am' : i < 12 ? `${i}am` : i === 12 ? '12pm' : `${i - 12}pm`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
 
                             <div className="hidden sm:block w-[1px] h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
@@ -800,7 +1175,7 @@ function SalesPageContent() {
                     </div>
                 ) : (
                     <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        <SalesSummary data={summary} />
+                        <SalesSummary data={summary} foodCost={filteredFoodCost} />
                         <SalesCharts trendData={timelineData} period={period} />
 
                         {/* Table */}
@@ -944,6 +1319,16 @@ function SalesPageContent() {
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
                                             </div>
                                         </th>
+                                        {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
+                                            <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('foodCostPct')}>
+                                                <div className="flex items-center justify-end gap-1 text-teal-600 dark:text-teal-400">
+                                                    Food Cost
+                                                    {sortConfig?.key === 'foodCostPct' ? (
+                                                        sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                                                    ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
+                                                </div>
+                                            </th>
+                                        )}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-black/5 dark:divide-slate-800">
@@ -994,6 +1379,28 @@ function SalesPageContent() {
                                                         {laborPct}%
                                                     </span>
                                                 </td>
+                                                {foodCostData?.byStore && Object.keys(foodCostData.byStore).length > 0 && (
+                                                    <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                        {(() => {
+                                                            const storeFC = foodCostData.byStore[store.storeId]
+                                                            if (!storeFC) return <span className="text-slate-400 text-sm">—</span>
+                                                            const fcPct = storeFC.costPercentage
+                                                            return (
+                                                                <span
+                                                                    onClick={() => window.open(`/admin/food-cost?store=${store.storeId}&startDate=${startDate}&endDate=${endDate}`, '_blank')}
+                                                                    className={`px-2.5 py-1 rounded-lg font-bold text-lg inline-flex items-center gap-1 cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-teal-400/50 transition-all ${
+                                                                    fcPct < 30
+                                                                        ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                                                        : fcPct > 35
+                                                                            ? 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                                                                            : 'bg-yellow-100 dark:bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
+                                                                }`}>
+                                                                    {fcPct.toFixed(1)}%
+                                                                </span>
+                                                            )
+                                                        })()}
+                                                    </td>
+                                                )}
                                             </tr>
                                         )
                                     })}
