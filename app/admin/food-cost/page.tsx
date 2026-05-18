@@ -61,6 +61,9 @@ export default function FoodCostPage() {
     // Data State
     const [data, setData] = useState<FoodCostItem[] | null>(null)
     const [storeList, setStoreList] = useState<string[]>([])
+    // Authoritative net_sales from sales_daily_cache (parity with Ventas page)
+    // Only used for KPI totals — individual product data stays untouched
+    const [salesNetSales, setSalesNetSales] = useState<Record<string, number> | null>(null)
 
     // We now sort by the aggregated store metrics
     type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPercent' | 'missing_prices' | 'totalDiscounts' | 'totalMeatLbs'
@@ -126,12 +129,21 @@ export default function FoodCostPage() {
             if (json.data) {
                 setData(json.data)
 
+                // Store authoritative net_sales from sales_daily_cache (for KPI parity with Ventas)
+                // This does NOT alter individual product data — only used for top-level summary
+                if (json.salesNetSales && Object.keys(json.salesNetSales).length > 0) {
+                    setSalesNetSales(json.salesNetSales)
+                } else {
+                    setSalesNetSales(null)
+                }
+
                 // Extract unique stores
                 const stores = Array.from(new Set(json.data.map((r: FoodCostItem) => r.store_name || t('sales.unknown_store')))) as string[]
                 setStoreList(stores.sort())
             } else {
                 setData([])
                 setStoreList([])
+                setSalesNetSales(null)
             }
         } catch (e) {
             console.error('Error fetching food cost data:', e)
@@ -199,17 +211,22 @@ export default function FoodCostPage() {
             if (item.missing_prices) s.missing_prices = true
         })
 
-        const chartArr = Array.from(storeMap.entries()).map(([sn, vals]) => ({
-            store_id: vals.store_id,
-            storeName: sn,
-            totalSales: vals.totalSales,
-            totalCost: vals.totalCost,
-            quantity: vals.quantity,
-            totalDiscounts: vals.totalDiscounts,
-            totalMeatLbs: vals.totalMeatLbs,
-            missing_prices: vals.missing_prices,
-            costPercent: vals.totalSales > 0 ? (vals.totalCost / vals.totalSales) * 100 : 0
-        }))
+        const chartArr = Array.from(storeMap.entries()).map(([sn, vals]) => {
+            // Use authoritative sales from sales_daily_cache when available (KPI parity with Ventas)
+            const authSales = (salesNetSales && selectedStore === 'all') ? salesNetSales[vals.store_id] : undefined
+            const displaySales = authSales !== undefined ? authSales : vals.totalSales
+            return {
+                store_id: vals.store_id,
+                storeName: sn,
+                totalSales: displaySales,
+                totalCost: vals.totalCost,
+                quantity: vals.quantity,
+                totalDiscounts: vals.totalDiscounts,
+                totalMeatLbs: vals.totalMeatLbs,
+                missing_prices: vals.missing_prices,
+                costPercent: displaySales > 0 ? (vals.totalCost / displaySales) * 100 : 0
+            }
+        })
 
         // 4. Sort aggregated store data
         chartArr.sort((a, b) => {
@@ -226,12 +243,20 @@ export default function FoodCostPage() {
             return sortConfig.direction === 'asc' ? ((aVal as number) - (bVal as number)) : ((bVal as number) - (aVal as number))
         })
 
+        // Override summary totalSales with authoritative values when viewing all stores
+        if (salesNetSales && selectedStore === 'all') {
+            const authTotal = Object.values(salesNetSales).reduce((s, v) => s + v, 0)
+            if (authTotal > 0) {
+                sumData.totalSales = authTotal
+            }
+        }
+
         return {
             summaryData: sumData,
             storeTableData: chartArr
         }
 
-    }, [data, selectedStore, filterTerm, sortConfig, t])
+    }, [data, selectedStore, filterTerm, sortConfig, salesNetSales, t])
 
     if (!data) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">

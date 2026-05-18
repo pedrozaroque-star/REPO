@@ -587,8 +587,25 @@ export async function GET(request: NextRequest) {
         // ═══ WRITE-THROUGH CACHE ═══
         // When this is a single-day request, cache the aggregate per store
         // so the Sales module can read it instantly instead of recalculating
+        // IMPORTANT: We use sales_daily_cache net_sales as the denominator (source of truth)
+        // to ensure parity with the Ventas dashboard.
+        let salesNetSalesMap: Map<string, number> | null = null
+
         if (startDate === endDate) {
             try {
+                const supabaseAdmin = await getSupabaseAdminClient()
+
+                // Fetch authoritative net_sales from sales_daily_cache (same source as Ventas page)
+                const { data: salesRows } = await supabaseAdmin
+                    .from('sales_daily_cache')
+                    .select('store_id, net_sales')
+                    .eq('business_date', startDate)
+
+                salesNetSalesMap = new Map<string, number>()
+                salesRows?.forEach((r: any) => {
+                    salesNetSalesMap!.set(r.store_id, Number(r.net_sales) || 0)
+                })
+
                 const storeAgg = new Map<string, any>()
                 report.forEach(item => {
                     const sid = item.store_id || 'unknown'
@@ -612,13 +629,18 @@ export async function GET(request: NextRequest) {
                     agg.total_meat_lbs += item.total_meat_lbs || 0
                 })
 
-                const cacheRows = Array.from(storeAgg.values()).map(s => ({
-                    ...s,
-                    cost_percentage: s.net_sales > 0 ? Number(((s.total_cost / s.net_sales) * 100).toFixed(2)) : 0,
-                    updated_at: new Date().toISOString()
-                }))
+                // Override net_sales with sales_daily_cache values when available
+                const cacheRows = Array.from(storeAgg.values()).map(s => {
+                    const authoritativeSales = salesNetSalesMap!.get(s.store_id)
+                    const netSales = authoritativeSales !== undefined ? authoritativeSales : s.net_sales
+                    return {
+                        ...s,
+                        net_sales: netSales,
+                        cost_percentage: netSales > 0 ? Number(((s.total_cost / netSales) * 100).toFixed(2)) : 0,
+                        updated_at: new Date().toISOString()
+                    }
+                })
 
-                const supabaseAdmin = await getSupabaseAdminClient()
                 const { error: cacheError } = await supabaseAdmin
                     .from('food_cost_daily_cache')
                     .upsert(cacheRows, { onConflict: 'business_date, store_id' })
@@ -626,7 +648,7 @@ export async function GET(request: NextRequest) {
                 if (cacheError) {
                     console.warn('[FoodCostAPI] ⚠️ Cache write failed:', cacheError.message)
                 } else {
-                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate}`)
+                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate} (using sales_daily_cache net_sales)`)
                 }
             } catch (cacheErr) {
                 console.warn('[FoodCostAPI] Cache write error (non-blocking):', cacheErr)
@@ -634,7 +656,13 @@ export async function GET(request: NextRequest) {
         }
         // ═══ END WRITE-THROUGH CACHE ═══
 
-        return NextResponse.json({ data: report })
+        // Include authoritative sales data in response so frontend can use it
+        const salesNetSales: Record<string, number> = {}
+        if (salesNetSalesMap) {
+            salesNetSalesMap.forEach((v, k) => salesNetSales[k] = v)
+        }
+
+        return NextResponse.json({ data: report, salesNetSales })
 
     } catch (e: any) {
         console.error('Food Cost API Error:', e)
