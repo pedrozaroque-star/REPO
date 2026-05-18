@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Calendar, CalendarDays, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
 import SurpriseLoader from '@/components/SurpriseLoader'
@@ -65,8 +66,15 @@ const applyTimeFilterToRow = (row: any, timeFilter: string): any | null => {
 }
 
 function SalesPageContent() {
+    const urlParams = useSearchParams()
     const [loading, setLoading] = useState(false)
-    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>('today')
+    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
+        const p = urlParams.get('period')
+        if (p && ['today','yesterday','week','month','quarter','custom','last_week','last_7','last_month'].includes(p)) return p as any
+        // If startDate/endDate are passed, treat as custom
+        if (urlParams.get('startDate') && urlParams.get('endDate')) return 'custom'
+        return 'today'
+    })
     const getLocalDateString = () => {
         const d = new Date()
         if (d.getHours() < 6) d.setDate(d.getDate() - 1)
@@ -76,8 +84,8 @@ function SalesPageContent() {
         return `${year}-${month}-${day}`
     }
 
-    const [startDate, setStartDate] = useState(getLocalDateString)
-    const [endDate, setEndDate] = useState(getLocalDateString)
+    const [startDate, setStartDate] = useState(() => urlParams.get('startDate') || getLocalDateString())
+    const [endDate, setEndDate] = useState(() => urlParams.get('endDate') || getLocalDateString())
     const [isLiveSyncing, setIsLiveSyncing] = useState(false)
     const [data, setData] = useState<any>(null)
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())

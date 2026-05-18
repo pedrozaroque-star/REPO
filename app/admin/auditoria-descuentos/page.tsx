@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n'
 import { createClient } from '@supabase/supabase-js'
 import { Calendar, Store, AlertTriangle, User, Filter, ChevronLeft, ChevronRight, ShieldAlert, Target, Info, X } from 'lucide-react'
@@ -29,15 +30,21 @@ type DiscountRow = {
 
 export default function AuditoriaDescuentos() {
     const { t } = useLanguage()
+    const urlParams = useSearchParams()
     const [discounts, setDiscounts] = useState<DiscountRow[]>([])
     const [loading, setLoading] = useState(false)
-    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>('yesterday')
+    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
+        if (urlParams.get('startDate') && urlParams.get('endDate')) return 'custom'
+        return 'yesterday'
+    })
     const [startDate, setStartDate] = useState(() => {
+        if (urlParams.get('startDate')) return urlParams.get('startDate')!
         const d = new Date()
         d.setDate(d.getDate() - 1)
         return d.toISOString().split('T')[0]
     })
     const [endDate, setEndDate] = useState(() => {
+        if (urlParams.get('endDate')) return urlParams.get('endDate')!
         const d = new Date()
         d.setDate(d.getDate() - 1)
         return d.toISOString().split('T')[0]

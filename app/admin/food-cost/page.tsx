@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { ChevronDown, ChevronUp, Store, RefreshCw, Download, ArrowUpDown, Search, CheckCircle2 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FoodCostSummary from '@/components/food-cost/FoodCostSummary'
 import FoodCostCharts from '@/components/food-cost/FoodCostCharts'
@@ -37,6 +37,7 @@ type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPerc
 export default function FoodCostPage() {
     const { t } = useLanguage()
     const router = useRouter()
+    const urlParams = useSearchParams()
 
     // UI State
     const [loading, setLoading] = useState(false)
@@ -44,13 +45,18 @@ export default function FoodCostPage() {
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
 
     // Filter State
-    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>('today')
+    const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>(() => {
+        if (urlParams.get('startDate') && urlParams.get('endDate')) return 'custom'
+        return 'today'
+    })
     const [startDate, setStartDate] = useState(() => {
+        if (urlParams.get('startDate')) return urlParams.get('startDate')!
         const d = new Date()
         if (d.getHours() < 6) d.setDate(d.getDate() - 1)
         return d.toISOString().split('T')[0]
     })
     const [endDate, setEndDate] = useState(() => {
+        if (urlParams.get('endDate')) return urlParams.get('endDate')!
         const d = new Date()
         if (d.getHours() < 6) d.setDate(d.getDate() - 1)
         return d.toISOString().split('T')[0]
