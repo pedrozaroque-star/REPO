@@ -72,7 +72,7 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
             title: t('sales.summary.labor_cost'),
             value: `${data.laborPercentage.toFixed(2)}%`,
             subValue: formatCurrency(data.laborCost),
-            secondarySubValue: hasFoodCost ? `Prime Cost: ${primeCostPct.toFixed(1)}%` : undefined,
+            secondarySubValue: hasFoodCost ? `${t('sales.prime_cost')}: ${primeCostPct.toFixed(1)}%` : undefined,
             icon: Clock,
             color: 'text-orange-400',
             bg: 'bg-orange-500/10',
@@ -137,7 +137,7 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
                             <p className={`text-[10px] font-semibold mt-0.5 ${
                                 card.secondarySubValue.includes('Critical') || card.secondarySubValue.includes('Crítico') 
                                     ? 'text-rose-500 dark:text-rose-400' 
-                                    : card.secondarySubValue.includes('Prime') 
+                                    : card.secondarySubValue.includes('Prime') || card.secondarySubValue.includes('Primo') 
                                         ? 'text-amber-600 dark:text-amber-400'
                                         : card.secondarySubValue.includes('Warning') || card.secondarySubValue.includes('Alerta')
                                             ? 'text-yellow-600 dark:text-yellow-400'

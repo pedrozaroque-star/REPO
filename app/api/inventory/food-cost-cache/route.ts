@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseAdminClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Missing startDate or endDate' }, { status: 400 })
         }
 
-        const supabase = await getSupabaseClient()
+        const supabase = await getSupabaseAdminClient()
 
         // Query cached food cost data for the date range
         let query = supabase

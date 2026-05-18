@@ -193,6 +193,27 @@ const dictionaries: Record<Language, any> = {
             last_week: 'Semana pasada',
             last_7: 'Últimos 7 días',
             last_month: 'Mes pasado',
+            // Time Filter
+            time_filter: {
+                all_hours: 'Todas las Horas',
+                breakfast: 'Desayuno (6am - 11am)',
+                lunch: 'Almuerzo (11am - 4pm)',
+                dinner: 'Cena (4pm - 11pm)',
+                late_night: 'Nocturno (11pm - 4am)',
+                custom: 'Horas Personalizadas'
+            },
+            // Table Headers
+            table: {
+                proj_to_date: 'PROY. A LA FECHA',
+                actual: 'REAL',
+                projected_col: 'PROYECTADO',
+                variance: 'DIFERENCIA'
+            },
+            syncing_live: 'Sincronizando en vivo...',
+            syncing_latest: 'Sincronizando últimos minutos...',
+            prime_cost: 'Costo Primo',
+            proj_to_date_label: 'Proy. a la Fecha',
+            variance_label: 'Diferencia',
             // Day-of-Week Filter
             day_filter: {
                 all_days: 'Todos los días',
@@ -1261,6 +1282,27 @@ const dictionaries: Record<Language, any> = {
             last_week: 'Last week',
             last_7: 'Last 7 days',
             last_month: 'Last month',
+            // Time Filter
+            time_filter: {
+                all_hours: 'All Hours',
+                breakfast: 'Breakfast (6am - 11am)',
+                lunch: 'Lunch (11am - 4pm)',
+                dinner: 'Dinner (4pm - 11pm)',
+                late_night: 'Late Night (11pm - 4am)',
+                custom: 'Custom Hours'
+            },
+            // Table Headers
+            table: {
+                proj_to_date: 'PROJ. TO DATE',
+                actual: 'ACTUAL',
+                projected_col: 'PROJECTED',
+                variance: 'VARIANCE'
+            },
+            syncing_live: 'Syncing live...',
+            syncing_latest: 'Syncing latest minutes...',
+            prime_cost: 'Prime Cost',
+            proj_to_date_label: 'Proj. To Date',
+            variance_label: 'Variance',
             // Day-of-Week Filter
             day_filter: {
                 all_days: 'All days',

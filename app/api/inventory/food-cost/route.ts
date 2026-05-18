@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient, getSupabaseAdminClient } from '@/lib/supabase'
 import { calculateRecipeCost } from '@/lib/inventory/costs'
 import { normalizeToLbs } from '@/lib/inventory/conversions'
 import { Recipe, InventoryItem } from '@/types/inventory'
@@ -604,7 +604,8 @@ export async function GET(request: NextRequest) {
                     updated_at: new Date().toISOString()
                 }))
 
-                const { error: cacheError } = await supabase
+                const supabaseAdmin = await getSupabaseAdminClient()
+                const { error: cacheError } = await supabaseAdmin
                     .from('food_cost_daily_cache')
                     .upsert(cacheRows, { onConflict: 'business_date, store_id' })
 

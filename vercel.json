@@ -25,6 +25,14 @@
             "schedule": "0 18 * * *"
         },
         {
+            "path": "/api/cron/sync-food-cost",
+            "schedule": "0 19 * * *"
+        },
+        {
+            "path": "/api/cron/sync-food-cost-today",
+            "schedule": "*/5 * * * *"
+        },
+        {
             "path": "/api/cron/report-breaks",
             "schedule": "0 12 * * 1"
         },

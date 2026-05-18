@@ -67,16 +67,17 @@ const applyTimeFilterToRow = (row: any, timeFilter: string): any | null => {
 function SalesPageContent() {
     const [loading, setLoading] = useState(false)
     const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'custom' | 'last_week' | 'last_7' | 'last_month'>('today')
-    const [startDate, setStartDate] = useState(() => {
+    const getLocalDateString = () => {
         const d = new Date()
         if (d.getHours() < 6) d.setDate(d.getDate() - 1)
-        return d.toISOString().split('T')[0]
-    })
-    const [endDate, setEndDate] = useState(() => {
-        const d = new Date()
-        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
-        return d.toISOString().split('T')[0]
-    })
+        const year = d.getFullYear()
+        const month = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+    }
+
+    const [startDate, setStartDate] = useState(getLocalDateString)
+    const [endDate, setEndDate] = useState(getLocalDateString)
     const [isLiveSyncing, setIsLiveSyncing] = useState(false)
     const [data, setData] = useState<any>(null)
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
@@ -102,9 +103,7 @@ function SalesPageContent() {
     // AbortController: cancels in-flight HTTP requests when user changes filter
     const abortControllerRef = useRef<AbortController | null>(null)
 
-    useEffect(() => {
-        setShowWelcomeModal(true)
-    }, [])
+
 
 
     const shiftDate = (days: number) => {
@@ -357,6 +356,20 @@ function SalesPageContent() {
             // Using rows that have projectedHourly data
             const hourlyProjCounts: Record<string, { sum: number, count: number }> = {}
 
+            // ⚠️ CRITICAL — DO NOT SIMPLIFY THIS SECTION ⚠️
+            // In hourly mode, the API concentrates ALL laborCost on the FIRST row (i=0, hour 7AM) per store.
+            // Using row.laborCost directly would create a massive spike at 7AM and zero everywhere else.
+            // MUST use the hourlyLabor JSONB map to distribute labor correctly across hours.
+            // See: .agent/workflows/regression-prevention.md (Labor Bug Mayo 2026)
+            //
+            // Pre-pass: Collect hourlyLabor maps from the concentrated rows (i=0 per store)
+            const storeHourlyLaborMaps = new Map<string, Record<number, number>>()
+            rows.forEach((row: any) => {
+                if (row.hourlyLabor && Object.keys(row.hourlyLabor).length > 0 && !storeHourlyLaborMaps.has(row.storeId)) {
+                    storeHourlyLaborMaps.set(row.storeId, row.hourlyLabor)
+                }
+            })
+
             rows.forEach((row: any) => {
                 // For hourly rows, use periodStart to match the correct time bucket
                 // Each row represents one hour for one store, with netSales = that hour's sales
@@ -364,7 +377,20 @@ function SalesPageContent() {
                 if (rowPeriod && trendMap.has(rowPeriod)) {
                     const bucket = trendMap.get(rowPeriod)!
                     bucket.amount += (row.netSales || 0)
-                    bucket.labor += (row.laborCost || 0)
+
+                    // 🛠️ FIX: Use hourlyLabor JSONB to distribute labor per hour
+                    // instead of using row.laborCost which is concentrated in i=0 (7AM row)
+                    const hourlyLaborMap = storeHourlyLaborMaps.get(row.storeId)
+                    if (hourlyLaborMap) {
+                        // Extract hour from periodStart (e.g., "2026-05-16 08:00" → 8)
+                        const hourStr = rowPeriod.split(' ')[1]?.split(':')[0]
+                        const hour = parseInt(hourStr || '0')
+                        bucket.labor += (hourlyLaborMap[hour] || 0)
+                    } else {
+                        // Fallback: if no hourlyLabor map exists, use the concentrated laborCost
+                        // (This happens when cache is missing hourly_labor)
+                        bucket.labor += (row.laborCost || 0)
+                    }
                 }
 
                 // Use projected hourly if available from API response
@@ -563,15 +589,21 @@ function SalesPageContent() {
     // 1. Try reading pre-calculated data from Supabase cache (instant ~50ms)
     // 2. If cache miss + single day: fall back to full calculation (which also populates cache)
     // 3. If cache miss + multi-day: show nothing (user visits /admin/food-cost to populate)
-    const fetchFoodCost = async (sDate: string, eDate: string) => {
+    const fetchFoodCost = async (sDate: string, eDate: string, signal?: AbortSignal) => {
         setFoodCostLoading(true)
         try {
-            // Step 1: Try Cache (instant)
-            const cacheRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`)
+            // Step 1: Try Cache (instant ~50ms)
+            const cacheRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`, { signal })
             const cacheJson = await cacheRes.json()
 
+            // Calculate how many days are in this range
+            const rangeDays = Math.floor(
+                (new Date(eDate + 'T00:00:00').getTime() - new Date(sDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
+            ) + 1
+
             if (cacheJson.totalCost > 0) {
-                // Cache hit — use pre-calculated data
+                if (signal?.aborted) return
+                // Cache hit (full or partial) — use pre-calculated data immediately
                 setFoodCostData({
                     totalCost: cacheJson.totalCost,
                     totalSales: cacheJson.totalSales,
@@ -579,15 +611,25 @@ function SalesPageContent() {
                     byStore: cacheJson.byStore || {}
                 })
                 console.log(`[FoodCost] ⚡ Cache hit: ${cacheJson.daysWithData}/${cacheJson.totalDaysInRange} days`)
-                return
+
+                // If cache is complete (all days covered), we're done
+                if (cacheJson.daysWithData >= rangeDays) {
+                    return
+                }
+                // Otherwise, fall through to fill remaining gaps (below)
             }
 
-            // Step 2: Cache miss — only do full calculation for single-day views
-            // (Today/Yesterday are worth the wait; multi-day ranges would be too slow)
+            // Step 2A: Single-day cache miss — direct full calculation (proven, fast path)
+            // This handles "Today" and "Yesterday" reliably by reading the API response directly
             if (sDate === eDate) {
                 console.log(`[FoodCost] 🔄 Cache miss for ${sDate}, falling back to full calculation...`)
-                const fullRes = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${sDate}&endDate=${eDate}`)
+                const fullRes = await fetch(`/api/inventory/food-cost?storeId=all&startDate=${sDate}&endDate=${eDate}`, { signal })
                 const fullJson = await fullRes.json()
+                
+                if (signal?.aborted) return
+
+                if (signal?.aborted) return
+
                 if (fullJson.data && fullJson.data.length > 0) {
                     let totalCost = 0
                     let totalSales = 0
@@ -595,31 +637,86 @@ function SalesPageContent() {
                     fullJson.data.forEach((item: any) => {
                         totalCost += item.total_cost || 0
                         totalSales += item.net_sales || 0
-                        // Aggregate by store
                         const sid = item.store_id || 'unknown'
                         if (!storeMap[sid]) storeMap[sid] = { totalCost: 0, netSales: 0, costPercentage: 0 }
                         storeMap[sid].totalCost += item.total_cost || 0
                         storeMap[sid].netSales += item.net_sales || 0
                     })
-                    // Calculate per-store percentages
                     Object.values(storeMap).forEach(s => {
                         s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
                     })
                     const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
                     setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap })
-                    // Note: The full API now writes to cache automatically (write-through)
                     console.log(`[FoodCost] ✅ Calculated & cached for ${sDate}`)
                     return
                 }
+                setFoodCostData(null)
+                return
             }
 
-            // No data available
-            setFoodCostData(null)
-        } catch (e) {
+            // Step 2B: Multi-day cache miss — fill gaps day by day
+            // Only for short ranges (≤14 days) to avoid overloading Toast API
+            if (rangeDays <= 14) {
+                // Build list of all dates in range
+                const allDates: string[] = []
+                const cursor = new Date(sDate + 'T12:00:00')
+                const endCursor = new Date(eDate + 'T12:00:00')
+                while (cursor <= endCursor) {
+                    allDates.push(cursor.toISOString().split('T')[0])
+                    cursor.setDate(cursor.getDate() + 1)
+                }
+
+                // For each date without cache, trigger full calculation (auto-caches via write-through)
+                let filledAny = false
+                for (const date of allDates) {
+                    // Quick check: does this specific day have cache?
+                    const dayCheck = await fetch(`/api/inventory/food-cost-cache?startDate=${date}&endDate=${date}`)
+                    const dayJson = await dayCheck.json()
+                    if (dayJson.totalCost > 0) {
+                        continue // Already cached, skip
+                    }
+
+                    // Cache miss for this day — calculate (also writes to cache via write-through)
+                    console.log(`[FoodCost] 🔄 Gap-fill: calculating ${date}...`)
+                    try {
+                        await fetch(`/api/inventory/food-cost?storeId=all&startDate=${date}&endDate=${date}`, { signal })
+                        filledAny = true
+                    } catch (dayErr) {
+                        console.warn(`[FoodCost] ⚠️ Failed to calculate ${date}:`, dayErr)
+                    }
+                }
+
+                // Re-read cache with all gaps filled
+                if (filledAny || cacheJson.totalCost === 0) {
+                    const finalRes = await fetch(`/api/inventory/food-cost-cache?startDate=${sDate}&endDate=${eDate}`, { signal })
+                    const finalJson = await finalRes.json()
+
+                    if (signal?.aborted) return
+
+                    if (finalJson.totalCost > 0) {
+                        setFoodCostData({
+                            totalCost: finalJson.totalCost,
+                            totalSales: finalJson.totalSales,
+                            costPercentage: finalJson.costPercentage,
+                            byStore: finalJson.byStore || {}
+                        })
+                        console.log(`[FoodCost] ✅ Gap-fill complete: ${finalJson.daysWithData}/${finalJson.totalDaysInRange} days`)
+                        return
+                    }
+                }
+            }
+
+            // Step 3: No data available (long ranges without cache, or calculation returned empty)
+            if (cacheJson.totalCost === 0) {
+                if (!signal?.aborted) setFoodCostData(null)
+                console.log(`[FoodCost] ℹ️ No cached data for ${rangeDays}-day range.`)
+            }
+        } catch (e: any) {
+            if (e.name === 'AbortError') return
             console.error('Error fetching food cost data:', e)
             setFoodCostData(null)
         } finally {
-            setFoodCostLoading(false)
+            if (!signal?.aborted) setFoodCostLoading(false)
         }
     }
 
@@ -643,7 +740,9 @@ function SalesPageContent() {
         loadAndSync()
         
         // 3. Parallel Food Cost Fetch (non-blocking)
-        fetchFoodCost(startDate, endDate)
+        if (abortControllerRef.current) {
+            fetchFoodCost(startDate, endDate, abortControllerRef.current.signal)
+        }
         
         setIntegrityStatus('idle') // Reset status on new fetch
 
@@ -1071,12 +1170,12 @@ function SalesPageContent() {
                                                 : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-black/5 dark:border-slate-700'
                                         }`}
                                     >
-                                        <option value="all">All Hours</option>
-                                        <option value="6-11">Breakfast (6am - 11am)</option>
-                                        <option value="11-16">Lunch (11am - 4pm)</option>
-                                        <option value="16-23">Dinner (4pm - 11pm)</option>
-                                        <option value="23-4">Late Night (11pm - 4am)</option>
-                                        <option value="custom">Custom Hours</option>
+                                        <option value="all">{t('sales.time_filter.all_hours')}</option>
+                                        <option value="6-11">{t('sales.time_filter.breakfast')}</option>
+                                        <option value="11-16">{t('sales.time_filter.lunch')}</option>
+                                        <option value="16-23">{t('sales.time_filter.dinner')}</option>
+                                        <option value="23-4">{t('sales.time_filter.late_night')}</option>
+                                        <option value="custom">{t('sales.time_filter.custom')}</option>
                                     </select>
                                     <Clock size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none ${timeFilter !== 'all' ? 'text-fuchsia-500' : 'text-slate-400'}`} />
                                     <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -1126,7 +1225,7 @@ function SalesPageContent() {
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                                     </span>
-                                    Syncing live...
+                                    {t('sales.syncing_live')}
                                 </div>
                             )}
 
@@ -1155,7 +1254,7 @@ function SalesPageContent() {
                                     onClick={() => refreshData(true)}
                                     disabled={loading || isLiveSyncing}
                                     className={`p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors border border-black/5 dark:border-slate-700 shrink-0 ${isLiveSyncing ? 'opacity-70 cursor-wait' : ''}`}
-                                    title={isLiveSyncing ? "Syncing latest minutes..." : t('sales.refresh')}
+                                    title={isLiveSyncing ? t('sales.syncing_latest') : t('sales.refresh')}
                                 >
                                     <RefreshCw size={18} className={(loading || isLiveSyncing) ? 'animate-spin text-emerald-500' : ''} />
                                 </button>
@@ -1264,7 +1363,7 @@ function SalesPageContent() {
                                         {['today', 'week', 'month'].includes(period) && (
                                             <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedToDate')}>
                                                 <div className="flex items-center justify-end gap-1 text-cyan-500">
-                                                    PROJ. TO DATE
+                                            {t('sales.table.proj_to_date')}
                                                     {sortConfig?.key === 'projectedToDate' ? (
                                                         sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                     ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
@@ -1273,7 +1372,7 @@ function SalesPageContent() {
                                         )}
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('amount')}>
                                             <div className="flex items-center justify-end gap-1">
-                                                ACTUAL
+                                                {t('sales.table.actual')}
                                                 {sortConfig?.key === 'amount' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-emerald-500" /> : <ChevronDown size={14} className="text-emerald-500" />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30" />}
@@ -1281,7 +1380,7 @@ function SalesPageContent() {
                                         </th>
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedSales')}>
                                             <div className="flex items-center justify-end gap-1 text-indigo-500">
-                                                PROJECTED
+                                                {t('sales.table.projected_col')}
                                                 {sortConfig?.key === 'projectedSales' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
@@ -1289,7 +1388,7 @@ function SalesPageContent() {
                                         </th>
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('diff')}>
                                             <div className="flex items-center justify-end gap-1 text-emerald-600 dark:text-emerald-400">
-                                                VARIANCE
+                                                {t('sales.table.variance')}
                                                 {sortConfig?.key === 'diff' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}

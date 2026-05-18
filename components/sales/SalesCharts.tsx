@@ -103,7 +103,7 @@ const CombinedTooltip = ({ active, payload, label, language, t }: any) => {
                     <div className="flex items-center justify-between gap-4">
                         <span className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
                             <span className="w-3 h-3 bg-amber-500 rounded-full border-2 border-amber-300"></span>
-                            Labor
+                            {t('sales.labor_label')}
                         </span>
                         <span className="font-mono font-bold text-amber-500 dark:text-amber-400 flex items-center">
                             ${Number(labor.value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
@@ -287,7 +287,7 @@ export default function SalesCharts({ trendData, period }: ChartsProps) {
                                 {hasProjections && isCurrentPeriod && (
                                     <div className="text-center border-r border-slate-200 dark:border-slate-700 pr-4 md:pr-8">
                                         <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1 truncate">
-                                            {language === 'es' ? 'Proy. a la Fecha' : 'Proj. To Date'}
+                                            {t('sales.proj_to_date_label')}
                                         </p>
                                         <p className="text-base md:text-xl font-bold text-cyan-600 dark:text-cyan-400 font-mono">
                                             ${projectedToDate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -318,7 +318,7 @@ export default function SalesCharts({ trendData, period }: ChartsProps) {
                                         {/* VARIANCE DISPLAY - REFINED: Full width on mobile row 2 */}
                                         <div className="text-center col-span-2 md:col-span-1 border-t md:border-t-0 border-dashed border-slate-200 dark:border-slate-700 pt-3 md:pt-0 mt-1 md:mt-0">
                                             <p className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold mb-1">
-                                                {language === 'es' ? 'Diferencia' : 'Variance'}
+                                                {t('sales.variance_label')}
                                             </p>
                                             <p className={`text-base md:text-lg font-bold font-mono flex items-center justify-center gap-2 leading-none ${isPositive ? 'text-emerald-500' : 'text-rose-500'}`}>
                                                 <span>
