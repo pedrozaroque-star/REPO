@@ -37,6 +37,7 @@ function DashboardContent() {
     const [selectedAnomaly, setSelectedAnomaly] = useState<any | null>(null)
     const [anomalyDetails, setAnomalyDetails] = useState<any[]>([])
     const [anomalyLoading, setAnomalyLoading] = useState(false)
+    const [orderDetailData, setOrderDetailData] = useState<{loading: boolean, data?: any, error?: string, checkId?: string, storeName?: string, cajeraName?: string} | null>(null)
     const [timeFilter, setTimeFilter] = useState('month')
     const [startDate, setStartDate] = useState(() => {
         const d = new Date()
@@ -227,13 +228,14 @@ function DashboardContent() {
             const [{ data: salesRows }, fcCacheRes, { data: anomRows }] = await Promise.all([
                 supabase.from('sales_daily_cache').select('net_sales').gte('business_date', startDateStr).lte('business_date', endDateStr),
                 fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`).then(r => r.json()).catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 })),
-                supabase.from('sales_discounts_log').select('id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
+                supabase.from('sales_discounts_log').select('id, store_id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
             ])
             const totalSales = salesRows?.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0) || 0
             const foodCostPct = fcCacheRes?.costPercentage || 0
             const anomalies = (anomRows || []).map((a: any) => ({
                 id: a.id,
                 store: formatStoreName(a.store_name),
+                store_id: a.store_id,
                 store_name: a.store_name,
                 amount: Number(a.discount_amount),
                 name: a.discount_name,
@@ -681,7 +683,29 @@ function DashboardContent() {
                                                 </td>
                                                 <td className="py-3 text-xs text-slate-600 dark:text-slate-300 font-medium">{d.server_name || '—'}</td>
                                                 <td className="py-3 text-xs text-slate-500 dark:text-slate-400">{d.approver_name || '—'}</td>
-                                                <td className="pr-5 py-3 text-xs font-mono text-slate-400">{d.check_id || '—'}</td>
+                                                <td className="pr-5 py-3">
+                                                    {d.check_id && d.check_id !== 'N/A' && d.order_id && d.order_id !== 'N/A' ? (
+                                                        <button
+                                                            title="Ver ticket de esta orden"
+                                                            onClick={e => {
+                                                                e.stopPropagation()
+                                                                setOrderDetailData({ loading: true, checkId: d.check_id, storeName: d.store_name, cajeraName: d.approver_name || d.server_name || 'Autoservicio' })
+                                                                fetch(`/api/toast-order-detail?guid=${d.order_id}&storeId=${d.store_id || selectedAnomaly?.store_id}`)
+                                                                    .then(r => r.json())
+                                                                    .then(data => {
+                                                                        if (data.error) setOrderDetailData(prev => prev ? { ...prev, loading: false, error: data.error } : null)
+                                                                        else setOrderDetailData(prev => prev ? { ...prev, loading: false, data: data.order } : null)
+                                                                    })
+                                                                    .catch(err => setOrderDetailData(prev => prev ? { ...prev, loading: false, error: err.message } : null))
+                                                            }}
+                                                            className="font-mono font-bold text-[11px] text-sky-600 dark:text-sky-400 border border-slate-200 dark:border-slate-600 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-400/10 px-2 py-0.5 rounded transition-all cursor-pointer"
+                                                        >
+                                                            #{d.check_id}
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-xs font-mono text-slate-400">{d.check_id || '—'}</span>
+                                                    )}
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -704,6 +728,110 @@ function DashboardContent() {
                                 className="text-xs font-black text-red-500 hover:text-red-700 dark:hover:text-red-400 uppercase tracking-widest transition-colors"
                             >Ver día completo en Auditoría →</button>
                             <button onClick={() => setSelectedAnomaly(null)} className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">Cerrar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: Recibo de Ticket (idéntico a auditoria-descuentos) */}
+            {orderDetailData && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setOrderDetailData(null)}>
+                    <div className="bg-white dark:bg-slate-900/90 rounded-none md:rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col font-mono text-sm border-2 border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b-2 border-dashed border-slate-300 dark:border-slate-700 font-bold text-center bg-white dark:bg-slate-800 md:rounded-t-xl shrink-0">
+                            RECIBO TICKET #{orderDetailData.checkId}
+                            {orderDetailData.loading && <p className="text-amber-500 animate-pulse text-xs mt-1">Conectando con cajero virtual...</p>}
+                        </div>
+                        <div className="p-4 overflow-auto custom-scrollbar flex-1 bg-[#f9fafb] dark:bg-slate-900">
+                            {orderDetailData.error && <div className="text-red-500 text-xs break-all bg-red-50 p-2 rounded border border-red-200">{orderDetailData.error}</div>}
+                            {orderDetailData.data && (
+                                <div className="space-y-4 text-slate-800 dark:text-slate-200">
+                                    <div className="text-xs text-center border-b border-slate-200 dark:border-slate-800 pb-3">
+                                        <div className="font-bold text-[14px] uppercase tracking-wider mb-1">SUCURSAL {orderDetailData.storeName || 'TACOS GAVILAN'}</div>
+                                        <div>{orderDetailData.data.diningOption?.name || 'Para Llevar / Dine In'}</div>
+                                        <div>{new Date(orderDetailData.data.openedDate).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })}</div>
+                                        <div className="mt-1">Cajero/a: <span className="font-bold">{orderDetailData.cajeraName || orderDetailData.data.server?.name || 'Automático'}</span></div>
+                                    </div>
+                                    <div className="border-b-2 border-dashed border-slate-300 dark:border-slate-700 pb-3 space-y-1">
+                                        <div className="flex justify-between font-bold text-[10px] text-slate-400 mb-2 uppercase tracking-widest"><span>ITEM</span><span>TOTAL</span></div>
+                                        {orderDetailData.data.checks?.map((check: any, idx: number) => (
+                                            <div key={idx} className="space-y-2">
+                                                {check.selections?.filter((s: any) => !s.deleted && !s.voided).map((sel: any, i: number) => {
+                                                    const qty = sel.quantity || 1
+                                                    const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0)
+                                                    const originalLinePrice = unitPrice * qty
+                                                    const finalLinePrice = Number(sel.price || 0)
+                                                    const inferredDiscount = originalLinePrice - finalLinePrice
+                                                    const validDiscounts = sel.appliedDiscounts?.filter((d: any) => !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false && Number(d.discountAmount || 0) <= inferredDiscount + 0.05) || []
+                                                    return (
+                                                        <div key={i} className="flex justify-between items-start text-xs">
+                                                            <span className="flex-1 pr-2">
+                                                                {qty}x {sel.displayName || sel.item?.name}
+                                                                {validDiscounts.map((d: any, j: number) => (
+                                                                    <div key={j} className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
+                                                                        ↳ DESC: {d.name} (-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                                    </div>
+                                                                ))}
+                                                                {validDiscounts.length === 0 && inferredDiscount > 0.009 && (
+                                                                    <div className="text-amber-600 dark:text-amber-400 text-[10px] ml-4 font-bold border-l-2 border-amber-300 pl-1 mt-0.5">
+                                                                        ↳ DESC. AL PLATILLO (-${inferredDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                                    </div>
+                                                                )}
+                                                            </span>
+                                                            <span className="font-bold whitespace-nowrap">${originalLinePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                        </div>
+                                                    )
+                                                })}
+                                                {check.appliedDiscounts?.filter((d: any) => !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false).map((d: any, j: number) => (
+                                                    <div key={j} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
+                                                        <span>REFERENCIA TICKET: {d.name}</span>
+                                                        <span>(-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="text-right space-y-1 text-xs">
+                                        {(() => {
+                                            const check = orderDetailData.data.checks?.[0]
+                                            if (!check) return null
+                                            const subtotalBruto = check.selections?.filter((s: any) => !s.deleted && !s.voided).reduce((sum: number, sel: any) => {
+                                                const qty = sel.quantity || 1
+                                                const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0)
+                                                return sum + (unitPrice * qty)
+                                            }, 0) || 0
+                                            const subtotalNeto = Number(check.amount || 0)
+                                            const totalDiscounts = Math.max(0, subtotalBruto - subtotalNeto)
+                                            return (
+                                                <>
+                                                    <div className="flex justify-between text-slate-500"><span>Subtotal bruto:</span> <span>${subtotalBruto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    {totalDiscounts > 0.009 && (
+                                                        <div className="flex justify-between font-bold text-amber-600 dark:text-amber-400"><span>Descuentos aplicados:</span> <span>-${totalDiscounts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    )}
+                                                    <div className="flex justify-between text-slate-700 dark:text-slate-300 font-semibold mt-1"><span>Subtotal neto:</span> <span>${subtotalNeto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between text-slate-500"><span>Tax:</span> <span>${Number(check.taxAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                    <div className="flex justify-between font-bold text-lg mt-2 text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2"><span>TOTAL:</span> <span>${Number(check.totalAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                                </>
+                                            )
+                                        })()}
+                                    </div>
+                                    {orderDetailData.data.checks?.[0]?.payments?.length > 0 && (
+                                        <div className="text-xs pt-3 border-t-2 border-dashed border-slate-300 dark:border-slate-700">
+                                            <div className="font-bold text-slate-400 mb-1">PAGOS APLICADOS:</div>
+                                            {orderDetailData.data.checks[0].payments.map((p: any, pIdx: number) => (
+                                                <div key={pIdx} className="flex justify-between text-slate-600 dark:text-slate-400">
+                                                    <span>{p.type || 'Pago'} {p.refundStatus && p.refundStatus !== 'NONE' ? '(Reembolsado)' : ''}</span>
+                                                    <span>${Number(p.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-3 text-center border-t-2 border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 md:rounded-b-xl shrink-0">
+                            <button onClick={() => setOrderDetailData(null)} className="text-xs uppercase tracking-widest font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 px-6 py-2 rounded transition-colors w-full border border-slate-200 dark:border-slate-700 cursor-pointer">
+                                Cerrar Recibo
+                            </button>
                         </div>
                     </div>
                 </div>
