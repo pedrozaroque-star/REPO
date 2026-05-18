@@ -6,15 +6,14 @@ export const maxDuration = 300 // 5 minutos máximo en Vercel (Pro)
 /**
  * CRON: sync-food-cost
  * 
- * Pre-calcula y cachea los datos de Food Cost para los últimos 4 días finalizados.
+ * Pre-calcula y cachea los datos de Food Cost desde el día 1 del mes actual
+ * hasta ayer (días finalizados). Garantiza que el dashboard siempre muestre
+ * el Food Cost del mes completo sin visita manual.
+ * 
  * Réplica exacta del patrón de sync-sales: llama a la API existente de food-cost
  * que ya hace el cálculo completo + write-through al cache.
  * 
- * Esto garantiza que al abrir el módulo de Ventas, el Food Cost siempre tenga
- * datos pre-calculados (igual que las ventas), sin necesidad de visita manual.
- * 
- * Schedule recomendado: Después de sync-sales y sync-pmix (UTC 19:00 = 11:00 AM PT)
- * para asegurar que los datos de ventas (net_sales) ya existan cuando calculamos el %.
+ * Schedule: Después de sync-sales (UTC 19:00 = 11:00 AM PT)
  */
 export async function GET(request: Request) {
     try {
@@ -30,18 +29,25 @@ export async function GET(request: Request) {
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
 
-        // 2. Calcular los últimos 4 días finalizados (NO incluir "Hoy" = volátil)
+        // Regla de las 6 AM: si es antes de las 6am, el "hoy" operativo es ayer
+        if (laNow.getHours() < 6) laNow.setDate(laNow.getDate() - 1)
+
+        // 2. Rango: día 1 del mes actual → ayer (solo días finalizados, NO hoy)
+        const yesterday = new Date(laNow)
+        yesterday.setDate(yesterday.getDate() - 1)
+        const firstOfMonth = new Date(laNow.getFullYear(), laNow.getMonth(), 1)
+
         const datesToSync: string[] = []
-        for (let i = 1; i <= 4; i++) {
-            const d = new Date(laNow)
-            d.setDate(d.getDate() - i)
-            const y = d.getFullYear()
-            const m = String(d.getMonth() + 1).padStart(2, '0')
-            const day = String(d.getDate()).padStart(2, '0')
+        const cursor = new Date(firstOfMonth)
+        while (cursor <= yesterday) {
+            const y = cursor.getFullYear()
+            const m = String(cursor.getMonth() + 1).padStart(2, '0')
+            const day = String(cursor.getDate()).padStart(2, '0')
             datesToSync.push(`${y}-${m}-${day}`)
+            cursor.setDate(cursor.getDate() + 1)
         }
 
-        console.log(`⏰ [CRON FOOD-COST] Iniciando cálculo para: ${datesToSync.join(', ')}`)
+        console.log(`⏰ [CRON FOOD-COST] Sincronizando ${datesToSync.length} días: ${datesToSync[0]} → ${datesToSync[datesToSync.length - 1]}`)
 
         const results = []
 
