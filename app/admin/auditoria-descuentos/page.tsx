@@ -179,99 +179,100 @@ export default function AuditoriaDescuentos() {
     const [orderDetailData, setOrderDetailData] = useState<{loading: boolean, data?: any, error?: string, checkId?: string, storeName?: string, cajeraName?: string} | null>(null);
 
     // Welcome Wizard & Risk Radar
-    const [showWizard, setShowWizard] = useState(true);
+    const [showWizard, setShowWizard] = useState(false);
     const [riskAlerts, setRiskAlerts] = useState<{ loading: boolean, data: any[] }>({ loading: true, data: [] });
 
+    // Fetch risk data once on mount (independent of wizard visibility)
     useEffect(() => {
-        if (showWizard) {
-            const fetchRisks = async () => {
-                setRiskAlerts(prev => ({...prev, loading: true}));
-                const d = new Date();
-                const eDate = d.toISOString().split('T')[0];
-                d.setDate(d.getDate() - 15);
-                const sDate = d.toISOString().split('T')[0];
+        const fetchRisks = async () => {
+            setRiskAlerts(prev => ({...prev, loading: true}));
+            const d = new Date();
+            const eDate = d.toISOString().split('T')[0];
+            d.setDate(d.getDate() - 15);
+            const sDate = d.toISOString().split('T')[0];
 
-                let allRisks: any[] = [];
-                let from = 0;
-                const pageSize = 1000;
-                let hasMore = true;
+            let allRisks: any[] = [];
+            let from = 0;
+            const pageSize = 1000;
+            let hasMore = true;
 
-                while (hasMore) {
-                    const { data, error } = await supabase.from('sales_discounts_log')
-                        .select('*') // Cambiado a select('*') para evitar fallo en .order('id')
-                        .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
-                        .gte('business_date', sDate)
-                        .lte('business_date', eDate)
-                        .order('id', { ascending: true })
-                        .range(from, from + pageSize - 1);
-                    
-                    if (error) {
-                        console.error("Error crítico fetching Radar de Anomalías:", error?.message || error?.details || JSON.stringify(error));
-                        break;
-                    }
-                    if (data) allRisks = [...allRisks, ...data];
-                    if (!data || data.length < pageSize) {
-                        hasMore = false;
-                    } else {
-                        from += pageSize;
-                    }
+            while (hasMore) {
+                const { data, error } = await supabase.from('sales_discounts_log')
+                    .select('*') // Cambiado a select('*') para evitar fallo en .order('id')
+                    .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
+                    .gte('business_date', sDate)
+                    .lte('business_date', eDate)
+                    .order('id', { ascending: true })
+                    .range(from, from + pageSize - 1);
+                
+                if (error) {
+                    console.error("Error crítico fetching Radar de Anomalías:", error?.message || error?.details || JSON.stringify(error));
+                    break;
+                }
+                if (data) allRisks = [...allRisks, ...data];
+                if (!data || data.length < pageSize) {
+                    hasMore = false;
+                } else {
+                    from += pageSize;
+                }
+            }
+
+            // Agrupar por cajero
+            const grouped = allRisks.reduce((acc, curr) => {
+                const emp = curr.approver_name || curr.server_name || 'Autoservicio';
+                if (!acc[emp]) acc[emp] = { firstResponderTotal: 0, employeeTotal: 0, seniorTotal: 0, stores: {} };
+                
+                if (curr.discount_name === 'First Responder Discount') {
+                    acc[emp].firstResponderTotal += Number(curr.discount_amount);
+                } else if (curr.discount_name === 'Employee Discount') {
+                    acc[emp].employeeTotal += Number(curr.discount_amount);
+                } else if (curr.discount_name === 'Senior Discount' || curr.discount_name === 'Senior') {
+                    acc[emp].seniorTotal += Number(curr.discount_amount);
                 }
 
-                // Agrupar por cajero
-                const grouped = allRisks.reduce((acc, curr) => {
-                    const emp = curr.approver_name || curr.server_name || 'Autoservicio';
-                    if (!acc[emp]) acc[emp] = { firstResponderTotal: 0, employeeTotal: 0, seniorTotal: 0, stores: {} };
+                if (!acc[emp].stores[curr.store_name]) acc[emp].stores[curr.store_name] = 0;
+                acc[emp].stores[curr.store_name] += Number(curr.discount_amount);
+                
+                return acc;
+            }, {} as Record<string, any>);
+
+            const structured = Object.entries(grouped)
+                .map(([emp, vals]: [string, any]) => {
+                    const topStore = Object.entries(vals.stores).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || 'Desconocida';
                     
-                    if (curr.discount_name === 'First Responder Discount') {
-                        acc[emp].firstResponderTotal += Number(curr.discount_amount);
-                    } else if (curr.discount_name === 'Employee Discount') {
-                        acc[emp].employeeTotal += Number(curr.discount_amount);
-                    } else if (curr.discount_name === 'Senior Discount' || curr.discount_name === 'Senior') {
-                        acc[emp].seniorTotal += Number(curr.discount_amount);
-                    }
+                    let cause = "Investigar patrón";
+                    const fr = vals.firstResponderTotal;
+                    const em = vals.employeeTotal;
+                    const sen = vals.seniorTotal;
 
-                    if (!acc[emp].stores[curr.store_name]) acc[emp].stores[curr.store_name] = 0;
-                    acc[emp].stores[curr.store_name] += Number(curr.discount_amount);
-                    
-                    return acc;
-                }, {} as Record<string, any>);
+                    const maxAmt = Math.max(fr, em, sen);
 
-                const structured = Object.entries(grouped)
-                    .map(([emp, vals]: [string, any]) => {
-                        const topStore = Object.entries(vals.stores).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || 'Desconocida';
-                        
-                        let cause = "Investigar patrón";
-                        const fr = vals.firstResponderTotal;
-                        const em = vals.employeeTotal;
-                        const sen = vals.seniorTotal;
+                    if (maxAmt === fr && fr > 50) cause = "Posible colusión en First Responder";
+                    else if (maxAmt === em && em > 50) cause = "Posible abuso de Privilegio Interno";
+                    else if (maxAmt === sen && sen > 50) cause = "Abuso de Descuento Senior (Falsos Mayores)";
+                    else if ((fr > 0 && em > 0) || (sen > 0 && em > 0)) cause = "Patrón mixto altamente atípico";
+                    else cause = "Volumen sospechoso general";
 
-                        const maxAmt = Math.max(fr, em, sen);
+                    return {
+                        employee: emp,
+                        highestStore: topStore,
+                        firstResponderTotal: vals.firstResponderTotal,
+                        employeeTotal: vals.employeeTotal,
+                        seniorTotal: vals.seniorTotal,
+                        totalRisk: vals.firstResponderTotal + vals.employeeTotal + vals.seniorTotal,
+                        probableCause: cause
+                    };
+                })
+                .filter(r => r.totalRisk > 30) // Escudo de validación: Ignorar riesgos menores a $30
+                .sort((a, b) => b.totalRisk - a.totalRisk)
+                .slice(0, 5); // Solo el Top 5 Empleados de riesgo
 
-                        if (maxAmt === fr && fr > 50) cause = "Posible colusión en First Responder";
-                        else if (maxAmt === em && em > 50) cause = "Posible abuso de Privilegio Interno";
-                        else if (maxAmt === sen && sen > 50) cause = "Abuso de Descuento Senior (Falsos Mayores)";
-                        else if ((fr > 0 && em > 0) || (sen > 0 && em > 0)) cause = "Patrón mixto altamente atípico";
-                        else cause = "Volumen sospechoso general";
-
-                        return {
-                            employee: emp,
-                            highestStore: topStore,
-                            firstResponderTotal: vals.firstResponderTotal,
-                            employeeTotal: vals.employeeTotal,
-                            seniorTotal: vals.seniorTotal,
-                            totalRisk: vals.firstResponderTotal + vals.employeeTotal + vals.seniorTotal,
-                            probableCause: cause
-                        };
-                    })
-                    .filter(r => r.totalRisk > 30) // Escudo de validación: Ignorar riesgos menores a $30
-                    .sort((a, b) => b.totalRisk - a.totalRisk)
-                    .slice(0, 5); // Solo el Top 5 Empleados de riesgo
-
-                setRiskAlerts({ loading: false, data: structured });
-            };
-            fetchRisks();
-        }
-    }, [showWizard]);
+            setRiskAlerts({ loading: false, data: structured });
+            // Auto-show wizard on first load once data is ready
+            setShowWizard(true);
+        };
+        fetchRisks();
+    }, []);
 
     const handleModalSort = (column: string) => {
         setModalSort(prev => ({
