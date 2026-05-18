@@ -1318,6 +1318,8 @@ function SalesPageContent() {
                                 const orders = store.orderCount || 1
                                 const laborPct = store.laborPercentage.toFixed(2)
                                 const avgTicket = store.amount / orders
+                                const storeFC = foodCostData?.byStore?.[store.storeId]
+                                const fcPct = storeFC?.costPercentage ?? null
 
                                 return (
                                     <div
@@ -1332,14 +1334,26 @@ function SalesPageContent() {
                                                     {formatStoreName(store.name || store.storeName)}
                                                 </h4>
                                             </div>
-                                            <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${Number(laborPct) < 21.5
-                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
-                                                : Number(laborPct) > 23
-                                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
-                                                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400'
-                                                }`}>
-                                                {t('sales.labor_label')}: {laborPct}%
-                                            </span>
+                                            <div className="flex flex-col items-end gap-1">
+                                                <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${Number(laborPct) < 21.5
+                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                                                    : Number(laborPct) > 23
+                                                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+                                                        : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400'
+                                                    }`}>
+                                                    {t('sales.labor_label')}: {laborPct}%
+                                                </span>
+                                                {fcPct !== null && (
+                                                    <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${fcPct < 32
+                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+                                                        : fcPct > 36
+                                                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+                                                            : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+                                                        }`}>
+                                                        Food: {fcPct.toFixed(1)}%
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
 
                                         <div className="grid grid-cols-3 gap-2">
