@@ -502,7 +502,21 @@ export async function GET(request: NextRequest) {
                     '8717b04b-62c0-4276-96e9-d86430b32b64', '37c0cb59-fa76-4b81-b327-cd96784d9f78'
                 ]
 
-                item.modifier_guids.forEach((modGuid: string) => {
+                // DEFENSIVE NORMALIZATION: Old PMIX cache (pre-fix) has modifier GUIDs
+                // inflated by qty² instead of qty. Cap each unique modifier to at most
+                // item.quantity occurrences to ensure correct cost regardless of cache age.
+                const modCounts = new Map<string, number>()
+                item.modifier_guids.forEach((g: string) => modCounts.set(g, (modCounts.get(g) || 0) + 1))
+
+                const normalizedModGuids: string[] = []
+                modCounts.forEach((count, guid) => {
+                    const capped = Math.min(count, item.quantity)
+                    for (let i = 0; i < capped; i++) {
+                        normalizedModGuids.push(guid)
+                    }
+                })
+
+                normalizedModGuids.forEach((modGuid: string) => {
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
                         if (!halfGuids.includes(modGuid)) {
