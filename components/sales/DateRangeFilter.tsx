@@ -240,115 +240,158 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                 <ChevronDown size={16} className={`ml-2 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            {/* Dropdown Content */}
+            {/* Dropdown Content — fullscreen overlay on mobile, absolute dropdown on desktop */}
             {isOpen && (
-                <div className="absolute top-full right-0 mt-2 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
-
-                    {/* Sidebar Presets */}
-                    <div className="w-40 border-r border-slate-100 dark:border-slate-800 p-2 flex flex-col gap-1 bg-slate-50/50 dark:bg-slate-900/50">
-                        {[
-                            { id: 'today', label: t('sales.today') },
-                            { id: 'yesterday', label: t('sales.yesterday') },
-                            { id: 'week', label: t('sales.this_week') },
-                            { id: 'last_week', label: t('sales.last_week') },
-                            { id: 'last_7', label: t('sales.last_7') },
-                            { id: 'month', label: t('sales.current_month') },
-                            { id: 'last_month', label: t('sales.last_month') },
-                        ].map((item) => (
-                            <button
-                                key={item.id}
-                                onClick={() => handlePreset(item.id as Period)}
-                                className={`text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${period === item.id
-                                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                    }`}
-                            >
-                                {item.label}
-                            </button>
-                        ))}
-                        <button
-                            className={`text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${period === 'custom'
-                                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                }`}
-                        >
-                            {t('sales.custom_date')}
-                        </button>
-                    </div>
-
-                    {/* Calendar Area */}
-                    <div className="p-4 flex flex-col gap-4">
-                        <div className="flex gap-4 sm:gap-8">
-                            {/* Left Month */}
+                <>
+                    {/* Mobile: fixed fullscreen overlay with scroll */}
+                    <div className="md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" onClick={() => setIsOpen(false)} />
+                    <div className="md:hidden fixed inset-x-0 bottom-0 z-50 bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-200">
+                        {/* Drag handle */}
+                        <div className="flex justify-center py-2 shrink-0">
+                            <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                        </div>
+                        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
+                            {/* Presets grid on mobile */}
+                            <div className="grid grid-cols-2 gap-2 mb-4">
+                                {[
+                                    { id: 'today', label: t('sales.today') },
+                                    { id: 'yesterday', label: t('sales.yesterday') },
+                                    { id: 'week', label: t('sales.this_week') },
+                                    { id: 'last_week', label: t('sales.last_week') },
+                                    { id: 'last_7', label: t('sales.last_7') },
+                                    { id: 'month', label: t('sales.current_month') },
+                                    { id: 'last_month', label: t('sales.last_month') },
+                                    { id: 'custom', label: t('sales.custom_date') },
+                                ].map((item) => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => item.id !== 'custom' ? handlePreset(item.id as Period) : null}
+                                        className={`text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${period === item.id
+                                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                                            : 'text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100'
+                                            }`}
+                                    >
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {/* Calendar */}
                             <div>
                                 <div className="flex items-center justify-between mb-2 px-2">
-                                    <button onClick={() => setViewDate(subMonths(viewDate, 1))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
-                                        <ChevronLeft size={16} />
+                                    <button onClick={() => setViewDate(subMonths(viewDate, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
+                                        <ChevronLeft size={18} />
                                     </button>
                                     <span className="font-semibold text-sm capitalize">{format(viewDate, 'MMMM yyyy', { locale: localeObj })}</span>
-                                    <div className="w-6"></div> {/* Spacer */}
+                                    <button onClick={() => setViewDate(addMonths(viewDate, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
+                                        <ChevronRight size={18} />
+                                    </button>
                                 </div>
                                 <div className="grid grid-cols-7 mb-1 text-center text-xs text-slate-400 font-medium">
                                     {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d}>{d}</div>)}
                                 </div>
                                 {renderMonth(viewDate)}
                             </div>
-
-                            {/* Right Month (Next) */}
-                            <div className="hidden sm:block">
-                                <div className="flex items-center justify-between mb-2 px-2">
-                                    <div className="w-6"></div> {/* Spacer */}
-                                    <span className="font-semibold text-sm capitalize">{format(addMonths(viewDate, 1), 'MMMM yyyy', { locale: localeObj })}</span>
-                                    <button onClick={() => setViewDate(addMonths(viewDate, 1))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
-                                        <ChevronRight size={16} />
-                                    </button>
-                                </div>
-                                <div className="grid grid-cols-7 mb-1 text-center text-xs text-slate-400 font-medium">
-                                    {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d}>{d}</div>)}
-                                </div>
-                                {renderMonth(addMonths(viewDate, 1))}
-                            </div>
-                        </div>
-
-                        {/* Footer Inputs */}
-                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                            <div className="flex items-center gap-2 w-full sm:w-auto">
-                                <div className="flex flex-col gap-1 w-full">
+                            {/* Date inputs */}
+                            <div className="flex items-center gap-2 mt-4">
+                                <div className="flex flex-col gap-1 flex-1">
                                     <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.start_date')}</label>
-                                    <input
-                                        type="date"
-                                        value={tempStart ? formatDateISO(tempStart) : ''}
-                                        onChange={(e) => setTempStart(parseDate(e.target.value))}
-                                        className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-sm bg-transparent w-full sm:w-32"
-                                    />
+                                    <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-2 text-sm bg-transparent w-full" />
                                 </div>
-                                <div className="flex flex-col gap-1 w-full">
+                                <div className="flex flex-col gap-1 flex-1">
                                     <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.end_date')}</label>
-                                    <input
-                                        type="date"
-                                        value={tempEnd ? formatDateISO(tempEnd) : ''}
-                                        onChange={(e) => setTempEnd(parseDate(e.target.value))}
-                                        className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-sm bg-transparent w-full sm:w-32"
-                                    />
+                                    <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-2 text-sm bg-transparent w-full" />
                                 </div>
                             </div>
-                            <div className="flex gap-2 w-full sm:w-auto">
-                                <button
-                                    onClick={() => setIsOpen(false)}
-                                    className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors w-full sm:w-auto"
-                                >
+                            {/* Action buttons */}
+                            <div className="flex gap-3 mt-4">
+                                <button onClick={() => setIsOpen(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 transition-colors">
                                     {t('sales.cancel')}
                                 </button>
-                                <button
-                                    onClick={handleApply}
-                                    className="px-6 py-2 rounded-lg text-sm font-bold bg-slate-900 dark:bg-blue-600 text-white hover:opacity-90 transition-opacity w-full sm:w-auto"
-                                >
+                                <button onClick={handleApply} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-900 dark:bg-blue-600 text-white hover:opacity-90 transition-opacity">
                                     {t('sales.apply')}
                                 </button>
                             </div>
                         </div>
                     </div>
-                </div>
+
+                    {/* Desktop: original absolute dropdown */}
+                    <div className="hidden md:flex absolute top-full right-0 mt-2 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+                        {/* Sidebar Presets */}
+                        <div className="w-40 border-r border-slate-100 dark:border-slate-800 p-2 flex flex-col gap-1 bg-slate-50/50 dark:bg-slate-900/50">
+                            {[
+                                { id: 'today', label: t('sales.today') },
+                                { id: 'yesterday', label: t('sales.yesterday') },
+                                { id: 'week', label: t('sales.this_week') },
+                                { id: 'last_week', label: t('sales.last_week') },
+                                { id: 'last_7', label: t('sales.last_7') },
+                                { id: 'month', label: t('sales.current_month') },
+                                { id: 'last_month', label: t('sales.last_month') },
+                            ].map((item) => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => handlePreset(item.id as Period)}
+                                    className={`text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${period === item.id
+                                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                        }`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                            <button
+                                className={`text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${period === 'custom'
+                                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                    }`}
+                            >
+                                {t('sales.custom_date')}
+                            </button>
+                        </div>
+                        {/* Calendar Area */}
+                        <div className="p-4 flex flex-col gap-4">
+                            <div className="flex gap-4 sm:gap-8">
+                                <div>
+                                    <div className="flex items-center justify-between mb-2 px-2">
+                                        <button onClick={() => setViewDate(subMonths(viewDate, 1))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><ChevronLeft size={16} /></button>
+                                        <span className="font-semibold text-sm capitalize">{format(viewDate, 'MMMM yyyy', { locale: localeObj })}</span>
+                                        <div className="w-6"></div>
+                                    </div>
+                                    <div className="grid grid-cols-7 mb-1 text-center text-xs text-slate-400 font-medium">
+                                        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d}>{d}</div>)}
+                                    </div>
+                                    {renderMonth(viewDate)}
+                                </div>
+                                <div>
+                                    <div className="flex items-center justify-between mb-2 px-2">
+                                        <div className="w-6"></div>
+                                        <span className="font-semibold text-sm capitalize">{format(addMonths(viewDate, 1), 'MMMM yyyy', { locale: localeObj })}</span>
+                                        <button onClick={() => setViewDate(addMonths(viewDate, 1))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><ChevronRight size={16} /></button>
+                                    </div>
+                                    <div className="grid grid-cols-7 mb-1 text-center text-xs text-slate-400 font-medium">
+                                        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d}>{d}</div>)}
+                                    </div>
+                                    {renderMonth(addMonths(viewDate, 1))}
+                                </div>
+                            </div>
+                            <div className="flex flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.start_date')}</label>
+                                        <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-sm bg-transparent w-32" />
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.end_date')}</label>
+                                        <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-sm bg-transparent w-32" />
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setIsOpen(false)} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">{t('sales.cancel')}</button>
+                                    <button onClick={handleApply} className="px-6 py-2 rounded-lg text-sm font-bold bg-slate-900 dark:bg-blue-600 text-white hover:opacity-90 transition-opacity">{t('sales.apply')}</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
             )}
         </div>
     )
