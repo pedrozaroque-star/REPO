@@ -108,25 +108,6 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     // Menu groups (same as TopNav)
     const menuGroups: MenuGroup[] = [
         {
-            title: t('sections.operations'), id: 'operaciones',
-            items: [
-                { name: t('items.supervisor'), plainName: 'Supervisor', path: '/inspecciones', icon: <ClipboardList size={20} />, roles: ['supervisor', 'admin'] },
-                { name: t('items.manager'), plainName: 'Manager', path: '/checklists-manager', icon: <Briefcase size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.assistants'), plainName: 'Asistentes', path: '/checklists', icon: <CheckSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
-                { name: t('items.schedules'), plainName: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.dashboard'), plainName: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-            ]
-        },
-        {
-            title: t('sections.management'), id: 'gestion',
-            items: [
-                { name: t('items.stores'), plainName: 'Tiendas', path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
-                { name: t('items.tv_menus'), plainName: 'TV Menús', path: '/admin/tv-menus', icon: <Monitor size={20} />, roles: ['admin', 'supervisor'] },
-                { name: t('items.users'), plainName: 'Usuarios', path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
-                { name: t('items.templates'), plainName: 'Plantillas', path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
-            ]
-        },
-        {
             title: t('sections.analysis'), id: 'analisis',
             items: [
                 { name: t('items.sales'), plainName: 'Ventas', path: '/ventas', icon: <DollarSign size={20} />, roles: ['admin', 'manager', 'supervisor'] },
@@ -148,6 +129,25 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.planner'), plainName: 'Planificador', path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.breaks_ai'), plainName: 'Descansos', path: '/descansos', icon: <Zap size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.feedback'), plainName: 'Feedback', path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+            ]
+        },
+        {
+            title: t('sections.operations'), id: 'operaciones',
+            items: [
+                { name: t('items.supervisor'), plainName: 'Supervisor', path: '/inspecciones', icon: <ClipboardList size={20} />, roles: ['supervisor', 'admin'] },
+                { name: t('items.manager'), plainName: 'Manager', path: '/checklists-manager', icon: <Briefcase size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.assistants'), plainName: 'Asistentes', path: '/checklists', icon: <CheckSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: t('items.schedules'), plainName: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.dashboard'), plainName: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+            ]
+        },
+        {
+            title: t('sections.management'), id: 'gestion',
+            items: [
+                { name: t('items.stores'), plainName: 'Tiendas', path: '/tiendas', icon: <Store size={20} />, roles: ['admin'] },
+                { name: t('items.tv_menus'), plainName: 'TV Menús', path: '/admin/tv-menus', icon: <Monitor size={20} />, roles: ['admin', 'supervisor'] },
+                { name: t('items.users'), plainName: 'Usuarios', path: '/usuarios', icon: <Users size={20} />, roles: ['admin', 'supervisor'] },
+                { name: t('items.templates'), plainName: 'Plantillas', path: '/admin/plantillas', icon: <FileEdit size={20} />, roles: ['admin'] },
             ]
         },
         {
