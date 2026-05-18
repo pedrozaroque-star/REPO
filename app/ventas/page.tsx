@@ -888,15 +888,28 @@ function SalesPageContent() {
         if (!foodCostData || foodCostLoading) {
             return foodCostLoading ? { totalCost: 0, costPercentage: 0, loading: true } : null
         }
-        // When "all" stores, use the raw aggregated data
-        // Note: per-store food cost filtering would require raw item-level data
-        // which we don't store in this view. The aggregate is still valuable.
+
+        // When a specific store is selected, use its per-store data from byStore map
+        if (selectedStore !== 'all' && foodCostData.byStore) {
+            const storeFC = foodCostData.byStore[selectedStore]
+            if (storeFC) {
+                return {
+                    totalCost: storeFC.totalCost,
+                    costPercentage: storeFC.costPercentage,
+                    loading: false
+                }
+            }
+            // Store not found in food cost data — no FC for this store
+            return null
+        }
+
+        // "All" stores — use the raw aggregated data
         return {
             totalCost: foodCostData.totalCost,
             costPercentage: foodCostData.costPercentage,
             loading: false
         }
-    }, [foodCostData, foodCostLoading])
+    }, [foodCostData, foodCostLoading, selectedStore])
 
     // Early return for loading state
     if (!data) return (
