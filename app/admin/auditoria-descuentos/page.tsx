@@ -189,33 +189,47 @@ export default function AuditoriaDescuentos() {
             const d = new Date();
             const eDate = d.toISOString().split('T')[0];
             d.setDate(d.getDate() - 15);
-            const sDate = d.toISOString().split('T')[0];
+            // Fetch day by day in parallel to avoid Postgres statement timeouts
+            // Massive date range queries with order('id') cause full sorts and timeouts.
+            const fetchDay = async (dateStr: string) => {
+                let dayRisks: any[] = [];
+                let from = 0;
+                const pageSize = 1000;
+                let hasMore = true;
 
-            let allRisks: any[] = [];
-            let from = 0;
-            const pageSize = 1000;
-            let hasMore = true;
+                while (hasMore) {
+                    const { data, error } = await supabase.from('sales_discounts_log')
+                        .select('*')
+                        .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
+                        .eq('business_date', dateStr)
+                        .order('id', { ascending: true })
+                        .range(from, from + pageSize - 1);
+                    
+                    if (error) {
+                        console.error(`Error crítico fetching Radar para ${dateStr}:`, error?.message || error?.details || JSON.stringify(error));
+                        break;
+                    }
+                    if (data) dayRisks = [...dayRisks, ...data];
+                    if (!data || data.length < pageSize) {
+                        hasMore = false;
+                    } else {
+                        from += pageSize;
+                    }
+                }
+                return dayRisks;
+            };
 
-            while (hasMore) {
-                const { data, error } = await supabase.from('sales_discounts_log')
-                    .select('*') // Cambiado a select('*') para evitar fallo en .order('id')
-                    .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
-                    .gte('business_date', sDate)
-                    .lte('business_date', eDate)
-                    .order('id', { ascending: true })
-                    .range(from, from + pageSize - 1);
-                
-                if (error) {
-                    console.error("Error crítico fetching Radar de Anomalías:", error?.message || error?.details || JSON.stringify(error));
-                    break;
-                }
-                if (data) allRisks = [...allRisks, ...data];
-                if (!data || data.length < pageSize) {
-                    hasMore = false;
-                } else {
-                    from += pageSize;
-                }
+            // Generar los últimos 15 días (incluyendo hoy)
+            const promises = [];
+            for (let i = 0; i <= 15; i++) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                promises.push(fetchDay(dateStr));
             }
+
+            const results = await Promise.all(promises);
+            const allRisks = results.flat();
 
             // Agrupar por cajero
             const grouped = allRisks.reduce((acc, curr) => {
