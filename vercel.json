@@ -14,7 +14,7 @@
         },
         {
             "path": "/api/cron/sync-reviews",
-            "schedule": "0 14 * * *"
+            "schedule": "0 */4 * * *"
         },
         {
             "path": "/api/cron/integrity-check",
