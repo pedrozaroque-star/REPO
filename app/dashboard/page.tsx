@@ -351,27 +351,47 @@ function DashboardContent() {
             </header>
 
             <main className="w-full mx-auto px-4 md:px-6 py-8 space-y-6">
-                {/* KPI STRIP */}
+                {/* KPI STRIP – todos clickeables */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-slate-900 rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group">
+                    {/* Ventas → /ventas con filtro */}
+                    <div
+                        onClick={() => router.push(`/ventas?period=${timeFilter}&startDate=${startDateStr}&endDate=${endDateStr}`)}
+                        className="bg-slate-900 rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform"
+                    >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={60} /></div>
                         <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">Ventas Netas</p>
                         <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.totalSales)}</h2>
+                        <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver módulo de ventas →</p>
                     </div>
-                    <div className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group ${stats.foodCostPct > 32 ? 'bg-red-600' : stats.foodCostPct > 28 ? 'bg-amber-600' : 'bg-slate-900'} transition-colors duration-500`}>
+                    {/* Food Cost → /admin/food-cost con filtro */}
+                    <div
+                        onClick={() => router.push(`/admin/food-cost?startDate=${startDateStr}&endDate=${endDateStr}`)}
+                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.foodCostPct > 32 ? 'bg-red-600' : stats.foodCostPct > 28 ? 'bg-amber-600' : 'bg-slate-900'}`}
+                    >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Target size={60} /></div>
                         <p className="text-white/60 text-[10px] font-black uppercase tracking-widest">Food Cost</p>
                         <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1">{stats.foodCostPct > 0 ? stats.foodCostPct.toFixed(1) : '--'}<span className="text-xl text-white/40">%</span></h2>
+                        <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver reporte Food Cost →</p>
                     </div>
-                    <div className="bg-indigo-600 rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group">
+                    {/* NPS → /feedback con filtro */}
+                    <div
+                        onClick={() => router.push(`/feedback?startDate=${startDateStr}&endDate=${endDateStr}`)}
+                        className="bg-indigo-600 rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform"
+                    >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><MessageSquare size={60} /></div>
                         <p className="text-indigo-200 text-[10px] font-black uppercase tracking-widest">{t('dashboard.nps')}</p>
                         <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1">{stats.avgNPS}</h2>
+                        <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver feedback de clientes →</p>
                     </div>
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                    {/* Auditorías → /inspecciones con filtro */}
+                    <div
+                        onClick={() => router.push(`/inspecciones?startDate=${startDateStr}&endDate=${endDateStr}`)}
+                        className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 shadow-sm relative overflow-hidden group cursor-pointer hover:scale-[1.02] hover:border-slate-300 dark:hover:border-slate-600 transition-all"
+                    >
                         <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity text-slate-900 dark:text-white"><ClipboardList size={60} /></div>
                         <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{timeFilter === 'today' ? t('dashboard.audits_today') : timeFilter === 'week' ? t('dashboard.audits_week') : timeFilter === 'month' ? t('dashboard.audits_month') : t('dashboard.audits_total')}</p>
                         <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1 text-slate-900 dark:text-white">{stats.totalInspections} <span className="text-lg text-slate-400">({stats.avgInspectionScore}%)</span></h2>
+                        <p className="text-slate-300 text-[10px] mt-2 font-medium group-hover:text-slate-400 transition-colors">Ver inspecciones →</p>
                     </div>
                 </div>
 
@@ -380,7 +400,13 @@ function DashboardContent() {
                     <div className="md:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col" style={{maxHeight:'320px'}}>
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-red-50/40 dark:bg-red-900/10">
                             <h3 className="font-black text-red-900 dark:text-red-100 text-base flex items-center gap-3"><ShieldAlert size={22} className="text-red-500" /> Radar de Anomalías</h3>
-                            <span className="bg-red-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm">{stats.anomalies.length}</span>
+                            <div className="flex items-center gap-3">
+                                <span className="bg-red-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm">{stats.anomalies.length}</span>
+                                <button
+                                    onClick={() => router.push(`/admin/auditoria-descuentos?startDate=${startDateStr}&endDate=${endDateStr}`)}
+                                    className="text-[10px] font-black text-red-400 hover:text-red-600 dark:hover:text-red-300 uppercase tracking-widest transition-colors"
+                                >Ver todo →</button>
+                            </div>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             {stats.anomalies.length > 0 ? (
@@ -390,8 +416,13 @@ function DashboardContent() {
                                     </thead>
                                     <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                                         {stats.anomalies.map((a: any, i: number) => (
-                                            <tr key={i} className="hover:bg-red-50/30 dark:hover:bg-red-900/10 transition-colors">
-                                                <td className="pl-5 py-2.5 font-bold text-sm text-slate-800 dark:text-slate-200">{a.store}</td>
+                                            <tr
+                                                key={i}
+                                                onClick={() => router.push(`/admin/auditoria-descuentos?startDate=${a.date}&endDate=${a.date}`)}
+                                                className="hover:bg-red-50/60 dark:hover:bg-red-900/20 transition-colors cursor-pointer group"
+                                                title="Ver detalle en Auditoría de Descuentos"
+                                            >
+                                                <td className="pl-5 py-2.5 font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-red-700 dark:group-hover:text-red-400 transition-colors">{a.store}</td>
                                                 <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400">{a.name?.replace(' Discount','')}</td>
                                                 <td className="py-2.5 text-xs font-medium text-slate-600 dark:text-slate-300">{a.server}</td>
                                                 <td className="py-2.5 text-xs text-slate-400">{formatDateLA(a.date).split(',')[0]}</td>
@@ -410,10 +441,14 @@ function DashboardContent() {
                         <h3 className="font-black text-slate-900 dark:text-white text-lg mb-6 flex items-center gap-3"><Award size={24} className="text-orange-500" /> {t('dashboard.top_supervisors')}</h3>
                         <div className="space-y-4 flex-1 overflow-y-auto pr-1 custom-scrollbar">
                             {stats.supervisorStats.map((sup, i) => (
-                                <div key={i} className="flex items-center justify-between text-sm group">
+                                <div
+                                    key={i}
+                                    onClick={() => router.push(`/inspecciones?startDate=${startDateStr}&endDate=${endDateStr}&user=${encodeURIComponent(sup.name)}`)}
+                                    className="flex items-center justify-between text-sm group cursor-pointer"
+                                >
                                     <div className="flex items-center gap-3">
                                         <span className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-black flex items-center justify-center text-[11px] group-hover:bg-indigo-600 group-hover:text-white transition-all transform group-hover:scale-110 shadow-sm">{i + 1}</span>
-                                        <span className="font-bold text-slate-700 dark:text-slate-200 text-base">{sup.name}</span>
+                                        <span className="font-bold text-slate-700 dark:text-slate-200 text-base group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{sup.name}</span>
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <span className="text-slate-400 dark:text-slate-300 font-bold uppercase text-[10px] tracking-widest">{sup.count} INSP</span>
