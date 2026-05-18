@@ -232,15 +232,17 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
 
                         // Collect GUIDs if bundling
                         if (bundleModifiers && mod.item?.guid) {
+                            // CRITICAL: Toast pre-scales mod.quantity by parent sel.quantity
+                            // e.g., 10 tacos with Salsa Roja → Toast sends mod.quantity=10
+                            // So we use modBaseQty directly — do NOT multiply by qty again
                             const modBaseQty = Number(mod.quantity || 1)
-                            const modQty = modBaseQty * qty
-                            for (let i = 0; i < modQty; i++) {
+                            for (let i = 0; i < modBaseQty; i++) {
                                 modGuids.push(mod.item.guid)
                             }
                             // Detect "Half" meat modifiers (e.g. "Half Pollo", "Half Pastor")
                             // Each Half means the main meat portion should be halved
                             if (mod.displayName && /^half /i.test(mod.displayName)) {
-                                halfMeatCount += modQty
+                                halfMeatCount += modBaseQty
                             }
                         }
 
