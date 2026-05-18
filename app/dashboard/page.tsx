@@ -9,7 +9,7 @@ import {
     LayoutDashboard, Plus, BarChart3, Store, Users, ClipboardList,
     MessageSquare, AlertTriangle, CheckCircle, TrendingUp, Activity,
     Target, Timer, Award, Info, ShieldAlert, Camera, ExternalLink,
-    DollarSign
+    DollarSign, X, Receipt
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
@@ -34,6 +34,9 @@ function DashboardContent() {
         anomalies: [] as any[]
     })
     const [loading, setLoading] = useState(true)
+    const [selectedAnomaly, setSelectedAnomaly] = useState<any | null>(null)
+    const [anomalyDetails, setAnomalyDetails] = useState<any[]>([])
+    const [anomalyLoading, setAnomalyLoading] = useState(false)
     const [timeFilter, setTimeFilter] = useState('month')
     const [startDate, setStartDate] = useState(() => {
         const d = new Date()
@@ -225,11 +228,23 @@ function DashboardContent() {
             const [{ data: salesRows }, fcCacheRes, { data: anomRows }] = await Promise.all([
                 supabase.from('sales_daily_cache').select('net_sales').gte('business_date', startDateStr).lte('business_date', endDateStr),
                 fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`).then(r => r.json()).catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 })),
-                supabase.from('sales_discounts_log').select('store_name, discount_amount, discount_name, business_date, server_name').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
+                supabase.from('sales_discounts_log').select('id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
             ])
             const totalSales = salesRows?.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0) || 0
             const foodCostPct = fcCacheRes?.costPercentage || 0
-            const anomalies = (anomRows || []).map((a: any) => ({ store: formatStoreName(a.store_name), amount: Number(a.discount_amount), name: a.discount_name, date: a.business_date, server: a.server_name?.split(' ')[0] || '?' }))
+            const anomalies = (anomRows || []).map((a: any) => ({
+                id: a.id,
+                store: formatStoreName(a.store_name),
+                store_name: a.store_name,
+                amount: Number(a.discount_amount),
+                name: a.discount_name,
+                date: a.business_date,
+                server: a.server_name || '?',
+                approver: a.approver_name || '?',
+                order_id: a.order_id,
+                check_id: a.check_id,
+                opened_date: a.opened_date
+            }))
 
             const feedbacks = feedbacksRaw || []
 
@@ -290,7 +305,31 @@ function DashboardContent() {
         }
     }
 
+    // Abre el modal con TODOS los registros del mismo order_id
+    const openAnomalyModal = async (anomaly: any) => {
+        setSelectedAnomaly(anomaly)
+        setAnomalyDetails([])
+        setAnomalyLoading(true)
+        const supabase = getSupabaseClient()
+        let query = supabase
+            .from('sales_discounts_log')
+            .select('id, store_name, business_date, discount_name, discount_amount, server_name, approver_name, order_id, check_id, opened_date')
+            .eq('business_date', anomaly.date)
+            .eq('store_name', anomaly.store_name)
+        // Si tiene order_id, traer todos los descuentos de esa orden
+        if (anomaly.order_id && anomaly.order_id !== 'N/A') {
+            query = query.eq('order_id', anomaly.order_id)
+        } else {
+            // Fallback: misma orden por server + fecha + tienda
+            query = query.eq('server_name', anomaly.server)
+        }
+        const { data } = await query.order('id', { ascending: true })
+        setAnomalyDetails(data || [])
+        setAnomalyLoading(false)
+    }
+
     if (loading) return <SurpriseLoader />
+
 
     return (
         <div className="bg-transparent min-h-screen font-sans w-full pb-10">
@@ -418,13 +457,13 @@ function DashboardContent() {
                                         {stats.anomalies.map((a: any, i: number) => (
                                             <tr
                                                 key={i}
-                                                onClick={() => router.push(`/admin/auditoria-descuentos?startDate=${a.date}&endDate=${a.date}`)}
+                                                onClick={() => openAnomalyModal(a)}
                                                 className="hover:bg-red-50/60 dark:hover:bg-red-900/20 transition-colors cursor-pointer group"
-                                                title="Ver detalle en Auditoría de Descuentos"
+                                                title="Ver registros de esta orden"
                                             >
                                                 <td className="pl-5 py-2.5 font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-red-700 dark:group-hover:text-red-400 transition-colors">{a.store}</td>
                                                 <td className="py-2.5 text-xs text-slate-500 dark:text-slate-400">{a.name?.replace(' Discount','')}</td>
-                                                <td className="py-2.5 text-xs font-medium text-slate-600 dark:text-slate-300">{a.server}</td>
+                                                <td className="py-2.5 text-xs font-medium text-slate-600 dark:text-slate-300">{a.server?.split(' ')[0]}</td>
                                                 <td className="py-2.5 text-xs text-slate-400">{formatDateLA(a.date).split(',')[0]}</td>
                                                 <td className="pr-5 py-2.5 text-right"><span className="font-black text-red-600 dark:text-red-400 text-sm">${a.amount.toFixed(2)}</span></td>
                                             </tr>
@@ -580,6 +619,95 @@ function DashboardContent() {
                     currentUser={user || { id: '', full_name: 'Loading...', role: '' }}
                     onUpdate={fetchStats}
                 />
+            )}
+            {/* MODAL: Detalle de Anomalía */}
+            {selectedAnomaly && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setSelectedAnomaly(null)}>
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+                    <div
+                        className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-red-50/60 dark:bg-red-900/20 flex justify-between items-start">
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <Receipt size={18} className="text-red-500" />
+                                    <span className="font-black text-red-900 dark:text-red-100 text-base">Registros de la Orden</span>
+                                </div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">{selectedAnomaly.store}</span>
+                                    {' · '}{selectedAnomaly.name?.replace(' Discount','')}
+                                    {' · '}{formatDateLA(selectedAnomaly.date).split(',')[0]}
+                                    {selectedAnomaly.order_id && selectedAnomaly.order_id !== 'N/A' && (
+                                        <span className="ml-2 text-slate-400">Orden #{selectedAnomaly.check_id}</span>
+                                    )}
+                                </p>
+                            </div>
+                            <button onClick={() => setSelectedAnomaly(null)} className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg transition-colors">
+                                <X size={18} className="text-slate-500" />
+                            </button>
+                        </div>
+                        {/* Body */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            {anomalyLoading ? (
+                                <div className="flex items-center justify-center py-16">
+                                    <div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                                    <span className="ml-3 text-sm text-slate-400">Cargando registros...</span>
+                                </div>
+                            ) : anomalyDetails.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-16 text-slate-300">
+                                    <AlertTriangle size={32} className="mb-2" />
+                                    <p className="text-sm">No se encontraron registros relacionados</p>
+                                </div>
+                            ) : (
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 dark:bg-slate-800 text-slate-400 font-black text-[10px] uppercase tracking-widest sticky top-0">
+                                        <tr>
+                                            <th className="pl-5 py-3">Descuento</th>
+                                            <th className="py-3">Monto</th>
+                                            <th className="py-3">Empleado</th>
+                                            <th className="py-3">Aprobó</th>
+                                            <th className="pr-5 py-3">Check #</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                                        {anomalyDetails.map((d: any, i: number) => (
+                                            <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                                <td className="pl-5 py-3">
+                                                    <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{d.discount_name?.replace(' Discount','')}</span>
+                                                </td>
+                                                <td className="py-3">
+                                                    <span className="font-black text-red-600 dark:text-red-400 text-sm">${Number(d.discount_amount).toFixed(2)}</span>
+                                                </td>
+                                                <td className="py-3 text-xs text-slate-600 dark:text-slate-300 font-medium">{d.server_name || '—'}</td>
+                                                <td className="py-3 text-xs text-slate-500 dark:text-slate-400">{d.approver_name || '—'}</td>
+                                                <td className="pr-5 py-3 text-xs font-mono text-slate-400">{d.check_id || '—'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot className="bg-slate-50 dark:bg-slate-800">
+                                        <tr>
+                                            <td className="pl-5 py-3 font-black text-xs text-slate-600 dark:text-slate-300 uppercase">Total</td>
+                                            <td className="py-3 font-black text-red-600 dark:text-red-400">
+                                                ${anomalyDetails.reduce((s, d) => s + Number(d.discount_amount), 0).toFixed(2)}
+                                            </td>
+                                            <td colSpan={3} className="pr-5 py-3 text-right text-xs text-slate-400">{anomalyDetails.length} registro(s)</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            )}
+                        </div>
+                        {/* Footer */}
+                        <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                            <button
+                                onClick={() => { setSelectedAnomaly(null); router.push(`/admin/auditoria-descuentos?startDate=${selectedAnomaly.date}&endDate=${selectedAnomaly.date}`) }}
+                                className="text-xs font-black text-red-500 hover:text-red-700 dark:hover:text-red-400 uppercase tracking-widest transition-colors"
+                            >Ver día completo en Auditoría →</button>
+                            <button onClick={() => setSelectedAnomaly(null)} className="text-xs font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">Cerrar</button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     )
