@@ -91,6 +91,10 @@ function DashboardContent() {
 
     // getDateRange helper removed (logic handled by DateRangeFilter)
 
+    // Aliases de las fechas del estado — disponibles en todo el componente (JSX incluido)
+    const startDateStr = startDate
+    const endDateStr = endDate
+
     const fetchStats = async () => {
         try {
             const token = localStorage.getItem('teg_token')
@@ -99,11 +103,6 @@ function DashboardContent() {
             if (token) {
                 await supabase.auth.setSession({ access_token: token, refresh_token: '' })
             }
-
-            // USE STATE DATES DIRECTLY
-            // DateRangeFilter already provides correct start/end strings
-            const startDateStr = startDate
-            const endDateStr = endDate
 
             // 1. Inspecciones Query
             let queryInspections = supabase
@@ -310,7 +309,7 @@ function DashboardContent() {
         setSelectedAnomaly(anomaly)
         setAnomalyDetails([])
         setAnomalyLoading(true)
-        const supabase = getSupabaseClient()
+        const supabase = await getSupabaseClient()
         let query = supabase
             .from('sales_discounts_log')
             .select('id, store_name, business_date, discount_name, discount_amount, server_name, approver_name, order_id, check_id, opened_date')
