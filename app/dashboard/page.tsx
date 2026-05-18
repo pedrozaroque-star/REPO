@@ -31,6 +31,8 @@ function DashboardContent() {
         recentFeedback: [] as any[],
         totalSales: 0,
         foodCostPct: 0,
+        laborCost: 0,
+        laborPct: 0,
         anomalies: [] as any[]
     })
     const [loading, setLoading] = useState(true)
@@ -226,11 +228,13 @@ function DashboardContent() {
 
             // 3. Sales + Food Cost + Anomalías (parallel)
             const [{ data: salesRows }, fcCacheRes, { data: anomRows }] = await Promise.all([
-                supabase.from('sales_daily_cache').select('net_sales').gte('business_date', startDateStr).lte('business_date', endDateStr),
+                supabase.from('sales_daily_cache').select('net_sales, labor_cost').gte('business_date', startDateStr).lte('business_date', endDateStr),
                 fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`).then(r => r.json()).catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 })),
                 supabase.from('sales_discounts_log').select('id, store_id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
             ])
             const totalSales = salesRows?.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0) || 0
+            const totalLaborCost = salesRows?.reduce((s: number, r: any) => s + Number(r.labor_cost || 0), 0) || 0
+            const laborPct = totalSales > 0 ? (totalLaborCost / totalSales) * 100 : 0
             const foodCostPct = fcCacheRes?.costPercentage || 0
             const anomalies = (anomRows || []).map((a: any) => ({
                 id: a.id,
@@ -296,6 +300,8 @@ function DashboardContent() {
                 recentFeedback: safeRecentFeedback,
                 totalSales,
                 foodCostPct,
+                laborCost: totalLaborCost,
+                laborPct,
                 anomalies
             })
 
@@ -400,7 +406,7 @@ function DashboardContent() {
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><DollarSign size={60} /></div>
                         <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">Ventas Netas</p>
-                        <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.totalSales)}</h2>
+                        <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-1">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.totalSales)}</h2>
                         <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver módulo de ventas →</p>
                     </div>
                     {/* Food Cost → /admin/food-cost con filtro */}
@@ -413,15 +419,16 @@ function DashboardContent() {
                         <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1">{stats.foodCostPct > 0 ? stats.foodCostPct.toFixed(1) : '--'}<span className="text-xl text-white/40">%</span></h2>
                         <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver reporte Food Cost →</p>
                     </div>
-                    {/* NPS → /feedback con filtro */}
+                    {/* Labor Cost → /ventas con filtro */}
                     <div
-                        onClick={() => router.push(`/feedback?startDate=${startDateStr}&endDate=${endDateStr}`)}
-                        className="bg-indigo-600 rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform"
+                        onClick={() => router.push(`/ventas?period=${timeFilter}&startDate=${startDateStr}&endDate=${endDateStr}`)}
+                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.laborPct > 23 ? 'bg-rose-600' : stats.laborPct > 21.5 ? 'bg-amber-600' : 'bg-emerald-700'}`}
                     >
-                        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><MessageSquare size={60} /></div>
-                        <p className="text-indigo-200 text-[10px] font-black uppercase tracking-widest">{t('dashboard.nps')}</p>
-                        <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1">{stats.avgNPS}</h2>
-                        <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver feedback de clientes →</p>
+                        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Users size={60} /></div>
+                        <p className="text-white/70 text-[10px] font-black uppercase tracking-widest">Labor Cost</p>
+                        <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-1">{stats.laborPct > 0 ? stats.laborPct.toFixed(1) : '--'}<span className="text-xl text-white/40">%</span></h2>
+                        <p className="text-white/50 text-[10px] mt-1 font-bold">${stats.laborCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+                        <p className="text-white/30 text-[10px] mt-1 font-medium group-hover:text-white/50 transition-colors">Ver módulo de ventas →</p>
                     </div>
                     {/* Auditorías → /inspecciones con filtro */}
                     <div
