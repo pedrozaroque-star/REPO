@@ -31,6 +31,7 @@ function DashboardContent() {
         recentFeedback: [] as any[],
         totalSales: 0,
         foodCostPct: 0,
+        foodCostDollars: 0,
         laborCost: 0,
         laborPct: 0,
         anomalies: [] as any[]
@@ -236,6 +237,7 @@ function DashboardContent() {
             const totalLaborCost = salesRows?.reduce((s: number, r: any) => s + Number(r.labor_cost || 0), 0) || 0
             const laborPct = totalSales > 0 ? (totalLaborCost / totalSales) * 100 : 0
             const foodCostPct = fcCacheRes?.costPercentage || 0
+            const foodCostDollars = fcCacheRes?.totalCost || 0
             const anomalies = (anomRows || []).map((a: any) => ({
                 id: a.id,
                 store: formatStoreName(a.store_name),
@@ -300,6 +302,7 @@ function DashboardContent() {
                 recentFeedback: safeRecentFeedback,
                 totalSales,
                 foodCostPct,
+                foodCostDollars,
                 laborCost: totalLaborCost,
                 laborPct,
                 anomalies
@@ -412,12 +415,13 @@ function DashboardContent() {
                     {/* Food Cost → /admin/food-cost con filtro */}
                     <div
                         onClick={() => router.push(`/admin/food-cost?startDate=${startDateStr}&endDate=${endDateStr}`)}
-                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.foodCostPct > 32 ? 'bg-red-600' : stats.foodCostPct > 28 ? 'bg-amber-600' : 'bg-slate-900'}`}
+                        className={`rounded-2xl p-5 text-white shadow-xl relative overflow-hidden group cursor-pointer hover:scale-[1.02] transition-transform ${stats.foodCostPct > 36 ? 'bg-amber-600' : stats.foodCostPct > 32 ? 'bg-amber-700' : 'bg-slate-900'}`}
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Target size={60} /></div>
                         <p className="text-white/60 text-[10px] font-black uppercase tracking-widest">Food Cost</p>
-                        <h2 className="text-3xl md:text-4xl font-black tracking-tighter mt-1">{stats.foodCostPct > 0 ? stats.foodCostPct.toFixed(1) : '--'}<span className="text-xl text-white/40">%</span></h2>
-                        <p className="text-white/30 text-[10px] mt-2 font-medium group-hover:text-white/50 transition-colors">Ver reporte Food Cost →</p>
+                        <h2 className="text-2xl md:text-4xl font-black tracking-tighter mt-1">{stats.foodCostPct > 0 ? stats.foodCostPct.toFixed(1) : '--'}<span className="text-xl text-white/40">%</span></h2>
+                        <p className="text-white/50 text-[10px] mt-1 font-bold">${stats.foodCostDollars.toLocaleString('en-US', { maximumFractionDigits: 0 })}</p>
+                        <p className="text-white/30 text-[10px] mt-1 font-medium group-hover:text-white/50 transition-colors">Ver reporte Food Cost →</p>
                     </div>
                     {/* Labor Cost → /ventas con filtro */}
                     <div
