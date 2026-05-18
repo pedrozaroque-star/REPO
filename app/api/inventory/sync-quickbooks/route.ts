@@ -76,8 +76,16 @@ export async function POST() {
 
         let updatedCount = 0;
         let createdCount = 0;
+        let priceChanges = 0;
+
+        // Build a lookup of current prices for change detection
+        const currentPriceMap = new Map<string, number>();
+        internalItems.forEach(item => {
+            currentPriceMap.set(item.id, Number(item.purchase_unit_cost) || 0);
+        });
 
         const DEFAULT_CATEGORY_ID = '5678dc7e-4514-4757-a5d0-9330e904140e'; // QuickBooks Import
+        const now = new Date();
 
         for (const qbItem of qbItems) {
             if (qbItem.Type !== 'Inventory' && qbItem.Type !== 'NonInventory') continue;
@@ -87,8 +95,21 @@ export async function POST() {
             // Case A: Already mapped
             const existingMapping = existingMappings?.find(m => m.qb_item_id === qbItem.Id);
             if (existingMapping) {
-                await supabase.from('inventory_items').update({ purchase_unit_cost: rate, updated_at: new Date() }).eq('id', existingMapping.inventory_item_id);
-                await supabase.from('quickbooks_mappings').update({ last_fetch_cost: rate, updated_at: new Date() }).eq('qb_item_id', qbItem.Id);
+                const oldPrice = currentPriceMap.get(existingMapping.inventory_item_id) || 0;
+
+                // Save price history ONLY if the price actually changed
+                if (Math.abs(oldPrice - rate) > 0.001 && rate > 0) {
+                    await supabase.from('inventory_price_history').insert({
+                        inventory_item_id: existingMapping.inventory_item_id,
+                        purchase_unit_cost: rate,
+                        effective_date: now.toISOString()
+                    });
+                    priceChanges++;
+                    console.log(`[QB-Sync] 💰 Price change: ${qbItem.Name} $${oldPrice.toFixed(2)} → $${rate.toFixed(2)}`);
+                }
+
+                await supabase.from('inventory_items').update({ purchase_unit_cost: rate, updated_at: now }).eq('id', existingMapping.inventory_item_id);
+                await supabase.from('quickbooks_mappings').update({ last_fetch_cost: rate, updated_at: now }).eq('qb_item_id', qbItem.Id);
                 updatedCount++;
                 continue;
             }
@@ -113,6 +134,15 @@ export async function POST() {
                 if (createError) continue;
                 internal = newItem;
                 createdCount++;
+
+                // Save initial price for new items too
+                if (rate > 0) {
+                    await supabase.from('inventory_price_history').insert({
+                        inventory_item_id: internal.id,
+                        purchase_unit_cost: rate,
+                        effective_date: now.toISOString()
+                    });
+                }
             }
 
             // Create Mapping
@@ -121,17 +151,20 @@ export async function POST() {
                 qb_item_name: qbItem.Name,
                 inventory_item_id: internal.id,
                 last_fetch_cost: rate,
-                updated_at: new Date()
+                updated_at: now
             });
 
             usedInternalIds.add(internal.id);
             updatedCount++;
         }
 
+        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes tracked`);
+
         return NextResponse.json({
             success: true,
             updatedCount,
-            createdCount
+            createdCount,
+            priceChanges
         });
 
     } catch (error: any) {

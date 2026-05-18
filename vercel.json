@@ -38,7 +38,7 @@
         },
         {
             "path": "/api/inventory/sync-quickbooks",
-            "schedule": "0 14 * * 1"
+            "schedule": "0 14 * * *"
         },
         {
             "path": "/api/cron/sync-meat-history",
