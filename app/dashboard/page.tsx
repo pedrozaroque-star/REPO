@@ -221,16 +221,14 @@ function DashboardContent() {
 
             const { data: feedbacksRaw } = await queryFeedback
 
-            // 3. Sales + Food Cost from cache (parallel)
-            const [{ data: salesRows }, { data: fcRows }, { data: anomRows }] = await Promise.all([
+            // 3. Sales + Food Cost + Anomalías (parallel)
+            const [{ data: salesRows }, fcCacheRes, { data: anomRows }] = await Promise.all([
                 supabase.from('sales_daily_cache').select('net_sales').gte('business_date', startDateStr).lte('business_date', endDateStr),
-                supabase.from('food_cost_daily_cache').select('total_cost, net_sales').gte('business_date', startDateStr).lte('business_date', endDateStr),
+                fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`).then(r => r.json()).catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 })),
                 supabase.from('sales_discounts_log').select('store_name, discount_amount, discount_name, business_date, server_name').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
             ])
             const totalSales = salesRows?.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0) || 0
-            const fcCost = fcRows?.reduce((s: number, r: any) => s + Number(r.total_cost || 0), 0) || 0
-            const fcSales = fcRows?.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0) || 0
-            const foodCostPct = fcSales > 0 ? (fcCost / fcSales) * 100 : 0
+            const foodCostPct = fcCacheRes?.costPercentage || 0
             const anomalies = (anomRows || []).map((a: any) => ({ store: formatStoreName(a.store_name), amount: Number(a.discount_amount), name: a.discount_name, date: a.business_date, server: a.server_name?.split(' ')[0] || '?' }))
 
             const feedbacks = feedbacksRaw || []
