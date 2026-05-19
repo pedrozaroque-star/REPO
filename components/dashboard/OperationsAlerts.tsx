@@ -462,103 +462,134 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
 
           {expandedSection === 'inspections' && (
             <div>
-              <h4 className="text-base font-black text-slate-800 dark:text-white mb-3 flex items-center gap-2">
-                <Eye size={20} className="text-purple-500" /> Compliance de Inspecciones
+              <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
+                <Eye size={20} className="text-purple-500" /> Compliance de Inspecciones por Supervisor
               </h4>
-              <div className="space-y-4">
-                {data.inspectionCompliance.map((sup, i) => (
-                  <div key={i} className={`rounded-xl border overflow-hidden ${
-                    sup.compliant
-                      ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/40'
-                      : 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/40'
-                  }`}>
-                    {/* Supervisor Header */}
-                    <div className="px-4 py-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {sup.compliant
-                          ? <CheckCircle2 size={18} className="text-emerald-500" />
-                          : <XCircle size={18} className="text-red-500" />
-                        }
-                        <span className="text-base font-black text-slate-800 dark:text-white">{sup.supervisor}</span>
-                        {sup.ownedStores && sup.ownedStores.length > 0 && (
-                          <span className="text-xs text-slate-400 dark:text-slate-500 font-medium ml-1">
-                            ({sup.ownedStores.join(', ')})
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+                Cada supervisor debe realizar <span className="font-bold text-purple-500">al menos 1 inspección</span> en sus tiendas asignadas por cada día que esté programado. Solo se muestran los <span className="font-bold">días con fallas</span>.
+              </p>
+              <div className="space-y-3">
+                {data.inspectionCompliance.map((sup, i) => {
+                  const failedDays = sup.dailyDetail?.filter(d => !d.compliant) || []
+                  return (
+                    <div key={i} className={`rounded-xl border overflow-hidden ${
+                      sup.compliant
+                        ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/40'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                    }`}>
+                      {/* Supervisor Header */}
+                      <div className="px-4 py-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            {sup.compliant
+                              ? <CheckCircle2 size={18} className="text-emerald-500" />
+                              : <XCircle size={18} className="text-red-500" />
+                            }
+                            <span className="text-base font-black text-slate-800 dark:text-white">{sup.supervisor}</span>
+                          </div>
+                          <span className={`text-sm font-black px-2.5 py-1 rounded-md ${
+                            sup.compliancePct === 100
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                              : sup.compliancePct >= 50
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
+                                : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                          }`}>
+                            {sup.compliancePct}% compliance
                           </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400">
-                          {sup.totalInspected}/{sup.totalScheduled} días
-                        </span>
-                        <span className={`text-sm font-black px-2.5 py-1 rounded-md ${
-                          sup.compliancePct === 100
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
-                            : sup.compliancePct >= 50
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
-                              : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
-                        }`}>
-                          {sup.compliancePct}%
-                        </span>
-                      </div>
-                    </div>
+                        </div>
 
-                    {/* Daily Detail — only non-compliant days */}
-                    {sup.dailyDetail && sup.dailyDetail.filter(d => !d.compliant).length > 0 && (
-                      <div className="border-t border-slate-200/60 dark:border-slate-700/50">
-                        <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {sup.dailyDetail.filter(d => !d.compliant).map((day, j) => {
-                            const dateObj = new Date(day.date + 'T12:00:00')
-                            const dayName = dateObj.toLocaleDateString('es-MX', { weekday: 'short' }).toUpperCase()
-                            const dayNum = dateObj.getDate()
-                            const monthName = dateObj.toLocaleDateString('es-MX', { month: 'short' })
-                            return (
-                              <div key={j} className="px-4 py-2.5 flex items-center gap-3 bg-red-50/80 dark:bg-red-900/10">
-                                {/* Date badge */}
-                                <div className="w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0 text-center bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
-                                  <span className="text-[10px] font-black uppercase leading-none">{dayName}</span>
-                                  <span className="text-lg font-black leading-tight">{dayNum}</span>
-                                </div>
+                        {/* Compliance bar */}
+                        <div className="relative h-4 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-2">
+                          <div
+                            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                              sup.compliancePct === 100
+                                ? 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+                                : sup.compliancePct >= 50
+                                  ? 'bg-gradient-to-r from-amber-400 to-amber-500'
+                                  : 'bg-gradient-to-r from-red-400 to-red-500'
+                            }`}
+                            style={{ width: `${Math.max(sup.compliancePct, 4)}%` }}
+                          />
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">100%</span>
+                          </div>
+                        </div>
 
-                                {/* Detail */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-sm font-bold text-red-600 dark:text-red-400">
-                                      ❌ Sin inspección
-                                    </span>
-                                    {day.shift && (
-                                      <span className="text-xs text-slate-400 dark:text-slate-500">
-                                        🕐 {day.shift}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {day.ownedStoresMissing.length > 0 && (
-                                    <p className="text-xs text-red-500/80 dark:text-red-400/60 mt-0.5">
-                                      Falta: {day.ownedStoresMissing.join(', ')}
-                                    </p>
-                                  )}
-                                </div>
-
-                                {/* Status icon */}
-                                <div className="flex-shrink-0">
-                                  <XCircle size={18} className="text-red-400" />
-                                </div>
-                              </div>
-                            )
-                          })}
+                        {/* Stats row */}
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Tiendas:</span>
+                            <span className="font-bold text-slate-600 dark:text-slate-300">{sup.ownedStores?.join(', ') || '—'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Cumplidos:</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">{sup.totalInspected} de {sup.totalScheduled} días</span>
+                          </div>
+                          {failedDays.length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-slate-400 dark:text-slate-500">Fallas:</span>
+                              <span className="font-bold text-red-500">{failedDays.length} día{failedDays.length > 1 ? 's' : ''}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    )}
 
-                    {/* No scheduled days message */}
-                    {(!sup.dailyDetail || sup.dailyDetail.length === 0) && (
-                      <div className="px-4 py-3 border-t border-slate-200/60 dark:border-slate-700/50">
-                        <p className="text-sm text-slate-400 dark:text-slate-500">
-                          Sin días programados en este período
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {/* Daily Detail — only non-compliant days */}
+                      {failedDays.length > 0 && (
+                        <div className="border-t border-slate-200/60 dark:border-slate-700/50">
+                          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {failedDays.map((day, j) => {
+                              const dateObj = new Date(day.date + 'T12:00:00')
+                              const dayName = dateObj.toLocaleDateString('es-MX', { weekday: 'short' }).toUpperCase()
+                              const dayNum = dateObj.getDate()
+                              return (
+                                <div key={j} className="px-4 py-2.5 flex items-center gap-3 bg-red-50/80 dark:bg-red-900/10">
+                                  {/* Date badge */}
+                                  <div className="w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0 text-center bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                                    <span className="text-[10px] font-black uppercase leading-none">{dayName}</span>
+                                    <span className="text-lg font-black leading-tight">{dayNum}</span>
+                                  </div>
+
+                                  {/* Detail */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-sm font-bold text-red-600 dark:text-red-400">
+                                        ❌ Sin inspección
+                                      </span>
+                                      {day.shift && (
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">
+                                          🕐 Programado: {day.shift}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {day.ownedStoresMissing.length > 0 && (
+                                      <p className="text-xs text-red-500/80 dark:text-red-400/60 mt-0.5">
+                                        Tiendas sin visitar: {day.ownedStoresMissing.join(', ')}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  <div className="flex-shrink-0">
+                                    <XCircle size={18} className="text-red-400" />
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* No scheduled days message */}
+                      {(!sup.dailyDetail || sup.dailyDetail.length === 0) && (
+                        <div className="px-4 py-3 border-t border-slate-200/60 dark:border-slate-700/50">
+                          <p className="text-sm text-slate-400 dark:text-slate-500">
+                            Sin días programados en este período
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
