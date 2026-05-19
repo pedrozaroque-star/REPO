@@ -19,9 +19,17 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate') || new Date().toISOString().split('T')[0]
     const endDate = searchParams.get('endDate') || startDate
 
+    // Calculate lookback window (28 days before start of current range)
+    const lookbackEnd = new Date(startDate + 'T12:00:00')
+    lookbackEnd.setDate(lookbackEnd.getDate() - 1)
+    const lookbackStart = new Date(lookbackEnd)
+    lookbackStart.setDate(lookbackStart.getDate() - 27) // 28 days total
+    const lbStartStr = lookbackStart.toISOString().split('T')[0]
+    const lbEndStr = lookbackEnd.toISOString().split('T')[0]
+
     // ── Parallel data fetch ──
-    const [salesRes, fcRes, inspRes, supRes, schedRes, storesRes] = await Promise.all([
-      // 1. Sales + Labor by store
+    const [salesRes, fcRes, inspRes, supRes, schedRes, storesRes, histSalesRes] = await Promise.all([
+      // 1. Sales + Labor by store (current range)
       supabaseAdmin.from('sales_daily_cache')
         .select('store_id, store_name, net_sales, labor_cost, business_date')
         .gte('business_date', startDate).lte('business_date', endDate),
@@ -43,7 +51,11 @@ export async function GET(req: NextRequest) {
         .gte('date', startDate).lte('date', endDate),
       // 6. Store details (numeric ID → name + supervisor_id ownership)
       supabaseAdmin.from('stores')
-        .select('id, name, supervisor_id')
+        .select('id, name, supervisor_id'),
+      // 7. Historical sales for lookback (prior 4 weeks) — for self-comparison
+      supabaseAdmin.from('sales_daily_cache')
+        .select('store_id, store_name, net_sales, business_date')
+        .gte('business_date', lbStartStr).lte('business_date', lbEndStr)
     ])
 
     const sales = salesRes.data || []
@@ -52,6 +64,7 @@ export async function GET(req: NextRequest) {
     const supervisors = supRes.data || []
     const schedules = schedRes.data || []
     const stores = storesRes.data || []
+    const histSales = histSalesRes.data || []
 
     // Build store numeric ID → name map
     const storeNameMap: Record<number, string> = {}
@@ -114,23 +127,46 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.pct - a.pct)
 
     // ══════════════════════════════════════════════════
-    // 3. LOW SALES ALERTS — stores below fleet average
+    // 3. LOW SALES ALERTS — each store vs its OWN historical avg
+    // Compare current performance vs prior 4 weeks daily average
     // ══════════════════════════════════════════════════
+
+    // Calculate number of business days in current range
+    const currentRangeDays = Math.max(1, Math.round(
+      (new Date(endDate + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24)
+    ) + 1)
+
+    // Build historical daily average per store from past 28 days
+    const histByStore: Record<string, { totalSales: number; dayCount: number; storeId: string }> = {}
+    histSales.forEach(r => {
+      const name = (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
+      if (!histByStore[name]) histByStore[name] = { totalSales: 0, dayCount: 0, storeId: r.store_id }
+      histByStore[name].totalSales += Number(r.net_sales) || 0
+      histByStore[name].dayCount++
+    })
+
+    // For each store: compare current sales vs expected (based on own history)
+    const SELF_DECLINE_THRESHOLD = 15 // 15% below own average = alert
     const allStoreSales = Object.entries(laborByStore).map(([store, d]) => ({ store, sales: d.sales, storeId: d.storeId }))
-    const fleetAvg = allStoreSales.length > 0
-      ? allStoreSales.reduce((s, r) => s + r.sales, 0) / allStoreSales.length
-      : 0
-    const lowThreshold = fleetAvg * 0.75 // 25% below average
     const lowSalesAlerts = allStoreSales
-      .filter(s => s.sales < lowThreshold && s.sales > 0)
-      .map(s => ({
-        store: s.store,
-        storeId: s.storeId,
-        sales: Math.round(s.sales),
-        fleetAvg: Math.round(fleetAvg),
-        pctBelowAvg: +((1 - s.sales / fleetAvg) * 100).toFixed(1)
-      }))
-      .sort((a, b) => a.sales - b.sales)
+      .map(s => {
+        const hist = histByStore[s.store]
+        if (!hist || hist.dayCount < 7) return null // Need at least 7 days of history
+        const dailyAvg = hist.totalSales / hist.dayCount
+        const expectedSales = dailyAvg * currentRangeDays
+        const pctChange = expectedSales > 0 ? ((s.sales - expectedSales) / expectedSales) * 100 : 0
+        return {
+          store: s.store,
+          storeId: s.storeId,
+          sales: Math.round(s.sales),
+          expectedSales: Math.round(expectedSales),
+          dailyAvgHist: Math.round(dailyAvg),
+          pctChange: +pctChange.toFixed(1),
+          histDays: hist.dayCount
+        }
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null && s.pctChange <= -SELF_DECLINE_THRESHOLD)
+      .sort((a, b) => a.pctChange - b.pctChange)
 
     // ══════════════════════════════════════════════════
     // 4. INSPECTION COMPLIANCE — per supervisor per date
