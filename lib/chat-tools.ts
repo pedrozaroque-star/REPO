@@ -633,12 +633,31 @@ async function queryMenuRecipes(args: any): Promise<string> {
     } else if (recipes?.length) {
       // Get ingredient details
       const invIds = [...new Set(recipes.map(r => r.inventory_item_id).filter(Boolean))]
-      const { data: invItems } = await supabaseAdmin.from('inventory_items')
+      console.log(`[TEG Menu] Looking up ${invIds.length} inventory items:`, invIds.slice(0, 3))
+
+      const { data: invItems, error: invErr } = await supabaseAdmin.from('inventory_items')
         .select('id, name, cost_per_unit, unit, yield_percent').in('id', invIds)
+
+      console.log(`[TEG Menu] Inventory lookup: ${invItems?.length || 0} found, error: ${invErr?.message || 'none'}`)
+
       const invMap: Record<string, { name: string; cost: number; unit: string; yld: number }> = {};
-      (invItems || []).forEach(i => {
-        invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, unit: i.unit || '', yld: Number(i.yield_percent) || 100 }
-      })
+
+      if (invItems?.length) {
+        invItems.forEach(i => {
+          invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, unit: i.unit || '', yld: Number(i.yield_percent) || 100 }
+        })
+      } else if (invIds.length > 0) {
+        // Fallback: try individual lookups
+        console.log(`[TEG Menu] Fallback: individual lookups for ${invIds.length} items`)
+        for (const invId of invIds) {
+          const { data: single } = await supabaseAdmin.from('inventory_items')
+            .select('id, name, cost_per_unit, unit, yield_percent').eq('id', invId).single()
+          if (single) {
+            invMap[single.id] = { name: single.name, cost: Number(single.cost_per_unit) || 0, unit: single.unit || '', yld: Number(single.yield_percent) || 100 }
+          }
+        }
+        console.log(`[TEG Menu] Fallback found: ${Object.keys(invMap).length} items`)
+      }
 
       // Group by menu item
       const guidToName: Record<string, { name: string; price: number }> = {}
