@@ -123,6 +123,59 @@ export const TOOL_DECLARATIONS = [
     name: 'query_stores',
     description: 'Get list of all stores with details.',
     parameters: { type: 'OBJECT', properties: {} }
+  },
+  {
+    name: 'query_menu_recipes',
+    description: 'Query Toast menu items (prices, names) and recipe ingredient details. Use for menu prices, combos, recipe ingredients.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        item_name: { type: 'STRING', description: 'Menu item or recipe name to search (partial match)' },
+        group_name: { type: 'STRING', description: 'Menu group/category filter (e.g. Tacos, Burritos, Combos)' }
+      }
+    }
+  },
+  {
+    name: 'query_checklists',
+    description: 'Query assistant and manager checklists: completion counts, scores, dates, status.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' },
+        store_name: { type: 'STRING', description: 'Optional store filter' },
+        type: { type: 'STRING', description: 'Filter: assistant, manager, or all' }
+      },
+      required: ['start_date', 'end_date']
+    }
+  },
+  {
+    name: 'query_violations_budgets',
+    description: 'Query punch violations (overtime, missed breaks), weekly budgets, staff evaluations, and inspection comments.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' },
+        data_type: { type: 'STRING', description: 'What to query: violations, budgets, evaluations, inspection_comments, or all' },
+        store_name: { type: 'STRING', description: 'Optional store filter' }
+      },
+      required: ['start_date', 'end_date']
+    }
+  },
+  {
+    name: 'query_product_mix',
+    description: 'Query product mix (pmix) sales breakdown by menu item, and meat consumption history. Use for questions about which items sold most, meat usage.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' },
+        store_name: { type: 'STRING', description: 'Optional store filter' },
+        data_type: { type: 'STRING', description: 'pmix, meat, or all' }
+      },
+      required: ['start_date', 'end_date']
+    }
   }
 ]
 
@@ -140,6 +193,10 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_inventory': return await queryInventory(args)
       case 'query_feedback': return await queryFeedback(args)
       case 'query_stores': return await queryStores()
+      case 'query_menu_recipes': return await queryMenuRecipes(args)
+      case 'query_checklists': return await queryChecklists(args)
+      case 'query_violations_budgets': return await queryViolationsBudgets(args)
+      case 'query_product_mix': return await queryProductMix(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -492,4 +549,233 @@ async function queryStores(): Promise<string> {
 
   const lines = data.map(s => `${clean(s.name)} | ID: ${s.id} | External: ${s.external_id || '-'} | ${s.address || ''} | ${s.phone || ''}`)
   return `Stores (${data.length}):\n${lines.join('\n')}`
+}
+
+// ── 11. Menu & Recipes ──
+async function queryMenuRecipes(args: any): Promise<string> {
+  const parts: string[] = []
+
+  // Menu items from Toast
+  let menuQ = supabaseAdmin.from('toast_menu_items').select('guid, name, price, group_name, active, recipe_name')
+  if (args.item_name) menuQ = menuQ.ilike('name', `%${args.item_name}%`)
+  if (args.group_name) menuQ = menuQ.ilike('group_name', `%${args.group_name}%`)
+  const { data: menuItems } = await menuQ.eq('active', true).order('group_name').limit(100)
+
+  if (menuItems?.length) {
+    const byGroup: Record<string, { name: string; price: number }[]> = {}
+    menuItems.forEach(m => {
+      const g = m.group_name || 'Other'
+      if (!byGroup[g]) byGroup[g] = []
+      byGroup[g].push({ name: m.name, price: Number(m.price) || 0 })
+    })
+    const groupLines = Object.entries(byGroup).map(([g, items]) =>
+      `${g}:\n${items.map(i => `  ${i.name}: ${fmt$(i.price)}`).join('\n')}`
+    )
+    parts.push(`Menu Items (${menuItems.length}):\n${groupLines.join('\n')}`)
+  }
+
+  // Recipe details (ingredients for matching items)
+  if (args.item_name) {
+    // Find matching toast_menu_items GUIDs
+    const guids = (menuItems || []).map(m => m.guid).filter(Boolean)
+    if (guids.length > 0) {
+      const { data: recipes } = await supabaseAdmin.from('recipes')
+        .select('toast_menu_item_guid, inventory_item_id, quantity, unit, type')
+        .in('toast_menu_item_guid', guids)
+      if (recipes?.length) {
+        // Get inventory item names
+        const invIds = [...new Set(recipes.map(r => r.inventory_item_id).filter(Boolean))]
+        const { data: invItems } = await supabaseAdmin.from('inventory_items')
+          .select('id, name, cost_per_unit, unit, yield_percent').in('id', invIds)
+        const invMap: Record<string, { name: string; cost: number; yield_pct: number }> = {};
+        (invItems || []).forEach(i => { invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, yield_pct: Number(i.yield_percent) || 100 } })
+
+        const recipeLines = recipes.map(r => {
+          const inv = invMap[r.inventory_item_id]
+          return `  ${inv?.name || '?'}: ${r.quantity} ${r.unit} (cost ~${fmt$(inv ? inv.cost * r.quantity : 0)}) [${r.type || 'food'}]`
+        })
+        parts.push(`Recipe Ingredients:\n${recipeLines.join('\n')}`)
+      }
+    }
+  }
+
+  return parts.length ? parts.join('\n\n') : 'No menu items or recipes found.'
+}
+
+// ── 12. Checklists ──
+async function queryChecklists(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  const parts: string[] = []
+
+  // Assistant checklists
+  if (!args.type || args.type !== 'manager') {
+    let q = supabaseAdmin.from('assistant_checklists')
+      .select('id, store_id, checklist_type, checklist_date, shift, score, user_name, estatus_admin, estatus_supervisor')
+      .gte('checklist_date', args.start_date).lte('checklist_date', args.end_date)
+      .order('checklist_date', { ascending: false })
+    const { data } = await q.limit(200)
+
+    if (data?.length) {
+      let filtered = data
+      if (args.store_name) {
+        const sn = args.store_name.toLowerCase()
+        filtered = data.filter(c => (idToName[c.store_id] || '').toLowerCase().includes(sn))
+      }
+      const avgScore = filtered.length > 0 ? Math.round(filtered.reduce((s, c) => s + (Number(c.score) || 0), 0) / filtered.length) : 0
+      const byStore: Record<string, number> = {}
+      filtered.forEach(c => { const n = idToName[c.store_id] || '?'; byStore[n] = (byStore[n] || 0) + 1 })
+      const storeLines = Object.entries(byStore).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`)
+      parts.push(`Assistant Checklists (${filtered.length}): Avg Score: ${avgScore}%\nBy Store: ${storeLines.join(' | ')}\nRecent: ${filtered.slice(0, 10).map(c => `${c.checklist_date} ${idToName[c.store_id] || '?'} ${c.user_name || '?'} (${c.shift || '?'}) Score:${c.score}%`).join('\n')}`)
+    }
+  }
+
+  // Manager checklists
+  if (!args.type || args.type !== 'assistant') {
+    let q = supabaseAdmin.from('manager_checklists')
+      .select('id, store_id, manager_name, checklist_date, shift, score, estatus_admin, estatus_supervisor')
+      .gte('checklist_date', args.start_date).lte('checklist_date', args.end_date)
+      .order('checklist_date', { ascending: false })
+    const { data } = await q.limit(200)
+
+    if (data?.length) {
+      let filtered = data
+      if (args.store_name) {
+        const sn = args.store_name.toLowerCase()
+        filtered = data.filter(c => (idToName[c.store_id] || '').toLowerCase().includes(sn))
+      }
+      const avgScore = filtered.length > 0 ? Math.round(filtered.reduce((s, c) => s + (Number(c.score) || 0), 0) / filtered.length) : 0
+      parts.push(`Manager Checklists (${filtered.length}): Avg Score: ${avgScore}%\nRecent: ${filtered.slice(0, 10).map(c => `${c.checklist_date} ${idToName[c.store_id] || '?'} ${c.manager_name || '?'} (${c.shift || '?'}) Score:${c.score}%`).join('\n')}`)
+    }
+  }
+
+  return parts.length ? parts.join('\n\n') : `No checklists for ${args.start_date} to ${args.end_date}.`
+}
+
+// ── 13. Violations, Budgets, Evaluations, Inspection Comments ──
+async function queryViolationsBudgets(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  const parts: string[] = []
+  const dt = args.data_type || 'all'
+
+  // Punch violations
+  if (dt === 'all' || dt === 'violations') {
+    const { data } = await supabaseAdmin.from('punch_violations')
+      .select('id, store_id, employee_toast_guid, business_date, violation_type, actual_minutes, allowed_minutes, status')
+      .gte('business_date', args.start_date).lte('business_date', args.end_date)
+      .order('business_date', { ascending: false }).limit(300)
+    if (data?.length) {
+      let filtered = data
+      if (args.store_name) {
+        const sn = args.store_name.toLowerCase()
+        filtered = data.filter(v => (idToName[v.store_id] || '').toLowerCase().includes(sn))
+      }
+      const byType: Record<string, number> = {}
+      filtered.forEach(v => { byType[v.violation_type || '?'] = (byType[v.violation_type || '?'] || 0) + 1 })
+      const typeLines = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t}: ${c}`)
+      parts.push(`Punch Violations (${filtered.length}):\nBy Type: ${typeLines.join(' | ')}`)
+    }
+  }
+
+  // Weekly budgets
+  if (dt === 'all' || dt === 'budgets') {
+    const { data } = await supabaseAdmin.from('weekly_budgets')
+      .select('store_id, week_start, sales_projections, labor_target')
+      .gte('week_start', args.start_date).lte('week_start', args.end_date)
+      .order('week_start', { ascending: false }).limit(100)
+    if (data?.length) {
+      const lines = data.map(b => `${idToName[b.store_id] || '?'} (${b.week_start}): Target Sales: ${JSON.stringify(b.sales_projections)} | Labor Target: ${b.labor_target || '?'}%`)
+      parts.push(`Weekly Budgets (${data.length}):\n${lines.join('\n')}`)
+    }
+  }
+
+  // Staff evaluations
+  if (dt === 'all' || dt === 'evaluations') {
+    const { data } = await supabaseAdmin.from('staff_evaluations')
+      .select('id, store_id, evaluation_date, evaluator_name, evaluated_name, evaluated_role, desempeno_general, fortalezas, areas_mejora')
+      .gte('evaluation_date', args.start_date).lte('evaluation_date', args.end_date)
+      .order('evaluation_date', { ascending: false }).limit(50)
+    if (data?.length) {
+      let filtered = data
+      if (args.store_name) {
+        const sn = args.store_name.toLowerCase()
+        filtered = data.filter(e => (idToName[e.store_id] || '').toLowerCase().includes(sn))
+      }
+      const lines = filtered.map(e => `${e.evaluation_date} ${idToName[e.store_id] || '?'}: ${e.evaluated_name} (${e.evaluated_role || '?'}) by ${e.evaluator_name} — Rating: ${e.desempeno_general || '?'}/5 | Strengths: ${(e.fortalezas || '').slice(0, 80)} | Improve: ${(e.areas_mejora || '').slice(0, 80)}`)
+      parts.push(`Staff Evaluations (${filtered.length}):\n${lines.join('\n')}`)
+    }
+  }
+
+  // Inspection comments
+  if (dt === 'all' || dt === 'inspection_comments') {
+    const { data } = await supabaseAdmin.from('inspection_comments')
+      .select('id, inspection_id, user_name, user_role, content, created_at')
+      .gte('created_at', args.start_date).lte('created_at', args.end_date + 'T23:59:59')
+      .order('created_at', { ascending: false }).limit(50)
+    if (data?.length) {
+      const lines = data.map(c => `[${c.created_at?.slice(0, 10)}] ${c.user_name} (${c.user_role}): ${(c.content || '').slice(0, 120)}`)
+      parts.push(`Inspection Comments (${data.length}):\n${lines.join('\n')}`)
+    }
+  }
+
+  return parts.length ? parts.join('\n\n') : `No data for ${args.start_date} to ${args.end_date}.`
+}
+
+// ── 14. Product Mix & Meat Consumption ──
+async function queryProductMix(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  const parts: string[] = []
+  const dt = args.data_type || 'all'
+
+  // PMIX (product mix) — items is a JSONB column with array of sold items
+  if (dt === 'all' || dt === 'pmix') {
+    let q = supabaseAdmin.from('pmix_daily_cache')
+      .select('business_date, store_id, items')
+      .gte('business_date', args.start_date).lte('business_date', args.end_date)
+    if (args.store_name) {
+      const matchIds = Object.entries(idToName).filter(([, n]) => n.toLowerCase().includes((args.store_name || '').toLowerCase())).map(([id]) => id)
+      if (matchIds.length) q = q.in('store_id', matchIds)
+    }
+    const { data } = await q.limit(500)
+    if (data?.length) {
+      // Aggregate items across all days/stores
+      const itemTotals: Record<string, { qty: number; sales: number }> = {}
+      data.forEach(row => {
+        const items = Array.isArray(row.items) ? row.items : []
+        items.forEach((item: any) => {
+          const name = item.name || item.menuItem || '?'
+          if (!itemTotals[name]) itemTotals[name] = { qty: 0, sales: 0 }
+          itemTotals[name].qty += Number(item.quantity || item.qty || 0)
+          itemTotals[name].sales += Number(item.sales || item.netSales || item.amount || 0)
+        })
+      })
+      const topItems = Object.entries(itemTotals).sort((a, b) => b[1].sales - a[1].sales).slice(0, 30)
+        .map(([name, v]) => `${name}: ${v.qty} sold = ${fmt$(v.sales)}`)
+      parts.push(`Product Mix ${args.start_date} to ${args.end_date} (${data.length} day-store records):\nTop Items:\n${topItems.join('\n')}`)
+    }
+  }
+
+  // Meat consumption
+  if (dt === 'all' || dt === 'meat') {
+    let q = supabaseAdmin.from('meat_consumption_history')
+      .select('store_id, business_date, meat_type, raw_lbs')
+      .gte('business_date', args.start_date).lte('business_date', args.end_date)
+      .order('business_date', { ascending: true })
+    if (args.store_name) {
+      const matchIds = Object.entries(idToName).filter(([, n]) => n.toLowerCase().includes((args.store_name || '').toLowerCase())).map(([id]) => id)
+      if (matchIds.length) q = q.in('store_id', matchIds)
+    }
+    const { data } = await q.limit(500)
+    if (data?.length) {
+      const byMeat: Record<string, number> = {}
+      data.forEach(r => {
+        const mt = r.meat_type || '?'
+        byMeat[mt] = (byMeat[mt] || 0) + (Number(r.raw_lbs) || 0)
+      })
+      const meatLines = Object.entries(byMeat).sort((a, b) => b[1] - a[1])
+        .map(([mt, lbs]) => `${mt}: ${lbs.toFixed(1)} lbs`)
+      parts.push(`Meat Consumption ${args.start_date} to ${args.end_date}:\n${meatLines.join('\n')}`)
+    }
+  }
+
+  return parts.length ? parts.join('\n\n') : `No product mix or meat data for ${args.start_date} to ${args.end_date}.`
 }
