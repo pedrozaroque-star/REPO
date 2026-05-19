@@ -300,26 +300,63 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
 
           {expandedSection === 'sales' && (
             <div>
-              <h4 className="text-base font-black text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+              <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
                 <TrendingDown size={20} className="text-orange-500" /> Tiendas con Ventas Bajas
-                <span className="text-slate-400 text-xs font-medium ml-auto">
-                  Promedio flota: ${data.lowSalesAlerts[0]?.fleetAvg?.toLocaleString() || '—'}
-                </span>
               </h4>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+                Tiendas que vendieron <span className="font-bold text-orange-500">25% o más por debajo</span> del promedio de todas las tiendas en el período seleccionado.
+              </p>
               {data.lowSalesAlerts.length > 0 ? (
-                <div className="space-y-2">
-                  {data.lowSalesAlerts.map((a, i) => (
-                    <div key={i} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 rounded-lg px-4 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
-                      onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}`)}>
-                      <span className="text-base font-bold text-slate-700 dark:text-slate-200">{a.store}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-400 text-sm">${a.sales.toLocaleString()}</span>
-                        <span className="text-base font-black px-2.5 py-1 rounded-md bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400">
-                          -{a.pctBelowAvg}%
-                        </span>
+                <div className="space-y-3">
+                  {/* Fleet average reference */}
+                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-lg px-4 py-2 border border-slate-200 dark:border-slate-700">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">📊 Promedio flota:</span>
+                    <span className="text-sm font-black text-slate-700 dark:text-slate-200">${data.lowSalesAlerts[0]?.fleetAvg?.toLocaleString() || '—'}</span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">(todas las tiendas)</span>
+                  </div>
+
+                  {data.lowSalesAlerts.map((a, i) => {
+                    const pctOfAvg = 100 - a.pctBelowAvg
+                    return (
+                      <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
+                        onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}`)}>
+                        {/* Store name + badge */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-base font-black text-slate-800 dark:text-white">{a.store}</span>
+                          <span className="text-sm font-black px-2.5 py-1 rounded-md bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400">
+                            -{a.pctBelowAvg}% bajo promedio
+                          </span>
+                        </div>
+
+                        {/* Visual comparison bar */}
+                        <div className="relative h-5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-2">
+                          <div
+                            className="absolute inset-y-0 left-0 bg-gradient-to-r from-orange-400 to-orange-500 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.max(pctOfAvg, 8)}%` }}
+                          />
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">META</span>
+                          </div>
+                        </div>
+
+                        {/* Numbers detail */}
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Vendió:</span>
+                            <span className="font-bold text-orange-600 dark:text-orange-400">${a.sales.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">vs Promedio:</span>
+                            <span className="font-bold text-slate-600 dark:text-slate-300">${a.fleetAvg.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Diferencia:</span>
+                            <span className="font-bold text-red-500">-${(a.fleetAvg - a.sales).toLocaleString()}</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas en rango normal ✓</p>
