@@ -555,19 +555,19 @@ async function queryStores(): Promise<string> {
 async function queryMenuRecipes(args: any): Promise<string> {
   const parts: string[] = []
 
-  // Menu items from Toast — search by name OR recipe_name OR group
+  // Menu items from Toast — search by name OR recipe_na OR group
   let menuItems: any[] = []
   if (args.item_name) {
-    // Use OR filter: match name or recipe_name
+    // Use OR filter: match name or recipe_na
     const { data } = await supabaseAdmin.from('toast_menu_items')
-      .select('guid, name, price, group_name, active, recipe_name')
+      .select('guid, name, price, group_name, active, recipe_na')
       .eq('active', true)
-      .or(`name.ilike.%${args.item_name}%,recipe_name.ilike.%${args.item_name}%,group_name.ilike.%${args.item_name}%`)
+      .or(`name.ilike.%${args.item_name}%,recipe_na.ilike.%${args.item_name}%,group_name.ilike.%${args.item_name}%`)
       .order('group_name').limit(100)
     menuItems = data || []
   } else if (args.group_name) {
     const { data } = await supabaseAdmin.from('toast_menu_items')
-      .select('guid, name, price, group_name, active, recipe_name')
+      .select('guid, name, price, group_name, active, recipe_na')
       .eq('active', true)
       .ilike('group_name', `%${args.group_name}%`)
       .order('group_name').limit(100)
