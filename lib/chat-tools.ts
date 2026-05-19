@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { calculateIngredientCost, type InventoryCostData } from '@/lib/inventory/recipe-calculations'
 
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
 const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -633,38 +634,47 @@ async function queryMenuRecipes(args: any): Promise<string> {
     } else if (recipes?.length) {
       // Get ingredient details
       const invIds = [...new Set(recipes.map(r => r.inventory_item_id).filter(Boolean))]
-      console.log(`[TEG Menu] Looking up ${invIds.length} inventory items:`, invIds.slice(0, 3))
 
       const { data: invItems, error: invErr } = await supabaseAdmin.from('inventory_items')
         .select('id, name, purchase_unit_cost, unit_type, unit_measure, yield_percent, quantity_per_unit').in('id', invIds)
 
-      console.log(`[TEG Menu] Inventory lookup: ${invItems?.length || 0} found, error: ${invErr?.message || 'none'}`)
-
-      const invMap: Record<string, { name: string; cost: number; unit: string; yld: number }> = {};
+      // Build inventory map
+      const invMap: Record<string, { name: string; data: InventoryCostData }> = {};
 
       if (invItems?.length) {
         invItems.forEach(i => {
-          // purchase_unit_cost is per purchase unit (e.g. per bag), divide by quantity_per_unit to get per-piece/oz cost
-          const qpu = Number(i.quantity_per_unit) || 1
-          const costPerSmallUnit = (Number(i.purchase_unit_cost) || 0) / qpu
-          invMap[i.id] = { name: i.name, cost: costPerSmallUnit, unit: i.unit_measure || i.unit_type || '', yld: Number(i.yield_percent) || 100 }
+          invMap[i.id] = {
+            name: i.name,
+            data: {
+              purchase_unit_cost: Number(i.purchase_unit_cost) || 0,
+              quantity_per_unit: Number(i.quantity_per_unit) || 1,
+              unit_measure: i.unit_measure || '',
+              unit_type: i.unit_type || '',
+              yield_percent: Number(i.yield_percent) || 100
+            }
+          }
         })
       } else if (invIds.length > 0) {
-        // Fallback: try individual lookups
-        console.log(`[TEG Menu] Fallback: individual lookups for ${invIds.length} items`)
+        // Fallback: individual lookups
         for (const invId of invIds) {
           const { data: single } = await supabaseAdmin.from('inventory_items')
             .select('id, name, purchase_unit_cost, unit_type, unit_measure, yield_percent, quantity_per_unit').eq('id', invId).single()
           if (single) {
-            const sqpu = Number(single.quantity_per_unit) || 1
-            const sCost = (Number(single.purchase_unit_cost) || 0) / sqpu
-            invMap[single.id] = { name: single.name, cost: sCost, unit: single.unit_measure || single.unit_type || '', yld: Number(single.yield_percent) || 100 }
+            invMap[single.id] = {
+              name: single.name,
+              data: {
+                purchase_unit_cost: Number(single.purchase_unit_cost) || 0,
+                quantity_per_unit: Number(single.quantity_per_unit) || 1,
+                unit_measure: single.unit_measure || '',
+                unit_type: single.unit_type || '',
+                yield_percent: Number(single.yield_percent) || 100
+              }
+            }
           }
         }
-        console.log(`[TEG Menu] Fallback found: ${Object.keys(invMap).length} items`)
       }
 
-      // Group by menu item
+      // Group by menu item — use calculateIngredientCost (same engine as food cost module)
       const guidToName: Record<string, { name: string; price: number }> = {}
       menuItems.forEach(m => { if (m.guid) guidToName[m.guid] = { name: m.name, price: Number(m.price) || 0 } })
 
@@ -674,11 +684,16 @@ async function queryMenuRecipes(args: any): Promise<string> {
         const itemName = mi?.name || '?'
         if (!byItem[itemName]) byItem[itemName] = { lines: [], totalCost: 0, price: mi?.price || 0 }
         const inv = invMap[r.inventory_item_id]
-        const rawCost = inv ? inv.cost * r.quantity : 0
-        const adjustedCost = inv && inv.yld < 100 ? rawCost / (inv.yld / 100) : rawCost
-        byItem[itemName].totalCost += adjustedCost
+        if (!inv) {
+          byItem[itemName].lines.push(`  ?: ${r.quantity} ${r.unit} (ingredient not found)`)
+          return
+        }
+        // Use the EXACT same formula as the food cost engine
+        const cost = calculateIngredientCost(r.quantity, r.unit, inv.data, r.type || 'cooked')
+        const costPerUnit = (inv.data.purchase_unit_cost || 0) / (inv.data.quantity_per_unit || 1)
+        byItem[itemName].totalCost += cost
         byItem[itemName].lines.push(
-          `  ${inv?.name || '?'}: ${r.quantity} ${r.unit} × ${fmt$(inv?.cost || 0)}/${inv?.unit || 'u'} = ${fmt$(adjustedCost)}${inv && inv.yld < 100 ? ` (yield ${inv.yld}%)` : ''}`
+          `  ${inv.name}: ${r.quantity} ${r.unit} × ${fmt$(costPerUnit)}/${inv.data.unit_measure || 'u'} = ${fmt$(cost)}${(inv.data.yield_percent || 100) < 100 ? ` (yield ${inv.data.yield_percent}%)` : ''}`
         )
       })
 
