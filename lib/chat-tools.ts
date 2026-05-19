@@ -175,10 +175,11 @@ async function querySales(args: any): Promise<string> {
     query = query.ilike('store_name', `%${args.store_name}%`)
   }
 
-  const { data, error } = await query.limit(1000)
+  const { data, error } = await query.limit(2000)
   if (error) return `Error: ${error.message}`
   if (!data?.length) return `No sales data found for ${args.start_date} to ${args.end_date}.`
 
+  // Aggregate by store
   const byStore: Record<string, { sales: number; orders: number; labor: number; uber: number; dd: number }> = {}
   let total = 0, orders = 0, labor = 0, uber = 0, dd = 0
   data.forEach(r => {
@@ -191,10 +192,26 @@ async function querySales(args: any): Promise<string> {
     byStore[name].uber += u; byStore[name].dd += d
   })
 
-  const lines = Object.entries(byStore).sort((a, b) => b[1].sales - a[1].sales)
+  const storeLines = Object.entries(byStore).sort((a, b) => b[1].sales - a[1].sales)
     .map(([n, v]) => `${n}: ${fmt$(v.sales)} | Orders: ${v.orders} | Labor: ${fmt$(v.labor)} (${v.sales > 0 ? ((v.labor/v.sales)*100).toFixed(1) : 0}%) | Uber: ${fmt$(v.uber)} | DD: ${fmt$(v.dd)}`)
 
-  return `Sales ${args.start_date} to ${args.end_date}:\nTotal: ${fmt$(total)} | Orders: ${orders} | Labor: ${fmt$(labor)} (${total > 0 ? ((labor/total)*100).toFixed(1) : 0}%) | Uber: ${fmt$(uber)} | DD: ${fmt$(dd)}\n\nBy Store:\n${lines.join('\n')}`
+  // Aggregate by date (daily breakdown for day-of-week analysis)
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const byDate: Record<string, { sales: number; orders: number; labor: number }> = {}
+  data.forEach(r => {
+    const dt = r.business_date
+    if (!byDate[dt]) byDate[dt] = { sales: 0, orders: 0, labor: 0 }
+    byDate[dt].sales += Number(r.net_sales) || 0
+    byDate[dt].orders += Number(r.order_count) || 0
+    byDate[dt].labor += Number(r.labor_cost) || 0
+  })
+  const dailyLines = Object.entries(byDate).sort().map(([dt, v]) => {
+    const [y, m, d] = dt.split('-').map(Number)
+    const dayName = dayNames[new Date(y, m - 1, d).getDay()]
+    return `${dt} (${dayName}): ${fmt$(v.sales)} | ${v.orders} orders | Labor: ${fmt$(v.labor)}`
+  })
+
+  return `Sales ${args.start_date} to ${args.end_date}:\nTotal: ${fmt$(total)} | Orders: ${orders} | Labor: ${fmt$(labor)} (${total > 0 ? ((labor/total)*100).toFixed(1) : 0}%) | Uber: ${fmt$(uber)} | DD: ${fmt$(dd)}\n\nBy Store:\n${storeLines.join('\n')}\n\nDaily Breakdown:\n${dailyLines.join('\n')}`
 }
 
 // ── 2. Food Cost ──
@@ -225,7 +242,22 @@ async function queryFoodCost(args: any): Promise<string> {
   const lines = Object.entries(byStore).sort((a, b) => b[1].cost - a[1].cost)
     .map(([n, v]) => `${n}: Cost ${fmt$(v.cost)} / Sales ${fmt$(v.sales)} = ${v.sales > 0 ? ((v.cost/v.sales)*100).toFixed(1) : 0}%`)
 
-  return `Food Cost ${args.start_date} to ${args.end_date}:\nTotal Cost: ${fmt$(totalCost)} | Sales: ${fmt$(totalSales)} | Food Cost: ${pct}%\n\nBy Store:\n${lines.join('\n')}`
+  // Daily breakdown
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const byDate: Record<string, { cost: number; sales: number }> = {}
+  data.forEach(r => {
+    const dt = r.business_date
+    if (!byDate[dt]) byDate[dt] = { cost: 0, sales: 0 }
+    byDate[dt].cost += Number(r.total_cost) || 0
+    byDate[dt].sales += Number(r.net_sales) || 0
+  })
+  const dailyLines = Object.entries(byDate).sort().map(([dt, v]) => {
+    const [y, m, d] = dt.split('-').map(Number)
+    const dayName = dayNames[new Date(y, m - 1, d).getDay()]
+    return `${dt} (${dayName}): Cost ${fmt$(v.cost)} / Sales ${fmt$(v.sales)} = ${v.sales > 0 ? ((v.cost/v.sales)*100).toFixed(1) : 0}%`
+  })
+
+  return `Food Cost ${args.start_date} to ${args.end_date}:\nTotal Cost: ${fmt$(totalCost)} | Sales: ${fmt$(totalSales)} | Food Cost: ${pct}%\n\nBy Store:\n${lines.join('\n')}\n\nDaily Breakdown:\n${dailyLines.join('\n')}`
 }
 
 // ── 3. Labor ──
