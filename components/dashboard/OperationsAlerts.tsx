@@ -369,27 +369,19 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                       </div>
                     </div>
 
-                    {/* Daily Detail Table */}
-                    {sup.dailyDetail && sup.dailyDetail.length > 0 && (
+                    {/* Daily Detail — only non-compliant days */}
+                    {sup.dailyDetail && sup.dailyDetail.filter(d => !d.compliant).length > 0 && (
                       <div className="border-t border-slate-200/60 dark:border-slate-700/50">
                         <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {sup.dailyDetail.map((day, j) => {
+                          {sup.dailyDetail.filter(d => !d.compliant).map((day, j) => {
                             const dateObj = new Date(day.date + 'T12:00:00')
                             const dayName = dateObj.toLocaleDateString('es-MX', { weekday: 'short' }).toUpperCase()
                             const dayNum = dateObj.getDate()
                             const monthName = dateObj.toLocaleDateString('es-MX', { month: 'short' })
                             return (
-                              <div key={j} className={`px-4 py-2.5 flex items-center gap-3 ${
-                                day.compliant
-                                  ? 'bg-emerald-50/50 dark:bg-emerald-900/5'
-                                  : 'bg-red-50/80 dark:bg-red-900/10'
-                              }`}>
+                              <div key={j} className="px-4 py-2.5 flex items-center gap-3 bg-red-50/80 dark:bg-red-900/10">
                                 {/* Date badge */}
-                                <div className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0 text-center ${
-                                  day.compliant
-                                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                                    : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                                }`}>
+                                <div className="w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0 text-center bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
                                   <span className="text-[10px] font-black uppercase leading-none">{dayName}</span>
                                   <span className="text-lg font-black leading-tight">{dayNum}</span>
                                 </div>
@@ -397,39 +389,25 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                                 {/* Detail */}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    {day.compliant ? (
-                                      <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-                                        ✅ {day.ownedStoresInspected.join(', ')}
-                                      </span>
-                                    ) : (
-                                      <span className="text-sm font-bold text-red-600 dark:text-red-400">
-                                        ❌ Sin inspección
-                                      </span>
-                                    )}
+                                    <span className="text-sm font-bold text-red-600 dark:text-red-400">
+                                      ❌ Sin inspección
+                                    </span>
                                     {day.shift && (
                                       <span className="text-xs text-slate-400 dark:text-slate-500">
                                         🕐 {day.shift}
                                       </span>
                                     )}
                                   </div>
-                                  {!day.compliant && day.ownedStoresMissing.length > 0 && (
+                                  {day.ownedStoresMissing.length > 0 && (
                                     <p className="text-xs text-red-500/80 dark:text-red-400/60 mt-0.5">
                                       Falta: {day.ownedStoresMissing.join(', ')}
-                                    </p>
-                                  )}
-                                  {day.compliant && day.ownedStoresMissing.length > 0 && (
-                                    <p className="text-xs text-amber-500/80 dark:text-amber-400/60 mt-0.5">
-                                      Pendiente: {day.ownedStoresMissing.join(', ')}
                                     </p>
                                   )}
                                 </div>
 
                                 {/* Status icon */}
                                 <div className="flex-shrink-0">
-                                  {day.compliant
-                                    ? <CheckCircle2 size={18} className="text-emerald-400" />
-                                    : <XCircle size={18} className="text-red-400" />
-                                  }
+                                  <XCircle size={18} className="text-red-400" />
                                 </div>
                               </div>
                             )
