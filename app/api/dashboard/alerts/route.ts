@@ -19,11 +19,26 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get('startDate') || new Date().toISOString().split('T')[0]
     const endDate = searchParams.get('endDate') || startDate
 
-    // Calculate lookback window (28 days before start of current range)
-    const lookbackEnd = new Date(startDate + 'T12:00:00')
-    lookbackEnd.setDate(lookbackEnd.getDate() - 1)
-    const lookbackStart = new Date(lookbackEnd)
-    lookbackStart.setDate(lookbackStart.getDate() - 27) // 28 days total
+    // Calculate lookback: equivalent previous period (same length)
+    // e.g. if filter = May 1-19 (19 days) → lookback = Apr 12-30 (19 days)
+    // e.g. if filter = Today (1 day) → lookback = same day last week
+    const rangeMs = new Date(endDate + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()
+    const rangeDays = Math.max(1, Math.round(rangeMs / (1000 * 60 * 60 * 24)) + 1)
+
+    let lookbackEnd: Date, lookbackStart: Date
+    if (rangeDays <= 2) {
+      // For single/two day filters: compare vs same day(s) last week
+      lookbackEnd = new Date(endDate + 'T12:00:00')
+      lookbackEnd.setDate(lookbackEnd.getDate() - 7)
+      lookbackStart = new Date(startDate + 'T12:00:00')
+      lookbackStart.setDate(lookbackStart.getDate() - 7)
+    } else {
+      // For longer ranges: compare vs equivalent previous period
+      lookbackEnd = new Date(startDate + 'T12:00:00')
+      lookbackEnd.setDate(lookbackEnd.getDate() - 1)
+      lookbackStart = new Date(lookbackEnd)
+      lookbackStart.setDate(lookbackStart.getDate() - (rangeDays - 1))
+    }
     const lbStartStr = lookbackStart.toISOString().split('T')[0]
     const lbEndStr = lookbackEnd.toISOString().split('T')[0]
 
@@ -127,42 +142,36 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.pct - a.pct)
 
     // ══════════════════════════════════════════════════
-    // 3. LOW SALES ALERTS — each store vs its OWN historical avg
-    // Compare current performance vs prior 4 weeks daily average
+    // 3. LOW SALES ALERTS — each store vs its OWN previous period
+    // e.g. This month vs last month, this week vs last week
     // ══════════════════════════════════════════════════
 
-    // Calculate number of business days in current range
-    const currentRangeDays = Math.max(1, Math.round(
-      (new Date(endDate + 'T12:00:00').getTime() - new Date(startDate + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24)
-    ) + 1)
-
-    // Build historical daily average per store from past 28 days
-    const histByStore: Record<string, { totalSales: number; dayCount: number; storeId: string }> = {}
+    // Build previous period total per store
+    const prevByStore: Record<string, { totalSales: number; storeId: string }> = {}
     histSales.forEach(r => {
       const name = (r.store_name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
-      if (!histByStore[name]) histByStore[name] = { totalSales: 0, dayCount: 0, storeId: r.store_id }
-      histByStore[name].totalSales += Number(r.net_sales) || 0
-      histByStore[name].dayCount++
+      if (!prevByStore[name]) prevByStore[name] = { totalSales: 0, storeId: r.store_id }
+      prevByStore[name].totalSales += Number(r.net_sales) || 0
     })
 
-    // For each store: compare current sales vs expected (based on own history)
-    const SELF_DECLINE_THRESHOLD = 15 // 15% below own average = alert
+    // For each store: compare current vs previous equivalent period
+    const SELF_DECLINE_THRESHOLD = 15 // 15% below previous period = alert
     const allStoreSales = Object.entries(laborByStore).map(([store, d]) => ({ store, sales: d.sales, storeId: d.storeId }))
+    const prevPeriodLabel = rangeDays <= 2
+      ? `mismo día semana pasada`
+      : `${lbStartStr.slice(5)} al ${lbEndStr.slice(5)}`
     const lowSalesAlerts = allStoreSales
       .map(s => {
-        const hist = histByStore[s.store]
-        if (!hist || hist.dayCount < 7) return null // Need at least 7 days of history
-        const dailyAvg = hist.totalSales / hist.dayCount
-        const expectedSales = dailyAvg * currentRangeDays
-        const pctChange = expectedSales > 0 ? ((s.sales - expectedSales) / expectedSales) * 100 : 0
+        const prev = prevByStore[s.store]
+        if (!prev || prev.totalSales <= 0) return null
+        const pctChange = ((s.sales - prev.totalSales) / prev.totalSales) * 100
         return {
           store: s.store,
           storeId: s.storeId,
           sales: Math.round(s.sales),
-          expectedSales: Math.round(expectedSales),
-          dailyAvgHist: Math.round(dailyAvg),
+          previousSales: Math.round(prev.totalSales),
           pctChange: +pctChange.toFixed(1),
-          histDays: hist.dayCount
+          prevPeriodLabel
         }
       })
       .filter((s): s is NonNullable<typeof s> => s !== null && s.pctChange <= -SELF_DECLINE_THRESHOLD)

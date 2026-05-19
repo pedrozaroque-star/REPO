@@ -22,7 +22,7 @@ interface AlertsData {
   totalAlerts: number
   laborAlerts: { store: string; pct: number; severity: string }[]
   foodCostAlerts: { store: string; pct: number; severity: string }[]
-  lowSalesAlerts: { store: string; sales: number; expectedSales: number; dailyAvgHist: number; pctChange: number; histDays: number }[]
+  lowSalesAlerts: { store: string; sales: number; previousSales: number; pctChange: number; prevPeriodLabel: string }[]
   inspectionCompliance: {
     supervisor: string; supervisorFull: string;
     ownedStores: string[]; scheduledStores: string[];
@@ -301,15 +301,15 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
           {expandedSection === 'sales' && (
             <div>
               <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
-                <TrendingDown size={20} className="text-orange-500" /> Tiendas con Ventas por Debajo de su Historial
+                <TrendingDown size={20} className="text-orange-500" /> Ventas: Período Actual vs Anterior
               </h4>
               <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
-                Cada tienda se compara contra <span className="font-bold text-orange-500">su propio promedio</span> de las últimas 4 semanas. Se muestran las que cayeron <span className="font-bold">15% o más</span>.
+                Cada tienda se compara contra <span className="font-bold text-orange-500">su propio período anterior equivalente</span>. Se alertan las que cayeron <span className="font-bold">15% o más</span>.
               </p>
               {data.lowSalesAlerts.length > 0 ? (
                 <div className="space-y-3">
                   {data.lowSalesAlerts.map((a: any, i: number) => {
-                    const pctOfExpected = a.expectedSales > 0 ? Math.round((a.sales / a.expectedSales) * 100) : 0
+                    const pctOfPrev = a.previousSales > 0 ? Math.round((a.sales / a.previousSales) * 100) : 0
                     return (
                       <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
                         onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}`)}>
@@ -321,7 +321,7 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                               ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
                               : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'
                           }`}>
-                            {a.pctChange}% vs su historial
+                            {a.pctChange}% vs anterior
                           </span>
                         </div>
 
@@ -333,39 +333,39 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
                                 ? 'bg-gradient-to-r from-red-400 to-red-500'
                                 : 'bg-gradient-to-r from-orange-400 to-orange-500'
                             }`}
-                            style={{ width: `${Math.max(pctOfExpected, 8)}%` }}
+                            style={{ width: `${Math.max(pctOfPrev, 8)}%` }}
                           />
                           <div className="absolute inset-y-0 right-0 flex items-center pr-2">
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">ESPERADO</span>
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">ANTERIOR</span>
                           </div>
                         </div>
 
                         {/* Numbers detail */}
                         <div className="flex items-center justify-between text-sm">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Vendió:</span>
+                            <span className="text-slate-400 dark:text-slate-500">Ahora:</span>
                             <span className="font-bold text-orange-600 dark:text-orange-400">${a.sales.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 dark:text-slate-500">Esperado:</span>
-                            <span className="font-bold text-slate-600 dark:text-slate-300">${a.expectedSales?.toLocaleString()}</span>
+                            <span className="text-slate-400 dark:text-slate-500">Anterior:</span>
+                            <span className="font-bold text-slate-600 dark:text-slate-300">${a.previousSales?.toLocaleString()}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-slate-400 dark:text-slate-500">Diferencia:</span>
-                            <span className="font-bold text-red-500">-${(a.expectedSales - a.sales).toLocaleString()}</span>
+                            <span className="font-bold text-red-500">-${(a.previousSales - a.sales).toLocaleString()}</span>
                           </div>
                         </div>
 
-                        {/* Historical context */}
+                        {/* Period context */}
                         <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5 italic">
-                          Basado en {a.histDays} días previos · Promedio diario histórico: ${a.dailyAvgHist?.toLocaleString()}/día
+                          Comparado vs {a.prevPeriodLabel}
                         </p>
                       </div>
                     )
                   })}
                 </div>
               ) : (
-                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro de su rango histórico normal ✓</p>
+                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro de su rango normal vs período anterior ✓</p>
               )}
             </div>
           )}
