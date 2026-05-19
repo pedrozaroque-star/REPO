@@ -43,7 +43,7 @@ export async function GET(request: Request) {
         // Helper to apply store filter conditionally
         const withStore = (query: any) => isAll ? query : query.eq('store_id', storeId)
 
-        const [historyRes, shiftRes, punchRes, budgetRes, lookbackRes, jobsRes] = await Promise.all([
+        const [historyRes, shiftRes, punchRes, budgetRes, lookbackRes, jobsRes, projCacheRes] = await Promise.all([
             // History
             withStore(supabaseAdmin.from('sales_daily_cache').select('*')).gte('business_date', startStr).lte('business_date', endStr),
             // Shifts (Raw) - Restore Filter & Boost Limit
@@ -55,7 +55,9 @@ export async function GET(request: Request) {
             // Lookback
             withStore(supabaseAdmin.from('sales_daily_cache').select('business_date, net_sales, order_count, store_id')).gte('business_date', lookbackStr || startStr).lte('business_date', startStr),
             // Jobs
-            supabaseAdmin.from('toast_jobs').select('*')
+            supabaseAdmin.from('toast_jobs').select('*'),
+            // Projections Cache
+            withStore(supabaseAdmin.from('sales_projections_cache').select('business_date, total_sales, store_id')).gte('business_date', startStr).lte('business_date', endStr)
         ])
 
         const shifts = shiftRes.data || []
@@ -134,6 +136,7 @@ export async function GET(request: Request) {
             budgets: budgetRes.data || [],
             lookback: lookbackRes.data || [],
             jobs: jobsRes.data || [],
+            projectionsCache: projCacheRes.data || [],
             shiftStats,
             meta: {
                 shiftCount: shiftRes.data?.length || 0,

@@ -315,6 +315,7 @@ export default function ReportesPage() {
         const employees = apiData.employees
         const jobs = apiData.jobs || []
         const budgets = apiData.budgets || []
+        const projectionsCache = apiData.projectionsCache || []
         const apiShiftStats = apiData.shiftStats || {}
 
         // --- PRE-CALCULATE WEEKLY STATS (Planner Logic) ---
@@ -393,26 +394,36 @@ export default function ReportesPage() {
                     let val = 0;
                     let foundSrc = 'none';
 
-                    // A. Try DB Budget
-                    // budgets array contains rows with { sales_projections: { 'YYYY-MM-DD': '123' }, store_id: ... }
-                    const budgetRow = budgets.find((b: any) =>
-                        b.store_id === sId &&
-                        b.sales_projections &&
-                        b.sales_projections[dateKey]
+                    // A. Try Projections Cache (Single source of truth)
+                    const projCacheRow = projectionsCache.find((p: any) =>
+                        p.store_id === sId &&
+                        p.business_date === dateKey
                     );
 
-                    if (budgetRow) {
-                        val = parseFloat(budgetRow.sales_projections[dateKey]);
-                        foundSrc = 'db';
+                    if (projCacheRow && Number(projCacheRow.total_sales) > 0) {
+                        val = Number(projCacheRow.total_sales);
+                        foundSrc = 'cache';
                     } else {
-                        // B. Fallback: Average of Lookback (Same Day of Week)
-                        // lookbackHistory contains { business_date, net_sales, store_id }
-                        const targetDow = new Date(dateKey + 'T12:00:00').getDay();
-                        const historyRows = lookbackHistory.filter((h: any) =>
-                            h.store_id === sId &&
-                            new Date(h.business_date + 'T12:00:00').getDay() === targetDow &&
-                            Number(h.net_sales) > 100 // Basic validity check
+                        // B. Try DB Budget (Legacy fallback)
+                        // budgets array contains rows with { sales_projections: { 'YYYY-MM-DD': '123' }, store_id: ... }
+                        const budgetRow = budgets.find((b: any) =>
+                            b.store_id === sId &&
+                            b.sales_projections &&
+                            b.sales_projections[dateKey]
                         );
+
+                        if (budgetRow) {
+                            val = parseFloat(budgetRow.sales_projections[dateKey]);
+                            foundSrc = 'db';
+                        } else {
+                            // C. Fallback: Average of Lookback (Same Day of Week)
+                            // lookbackHistory contains { business_date, net_sales, store_id }
+                            const targetDow = new Date(dateKey + 'T12:00:00').getDay();
+                            const historyRows = lookbackHistory.filter((h: any) =>
+                                h.store_id === sId &&
+                                new Date(h.business_date + 'T12:00:00').getDay() === targetDow &&
+                                Number(h.net_sales) > 100 // Basic validity check
+                            );
 
                         // Sort desc by date and take recent 4
                         const recent = historyRows.sort((a: any, b: any) => new Date(b.business_date).getTime() - new Date(a.business_date).getTime()).slice(0, 4);
@@ -422,7 +433,8 @@ export default function ReportesPage() {
                             val = sum / recent.length;
                             foundSrc = `avg(${recent.length})`;
                         }
-                    }
+                        } // <-- CLOSE Fallback C
+                    } // <-- CLOSE Fallback B
 
                     // Accumulate
                     if (val > 0) {
@@ -435,13 +447,26 @@ export default function ReportesPage() {
         } else {
             // SINGLE STORE LOGIC (Existing)
 
-            // 1. Flatten found budgets
+            // 1. Flatten found budgets and caches
             let mergedDbProjections: Record<string, string> = {};
+            
+            // First try projectionsCache
+            if (projectionsCache && Array.isArray(projectionsCache)) {
+                projectionsCache.forEach((p: any) => {
+                    if (Number(p.total_sales) > 0) {
+                        mergedDbProjections[p.business_date] = p.total_sales.toString();
+                    }
+                });
+            }
+
+            // Fallback to weekly_budgets
             if (budgets && Array.isArray(budgets)) {
                 budgets.forEach((b: any) => {
                     if (b.sales_projections) {
                         Object.keys(b.sales_projections).forEach(key => {
-                            mergedDbProjections[key] = b.sales_projections[key];
+                            if (!mergedDbProjections[key]) {
+                                mergedDbProjections[key] = b.sales_projections[key];
+                            }
                         });
                     }
                 });
