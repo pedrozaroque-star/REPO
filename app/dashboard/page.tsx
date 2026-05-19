@@ -15,6 +15,7 @@ import SurpriseLoader from '@/components/SurpriseLoader'
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { useLanguage } from '@/lib/i18n'
+import OperationsAlerts from '@/components/dashboard/OperationsAlerts'
 
 function DashboardContent() {
     const router = useRouter()
@@ -445,6 +446,9 @@ function DashboardContent() {
                         <p className="text-slate-300 text-[10px] mt-2 font-medium group-hover:text-slate-400 transition-colors">Ver inspecciones →</p>
                     </div>
                 </div>
+
+                {/* ROW 1.5: Operations Alerts */}
+                <OperationsAlerts startDate={startDateStr} endDate={endDateStr} />
 
                 {/* ROW 2: Anomalies + Supervisors */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
