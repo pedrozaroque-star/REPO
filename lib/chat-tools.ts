@@ -502,7 +502,7 @@ async function queryInventory(args: any): Promise<string> {
   if (!data?.length) return 'No inventory items found.'
 
   const byCat: Record<string, number> = {}
-  data.forEach(i => { byCat[i.category || 'none'] = (byCat[i.category || 'none'] || 0) + 1 })
+  data.forEach(i => { byCat[i.category_id || 'none'] = (byCat[i.category_id || 'none'] || 0) + 1 })
 
   const lines = data.map(i => `${i.name} | ${i.unit_type || '?'} | ${fmt$(Number(i.purchase_unit_cost) || 0)}/${i.unit_measure || 'u'} | yield: ${i.yield_percent || 100}%`)
 
