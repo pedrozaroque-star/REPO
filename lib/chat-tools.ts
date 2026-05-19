@@ -562,7 +562,7 @@ async function queryMenuRecipes(args: any): Promise<string> {
     const { data } = await supabaseAdmin.from('toast_menu_items')
       .select('guid, name, price, group_name, active, recipe_na')
       .eq('active', true)
-      .or(`name.ilike.%${args.item_name}%,recipe_na.ilike.%${args.item_name}%,group_name.ilike.%${args.item_name}%`)
+      .or(`name.ilike.*${args.item_name}*,recipe_na.ilike.*${args.item_name}*,group_name.ilike.*${args.item_name}*`)
       .order('group_name').limit(100)
     menuItems = data || []
   } else if (args.group_name) {
