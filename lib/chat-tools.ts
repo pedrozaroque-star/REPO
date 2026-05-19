@@ -555,83 +555,120 @@ async function queryStores(): Promise<string> {
 async function queryMenuRecipes(args: any): Promise<string> {
   const parts: string[] = []
 
-  // Menu items from Toast — search by name OR recipe_na OR group
   let menuItems: any[] = []
-  if (args.item_name) {
-    // Use OR filter: match name or recipe_na
-    const { data } = await supabaseAdmin.from('toast_menu_items')
-      .select('guid, name, price, group_name, active, recipe_na')
+  const searchTerm = args.item_name || ''
+
+  if (searchTerm) {
+    // STEP 1: Search REAL menu items first (not modifiers)
+    const { data: mainItems } = await supabaseAdmin.from('toast_menu_items')
+      .select('guid, name, price, group_name, is_modifier')
       .eq('active', true)
-      .or(`name.ilike.*${args.item_name}*,recipe_na.ilike.*${args.item_name}*,group_name.ilike.*${args.item_name}*`)
-      .order('group_name').limit(100)
-    menuItems = data || []
+      .eq('is_modifier', false)
+      .ilike('name', `%${searchTerm}%`)
+      .order('name').limit(50)
+
+    // STEP 2: Also search by group_name for broader matches
+    const { data: groupItems } = await supabaseAdmin.from('toast_menu_items')
+      .select('guid, name, price, group_name, is_modifier')
+      .eq('active', true)
+      .eq('is_modifier', false)
+      .ilike('group_name', `%${searchTerm}%`)
+      .order('name').limit(50)
+
+    // Merge unique results
+    const seen = new Set<string>()
+    const merged: any[] = []
+    for (const item of [...(mainItems || []), ...(groupItems || [])]) {
+      if (!seen.has(item.guid)) { seen.add(item.guid); merged.push(item) }
+    }
+    menuItems = merged
+
+    // STEP 3: If no real items, try modifiers too
+    if (menuItems.length === 0) {
+      const { data: allItems } = await supabaseAdmin.from('toast_menu_items')
+        .select('guid, name, price, group_name, is_modifier')
+        .eq('active', true)
+        .ilike('name', `%${searchTerm}%`)
+        .order('name').limit(50)
+      menuItems = allItems || []
+    }
   } else if (args.group_name) {
     const { data } = await supabaseAdmin.from('toast_menu_items')
-      .select('guid, name, price, group_name, active, recipe_na')
+      .select('guid, name, price, group_name, is_modifier')
       .eq('active', true)
       .ilike('group_name', `%${args.group_name}%`)
-      .order('group_name').limit(100)
+      .order('name').limit(100)
     menuItems = data || []
   } else {
-    // No filters — return summary of groups
     const { data } = await supabaseAdmin.from('toast_menu_items')
-      .select('guid, name, price, group_name, active')
-      .eq('active', true).order('group_name').limit(300)
+      .select('guid, name, price, group_name, is_modifier')
+      .eq('active', true).eq('is_modifier', false).order('group_name').limit(200)
     menuItems = data || []
   }
 
-  if (menuItems.length) {
-    const byGroup: Record<string, { name: string; price: number }[]> = {}
-    menuItems.forEach(m => {
-      const g = m.group_name || 'Other'
-      if (!byGroup[g]) byGroup[g] = []
-      byGroup[g].push({ name: m.name, price: Number(m.price) || 0 })
-    })
-    const groupLines = Object.entries(byGroup).map(([g, items]) =>
-      `${g}:\n${items.map(i => `  ${i.name}: ${fmt$(i.price)}`).join('\n')}`
-    )
-    parts.push(`Menu Items (${menuItems.length}):\n${groupLines.join('\n')}`)
+  if (!menuItems.length) return `No menu items found for "${searchTerm || args.group_name || 'all'}".`
+
+  // Show found items
+  const mainDishes = menuItems.filter(m => !m.is_modifier)
+  const modifiers = menuItems.filter(m => m.is_modifier)
+
+  if (mainDishes.length) {
+    const lines = mainDishes.map(m => `${m.name}: ${fmt$(Number(m.price) || 0)} [${m.group_name || '?'}]`)
+    parts.push(`Menu Items (${mainDishes.length}):\n${lines.join('\n')}`)
+  }
+  if (modifiers.length) {
+    const lines = modifiers.map(m => `${m.name}: ${fmt$(Number(m.price) || 0)} [${m.group_name || '?'}]`)
+    parts.push(`Add-ons/Modifiers (${modifiers.length}):\n${lines.join('\n')}`)
   }
 
-  // Recipe details (ingredients for matching items)
-  if (args.item_name && menuItems.length > 0) {
-    const guids = menuItems.map(m => m.guid).filter(Boolean)
-    if (guids.length > 0) {
-      const { data: recipes } = await supabaseAdmin.from('recipes')
-        .select('toast_menu_item_guid, inventory_item_id, quantity, unit, type')
-        .in('toast_menu_item_guid', guids)
-      if (recipes?.length) {
-        const invIds = [...new Set(recipes.map(r => r.inventory_item_id).filter(Boolean))]
-        const { data: invItems } = await supabaseAdmin.from('inventory_items')
-          .select('id, name, cost_per_unit, unit, yield_percent').in('id', invIds)
-        const invMap: Record<string, { name: string; cost: number; unit: string }> = {};
-        (invItems || []).forEach(i => { invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, unit: i.unit || '' } })
+  // RECIPE DETAILS — look up ingredients for all found items
+  const guids = menuItems.map(m => m.guid).filter(Boolean)
+  if (guids.length > 0) {
+    const { data: recipes, error: recErr } = await supabaseAdmin.from('recipes')
+      .select('toast_menu_item_guid, inventory_item_id, quantity, unit, type')
+      .in('toast_menu_item_guid', guids)
 
-        // Group recipes by menu item
-        const guidToName: Record<string, string> = {}
-        menuItems.forEach(m => { if (m.guid) guidToName[m.guid] = m.name })
+    if (recErr) {
+      parts.push(`Recipe lookup error: ${recErr.message}`)
+    } else if (recipes?.length) {
+      // Get ingredient details
+      const invIds = [...new Set(recipes.map(r => r.inventory_item_id).filter(Boolean))]
+      const { data: invItems } = await supabaseAdmin.from('inventory_items')
+        .select('id, name, cost_per_unit, unit, yield_percent').in('id', invIds)
+      const invMap: Record<string, { name: string; cost: number; unit: string; yld: number }> = {};
+      (invItems || []).forEach(i => {
+        invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, unit: i.unit || '', yld: Number(i.yield_percent) || 100 }
+      })
 
-        const byItem: Record<string, string[]> = {}
-        let totalCostAll = 0
-        recipes.forEach(r => {
-          const itemName = guidToName[r.toast_menu_item_guid] || '?'
-          if (!byItem[itemName]) byItem[itemName] = []
-          const inv = invMap[r.inventory_item_id]
-          const cost = inv ? inv.cost * r.quantity : 0
-          totalCostAll += cost
-          byItem[itemName].push(`  ${inv?.name || '?'}: ${r.quantity} ${r.unit} × ${fmt$(inv?.cost || 0)}/${inv?.unit || 'u'} = ${fmt$(cost)}`)
-        })
+      // Group by menu item
+      const guidToName: Record<string, { name: string; price: number }> = {}
+      menuItems.forEach(m => { if (m.guid) guidToName[m.guid] = { name: m.name, price: Number(m.price) || 0 } })
 
-        const recipeLines = Object.entries(byItem).map(([itemName, lines]) => {
-          const itemCost = lines.reduce((s, l) => { const m = l.match(/= \$([\d,.]+)/); return s + (m ? parseFloat(m[1].replace(',', '')) : 0) }, 0)
-          return `📦 ${itemName} (ingredient cost: ~${fmt$(itemCost)}):\n${lines.join('\n')}`
-        })
-        parts.push(`Recipe Ingredients:\n${recipeLines.join('\n\n')}`)
-      }
+      const byItem: Record<string, { lines: string[]; totalCost: number; price: number }> = {}
+      recipes.forEach(r => {
+        const mi = guidToName[r.toast_menu_item_guid]
+        const itemName = mi?.name || '?'
+        if (!byItem[itemName]) byItem[itemName] = { lines: [], totalCost: 0, price: mi?.price || 0 }
+        const inv = invMap[r.inventory_item_id]
+        const rawCost = inv ? inv.cost * r.quantity : 0
+        const adjustedCost = inv && inv.yld < 100 ? rawCost / (inv.yld / 100) : rawCost
+        byItem[itemName].totalCost += adjustedCost
+        byItem[itemName].lines.push(
+          `  ${inv?.name || '?'}: ${r.quantity} ${r.unit} × ${fmt$(inv?.cost || 0)}/${inv?.unit || 'u'} = ${fmt$(adjustedCost)}${inv && inv.yld < 100 ? ` (yield ${inv.yld}%)` : ''}`
+        )
+      })
+
+      const recipeOutput = Object.entries(byItem).map(([itemName, data]) => {
+        const margin = data.price > 0 ? ((data.price - data.totalCost) / data.price * 100).toFixed(1) : '?'
+        return `📦 ${itemName} — Price: ${fmt$(data.price)} | Ingredient Cost: ${fmt$(data.totalCost)} | Margin: ${margin}%\n${data.lines.join('\n')}`
+      })
+      parts.push(`\nRecipe Breakdown:\n${recipeOutput.join('\n\n')}`)
+    } else {
+      parts.push(`No recipes configured for these items in the system.`)
     }
   }
 
-  return parts.length ? parts.join('\n\n') : 'No menu items or recipes found for that search.'
+  return parts.join('\n\n')
 }
 
 // ── 12. Checklists ──
