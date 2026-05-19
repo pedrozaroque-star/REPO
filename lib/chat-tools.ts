@@ -492,7 +492,7 @@ async function queryEmployees(args: any): Promise<string> {
 
 // ── 8. Inventory ──
 async function queryInventory(args: any): Promise<string> {
-  let query = supabaseAdmin.from('inventory_items').select('id, name, category, unit, cost_per_unit, yield_percent, type')
+  let query = supabaseAdmin.from('inventory_items').select('id, name, category_id, unit_type, purchase_unit_cost, yield_percent, unit_measure')
   if (args.category) query = query.ilike('category', `%${args.category}%`)
   if (args.item_name) query = query.ilike('name', `%${args.item_name}%`)
 
@@ -503,7 +503,7 @@ async function queryInventory(args: any): Promise<string> {
   const byCat: Record<string, number> = {}
   data.forEach(i => { byCat[i.category || 'none'] = (byCat[i.category || 'none'] || 0) + 1 })
 
-  const lines = data.map(i => `${i.name} | ${i.category || '?'} | ${fmt$(Number(i.cost_per_unit) || 0)}/${i.unit} | yield: ${i.yield_percent || 100}%`)
+  const lines = data.map(i => `${i.name} | ${i.unit_type || '?'} | ${fmt$(Number(i.purchase_unit_cost) || 0)}/${i.unit_measure || 'u'} | yield: ${i.yield_percent || 100}%`)
 
   return `Inventory (${data.length} items):\nBy Category: ${Object.entries(byCat).map(([c, n]) => `${c}: ${n}`).join(', ')}\n\n${lines.join('\n')}`
 }
@@ -636,7 +636,7 @@ async function queryMenuRecipes(args: any): Promise<string> {
       console.log(`[TEG Menu] Looking up ${invIds.length} inventory items:`, invIds.slice(0, 3))
 
       const { data: invItems, error: invErr } = await supabaseAdmin.from('inventory_items')
-        .select('id, name, cost_per_unit, unit, yield_percent').in('id', invIds)
+        .select('id, name, purchase_unit_cost, unit_type, unit_measure, yield_percent, quantity_per_unit').in('id', invIds)
 
       console.log(`[TEG Menu] Inventory lookup: ${invItems?.length || 0} found, error: ${invErr?.message || 'none'}`)
 
@@ -644,16 +644,21 @@ async function queryMenuRecipes(args: any): Promise<string> {
 
       if (invItems?.length) {
         invItems.forEach(i => {
-          invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, unit: i.unit || '', yld: Number(i.yield_percent) || 100 }
+          // purchase_unit_cost is per purchase unit (e.g. per bag), divide by quantity_per_unit to get per-piece/oz cost
+          const qpu = Number(i.quantity_per_unit) || 1
+          const costPerSmallUnit = (Number(i.purchase_unit_cost) || 0) / qpu
+          invMap[i.id] = { name: i.name, cost: costPerSmallUnit, unit: i.unit_measure || i.unit_type || '', yld: Number(i.yield_percent) || 100 }
         })
       } else if (invIds.length > 0) {
         // Fallback: try individual lookups
         console.log(`[TEG Menu] Fallback: individual lookups for ${invIds.length} items`)
         for (const invId of invIds) {
           const { data: single } = await supabaseAdmin.from('inventory_items')
-            .select('id, name, cost_per_unit, unit, yield_percent').eq('id', invId).single()
+            .select('id, name, purchase_unit_cost, unit_type, unit_measure, yield_percent, quantity_per_unit').eq('id', invId).single()
           if (single) {
-            invMap[single.id] = { name: single.name, cost: Number(single.cost_per_unit) || 0, unit: single.unit || '', yld: Number(single.yield_percent) || 100 }
+            const sqpu = Number(single.quantity_per_unit) || 1
+            const sCost = (Number(single.purchase_unit_cost) || 0) / sqpu
+            invMap[single.id] = { name: single.name, cost: sCost, unit: single.unit_measure || single.unit_type || '', yld: Number(single.yield_percent) || 100 }
           }
         }
         console.log(`[TEG Menu] Fallback found: ${Object.keys(invMap).length} items`)
