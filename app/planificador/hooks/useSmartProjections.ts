@@ -26,7 +26,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
     }
 
     // ========== INTELLIGENCE ENGINE (PRIMARY) ==========
-    const generateViaIntelligenceAPI = async (weekStartStr: string): Promise<Record<string, string> | null> => {
+    const generateViaIntelligenceAPI = async (weekStartStr: string, force = false): Promise<Record<string, string> | null> => {
         try {
             console.log('🧠 [Intelligence] Calling API...')
 
@@ -35,7 +35,8 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     storeId: storeGuid,
-                    weekStart: weekStartStr
+                    weekStart: weekStartStr,
+                    forceRecalc: force
                 })
             })
 
@@ -252,7 +253,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
     }
 
     // ========== MAIN GENERATOR (Hybrid Strategy) ==========
-    const generateSmartProjections = useCallback(async () => {
+    const generateSmartProjections = useCallback(async (force = false) => {
         if (!storeGuid) return
 
         setIsGenerating(true)
@@ -270,7 +271,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
 
         // TRY INTELLIGENCE FIRST (if enabled)
         if (USE_INTELLIGENCE_API) {
-            const intelligenceResult = await generateViaIntelligenceAPI(weekStartStr)
+            const intelligenceResult = await generateViaIntelligenceAPI(weekStartStr, force)
 
             if (intelligenceResult && Object.keys(intelligenceResult).length > 0) {
                 newProjections = intelligenceResult

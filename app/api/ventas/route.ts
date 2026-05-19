@@ -85,8 +85,10 @@ export async function GET(request: NextRequest) {
         if (groupBy === 'hour' && startDate === endDate) {
             try {
                 const { generateSmartForecast } = await import('@/lib/intelligence')
+                const { createClient } = await import('@supabase/supabase-js')
+                const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-                // Get unique store IDs and their first row
+                // Get unique store IDs
                 const storeMap = new Map<string, any>()
                 rows.forEach((row: any) => {
                     if (!storeMap.has(row.storeId)) {
@@ -94,24 +96,55 @@ export async function GET(request: NextRequest) {
                     }
                 })
 
-                // Generate projections for each UNIQUE store in parallel
+                // Generate or fetch projections for each UNIQUE store
                 const projectionResults = new Map<string, { projectedHourly: Record<number, number>, projectedSales: number }>()
 
                 const projectionPromises = Array.from(storeMap.entries()).map(async ([storeId, sampleRow]) => {
                     try {
-                        const forecast = await generateSmartForecast(storeId, startDate)
+                        // 1. Check Cache
+                        const { data: cached } = await supabase
+                            .from('sales_projections_cache')
+                            .select('*')
+                            .eq('store_id', storeId)
+                            .eq('business_date', startDate)
+                            .single();
+                        
+                        let totalSales = 0;
+                        let hourlyMap: Record<number, number> = {};
 
-                        if (forecast && forecast.hours && forecast.hours.length > 0) {
-                            const projHourly: Record<number, number> = {}
-                            forecast.hours.forEach(h => {
-                                projHourly[h.hour] = h.projected_sales || 0
-                            })
-
-                            projectionResults.set(storeId, {
-                                projectedHourly: projHourly,
-                                projectedSales: forecast.total_sales
-                            })
+                        if (cached) {
+                            totalSales = cached.total_sales;
+                            hourlyMap = cached.hourly_data || {};
+                        } else {
+                            // 2. Generate if missing
+                            const forecast = await generateSmartForecast(storeId, startDate)
+                            totalSales = forecast.total_sales;
+                            if (forecast.hours) {
+                                forecast.hours.forEach(h => {
+                                    hourlyMap[h.hour] = h.projected_sales || 0
+                                })
+                            }
+                            
+                            // Save to Cache so Planner sees the exact same number
+                            await supabase.from('sales_projections_cache').upsert({
+                                store_id: storeId,
+                                business_date: startDate,
+                                total_sales: totalSales,
+                                hourly_data: hourlyMap,
+                                meta: {
+                                    model: 'Intelligence v2.1',
+                                    growth_factor: forecast.growth_factor_applied,
+                                    weather_adjusted: forecast.weather_adjustment || false,
+                                    generated_at: new Date().toISOString()
+                                }
+                            });
                         }
+
+                        projectionResults.set(storeId, {
+                            projectedHourly: hourlyMap,
+                            projectedSales: totalSales
+                        })
+                        
                     } catch (storeError) {
                         console.warn(`Failed to get projection for store ${storeId}:`, storeError)
                     }
@@ -140,6 +173,8 @@ export async function GET(request: NextRequest) {
         else if (groupBy === 'day' && dayDiff <= 31) {
             try {
                 const { generateSmartForecast } = await import('@/lib/intelligence')
+                const { createClient } = await import('@supabase/supabase-js')
+                const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
                 // Get unique store IDs
                 const uniqueStoreIds = new Set<string>()
@@ -155,32 +190,72 @@ export async function GET(request: NextRequest) {
 
                 // Build projection cache: Map<"storeId|date", { total: number, hourly: Record<number, number> }>
                 const projectionCache = new Map<string, { total: number, hourly: Record<number, number> }>()
+                const missingCombinations: { storeId: string, dateStr: string }[] = []
 
-                // Generate projections for each store+date combination in parallel
-                // Batch by store to reduce parallel calls
-                const storePromises = Array.from(uniqueStoreIds).map(async (storeId) => {
-                    for (const dateStr of uniqueDates) {
-                        try {
-                            const forecast = await generateSmartForecast(storeId, dateStr)
-                            if (forecast && forecast.total_sales > 0) {
-                                // Convert hours array to Record<hour, sales>
-                                const hourlyMap: Record<number, number> = {}
-                                forecast.hours.forEach(h => hourlyMap[h.hour] = h.projected_sales)
+                // 1. Bulk Fetch from DB Cache
+                const targetDatesArr = Array.from(uniqueDates)
+                const storeIdsArr = Array.from(uniqueStoreIds)
+                
+                if (storeIdsArr.length > 0 && targetDatesArr.length > 0) {
+                    const { data: cachedProjections } = await supabase
+                        .from('sales_projections_cache')
+                        .select('*')
+                        .in('store_id', storeIdsArr)
+                        .in('business_date', targetDatesArr);
+                    
+                    if (cachedProjections) {
+                        cachedProjections.forEach(row => {
+                            projectionCache.set(`${row.store_id}|${row.business_date}`, {
+                                total: row.total_sales,
+                                hourly: row.hourly_data || {}
+                            })
+                        })
+                    }
+                }
 
-                                projectionCache.set(`${storeId}|${dateStr}`, {
-                                    total: forecast.total_sales,
-                                    hourly: hourlyMap
-                                })
-                            }
-                        } catch (err) {
-                            // Non-blocking - continue without this projection
+                // 2. Identify missing combinations
+                storeIdsArr.forEach(storeId => {
+                    targetDatesArr.forEach(dateStr => {
+                        if (!projectionCache.has(`${storeId}|${dateStr}`)) {
+                            missingCombinations.push({ storeId, dateStr })
                         }
+                    })
+                })
+
+                // 3. Generate missing in parallel
+                const storePromises = missingCombinations.map(async ({ storeId, dateStr }) => {
+                    try {
+                        const forecast = await generateSmartForecast(storeId, dateStr)
+                        if (forecast && forecast.total_sales > 0) {
+                            const hourlyMap: Record<number, number> = {}
+                            forecast.hours.forEach(h => hourlyMap[h.hour] = h.projected_sales)
+
+                            projectionCache.set(`${storeId}|${dateStr}`, {
+                                total: forecast.total_sales,
+                                hourly: hourlyMap
+                            })
+
+                            // Fire and forget cache save
+                            supabase.from('sales_projections_cache').upsert({
+                                store_id: storeId,
+                                business_date: dateStr,
+                                total_sales: forecast.total_sales,
+                                hourly_data: hourlyMap,
+                                meta: {
+                                    model: 'Intelligence v2.1',
+                                    growth_factor: forecast.growth_factor_applied,
+                                    generated_at: new Date().toISOString()
+                                }
+                            }).then();
+                        }
+                    } catch (err) {
+                        // Non-blocking
                     }
                 })
 
                 await Promise.all(storePromises)
 
-                // Assign projectedSales AND projectedHourly to each row based on storeId + periodStart
+                // Assign projectedSales AND projectedHourly to each row
                 rows.forEach((row: any) => {
                     const key = `${row.storeId}|${row.periodStart}`
                     const projData = projectionCache.get(key)
@@ -191,7 +266,7 @@ export async function GET(request: NextRequest) {
                 })
 
             } catch (projError) {
-                console.warn('Failed to generate daily projections:', projError)
+                console.warn('Failed to load Intelligence Engine or Cache:', projError)
             }
         }
 

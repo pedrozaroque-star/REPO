@@ -1346,7 +1346,7 @@ export default function SchedulePlanner() {
                         punches={punches}
                         isExternalLoading={loadingActuals || isCalcProjections}
                         onRefresh={refetchActuals}
-                        onCalculateProjections={calculateProjections}
+                        onCalculateProjections={() => calculateProjections(true)}
                         onShowSalesDetail={(date: string) => setSalesDetailModal({ isOpen: true, date })}
                         onEditShift={(shift, date, empId) => setModalConfig({ isOpen: true, data: shift, targetDate: date, targetEmpId: empId })}
                         onAddShift={(date, empId) => setModalConfig({ isOpen: true, data: null, targetDate: date, targetEmpId: empId })}
@@ -1440,7 +1440,7 @@ export default function SchedulePlanner() {
                                 actuals={actuals}
                                 storeId={storeGuid}
                                 onRefresh={refetchActuals}
-                                onCalculateProjections={calculateProjections}
+                                onCalculateProjections={() => calculateProjections(true)}
                                 isExternalLoading={loadingActuals || isCalcProjections}
                                 onShowSalesDetail={(date: string) => setSalesDetailModal({ isOpen: true, date })}
                             />
