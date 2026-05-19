@@ -37,13 +37,13 @@ export async function GET(req: NextRequest) {
       supabaseAdmin.from('users')
         .select('id, full_name, role')
         .eq('role', 'supervisor').eq('is_active', true),
-      // 5. Supervisor schedules in date range
+      // 5. Supervisor schedules in date range (for knowing WHEN they were working)
       supabaseAdmin.from('schedules')
-        .select('user_id, store_id, date')
+        .select('user_id, store_id, date, start_time, end_time')
         .gte('date', startDate).lte('date', endDate),
-      // 6. Store names (numeric ID → name)
+      // 6. Store details (numeric ID → name + supervisor_id ownership)
       supabaseAdmin.from('stores')
-        .select('id, name')
+        .select('id, name, supervisor_id')
     ])
 
     const sales = salesRes.data || []
@@ -56,6 +56,18 @@ export async function GET(req: NextRequest) {
     // Build store numeric ID → name map
     const storeNameMap: Record<number, string> = {}
     stores.forEach(s => { storeNameMap[s.id] = (s.name || '').replace(/^Tacos Gavilan\s+/i, '').trim() })
+
+    // ══════════════════════════════════════════════════
+    // Build OWNERSHIP map: supervisor_id → store_ids[]
+    // This comes from stores.supervisor_id, NOT schedules
+    // ══════════════════════════════════════════════════
+    const supOwnedStores: Record<number, number[]> = {}
+    stores.forEach(s => {
+      if (s.supervisor_id) {
+        if (!supOwnedStores[s.supervisor_id]) supOwnedStores[s.supervisor_id] = []
+        supOwnedStores[s.supervisor_id].push(s.id)
+      }
+    })
 
     // ══════════════════════════════════════════════════
     // 1. LABOR ALERTS — stores exceeding target
@@ -121,56 +133,124 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => a.sales - b.sales)
 
     // ══════════════════════════════════════════════════
-    // 4. INSPECTION COMPLIANCE — supervisors vs schedules
+    // 4. INSPECTION COMPLIANCE — per supervisor per date
+    // Uses stores.supervisor_id for OWNERSHIP (not schedules)
+    // Cross-refs with schedules to know WHEN supervisor was working
     // ══════════════════════════════════════════════════
-    const supIds = supervisors.map(s => s.id)
 
-    // Build: supervisor → Set of scheduled store_ids (numeric)
-    const supScheduled: Record<number, Set<number>> = {}
+    // Generate list of dates in range
+    const dateList: string[] = []
+    const dtStart = new Date(startDate + 'T12:00:00')
+    const dtEnd = new Date(endDate + 'T12:00:00')
+    for (let d = new Date(dtStart); d <= dtEnd; d.setDate(d.getDate() + 1)) {
+      dateList.push(d.toISOString().split('T')[0])
+    }
+
+    // Build schedule lookup: supId → date → {store_id, start_time, end_time}
+    const supScheduleByDate: Record<number, Record<string, { store_id: number; start_time: string; end_time: string }>> = {}
     schedules.forEach(s => {
-      if (supIds.includes(s.user_id)) {
-        if (!supScheduled[s.user_id]) supScheduled[s.user_id] = new Set()
-        supScheduled[s.user_id].add(s.store_id)
+      if (!supScheduleByDate[s.user_id]) supScheduleByDate[s.user_id] = {}
+      supScheduleByDate[s.user_id][s.date] = {
+        store_id: s.store_id,
+        start_time: s.start_time,
+        end_time: s.end_time
       }
     })
 
-    // Build: supervisor → Set of inspected store_ids (numeric)
-    const supInspected: Record<number, Set<number>> = {}
+    // Build inspection lookup: supId → date → Set<store_id>
+    const supInspByDate: Record<number, Record<string, Set<number>>> = {}
     inspections.forEach(i => {
-      if (supIds.includes(i.inspector_id)) {
-        if (!supInspected[i.inspector_id]) supInspected[i.inspector_id] = new Set()
-        supInspected[i.inspector_id].add(i.store_id)
-      }
+      if (!supInspByDate[i.inspector_id]) supInspByDate[i.inspector_id] = {}
+      if (!supInspByDate[i.inspector_id][i.inspection_date]) supInspByDate[i.inspector_id][i.inspection_date] = new Set()
+      supInspByDate[i.inspector_id][i.inspection_date].add(i.store_id)
     })
 
     const inspectionCompliance = supervisors.map(sup => {
-      const scheduled = supScheduled[sup.id] || new Set()
-      const inspected = supInspected[sup.id] || new Set()
-      const scheduledStores = [...scheduled].map(id => storeNameMap[id] || `Store #${id}`)
-      const inspectedStores = [...inspected].map(id => storeNameMap[id] || `Store #${id}`)
-      const missingStores = [...scheduled]
-        .filter(id => !inspected.has(id))
-        .map(id => storeNameMap[id] || `Store #${id}`)
-      const totalScheduled = scheduled.size
-      const totalInspected = [...scheduled].filter(id => inspected.has(id)).length
-      // Also count extra inspections (stores not scheduled but inspected)
-      const extraStores = [...inspected]
-        .filter(id => !scheduled.has(id))
-        .map(id => storeNameMap[id] || `Store #${id}`)
+      const ownedStoreIds = supOwnedStores[sup.id] || []
+      const ownedStoreNames = ownedStoreIds.map(id => storeNameMap[id] || `Store #${id}`)
+
+      // Per-date detail
+      const dailyDetail: {
+        date: string
+        wasScheduled: boolean
+        scheduledAt: string | null
+        shift: string | null
+        inspectedStores: string[]
+        ownedStoresInspected: string[]
+        ownedStoresMissing: string[]
+        compliant: boolean
+      }[] = []
+
+      let totalScheduledDays = 0
+      let totalCompliantDays = 0
+      const allInspectedStores = new Set<string>()
+      const allMissingStores = new Set<string>()
+
+      dateList.forEach(date => {
+        const schedule = supScheduleByDate[sup.id]?.[date]
+        const wasScheduled = !!schedule
+        const inspectedOnDate = supInspByDate[sup.id]?.[date] || new Set<number>()
+        const inspectedNames = [...inspectedOnDate].map(id => storeNameMap[id] || `Store #${id}`)
+
+        // Mark all inspected stores
+        inspectedNames.forEach(n => allInspectedStores.add(n))
+
+        if (wasScheduled) {
+          totalScheduledDays++
+          const scheduledStoreName = storeNameMap[schedule.store_id] || `Store #${schedule.store_id}`
+          const shift = schedule.start_time && schedule.end_time
+            ? `${schedule.start_time.slice(0, 5)} - ${schedule.end_time.slice(0, 5)}`
+            : null
+
+          // Check: did the supervisor inspect at least one of their OWNED stores this day?
+          const ownedInspected = ownedStoreIds
+            .filter(id => inspectedOnDate.has(id))
+            .map(id => storeNameMap[id] || `Store #${id}`)
+          const ownedMissing = ownedStoreIds
+            .filter(id => !inspectedOnDate.has(id))
+            .map(id => storeNameMap[id] || `Store #${id}`)
+
+          // Compliant if at least 1 owned store inspected
+          const dayCompliant = ownedInspected.length > 0
+          if (dayCompliant) totalCompliantDays++
+          ownedMissing.forEach(n => allMissingStores.add(n))
+
+          dailyDetail.push({
+            date,
+            wasScheduled: true,
+            scheduledAt: scheduledStoreName,
+            shift,
+            inspectedStores: inspectedNames,
+            ownedStoresInspected: ownedInspected,
+            ownedStoresMissing: ownedMissing,
+            compliant: dayCompliant
+          })
+        }
+      })
+
+      // Extra stores (inspected but not owned)
+      const ownedNames = new Set(ownedStoreNames)
+      const extraStores = [...allInspectedStores].filter(n => !ownedNames.has(n))
+
+      const compliancePct = totalScheduledDays > 0
+        ? Math.round((totalCompliantDays / totalScheduledDays) * 100)
+        : (allInspectedStores.size > 0 ? 100 : 0)
 
       return {
         supervisor: sup.full_name.split(' ')[0],
         supervisorFull: sup.full_name,
         supervisorId: sup.id,
-        scheduledStores,
-        inspectedStores,
+        ownedStores: ownedStoreNames,
+        scheduledStores: ownedStoreNames, // Legacy compat: these are their owned stores
+        inspectedStores: [...allInspectedStores],
         extraStores,
-        missingStores,
-        totalScheduled,
-        totalInspected,
-        totalInspections: inspected.size,
-        compliant: missingStores.length === 0 && totalScheduled > 0,
-        compliancePct: totalScheduled > 0 ? Math.round((totalInspected / totalScheduled) * 100) : (inspected.size > 0 ? 100 : 0)
+        missingStores: [...allMissingStores],
+        totalScheduled: totalScheduledDays,
+        totalInspected: totalCompliantDays,
+        totalInspections: allInspectedStores.size,
+        compliant: totalScheduledDays > 0 ? totalCompliantDays === totalScheduledDays : allInspectedStores.size > 0,
+        compliancePct,
+        dailyDetail: dailyDetail.filter(d => d.wasScheduled) // Only show days they were scheduled
       }
     }).sort((a, b) => a.compliancePct - b.compliancePct)
 
