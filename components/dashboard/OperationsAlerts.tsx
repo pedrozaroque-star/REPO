@@ -20,8 +20,8 @@ interface DailyDetail {
 
 interface AlertsData {
   totalAlerts: number
-  laborAlerts: { store: string; pct: number; severity: string }[]
-  foodCostAlerts: { store: string; pct: number; severity: string }[]
+  laborAlerts: { store: string; pct: number; sales: number; labor: number; severity: string }[]
+  foodCostAlerts: { store: string; pct: number; sales: number; cost: number; severity: string }[]
   lowSalesAlerts: { store: string; sales: number; previousSales: number; pctChange: number; prevPeriodLabel: string }[]
   inspectionCompliance: {
     supervisor: string; supervisorFull: string;
@@ -248,52 +248,142 @@ export default function OperationsAlerts({ startDate, endDate }: Props) {
         <div className="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-4">
           {expandedSection === 'labor' && (
             <div>
-              <h4 className="text-base font-black text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+              <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
                 <Flame size={20} className="text-red-500" /> Labor Cost por Tienda
-                <span className="text-slate-400 text-xs font-medium ml-auto">Target: ≤{data.targets.labor}%</span>
               </h4>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+                Tiendas donde el costo de mano de obra supera el <span className="font-bold text-red-500">target de {data.targets.labor}%</span> de las ventas netas. Crítico a partir de {data.targets.laborCritical}%.
+              </p>
               {data.laborAlerts.length > 0 ? (
-                <div className="space-y-2">
-                  {data.laborAlerts.map((a, i) => (
-                    <div key={i} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 rounded-lg px-4 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
-                      onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}`)}>
-                      <span className="text-base font-bold text-slate-700 dark:text-slate-200">{a.store}</span>
-                      <span className={`text-base font-black px-2.5 py-1 rounded-md ${
-                        a.severity === 'critical'
-                          ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
-                          : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
-                      }`}>{a.pct}%</span>
-                    </div>
-                  ))}
+                <div className="space-y-3">
+                  {data.laborAlerts.map((a: any, i: number) => {
+                    const barPct = Math.min(100, (a.pct / data.targets.laborCritical) * 100)
+                    return (
+                      <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
+                        onClick={() => router.push(`/ventas?period=custom&startDate=${startDate}&endDate=${endDate}`)}>
+                        {/* Store name + badge */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-base font-black text-slate-800 dark:text-white">{a.store}</span>
+                          <span className={`text-sm font-black px-2.5 py-1 rounded-md ${
+                            a.severity === 'critical'
+                              ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                              : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
+                          }`}>
+                            {a.pct}% {a.severity === 'critical' ? '🔴 Crítico' : '⚠️ Atención'}
+                          </span>
+                        </div>
+
+                        {/* Visual bar */}
+                        <div className="relative h-5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-2">
+                          <div
+                            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                              a.severity === 'critical'
+                                ? 'bg-gradient-to-r from-red-400 to-red-500'
+                                : 'bg-gradient-to-r from-amber-400 to-amber-500'
+                            }`}
+                            style={{ width: `${Math.max(barPct, 8)}%` }}
+                          />
+                          {/* Target line */}
+                          <div className="absolute inset-y-0 flex items-center" style={{ left: `${(data.targets.labor / data.targets.laborCritical) * 100}%` }}>
+                            <div className="w-0.5 h-full bg-slate-400 dark:bg-slate-500" />
+                          </div>
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{data.targets.laborCritical}%</span>
+                          </div>
+                        </div>
+
+                        {/* Dollar breakdown */}
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Ventas:</span>
+                            <span className="font-bold text-slate-600 dark:text-slate-300">${a.sales?.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Labor:</span>
+                            <span className={`font-bold ${a.severity === 'critical' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>${a.labor?.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Excede en:</span>
+                            <span className="font-bold text-red-500">+{(a.pct - data.targets.labor).toFixed(1)}pp</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               ) : (
-                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro del target ✓</p>
+                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro del target de {data.targets.labor}% ✓</p>
               )}
             </div>
           )}
 
           {expandedSection === 'foodcost' && (
             <div>
-              <h4 className="text-base font-black text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+              <h4 className="text-base font-black text-slate-800 dark:text-white mb-1 flex items-center gap-2">
                 <ChefHat size={20} className="text-amber-500" /> Food Cost por Tienda
-                <span className="text-slate-400 text-xs font-medium ml-auto">Target: ≤{data.targets.foodCost}%</span>
               </h4>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+                Tiendas donde el costo de alimentos supera el <span className="font-bold text-amber-500">target de {data.targets.foodCost}%</span> de las ventas netas. Crítico a partir de {data.targets.foodCostCritical}%.
+              </p>
               {data.foodCostAlerts.length > 0 ? (
-                <div className="space-y-2">
-                  {data.foodCostAlerts.map((a, i) => (
-                    <div key={i} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 rounded-lg px-4 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
-                      onClick={() => router.push(`/admin/food-cost?startDate=${startDate}&endDate=${endDate}`)}>
-                      <span className="text-base font-bold text-slate-700 dark:text-slate-200">{a.store}</span>
-                      <span className={`text-base font-black px-2.5 py-1 rounded-md ${
-                        a.severity === 'critical'
-                          ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
-                          : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
-                      }`}>{a.pct}%</span>
-                    </div>
-                  ))}
+                <div className="space-y-3">
+                  {data.foodCostAlerts.map((a: any, i: number) => {
+                    const barPct = Math.min(100, (a.pct / (data.targets.foodCostCritical + 4)) * 100)
+                    return (
+                      <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-slate-100 dark:border-slate-700"
+                        onClick={() => router.push(`/admin/food-cost?startDate=${startDate}&endDate=${endDate}`)}>
+                        {/* Store name + badge */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-base font-black text-slate-800 dark:text-white">{a.store}</span>
+                          <span className={`text-sm font-black px-2.5 py-1 rounded-md ${
+                            a.severity === 'critical'
+                              ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                              : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
+                          }`}>
+                            {a.pct}% {a.severity === 'critical' ? '🔴 Crítico' : '⚠️ Atención'}
+                          </span>
+                        </div>
+
+                        {/* Visual bar */}
+                        <div className="relative h-5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-2">
+                          <div
+                            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                              a.severity === 'critical'
+                                ? 'bg-gradient-to-r from-red-400 to-red-500'
+                                : 'bg-gradient-to-r from-amber-400 to-amber-500'
+                            }`}
+                            style={{ width: `${Math.max(barPct, 8)}%` }}
+                          />
+                          {/* Target line */}
+                          <div className="absolute inset-y-0 flex items-center" style={{ left: `${(data.targets.foodCost / (data.targets.foodCostCritical + 4)) * 100}%` }}>
+                            <div className="w-0.5 h-full bg-slate-400 dark:bg-slate-500" />
+                          </div>
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-2">
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{data.targets.foodCostCritical}%</span>
+                          </div>
+                        </div>
+
+                        {/* Dollar breakdown */}
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Ventas:</span>
+                            <span className="font-bold text-slate-600 dark:text-slate-300">${a.sales?.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Costo:</span>
+                            <span className={`font-bold ${a.severity === 'critical' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>${a.cost?.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 dark:text-slate-500">Excede en:</span>
+                            <span className="font-bold text-red-500">+{(a.pct - data.targets.foodCost).toFixed(1)}pp</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               ) : (
-                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro del target ✓</p>
+                <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium">Todas las tiendas dentro del target de {data.targets.foodCost}% ✓</p>
               )}
             </div>
           )}

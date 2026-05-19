@@ -135,6 +135,8 @@ export async function GET(req: NextRequest) {
         store,
         storeId: d.storeId,
         pct: d.sales > 0 ? +((d.cost / d.sales) * 100).toFixed(1) : 0,
+        sales: Math.round(d.sales),
+        cost: Math.round(d.cost),
         severity: 'ok' as 'ok' | 'warning' | 'critical'
       }))
       .map(a => ({ ...a, severity: a.pct >= FOOD_COST_CRITICAL ? 'critical' : a.pct >= FOOD_COST_TARGET ? 'warning' : 'ok' as const }))
