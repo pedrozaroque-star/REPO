@@ -555,13 +555,32 @@ async function queryStores(): Promise<string> {
 async function queryMenuRecipes(args: any): Promise<string> {
   const parts: string[] = []
 
-  // Menu items from Toast
-  let menuQ = supabaseAdmin.from('toast_menu_items').select('guid, name, price, group_name, active, recipe_name')
-  if (args.item_name) menuQ = menuQ.ilike('name', `%${args.item_name}%`)
-  if (args.group_name) menuQ = menuQ.ilike('group_name', `%${args.group_name}%`)
-  const { data: menuItems } = await menuQ.eq('active', true).order('group_name').limit(100)
+  // Menu items from Toast — search by name OR recipe_name OR group
+  let menuItems: any[] = []
+  if (args.item_name) {
+    // Use OR filter: match name or recipe_name
+    const { data } = await supabaseAdmin.from('toast_menu_items')
+      .select('guid, name, price, group_name, active, recipe_name')
+      .eq('active', true)
+      .or(`name.ilike.%${args.item_name}%,recipe_name.ilike.%${args.item_name}%,group_name.ilike.%${args.item_name}%`)
+      .order('group_name').limit(100)
+    menuItems = data || []
+  } else if (args.group_name) {
+    const { data } = await supabaseAdmin.from('toast_menu_items')
+      .select('guid, name, price, group_name, active, recipe_name')
+      .eq('active', true)
+      .ilike('group_name', `%${args.group_name}%`)
+      .order('group_name').limit(100)
+    menuItems = data || []
+  } else {
+    // No filters — return summary of groups
+    const { data } = await supabaseAdmin.from('toast_menu_items')
+      .select('guid, name, price, group_name, active')
+      .eq('active', true).order('group_name').limit(300)
+    menuItems = data || []
+  }
 
-  if (menuItems?.length) {
+  if (menuItems.length) {
     const byGroup: Record<string, { name: string; price: number }[]> = {}
     menuItems.forEach(m => {
       const g = m.group_name || 'Other'
@@ -575,31 +594,44 @@ async function queryMenuRecipes(args: any): Promise<string> {
   }
 
   // Recipe details (ingredients for matching items)
-  if (args.item_name) {
-    // Find matching toast_menu_items GUIDs
-    const guids = (menuItems || []).map(m => m.guid).filter(Boolean)
+  if (args.item_name && menuItems.length > 0) {
+    const guids = menuItems.map(m => m.guid).filter(Boolean)
     if (guids.length > 0) {
       const { data: recipes } = await supabaseAdmin.from('recipes')
         .select('toast_menu_item_guid, inventory_item_id, quantity, unit, type')
         .in('toast_menu_item_guid', guids)
       if (recipes?.length) {
-        // Get inventory item names
         const invIds = [...new Set(recipes.map(r => r.inventory_item_id).filter(Boolean))]
         const { data: invItems } = await supabaseAdmin.from('inventory_items')
           .select('id, name, cost_per_unit, unit, yield_percent').in('id', invIds)
-        const invMap: Record<string, { name: string; cost: number; yield_pct: number }> = {};
-        (invItems || []).forEach(i => { invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, yield_pct: Number(i.yield_percent) || 100 } })
+        const invMap: Record<string, { name: string; cost: number; unit: string }> = {};
+        (invItems || []).forEach(i => { invMap[i.id] = { name: i.name, cost: Number(i.cost_per_unit) || 0, unit: i.unit || '' } })
 
-        const recipeLines = recipes.map(r => {
+        // Group recipes by menu item
+        const guidToName: Record<string, string> = {}
+        menuItems.forEach(m => { if (m.guid) guidToName[m.guid] = m.name })
+
+        const byItem: Record<string, string[]> = {}
+        let totalCostAll = 0
+        recipes.forEach(r => {
+          const itemName = guidToName[r.toast_menu_item_guid] || '?'
+          if (!byItem[itemName]) byItem[itemName] = []
           const inv = invMap[r.inventory_item_id]
-          return `  ${inv?.name || '?'}: ${r.quantity} ${r.unit} (cost ~${fmt$(inv ? inv.cost * r.quantity : 0)}) [${r.type || 'food'}]`
+          const cost = inv ? inv.cost * r.quantity : 0
+          totalCostAll += cost
+          byItem[itemName].push(`  ${inv?.name || '?'}: ${r.quantity} ${r.unit} × ${fmt$(inv?.cost || 0)}/${inv?.unit || 'u'} = ${fmt$(cost)}`)
         })
-        parts.push(`Recipe Ingredients:\n${recipeLines.join('\n')}`)
+
+        const recipeLines = Object.entries(byItem).map(([itemName, lines]) => {
+          const itemCost = lines.reduce((s, l) => { const m = l.match(/= \$([\d,.]+)/); return s + (m ? parseFloat(m[1].replace(',', '')) : 0) }, 0)
+          return `📦 ${itemName} (ingredient cost: ~${fmt$(itemCost)}):\n${lines.join('\n')}`
+        })
+        parts.push(`Recipe Ingredients:\n${recipeLines.join('\n\n')}`)
       }
     }
   }
 
-  return parts.length ? parts.join('\n\n') : 'No menu items or recipes found.'
+  return parts.length ? parts.join('\n\n') : 'No menu items or recipes found for that search.'
 }
 
 // ── 12. Checklists ──
