@@ -1008,7 +1008,7 @@ export default function DescansosPage() {
                         <div className="w-64 shrink-0 border-r border-slate-200 p-3 text-sm font-black text-slate-500 uppercase tracking-wider flex items-center bg-slate-50 rounded-tl-xl">
                             Employee
                         </div>
-                        <div className="flex-1 relative h-10 bg-slate-50 rounded-tr-xl">
+                        <div id="timeline-header" className="flex-1 relative h-10 bg-slate-50 rounded-tr-xl">
                             {Array.from({ length: TOTAL_HOURS }).map((_, i) => (
                                 <div
                                     key={i}
@@ -1299,33 +1299,29 @@ export default function DescansosPage() {
 
 
 function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidth, handleBreakDragEnd, allShifts }: any) {
-    const [dragOffsetMins, setDragOffsetMins] = useState(0);
+    const offsetRef = useRef(0);
+    const [, forceRender] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
 
     const origStart = new Date(b.start_time).getTime();
     const durMs = new Date(b.end_time).getTime() - origStart;
-    const displayStartMs = origStart + (dragOffsetMins * 60000);
+    const displayStartMs = origStart + (offsetRef.current * 60000);
     const displayEndMs = displayStartMs + durMs;
     const displayDate = new Date(displayStartMs);
 
     // ── Conflict detection en tiempo real ──
-    const hasConflict = useMemo(() => {
-        if (!isDragging || !allShifts) return { conflict: false, reasons: [] as string[] };
-        const reasons: string[] = [];
-
-        // 1. Ley de California: meal después de 5ta hora
+    let conflictReasons: string[] = [];
+    if (isDragging && allShifts) {
         const shiftStartMs = new Date(shift.start_time).getTime();
-        if (isMeal && displayStartMs > shiftStartMs + (5 * 3600000)) {
-            reasons.push('⚠️ Meal Penalty (>5h)');
-        }
-
-        // 2. Fuera del turno
         const shiftEndMs = new Date(shift.end_time).getTime();
+
+        if (isMeal && displayStartMs > shiftStartMs + (5 * 3600000)) {
+            conflictReasons.push('⚠️ Meal Penalty (>5h)');
+        }
         if (displayStartMs < shiftStartMs || displayEndMs > shiftEndMs) {
-            reasons.push('❌ Fuera del turno');
+            conflictReasons.push('❌ Fuera del turno');
         }
 
-        // 3. Superposición con mismo rol
         const myRole = ((shift as any).job_title || shift.job_id || '').toString().toLowerCase().trim();
         for (const other of allShifts) {
             if (other.id === shift.id) continue;
@@ -1335,35 +1331,39 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
                 const os = new Date(ob.start_time).getTime();
                 const oe = new Date(ob.end_time).getTime();
                 if (displayStartMs < oe && displayEndMs > os) {
-                    reasons.push(`🔴 ${(other as any).employee_name || 'Otro'} mismo rol`);
+                    conflictReasons.push(`🔴 ${(other as any).employee_name || 'Otro'} mismo rol`);
                     break;
                 }
             }
         }
+    }
 
-        return { conflict: reasons.length > 0, reasons };
-    }, [isDragging, dragOffsetMins, allShifts, shift, isMeal, displayStartMs, displayEndMs]);
-
-    const tooltipBg = isDragging && hasConflict.conflict ? 'bg-red-600' : 'bg-slate-800';
-    const blockBorder = isDragging && hasConflict.conflict
-        ? 'ring-2 ring-red-500 ring-offset-1'
-        : '';
+    const hasConflict = conflictReasons.length > 0;
+    const tooltipBg = isDragging && hasConflict ? 'bg-red-600' : 'bg-slate-800';
+    const blockBorder = isDragging && hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : '';
 
     return (
         <motion.div
             tabIndex={0}
             drag="x"
             dragMomentum={false}
-            onDragStart={() => setIsDragging(true)}
-            onDrag={(e: any, info: any) => {
+            onDragStart={() => {
+                offsetRef.current = 0;
+                setIsDragging(true);
+            }}
+            onDrag={(_e: any, info: any) => {
                 const timelineEl = document.getElementById('timeline-header');
                 if (!timelineEl) return;
-                const pxPerMinute = timelineEl.getBoundingClientRect().width / (24 * 60);
-                setDragOffsetMins(Math.round(info.offset.x / pxPerMinute));
+                const pxPerMinute = timelineEl.getBoundingClientRect().width / (TOTAL_HOURS * 60);
+                const newOffset = Math.round(info.offset.x / pxPerMinute);
+                if (newOffset !== offsetRef.current) {
+                    offsetRef.current = newOffset;
+                    forceRender(n => n + 1);
+                }
             }}
             onDragEnd={(e: any, info: any) => {
+                offsetRef.current = 0;
                 setIsDragging(false);
-                setDragOffsetMins(0);
                 handleBreakDragEnd(e, info, shift, idx);
             }}
             className={`absolute -top-1 -bottom-1 rounded border group/break cursor-grab active:cursor-grabbing focus:outline-none min-w-[20px] before:absolute before:content-[''] before:-inset-[10px] before:z-[-1] ${isMeal
@@ -1375,12 +1375,12 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
                 width: `max(${relativeWidth}%, 20px)`,
             }}
         >
-            <div className={`absolute -top-14 left-1/2 -translate-x-1/2 ${tooltipBg} text-white text-[13px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg pointer-events-none transition-all duration-150 ${isDragging ? 'opacity-100 z-[100] scale-105' : 'opacity-0 z-[80] group-hover/break:opacity-100 group-focus/break:opacity-100 scale-100'}`}>
+            <div className={`absolute -top-14 left-1/2 -translate-x-1/2 ${tooltipBg} text-white text-[13px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg pointer-events-none transition-all duration-100 ${isDragging ? 'opacity-100 z-[100] scale-105' : 'opacity-0 z-[80] group-hover/break:opacity-100 group-focus/break:opacity-100 scale-100'}`}>
                 {isMeal ? '🍽️ Meal' : '☕ Break'} → {displayDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                {isDragging && hasConflict.conflict && (
+                {isDragging && hasConflict && (
                     <>
                         <br />
-                        <span className="text-[11px] font-medium text-red-100">{hasConflict.reasons[0]}</span>
+                        <span className="text-[11px] font-medium text-red-100">{conflictReasons[0]}</span>
                     </>
                 )}
             </div>
