@@ -71,13 +71,14 @@ export async function GET(request: NextRequest) {
 
         // Also aggregate by store for per-store table columns
         const storeAgg = new Map<string, { totalCost: number, netSales: number }>()
+        const storeNameAgg = new Map<string, { totalCost: number, netSales: number }>()
 
         data.forEach(row => {
             totalCost += Number(row.total_cost) || 0
             totalSales += Number(row.net_sales) || 0
             uniqueDates.add(row.business_date)
 
-            // Per-store aggregation
+            // Per-store aggregation by store_id
             const sid = row.store_id
             if (!storeAgg.has(sid)) {
                 storeAgg.set(sid, { totalCost: 0, netSales: 0 })
@@ -85,15 +86,34 @@ export async function GET(request: NextRequest) {
             const s = storeAgg.get(sid)!
             s.totalCost += Number(row.total_cost) || 0
             s.netSales += Number(row.net_sales) || 0
+
+            // Per-store aggregation by store_name (used by ventas module filter)
+            const sname = row.store_name || sid
+            if (!storeNameAgg.has(sname)) {
+                storeNameAgg.set(sname, { totalCost: 0, netSales: 0 })
+            }
+            const sn = storeNameAgg.get(sname)!
+            sn.totalCost += Number(row.total_cost) || 0
+            sn.netSales += Number(row.net_sales) || 0
         })
 
         const costPercentage = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
         const totalDaysInRange = getDayCount(startDate, endDate)
 
-        // Build per-store response
+        // Build per-store response (by store_id)
         const byStore: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
         storeAgg.forEach((val, storeId) => {
             byStore[storeId] = {
+                totalCost: Number(val.totalCost.toFixed(2)),
+                netSales: Number(val.netSales.toFixed(2)),
+                costPercentage: val.netSales > 0 ? Number(((val.totalCost / val.netSales) * 100).toFixed(2)) : 0
+            }
+        })
+
+        // Build per-store response (by store_name — for ventas module filter)
+        const byStoreName: Record<string, { totalCost: number, netSales: number, costPercentage: number }> = {}
+        storeNameAgg.forEach((val, storeName) => {
+            byStoreName[storeName] = {
                 totalCost: Number(val.totalCost.toFixed(2)),
                 netSales: Number(val.netSales.toFixed(2)),
                 costPercentage: val.netSales > 0 ? Number(((val.totalCost / val.netSales) * 100).toFixed(2)) : 0
@@ -107,6 +127,7 @@ export async function GET(request: NextRequest) {
             daysWithData: uniqueDates.size,
             totalDaysInRange,
             byStore,
+            byStoreName,
             cached: true,
             empty: false
         })

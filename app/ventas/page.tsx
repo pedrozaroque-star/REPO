@@ -105,7 +105,7 @@ function SalesPageContent() {
     const isAdmin = user?.role === 'admin'
 
     // Food Cost Integration State
-    const [foodCostData, setFoodCostData] = useState<{ totalCost: number, totalSales: number, costPercentage: number, byStore?: Record<string, { totalCost: number, netSales: number, costPercentage: number }> } | null>(null)
+    const [foodCostData, setFoodCostData] = useState<{ totalCost: number, totalSales: number, costPercentage: number, byStore?: Record<string, { totalCost: number, netSales: number, costPercentage: number }>, byStoreName?: Record<string, { totalCost: number, netSales: number, costPercentage: number }> } | null>(null)
     const [foodCostLoading, setFoodCostLoading] = useState(false)
 
     // AbortController: cancels in-flight HTTP requests when user changes filter
@@ -616,7 +616,8 @@ function SalesPageContent() {
                     totalCost: cacheJson.totalCost,
                     totalSales: cacheJson.totalSales,
                     costPercentage: cacheJson.costPercentage,
-                    byStore: cacheJson.byStore || {}
+                    byStore: cacheJson.byStore || {},
+                    byStoreName: cacheJson.byStoreName || {}
                 })
                 console.log(`[FoodCost] ⚡ Cache hit: ${cacheJson.daysWithData}/${cacheJson.totalDaysInRange} days`)
 
@@ -654,7 +655,7 @@ function SalesPageContent() {
                         s.costPercentage = s.netSales > 0 ? (s.totalCost / s.netSales) * 100 : 0
                     })
                     const costPct = totalSales > 0 ? (totalCost / totalSales) * 100 : 0
-                    setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap })
+                    setFoodCostData({ totalCost, totalSales, costPercentage: costPct, byStore: storeMap, byStoreName: storeMap })
                     console.log(`[FoodCost] ✅ Calculated & cached for ${sDate}`)
                     return
                 }
@@ -706,7 +707,8 @@ function SalesPageContent() {
                             totalCost: finalJson.totalCost,
                             totalSales: finalJson.totalSales,
                             costPercentage: finalJson.costPercentage,
-                            byStore: finalJson.byStore || {}
+                            byStore: finalJson.byStore || {},
+                            byStoreName: finalJson.byStoreName || {}
                         })
                         console.log(`[FoodCost] ✅ Gap-fill complete: ${finalJson.daysWithData}/${finalJson.totalDaysInRange} days`)
                         return
@@ -897,9 +899,10 @@ function SalesPageContent() {
             return foodCostLoading ? { totalCost: 0, costPercentage: 0, loading: true } : null
         }
 
-        // When a specific store is selected, use its per-store data from byStore map
-        if (selectedStore !== 'all' && foodCostData.byStore) {
-            const storeFC = foodCostData.byStore[selectedStore]
+        // When a specific store is selected, look up by storeName first (ventas uses storeName as filter key)
+        if (selectedStore !== 'all') {
+            // Try byStoreName first (name-based lookup from cache API)
+            const storeFC = foodCostData.byStoreName?.[selectedStore] || foodCostData.byStore?.[selectedStore]
             if (storeFC) {
                 return {
                     totalCost: storeFC.totalCost,
