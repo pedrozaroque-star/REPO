@@ -1142,6 +1142,7 @@ export default function DescansosPage() {
                                                             handleBreakDragEnd={handleBreakDragEnd}
                                                             handleResetBreakToAI={handleResetBreakToAI}
                                                             allShifts={smartShifts}
+                                                            isTabletMode={isFullscreen}
                                                         />
                                                     )
                                                 })}
@@ -1335,7 +1336,7 @@ export default function DescansosPage() {
 }
 
 
-function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidth, handleBreakDragEnd, handleResetBreakToAI, allShifts }: any) {
+function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidth, handleBreakDragEnd, handleResetBreakToAI, allShifts, isTabletMode }: any) {
     const offsetRef = useRef(0);
     const [, forceRender] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
@@ -1378,16 +1379,17 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
 
     const hasConflict = conflictReasons.length > 0;
     const tooltipBg = isDragging && hasConflict ? 'bg-red-600' : 'bg-slate-800';
-    const blockBorder = isDragging && hasConflict
+    let blockBorder = isDragging && hasConflict
         ? 'ring-2 ring-red-500 ring-offset-1'
         : isManual
             ? 'ring-2 ring-blue-400/60'
             : '';
+    if (isTabletMode && !isDragging) blockBorder = '';
 
     return (
         <motion.div
             tabIndex={0}
-            drag="x"
+            drag={isTabletMode ? false : "x"}
             dragMomentum={false}
             onDragStart={() => {
                 offsetRef.current = 0;
@@ -1411,11 +1413,11 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
             }}
             onDoubleClick={(e: React.MouseEvent) => {
                 e.stopPropagation();
-                if (isManual) {
+                if (isManual && !isTabletMode) {
                     handleResetBreakToAI(shift, idx);
                 }
             }}
-            className={`absolute -top-1 -bottom-1 rounded border group/break cursor-grab active:cursor-grabbing focus:outline-none min-w-[20px] before:absolute before:content-[''] before:-inset-[10px] before:z-[-1] ${isMeal
+            className={`absolute -top-1 -bottom-1 rounded border group/break ${isTabletMode ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} focus:outline-none min-w-[20px] before:absolute before:content-[''] before:-inset-[10px] before:z-[-1] ${isMeal
                 ? 'bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
                 : 'bg-emerald-500 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
                 } ${isDragging ? 'z-[90] scale-110 opacity-90' : 'hover:scale-110'} ${blockBorder}`}
@@ -1424,15 +1426,15 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
                 width: `max(${relativeWidth}%, 20px)`,
             }}
         >
-            {/* Indicador 📌 de break manual */}
-            {isManual && !isDragging && (
+            {/* Indicador 📌 de break manual — oculto en modo tableta */}
+            {isManual && !isDragging && !isTabletMode && (
                 <div className="absolute -top-3 -right-1 text-[10px] drop-shadow-md pointer-events-none z-[81]">📌</div>
             )}
             {/* Tooltip dinámico */}
             <div className={`absolute -top-14 left-1/2 -translate-x-1/2 ${tooltipBg} text-white text-[13px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg pointer-events-none transition-all duration-100 ${isDragging ? 'opacity-100 z-[100] scale-105' : 'opacity-0 z-[80] group-hover/break:opacity-100 group-focus/break:opacity-100 scale-100'}`}>
                 {isMeal ? '🍽️ Meal' : '☕ Break'} → {displayDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                {!isDragging && isManual && <span className="text-blue-300 ml-1">(manual)</span>}
-                {!isDragging && isManual && <><br /><span className="text-[11px] text-blue-200 font-normal">Doble clic para restaurar IA</span></>}
+                {!isDragging && isManual && !isTabletMode && <span className="text-blue-300 ml-1">(manual)</span>}
+                {!isDragging && isManual && !isTabletMode && <><br /><span className="text-[11px] text-blue-200 font-normal">Doble clic para restaurar IA</span></>}
                 {isDragging && hasConflict && (
                     <>
                         <br />
