@@ -65,6 +65,61 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // FORCE NOON to avoid Timezone Shift (e.g. UTC midnight -> Previous Day 4pm PST)
     const targetDate = new Date(targetDateStr + 'T12:00:00')
 
+    // 🌟 MASTER FIX: SINGLE SOURCE OF TRUTH (CACHE PRIORITY) 🌟
+    // Before doing any complex math, check if we already have a locked/cached projection.
+    const { data: cachedProj } = await supabase
+        .from('sales_projections_cache')
+        .select('total_sales, hourly_data, meta')
+        .eq('store_id', storeId)
+        .eq('business_date', targetDateStr)
+        .single()
+
+    let lockedTotalSales = null;
+    let lockedHourlyData = null;
+
+    if (cachedProj && cachedProj.total_sales > 0) {
+        lockedTotalSales = Number(cachedProj.total_sales);
+        if (cachedProj.hourly_data && Object.keys(cachedProj.hourly_data).length > 0) {
+            lockedHourlyData = cachedProj.hourly_data;
+        }
+        
+        // If we have BOTH total and hourly, we can bypass the entire expensive calculation!
+        if (lockedTotalSales > 0 && lockedHourlyData) {
+            console.log(`🔒 [INTELLIGENCE] Using fully cached projection for ${storeId} on ${targetDateStr}: $${lockedTotalSales}`)
+            
+            // Reconstruct hours array
+            const hours: OperatingHour[] = []
+            Object.entries(lockedHourlyData).forEach(([hStr, pSales]) => {
+                const hour = Number(hStr)
+                const sales = Number(pSales)
+                // Reverse calculate required staff (approximate)
+                const reqK = Math.ceil(sales / CAPACITY_RULES.KITCHEN_SALES_PER_HOUR_MEDIAN)
+                const reqF = Math.ceil(Math.ceil(sales / 25) / CAPACITY_RULES.CASHIER_TICKETS_PER_HOUR_MEDIAN) // Assuming avg ticket $25
+                
+                hours.push({
+                    hour,
+                    projected_sales: sales,
+                    projected_tickets: Math.ceil(sales / 25),
+                    required_kitchen: Math.max(CAPACITY_RULES.MIN_KITCHEN, reqK),
+                    required_foh: Math.max(CAPACITY_RULES.MIN_CASHIERS, reqF),
+                    reasoning: 'Loaded from Single Source of Truth Cache'
+                })
+            })
+            
+            return {
+                date: targetDateStr,
+                store_id: storeId,
+                total_sales: lockedTotalSales,
+                growth_factor_applied: 1.0,
+                hours
+            }
+        } else if (lockedTotalSales > 0) {
+            // We have a total, but no hourly curve (e.g. overridden in Planificador without saving curve).
+            // We must continue the calculation to get the historical curve, but we will force the TOTAL to equal lockedTotalSales.
+            console.log(`🔒 [INTELLIGENCE] Found cached total for ${storeId} on ${targetDateStr}: $${lockedTotalSales}. Calculating curve...`)
+        }
+    }
+
     // 1. Find Historical Comp Date (Same Weekday, Last Year)
     // subYears(targetDate, 1) gives same date last year, matches day-of-week closely but not perfectly due to leap years/shifts.
     // Better strategy: Same Week Number, Same Weekday of previous year.
@@ -522,7 +577,19 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
     // }
 
     // APPLY FACTORS SEPARATELY
-    const projectedTotal = baseSales * growthFactorSales * weatherFactor
+    let projectedTotal = baseSales * growthFactorSales * weatherFactor
+    let overrideMultiplier = 1.0;
+
+    if (lockedTotalSales !== null && lockedTotalSales > 0) {
+        console.log(`🔒 [INTELLIGENCE] Overriding calculated total ($${projectedTotal}) with Locked Cache ($${lockedTotalSales})`)
+        if (projectedTotal > 0) {
+            overrideMultiplier = lockedTotalSales / projectedTotal;
+        } else {
+            // Safety: if projection was 0 but cache has value, we can't multiply by 0. 
+            // We just let the gap filler handle it or assign evenly if no history.
+        }
+        projectedTotal = lockedTotalSales;
+    }
 
     // --- FETCH STORE OPERATING HOURS (WEEKLY AWARE) ---
     // We fetch both standard and weekly_hours to apply specific day logic.
@@ -544,11 +611,6 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
             // 2. Check for Day-Specific Override in weekly_hours
             // weekly_hours structure: [{ day: 1, open: '10:00', close: '23:00' }, ...]
             // Target Date Day (0=Sun, 1=Mon...)
-            const targetDay = new Date(targetDateStr).getDay() // Local time assumption might be risky? Assuming date string is YYYY-MM-DD
-            // Actually, new Date('2026-02-20') is UTC usually.
-            // Let's use getUTCDay() to be safe or parse manually if needed.
-            // Assuming targetDateStr is YYYY-MM-DD, parsing it as local might shift if timezone offset.
-            // Safer: Create date from parts.
             const [y, m, d] = targetDateStr.split('-').map(Number)
             const localDate = new Date(y, m - 1, d) // Month is 0-indexed
             const dayOfWeek = localDate.getDay() // 0-6 Sun-Sat
@@ -584,14 +646,9 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         const histSales = Number(hourlySalesDist[lookupHour] || 0)
         const histTickets = Number(hourlyTicketDist[lookupHour] || 0)
 
-        // FILTER: Only include late night (24+) if there is substantial volume
-        // to avoid projecting morning coffee sales as late night party sales
-        // (Unless it's a 24h store, but here we assume late close).
-        // No filter for low sales - let them flow to Gap Filling or project small amounts
-
-        // Apply distinct growth factors AND weather
-        let projSales = histSales * growthFactorSales * weatherFactor
-        let projTickets = histTickets * growthFactorTickets * weatherFactor // Uses Ticket Growth
+        // Apply distinct growth factors AND weather AND cache override multiplier
+        let projSales = histSales * growthFactorSales * weatherFactor * overrideMultiplier
+        let projTickets = histTickets * growthFactorTickets * weatherFactor * overrideMultiplier
 
         // --- OPERATING HOURS ENFORCEMENT ---
         // Late Open (e.g. 11am) OR Early Close (e.g. 4pm)
