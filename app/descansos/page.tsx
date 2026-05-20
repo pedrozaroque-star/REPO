@@ -114,20 +114,31 @@ export default function DescansosPage() {
         const b = shift.breaks_schedule[breakIdx];
         if (!b.is_manual) return;
 
+        // Quitar la bandera is_manual del break
         const newBreaks = [...shift.breaks_schedule];
         newBreaks[breakIdx] = { ...b, is_manual: false };
 
-        setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s));
-
+        // Guardar en DB primero
         try {
             const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
-            setAiStatus({ message: `🤖 ${b.type === 'meal_30' ? 'Lunch' : 'Break'} restaurado — la IA lo recalculará`, type: 'info' });
-            setTimeout(() => setAiStatus(null), 4000);
         } catch (err) {
             console.error('Failed to reset break', err);
+            return;
         }
+
+        setAiStatus({ message: `🤖 ${b.type === 'meal_30' ? 'Lunch' : 'Break'} restaurado — recalculando con IA...`, type: 'info' });
+
+        // Recalcular con la IA para que el break se mueva a su posición óptima
+        // Actualizamos lastDataRef con los breaks limpios antes de recalcular
+        const updatedShifts = lastDataRef.current.shifts.map(s =>
+            s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s
+        );
+        lastDataRef.current = { ...lastDataRef.current, shifts: updatedShifts };
+        await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true);
+
+        setTimeout(() => setAiStatus(null), 4000);
     };
 
     useEffect(() => {
