@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isWithinInterval, subDays, addDays, startOfWeek as startOfWeekFns, endOfWeek as endOfWeekFns, startOfMonth as startOfMonthFns, endOfMonth as endOfMonthFns, subWeeks, subMonths as subMonthsFns, startOfYear, isAfter, isBefore } from 'date-fns'
 import { es, enUS } from 'date-fns/locale'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
@@ -32,7 +33,10 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+            const target = event.target as HTMLElement
+            // Don't close if clicking inside the portal (mobile overlay)
+            if (target.closest?.('[data-date-filter-portal]')) return
+            if (containerRef.current && !containerRef.current.contains(target)) {
                 setIsOpen(false)
             }
         }
@@ -111,9 +115,6 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
 
     const handleApply = () => {
         if (tempStart && tempEnd) {
-            // Determine if it matches a preset? No, just send 'custom' if manual.
-            let pStr = 'custom'
-            // If explicit logic matches a preset we could send it, but 'custom' is safer for general range.
             onChange('custom', formatDateISO(tempStart), formatDateISO(tempEnd))
             setIsOpen(false)
         }
@@ -243,16 +244,24 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
             {/* Dropdown Content — fullscreen overlay on mobile, absolute dropdown on desktop */}
             {isOpen && (
                 <>
-                    {/* Mobile: fixed fullscreen overlay with scroll */}
-                    <div className="md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" onClick={() => setIsOpen(false)} />
-                    <div className="md:hidden fixed inset-x-0 bottom-0 z-50 bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-200">
-                        {/* Drag handle */}
-                        <div className="flex justify-center py-2 shrink-0">
-                            <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                    {/* Mobile: TRUE full-screen overlay — rendered via Portal to escape backdrop-blur stacking context */}
+                    {typeof document !== 'undefined' && createPortal(
+                    <div data-date-filter-portal className="md:hidden fixed inset-0 z-[9999] bg-white dark:bg-slate-900 flex flex-col" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh' }}>
+                        {/* ── Sticky Header ── */}
+                        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                <CalendarIcon size={20} className="text-slate-500" />
+                                {t('sales.select_dates')}
+                            </h2>
+                            <button onClick={() => setIsOpen(false)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-slate-500"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
-                            {/* Presets grid on mobile */}
-                            <div className="grid grid-cols-2 gap-2 mb-4">
+
+                        {/* ── Scrollable Body ── */}
+                        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+                            {/* Presets — horizontal scrollable strip */}
+                            <div className="grid grid-cols-4 gap-2 mb-4">
                                 {[
                                     { id: 'today', label: t('sales.today') },
                                     { id: 'yesterday', label: t('sales.yesterday') },
@@ -265,54 +274,64 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
                                 ].map((item) => (
                                     <button
                                         key={item.id}
-                                        onClick={() => item.id !== 'custom' ? handlePreset(item.id as Period) : null}
-                                        className={`text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${period === item.id
-                                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                                            : 'text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100'
+                                        onClick={() => {
+                                            if (item.id !== 'custom') {
+                                                handlePreset(item.id as Period)
+                                            }
+                                            // 'custom' just keeps the panel open for manual date picking
+                                        }}
+                                        className={`px-2 py-2.5 rounded-xl text-[11px] font-bold transition-all text-center leading-tight ${period === item.id
+                                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md'
+                                            : 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 active:bg-slate-200'
                                             }`}
                                     >
                                         {item.label}
                                     </button>
                                 ))}
                             </div>
-                            {/* Calendar */}
-                            <div>
-                                <div className="flex items-center justify-between mb-2 px-2">
-                                    <button onClick={() => setViewDate(subMonths(viewDate, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
-                                        <ChevronLeft size={18} />
+
+                            {/* Single calendar with navigation */}
+                            <div className="mb-3">
+                                <div className="flex items-center justify-between mb-2 px-1">
+                                    <button onClick={() => setViewDate(subMonths(viewDate, 1))} className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full active:scale-90 transition-transform">
+                                        <ChevronLeft size={20} className="text-slate-600 dark:text-slate-400" />
                                     </button>
-                                    <span className="font-semibold text-sm capitalize">{format(viewDate, 'MMMM yyyy', { locale: localeObj })}</span>
-                                    <button onClick={() => setViewDate(addMonths(viewDate, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
-                                        <ChevronRight size={18} />
+                                    <span className="font-black text-base capitalize text-slate-900 dark:text-white">{format(viewDate, 'MMMM yyyy', { locale: localeObj })}</span>
+                                    <button onClick={() => setViewDate(addMonths(viewDate, 1))} className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full active:scale-90 transition-transform">
+                                        <ChevronRight size={20} className="text-slate-600 dark:text-slate-400" />
                                     </button>
                                 </div>
-                                <div className="grid grid-cols-7 mb-1 text-center text-xs text-slate-400 font-medium">
-                                    {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => <div key={d}>{d}</div>)}
+                                <div className="grid grid-cols-7 mb-1 text-center text-[11px] text-slate-400 font-bold uppercase tracking-wider">
+                                    {['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa'].map(d => <div key={d}>{d}</div>)}
                                 </div>
                                 {renderMonth(viewDate)}
                             </div>
+
                             {/* Date inputs */}
-                            <div className="flex items-center gap-2 mt-4">
-                                <div className="flex flex-col gap-1 flex-1">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.start_date')}</label>
-                                    <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-2 text-sm bg-transparent w-full" />
+                            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                                <div className="flex flex-col gap-1.5 flex-1">
+                                    <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.start_date')}</label>
+                                    <input type="date" value={tempStart ? formatDateISO(tempStart) : ''} onChange={(e) => setTempStart(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 w-full font-semibold" />
                                 </div>
-                                <div className="flex flex-col gap-1 flex-1">
-                                    <label className="text-[10px] uppercase font-bold text-slate-400">{t('sales.end_date')}</label>
-                                    <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-md px-2 py-2 text-sm bg-transparent w-full" />
+                                <div className="flex flex-col gap-1.5 flex-1">
+                                    <label className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{t('sales.end_date')}</label>
+                                    <input type="date" value={tempEnd ? formatDateISO(tempEnd) : ''} onChange={(e) => setTempEnd(parseDate(e.target.value))} className="border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm bg-slate-50 dark:bg-slate-800 w-full font-semibold" />
                                 </div>
-                            </div>
-                            {/* Action buttons */}
-                            <div className="flex gap-3 mt-4">
-                                <button onClick={() => setIsOpen(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 transition-colors">
-                                    {t('sales.cancel')}
-                                </button>
-                                <button onClick={handleApply} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold bg-slate-900 dark:bg-blue-600 text-white hover:opacity-90 transition-opacity">
-                                    {t('sales.apply')}
-                                </button>
                             </div>
                         </div>
-                    </div>
+
+                        {/* ── Sticky Footer ── */}
+                        <div className="shrink-0 flex gap-3 px-4 py-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                            <button onClick={() => setIsOpen(false)} className="flex-1 px-4 py-3.5 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 active:scale-95 transition-transform">
+                                {t('sales.cancel')}
+                            </button>
+                            <button onClick={handleApply} className="flex-1 px-4 py-3.5 rounded-xl text-sm font-bold bg-slate-900 dark:bg-blue-600 text-white active:scale-95 transition-transform shadow-lg">
+                                {t('sales.apply')}
+                            </button>
+                        </div>
+                    </div>,
+                    document.body
+                    )}
 
                     {/* Desktop: original absolute dropdown */}
                     <div className="hidden md:flex absolute top-full right-0 mt-2 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
