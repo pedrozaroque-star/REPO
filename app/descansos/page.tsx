@@ -101,8 +101,32 @@ export default function DescansosPage() {
             const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
+            setAiStatus({ message: `✅ ${b.type === 'meal_30' ? 'Lunch' : 'Break'} movido y guardado — la IA lo respetará`, type: 'success' });
+            setTimeout(() => setAiStatus(null), 4000);
         } catch (err) {
             console.error('Failed to save manual break', err);
+            setAiStatus({ message: '❌ Error al guardar el descanso', type: 'alert' });
+            setTimeout(() => setAiStatus(null), 4000);
+        }
+    };
+
+    const handleResetBreakToAI = async (shift: Shift, breakIdx: number) => {
+        const b = shift.breaks_schedule[breakIdx];
+        if (!b.is_manual) return;
+
+        const newBreaks = [...shift.breaks_schedule];
+        newBreaks[breakIdx] = { ...b, is_manual: false };
+
+        setSmartShifts(prev => prev.map(s => s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s));
+
+        try {
+            const { getSupabaseClient } = await import('@/lib/supabase');
+            const supabase = await getSupabaseClient();
+            await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
+            setAiStatus({ message: `🤖 ${b.type === 'meal_30' ? 'Lunch' : 'Break'} restaurado — la IA lo recalculará`, type: 'info' });
+            setTimeout(() => setAiStatus(null), 4000);
+        } catch (err) {
+            console.error('Failed to reset break', err);
         }
     };
 
@@ -1104,6 +1128,7 @@ export default function DescansosPage() {
                                                             relativeLeft={relativeLeft}
                                                             relativeWidth={relativeWidth}
                                                             handleBreakDragEnd={handleBreakDragEnd}
+                                                            handleResetBreakToAI={handleResetBreakToAI}
                                                             allShifts={smartShifts}
                                                         />
                                                     )
@@ -1298,10 +1323,11 @@ export default function DescansosPage() {
 }
 
 
-function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidth, handleBreakDragEnd, allShifts }: any) {
+function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidth, handleBreakDragEnd, handleResetBreakToAI, allShifts }: any) {
     const offsetRef = useRef(0);
     const [, forceRender] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
+    const isManual = !!b.is_manual;
 
     const origStart = new Date(b.start_time).getTime();
     const durMs = new Date(b.end_time).getTime() - origStart;
@@ -1340,7 +1366,11 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
 
     const hasConflict = conflictReasons.length > 0;
     const tooltipBg = isDragging && hasConflict ? 'bg-red-600' : 'bg-slate-800';
-    const blockBorder = isDragging && hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : '';
+    const blockBorder = isDragging && hasConflict
+        ? 'ring-2 ring-red-500 ring-offset-1'
+        : isManual
+            ? 'ring-2 ring-blue-400/60'
+            : '';
 
     return (
         <motion.div
@@ -1366,6 +1396,12 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
                 setIsDragging(false);
                 handleBreakDragEnd(e, info, shift, idx);
             }}
+            onDoubleClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                if (isManual) {
+                    handleResetBreakToAI(shift, idx);
+                }
+            }}
             className={`absolute -top-1 -bottom-1 rounded border group/break cursor-grab active:cursor-grabbing focus:outline-none min-w-[20px] before:absolute before:content-[''] before:-inset-[10px] before:z-[-1] ${isMeal
                 ? 'bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
                 : 'bg-emerald-500 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
@@ -1375,8 +1411,15 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
                 width: `max(${relativeWidth}%, 20px)`,
             }}
         >
+            {/* Indicador 📌 de break manual */}
+            {isManual && !isDragging && (
+                <div className="absolute -top-3 -right-1 text-[10px] drop-shadow-md pointer-events-none z-[81]">📌</div>
+            )}
+            {/* Tooltip dinámico */}
             <div className={`absolute -top-14 left-1/2 -translate-x-1/2 ${tooltipBg} text-white text-[13px] font-bold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg pointer-events-none transition-all duration-100 ${isDragging ? 'opacity-100 z-[100] scale-105' : 'opacity-0 z-[80] group-hover/break:opacity-100 group-focus/break:opacity-100 scale-100'}`}>
                 {isMeal ? '🍽️ Meal' : '☕ Break'} → {displayDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                {!isDragging && isManual && <span className="text-blue-300 ml-1">(manual)</span>}
+                {!isDragging && isManual && <><br /><span className="text-[11px] text-blue-200 font-normal">Doble clic para restaurar IA</span></>}
                 {isDragging && hasConflict && (
                     <>
                         <br />
