@@ -39,10 +39,11 @@ export default function DescansosPage() {
         if (!timelineEl) return;
         const totalPx = timelineEl.getBoundingClientRect().width;
         // Total minutes = TOTAL_HOURS * 60, here TOTAL_HOURS is 24
-        const pxPerMinute = totalPx / (24 * 60);
+        const pxPerMinute = totalPx / (TOTAL_HOURS * 60);
         
-        const offsetMins = Math.round(info.offset.x / pxPerMinute);
-        if (Math.abs(offsetMins) < 5) return;
+        const rawOffset = Math.round(info.offset.x / pxPerMinute);
+        const offsetMins = Math.round(rawOffset / 10) * 10; // Snap a intervalos de 10 min
+        if (Math.abs(offsetMins) < 10) return;
         
         const origStart = new Date(b.start_time).getTime();
         const durMs = new Date(b.end_time).getTime() - origStart;
@@ -1396,7 +1397,8 @@ function DraggableBreakBlock({ b, idx, shift, isMeal, relativeLeft, relativeWidt
                 const timelineEl = document.getElementById('timeline-header');
                 if (!timelineEl) return;
                 const pxPerMinute = timelineEl.getBoundingClientRect().width / (TOTAL_HOURS * 60);
-                const newOffset = Math.round(info.offset.x / pxPerMinute);
+                const rawOffset = Math.round(info.offset.x / pxPerMinute);
+                const newOffset = Math.round(rawOffset / 10) * 10; // Snap a intervalos de 10 min
                 if (newOffset !== offsetRef.current) {
                     offsetRef.current = newOffset;
                     forceRender(n => n + 1);
