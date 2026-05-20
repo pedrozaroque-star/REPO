@@ -1131,7 +1131,7 @@ export default function DescansosPage() {
 
                                                     return (
                                                         <DraggableBreakBlock
-                                                            key={`plan-${idx}`}
+                                                            key={`plan-${idx}-${b.start_time}`}
                                                             b={b}
                                                             idx={idx}
                                                             shift={shift}
