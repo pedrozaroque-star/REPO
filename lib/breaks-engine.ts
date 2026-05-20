@@ -17,6 +17,7 @@ export type BreakBlock = {
     start_time: string
     end_time: string
     status?: 'scheduled' | 'taken' | 'waived'
+    is_manual?: boolean
 }
 
 type RoleCategory = 'leader' | 'foh' | 'boh'
@@ -316,9 +317,29 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
     // AM normaliza contra su propio max (ej: 12pm=1.00), PM contra el suyo (ej: 7pm=1.00).
     // Sin esto, si PM factura más que AM, el rush AM aparece "tibio" en el scoring.
     let getHeat = buildHeatFn(operatingHours) // default: global (para diagnóstico final)
-    const augmented: any[] = shifts.map(s => ({ ...s, breaks_schedule: [] as BreakBlock[] }))
+    const augmented: any[] = shifts.map(s => {
+        const manualBreaks = (s.breaks_schedule || []).filter((b: BreakBlock) => b.is_manual);
+        return { ...s, breaks_schedule: manualBreaks };
+    });
     assignCohorts(augmented)
     const globalSlots: GlobalSlot[] = []
+
+    // Pre-populate global slots with manual breaks so the engine avoids them
+    augmented.forEach(s => {
+        const rk = getRoleKey(s);
+        const cat = getRoleCategory(rk);
+        const empId = s.employee_id ?? null;
+        s.breaks_schedule.forEach((b: BreakBlock) => {
+            globalSlots.push({
+                type: b.type,
+                startMs: new Date(b.start_time).getTime(),
+                endMs: new Date(b.end_time).getTime(),
+                roleKey: rk,
+                category: cat,
+                empId
+            });
+        });
+    });
 
     // ────────────────────────────────────────────────────────────────────────
     //  HEAT BLOCKS: bloqueo de zona de pico para CUALQUIER break (meal o rest)
@@ -804,7 +825,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         // ── Per-shift heat: normalizar AM/PM independientemente ──
         getHeat = buildHeatFn(operatingHours, sMs, eMs)
         const req = getRequiredBreaks(sMs, eMs)
-        const meals = req.filter(b => b.type === 'meal_30')
+        const allMeals = req.filter(b => b.type === 'meal_30')
+        const manualMealsCount = shift.breaks_schedule.filter((b: BreakBlock) => b.type === 'meal_30' && b.is_manual).length
+        const meals = allMeals.slice(manualMealsCount)
         const endBuf = eMs - ms(60 * H_END_BUFFER)
         const totalMealsForShift = meals.length
 
@@ -847,7 +870,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         // ── Per-shift heat: normalizar AM/PM independientemente ──
         getHeat = buildHeatFn(operatingHours, sMs, eMs)
         const req = getRequiredBreaks(sMs, eMs)
-        const rests = req.filter(b => b.type === 'rest_10')
+        const allRests = req.filter(b => b.type === 'rest_10')
+        const manualRestsCount = shift.breaks_schedule.filter((b: BreakBlock) => b.type === 'rest_10' && b.is_manual).length
+        const rests = allRests.slice(manualRestsCount)
         if (rests.length === 0) continue
 
         const minStart = sMs + ms(60 * hMinStartRest((eMs - sMs) / 3_600_000))
