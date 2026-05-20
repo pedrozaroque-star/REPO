@@ -20,6 +20,14 @@ export type BreakBlock = {
     is_manual?: boolean
 }
 
+export type LearnedPreference = {
+    role: string;
+    day_of_week: number;
+    break_type: string;
+    break_index: number;
+    offset_from_start_min: number;
+}
+
 type RoleCategory = 'leader' | 'foh' | 'boh'
 
 type GlobalSlot = {
@@ -310,7 +318,7 @@ function assignCohorts(shifts: any[]): void {
 //  EXPORT PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: OperatingHour[]): Shift[] {
+export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: OperatingHour[], learnedPrefs: LearnedPreference[] = []): Shift[] {
     console.warn('%c🧠 BREAKS ENGINE V25 — ESPACIADO ESTRICTO (30/45 min entre distintos)', 'background:#0f2447;color:#60a5fa;font-size:14px;font-weight:bold;padding:4px 10px;border-radius:4px')
 
     // getHeat se re-asigna por cada turno para normalizar AM/PM independientemente.
@@ -502,6 +510,17 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
         const safeBeforeEnd = Math.min(wEndMs, peakStartMs + ms(30))
         const safeAfterStart = Math.max(wStartMs, peakEndMs)
         const safeAfterEnd = wEndMs
+
+        // ── PREFERENCES CHECK ───────────────────────────────────────────────
+        const rk = getRoleKey(shift);
+        const dayOfWeek = new Date(shiftStartMs).getDay();
+        const pref = learnedPrefs.find(p => p.role === rk && p.day_of_week === dayOfWeek && p.break_type === 'meal_30' && p.break_index === globalMealIndex);
+        
+        if (pref) {
+            const target = shiftStartMs + ms(pref.offset_from_start_min);
+            console.warn(`   → 🧠 LEARNED PREFERENCE applied for ${rk} meal ${globalMealIndex}: offset ${pref.offset_from_start_min}m -> target ${new Date(target).toLocaleTimeString()}`);
+            return { target, bypassHeat: true };
+        }
 
         // ── CAPACITY CHECK ──────────────────────────────────────────────────
         const safeBeforeMins = Math.max(0, safeBeforeEnd - safeBeforeStart) / 60000
@@ -944,6 +963,21 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
                 accum += seg.len
             }
 
+            // ── PREFERENCES CHECK FOR REST ──────────────────────────────────
+            const rk = getRoleKey(shift);
+            const dayOfWeek = new Date(sMs).getDay();
+            const globalRestIndex = manualRestsCount + i;
+            const pref = learnedPrefs.find(p => p.role === rk && p.day_of_week === dayOfWeek && p.break_type === 'rest_10' && p.break_index === globalRestIndex);
+            
+            let bypassHeatSnap = false;
+            if (pref) {
+                targetMs = sMs + ms(pref.offset_from_start_min);
+                bypassHeatSnap = true;
+                // Mock activeSeg around the preference to allow the search to stay there
+                activeSeg = { sMs: targetMs - ms(30), eMs: targetMs + ms(30), len: ms(60) };
+                console.warn(`   → 🧠 LEARNED PREFERENCE applied for ${rk} rest ${globalRestIndex}: offset ${pref.offset_from_start_min}m -> target ${new Date(targetMs).toLocaleTimeString()}`);
+            }
+
             // ── HEAT-SNAP para rests: buscar el minuto menos intenso en TODO el segmento ──
             // Sin esto, los rests caen en el punto medio matemático del segmento (ciego al pico).
             // Ej: Lucía con segmento [10:45-14:00] → target=12:22 (pleno rush).
@@ -978,8 +1012,9 @@ export function scheduleBreaksWithDemand(shifts: Shift[], operatingHours: Operat
             }
             // Solo mover si encontramos un slot significativamente más fresco (>15% menos heat)
             // Y si heatBestScore no quedó en Infinity (todas las posiciones estaban bloqueadas)
+            // Y SIEMPRE que no tengamos una preferencia aprendida manual (bypassHeatSnap)
             const originalHeat = spanHeat(targetMs, targetMs + ms(10), getHeat)
-            if (heatBestScore < Infinity && heatBestScore < originalHeat * 0.85) {
+            if (!bypassHeatSnap && heatBestScore < Infinity && heatBestScore < originalHeat * 0.85) {
                 console.warn(`   🧊 ${shift.employee_name} rest#${i+1} heat-snap: ${new Date(targetMs).toLocaleTimeString()} (heat=${originalHeat.toFixed(2)}) → ${new Date(heatBest).toLocaleTimeString()} (heat=${heatBestScore.toFixed(2)})`)
                 targetMs = heatBest
             }

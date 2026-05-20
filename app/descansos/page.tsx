@@ -11,7 +11,7 @@ import { formatDateISO, formatStoreName, getMonday, addDays, getRoleWeight } fro
 import { Shift, Employee, Job } from '@/app/planificador/lib/types'
 import { useAuth } from '@/components/ProtectedRoute'
 
-import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
+import { scheduleBreaksWithDemand, LearnedPreference } from '@/lib/breaks-engine'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
@@ -102,6 +102,45 @@ export default function DescansosPage() {
             const { getSupabaseClient } = await import('@/lib/supabase');
             const supabase = await getSupabaseClient();
             await supabase.from('shifts').update({ breaks_schedule: newBreaks }).eq('id', shift.id);
+
+            // ── 🧠 AI LEARNING: Guardar la preferencia ──
+            const storeGuid = searchParams.get('store_guid') || 'b7f63b01-f089-4ad7-a346-afdb1803dc1a';
+            const offsetMin = Math.round((newStartMs - shiftStart) / 60000);
+            const shiftDurationMin = Math.round((shiftEnd - shiftStart) / 60000);
+            const dayOfWeek = new Date(shiftStart).getDay();
+            
+            await supabase.from('break_manual_overrides').delete().match({
+                store_id: storeGuid,
+                role: rk,
+                day_of_week: dayOfWeek,
+                break_type: b.type,
+                break_index: breakIdx
+            });
+            
+            await supabase.from('break_manual_overrides').insert({
+                store_id: storeGuid,
+                role: rk,
+                day_of_week: dayOfWeek,
+                break_type: b.type,
+                break_index: breakIdx,
+                offset_from_start_min: offsetMin,
+                shift_duration_min: shiftDurationMin
+            });
+
+            // Actualizar memoria local para no tener que recargar
+            const newPref: LearnedPreference = {
+                role: rk,
+                day_of_week: dayOfWeek,
+                break_type: b.type,
+                break_index: breakIdx,
+                offset_from_start_min: offsetMin
+            };
+            const currentPrefs = lastDataRef.current.learnedPrefs || [];
+            lastDataRef.current.learnedPrefs = [
+                ...currentPrefs.filter(p => !(p.role === rk && p.day_of_week === dayOfWeek && p.break_type === b.type && p.break_index === breakIdx)),
+                newPref
+            ];
+
             setAiStatus({ message: `✅ ${b.type === 'meal_30' ? 'Lunch' : 'Break'} movido y guardado — la IA lo respetará`, type: 'success' });
             setTimeout(() => setAiStatus(null), 4000);
         } catch (err) {
@@ -219,13 +258,13 @@ export default function DescansosPage() {
     const [absentEmpIds, setAbsentEmpIds] = useState<Set<string>>(new Set())
     const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
-    const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[] }>({ shifts: [], hours: [], employees: [], jobs: [] })
+    const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[], learnedPrefs?: LearnedPreference[] }>({ shifts: [], hours: [], employees: [], jobs: [], learnedPrefs: [] })
 
     const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false) => {
         setCalculating(true);
         await new Promise(r => setTimeout(r, 50));
 
-        const { shifts, hours, employees, jobs } = dataOverride || lastDataRef.current;
+        const { shifts, hours, employees, jobs, learnedPrefs } = dataOverride || lastDataRef.current;
         if (!shifts || shifts.length === 0) {
             setCalculating(false);
             return;
@@ -280,7 +319,7 @@ export default function DescansosPage() {
         }
 
         try {
-            const augmented = scheduleBreaksWithDemand(shiftsForAi, hours);
+            const augmented = scheduleBreaksWithDemand(shiftsForAi, hours, learnedPrefs || []);
             setSmartShifts(augmented as Shift[]);
 
             const supabase = await getSupabaseClient()
@@ -586,6 +625,12 @@ export default function DescansosPage() {
 
         const hydratedAbsentSet = new Set(dbAbsentees);
         
+        // ── 🧠 AI LEARNING: Cargar preferencias manuales del gerente ──
+        const { data: prefData } = await supabase
+            .from('break_manual_overrides')
+            .select('*')
+            .eq('store_id', storeGuid);
+        const learnedPrefs = prefData || [];
         try {
             // --- 🧠 DEEP ARCHITECTURE: RENDERIZADO PROGRESIVO ---
             const alreadyCalculated = todayRawShifts.some((s: any) => s.breaks_schedule && s.breaks_schedule.length > 0);
@@ -614,7 +659,7 @@ export default function DescansosPage() {
 
             if (alreadyCalculated) {
                 // RUTA RÁPIDA (Bypass): Quitamos el cuadro de carga instantáneamente.
-                const data = { shifts: todayRawShifts, hours: [], employees: allEmpData as Employee[], jobs: jobs };
+                const data = { shifts: todayRawShifts, hours: [], employees: allEmpData as Employee[], jobs: jobs, learnedPrefs };
                 lastDataRef.current = data;
                 await triggerAiRecalculation(hydratedAbsentSet, data, false);
                 setCalculating(false); // ¡PANTALLA LIBERADA EN ~150ms!
@@ -626,11 +671,14 @@ export default function DescansosPage() {
                     })
                     .catch(e => console.error("Error en carga de fondo:", e));
             } else {
-                // RUTA LENTA (Primera vez): Requerimos las proyecciones para que la IA decida
-                const loadedHours = await fetchSlowData();
-                const data = { shifts: todayRawShifts, hours: loadedHours, employees: allEmpData as Employee[], jobs: jobs };
-                lastDataRef.current = data;
-                await triggerAiRecalculation(hydratedAbsentSet, data, false);
+                const hoursData = await fetchSlowData();
+                setOperatingHours(hoursData);
+                const fullData = { shifts: todayRawShifts, hours: hoursData, employees: allEmpData as Employee[], jobs: jobs, learnedPrefs };
+                lastDataRef.current = fullData;
+
+                if (!alreadyCalculated) {
+                    triggerAiRecalculation(hydratedAbsentSet, fullData, false);
+                }
             }
         } catch (error) {
             console.error("Error en la cadena principal de loadDayData:", error);
@@ -658,12 +706,18 @@ export default function DescansosPage() {
                     filter: `store_id=eq.${storeGuid}`
                 }, (payload: any) => {
                     if (payload.new.shift_date === dateStr) {
-                        // DEBOUNCE: Si vienen 10 cambios seguidos (el cron), solo re-cargamos una vez al final
+                        // DEBOUNCE: Si vienen varios cambios seguidos, solo re-cargamos una vez al final
                         if (rebalanceTimer) clearTimeout(rebalanceTimer);
                         rebalanceTimer = setTimeout(() => {
-                            setAiStatus({ message: 'Auditoría Toast: Descansos re-balanceados por ponchada irregular', type: 'info' });
+                            const hasBreaksChange = payload.old?.breaks_schedule !== payload.new?.breaks_schedule;
+                            setAiStatus({ 
+                                message: hasBreaksChange 
+                                    ? '🔄 Descansos actualizados — recargando...' 
+                                    : '🔄 Turno actualizado — recargando...', 
+                                type: 'info' 
+                            });
                             loadDayData();
-                        }, 2000);
+                        }, 1500);
                     }
                 })
                 .subscribe()
