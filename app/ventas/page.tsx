@@ -1064,7 +1064,7 @@ function SalesPageContent() {
                         </div>
 
                         {/* Dynamic Date Label & Filter */}
-                        <div className="flex flex-col sm:flex-row items-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto z-50">
+                        <div className="flex flex-wrap items-center justify-center gap-2 bg-white/70 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-black/5 dark:border-slate-800 backdrop-blur-xl shadow-lg shadow-black/5 w-full md:w-auto z-50">
 
                             <div className="flex items-center gap-1 mx-1">
                                 <button 
@@ -1100,11 +1100,11 @@ function SalesPageContent() {
 
                             {/* Store Filter */}
                             {storeList.length > 0 && (
-                                <div className="relative">
+                                <div className="relative min-w-0">
                                     <select
                                         value={selectedStore}
                                         onChange={(e) => setSelectedStore(e.target.value)}
-                                        className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                                        className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 max-w-[160px] truncate"
                                     >
                                         <option value="all">{t('sales.all_stores')}</option>
                                         {storeList.map((store) => (
@@ -1149,7 +1149,7 @@ function SalesPageContent() {
                                     { value: '0', label: t('sales.day_filter.sunday') },
                                 ]
                                 return (
-                                    <div className="relative">
+                                    <div className="relative min-w-0">
                                         <select
                                             value={dayOfWeekFilter === null ? 'all' : String(dayOfWeekFilter)}
                                             onChange={(e) => setDayOfWeekFilter(e.target.value === 'all' ? null : Number(e.target.value))}
@@ -1174,7 +1174,7 @@ function SalesPageContent() {
                             })()}
 
                             {/* Time Comparison Filter */}
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
                                 <div className="relative">
                                     <select
                                         value={timeFilter}
@@ -1241,7 +1241,7 @@ function SalesPageContent() {
                                 )}
                             </div>
 
-                            <div className="hidden sm:block w-[1px] h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
+                            <div className="hidden lg:block w-[1px] h-6 bg-slate-300 dark:bg-slate-700 mx-1"></div>
 
                             {isLiveSyncing && (
                                 <div className="hidden sm:flex items-center gap-2 px-2 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-medium animate-pulse">

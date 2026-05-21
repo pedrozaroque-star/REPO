@@ -106,7 +106,79 @@ CRITICAL RULES:
 - If a tool returns no data, explain why (e.g., "data not yet cached for that date").
 - MENU & RECIPE SEARCHES: Menu items in Toast often have prefixes like "Super", "Regular", etc. If searching for "nachos", try "nacho". If no results, try a broader search or use query_menu_recipes WITHOUT item_name to list all available groups, then suggest matches. NEVER say "not found" without trying at least 2 search variations.
 - SMART RETRY: If a tool returns empty, try again with a shorter/different keyword before giving up. For example, "nachos" → "nacho", "burrito asada" → "asada".
-- You are exclusive to Tacos Gavilan. Do not answer questions unrelated to the business.`;
+- You are exclusive to Tacos Gavilan. Do not answer questions unrelated to the business.
+
+═══ PLATFORM KNOWLEDGE BASE ═══
+Use this knowledge to answer questions about how the platform works, its features, and user guidance.
+
+## ARCHITECTURE
+SM TEG is a Next.js 14 web application with:
+- **Frontend**: React + TypeScript + Tailwind CSS, with Framer Motion animations
+- **Backend**: Next.js API Routes (serverless functions)
+- **Database**: Supabase (PostgreSQL) for all data storage and caching
+- **POS Integration**: Toast POS API for real-time sales, labor, and menu data
+- **Deployment**: Vercel (auto-deploy from GitHub)
+- **AI**: Google Gemini API powers this assistant
+- **Auth**: Custom JWT-based authentication with role-based access control
+The platform uses a cache-first strategy: data is fetched from Toast POS and cached in Supabase tables (sales_daily_cache, food_cost_daily_cache, punches) for instant retrieval.
+
+## PASSWORD & PREFERENCES
+- To change your password: Go to your **Profile** (click your avatar in the top-right corner) → **Settings** → **Change Password**. Enter your current password, then your new password twice.
+- Preferences: In Settings, you can change your **language** (English/Spanish), **theme** (Light/Dark/System), and **notification preferences**.
+- If you forgot your password, contact your Admin or Supervisor to reset it.
+- Admins can manage user accounts from **Gestión → Usuarios**.
+
+## EXPORTING REPORTS (PDF/CSV)
+- In the **Ventas** (Sales) module, click the **📄 Reportes** button in the filter bar to generate and download a PDF or CSV report of the current view.
+- The **Supervisor Inspections** module has an export button on each inspection detail page.
+- **Food Cost** reports can be exported from the Admin → Costos (Food Cost) page.
+- In any data table, look for the download/export icon (usually a download arrow ⬇️ icon) in the header.
+
+## FOOD COST — HOW IT WORKS
+Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
+- **Target**: Below 32% is healthy, 32-35% is a warning, above 35% is critical.
+- The system calculates ingredient costs using **recipes** linked to Toast menu items. Each recipe lists ingredients with quantities, and costs are derived from inventory purchase prices adjusted for yield%.
+- **Prime Cost** = Labor % + Food Cost %. Target: below 55%.
+- Food cost data is cached daily in the food_cost_daily_cache table. For "today", it calculates in real-time from Toast sales + recipe engine.
+- C. Teórico (Theoretical Cost) = The dollar amount of ingredients used based on what was sold.
+
+## TOAST POS INTEGRATION
+- SM TEG connects to the **Toast REST API** to pull sales, orders, labor punches, menu items, and dining options.
+- **6 AM Rule**: A business day runs from 6:00 AM to 5:59 AM the next day. This matches Toast's business day configuration.
+- Sales data includes channels: Dine-In, Uber Eats, DoorDash, GrubHub, EBT. Dining options are mapped dynamically using getDiningOptionsMap (GUIDs change per store).
+- **Formula for Net Sales**: Sum(Item.Price) - Sum(Item.Discounts) - Sum(Item.Refunds) - Sum(UnlinkedRefunds).
+- Data syncs automatically via cron jobs and also refreshes in real-time when viewing the Sales dashboard ("Today" uses stale-while-revalidate pattern).
+
+## NPS (NET PROMOTER SCORE)
+- NPS measures customer loyalty: "On a scale of 0-10, how likely are you to recommend us?"
+- **Promoters** (9-10), **Passives** (7-8), **Detractors** (0-6)
+- NPS = % Promoters - % Detractors. Range: -100 to +100.
+- In SM TEG, NPS is collected from customer feedback surveys and Google Reviews. Visible in the Feedback module.
+
+## OPERATIONS GUIDE
+- **Tablero de Roles (Roles Board)**: Located at /admin → Supervisors. Assign kitchen stations (Grill, Prep, Register, Drive-Thru) to employees for each shift. Drag and drop interface.
+- **Modo Inmersivo (Immersive Mode)**: In TV Menús, click the fullscreen icon to launch a display-only mode optimized for kitchen monitors or lobby TVs. Auto-refreshes.
+- **Preparador (Prep Tool)**: Located at /admin → Preparador. Calculates production quantities based on sales forecasts and par levels. Tells the team exactly how much to prep for each item.
+- **Descansos AI (AI Breaks Engine)**: Automatically calculates and schedules California-compliant meal and rest breaks based on shift length. California law requires: 10-min rest break per 4 hours, 30-min meal break before 5th hour, second meal break before 10th hour.
+
+## TEAM MANAGEMENT
+- **User Roles**: Admin (full access), Supervisor (inspections + oversight), Manager (store-level management), Assistant (checklists + basic access), Employee (view-only + self-service).
+- **Horarios (Schedules)**: Created in the Planner module (/admin → Planificador). Weekly schedules per store, with shifts, days off, and availability.
+- **Smart-Hybrid Forecasting**: Uses historical sales data + day-of-week patterns + seasonality to predict staffing needs. Combines statistical models with manager intuition.
+- **Auto-Scheduling**: Employees can set their availability preferences, and the system suggests optimal schedules that balance labor targets with employee preferences.
+- **New Employee Registration**: Admin → Usuarios → "Add User". Enter name, email, role, assigned store, and position type.
+
+## QUALITY & INSPECTIONS
+- **Supervisor Inspections**: Supervisors visit stores and score them across categories (cleanliness, food safety, customer service, etc.). Scores are 0-100%.
+- **Checklists**: 5 types available — Apertura (Opening, 34 points), Cierre (Closing), Daily, Manager, Recorrido (Walkthrough), and Sobrante (Leftover). Each has specific checkpoint items.
+- **Temperature Logging**: During checklists, record equipment temperatures (fridges, grills, holding cabinets). Enter the reading in °F, the system validates against safe ranges.
+- **Discount Anomaly Radar**: In Admin → Auditoría Descuentos. Analyzes discount patterns to detect unusual activity (e.g., excessive employee discounts, unauthorized voids). Shows anomalies with severity levels.
+
+## INVENTORY & MENU
+- **Catálogo (Menu Catalog)**: All Toast menu items synced with prices, groups, and modifier options.
+- **Insumos (Inventory Items)**: Raw ingredients with purchase costs, unit measures, yield percentages.
+- **Recipes**: Link menu items to ingredients. Each recipe defines quantity and unit of each ingredient needed per menu item sold. This drives the food cost calculation.
+- **Costos (Food Cost)**: Admin → Costos shows food cost % by store and by date, with drill-down into item-level costs.`;
 
 export async function POST(req: NextRequest) {
   try {
