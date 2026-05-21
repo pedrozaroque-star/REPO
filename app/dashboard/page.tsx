@@ -228,13 +228,24 @@ function DashboardContent() {
             const { data: feedbacksRaw } = await queryFeedback
 
             // 3. Sales + Food Cost + Anomalías (parallel)
-            const [{ data: salesRows }, fcCacheRes, { data: anomRows }] = await Promise.all([
-                supabase.from('sales_daily_cache').select('net_sales, labor_cost').gte('business_date', startDateStr).lte('business_date', endDateStr),
-                fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`).then(r => r.json()).catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 })),
+            const [ventasRes, fcCacheRes, { data: anomRows }] = await Promise.all([
+                fetch(`/api/ventas?startDate=${startDateStr}&endDate=${endDateStr}&groupBy=day`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                }).then(r => r.json()).catch(() => ({ rows: [] })),
+                fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`)
+                    .then(r => r.json())
+                    .then(async data => {
+                        if (!data || data.totalCost === 0) {
+                            return fetch(`/api/inventory/food-cost?storeId=all&startDate=${startDateStr}&endDate=${endDateStr}`).then(r => r.json()).catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 }))
+                        }
+                        return data;
+                    })
+                    .catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 })),
                 supabase.from('sales_discounts_log').select('id, store_id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
             ])
-            const totalSales = salesRows?.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0) || 0
-            const totalLaborCost = salesRows?.reduce((s: number, r: any) => s + Number(r.labor_cost || 0), 0) || 0
+            const salesRows = ventasRes.rows || []
+            const totalSales = salesRows?.reduce((s: number, r: any) => s + Number(r.netSales || 0), 0) || 0
+            const totalLaborCost = salesRows?.reduce((s: number, r: any) => s + Number(r.laborCost || 0), 0) || 0
             const laborPct = totalSales > 0 ? (totalLaborCost / totalSales) * 100 : 0
             const foodCostPct = fcCacheRes?.costPercentage || 0
             const foodCostDollars = fcCacheRes?.totalCost || 0
