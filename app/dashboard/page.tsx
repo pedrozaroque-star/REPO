@@ -234,29 +234,29 @@ function DashboardContent() {
             const { data: feedbacksRaw } = await queryFeedback
 
 
-            // 3. Sales (direct from Supabase cache) + Food Cost + Anomalías (parallel)
+            // 3. Sales + Food Cost + Anomalías — ALL from Supabase (instant, no API calls)
             const [salesCacheRes, fcCacheRes, { data: anomRows }] = await Promise.all([
-                // READ SALES DIRECTLY FROM SUPABASE (same pattern as alerts route - proven & instant)
+                // Sales: direct from Supabase cache
                 supabase.from('sales_daily_cache')
                     .select('store_id, store_name, net_sales, labor_cost, labor_hours, business_date')
                     .gte('business_date', startDateStr).lte('business_date', endDateStr),
-                fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`)
-                    .then(r => r.json())
-                    .then(async data => {
-                        if (!data || data.totalCost === 0) {
-                            return fetch(`/api/inventory/food-cost?storeId=all&startDate=${startDateStr}&endDate=${endDateStr}`).then(r => r.json()).catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 }))
-                        }
-                        return data;
-                    })
-                    .catch(() => ({ totalCost: 0, totalSales: 0, costPercentage: 0 })),
+                // Food Cost: direct from Supabase cache (NO fallback to heavy Toast PMIX API)
+                supabase.from('food_cost_daily_cache')
+                    .select('store_id, total_cost, net_sales, cost_percentage, business_date')
+                    .gte('business_date', startDateStr).lte('business_date', endDateStr),
+                // Anomalías: direct from Supabase
                 supabase.from('sales_discounts_log').select('id, store_id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
             ])
             const salesRows = salesCacheRes.data || []
             const totalSales = salesRows.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0)
             const totalLaborCost = salesRows.reduce((s: number, r: any) => s + Number(r.labor_cost || 0), 0)
             const laborPct = totalSales > 0 ? (totalLaborCost / totalSales) * 100 : 0
-            const foodCostPct = fcCacheRes?.costPercentage || 0
-            const foodCostDollars = fcCacheRes?.totalCost || 0
+            // Food Cost from cache
+            const fcRows = fcCacheRes.data || []
+            const fcTotalCost = fcRows.reduce((s: number, r: any) => s + Number(r.total_cost || 0), 0)
+            const fcTotalSales = fcRows.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0)
+            const foodCostPct = fcTotalSales > 0 ? (fcTotalCost / fcTotalSales) * 100 : 0
+            const foodCostDollars = fcTotalCost
             const anomalies = (anomRows || []).map((a: any) => ({
                 id: a.id,
                 store: formatStoreName(a.store_name),
