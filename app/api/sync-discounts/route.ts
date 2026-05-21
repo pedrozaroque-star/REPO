@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
+
 const TOAST_API_HOST = process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'
 const TOAST_CLIENT_ID = process.env.TOAST_CLIENT_ID || ''
 const TOAST_CLIENT_SECRET = process.env.TOAST_CLIENT_SECRET || ''
@@ -52,6 +55,52 @@ async function getDiningOptionsMap(token: string, storeId: string): Promise<Reco
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// GET — Vercel Cron Handler (auto-calculates yesterday's business date)
+// Vercel crons ALWAYS make GET requests, never POST.
+// Schedule in vercel.json: "40 13 * * *" → 6:40 AM LA time
+// ═══════════════════════════════════════════════════════════════════
+export async function GET(request: Request) {
+    try {
+        // 1. Verify Vercel Cron secret (skip in dev)
+        const authHeader = request.headers.get('authorization')
+        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+            if (process.env.CRON_SECRET) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+            }
+        }
+
+        // 2. Calculate yesterday's business date (LA timezone, 6 AM rule)
+        //    The cron runs at 6:40 AM LA, so "yesterday" = the business day that just ended at 6:00 AM
+        const now = new Date()
+        const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+        
+        // At 6:40 AM, getHours() = 6, so we go back 1 day → yesterday's business date
+        // If somehow running before 6 AM, we also go back 1 day (still previous business day)
+        laNow.setDate(laNow.getDate() - 1)
+        
+        const y = laNow.getFullYear()
+        const m = String(laNow.getMonth() + 1).padStart(2, '0')
+        const d = String(laNow.getDate()).padStart(2, '0')
+        const dateStr = `${y}-${m}-${d}`
+
+        console.log(`🕐 [CRON DISCOUNTS] Auto-sync para día laboral: ${dateStr}`)
+
+        const result = await syncDiscountsForDate(dateStr)
+
+        console.log(`✅ [CRON DISCOUNTS] Completado: ${result.total_inserted} descuentos sincronizados para ${dateStr}`)
+        return NextResponse.json({ success: true, source: 'cron', ...result })
+
+    } catch (e: any) {
+        console.error(`💥 [CRON DISCOUNTS] Error:`, e)
+        return NextResponse.json({ success: false, error: e.message }, { status: 500 })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// POST — Manual trigger (requires { date: "YYYY-MM-DD" } in body)
+// Used by scripts and manual admin calls.
+// ═══════════════════════════════════════════════════════════════════
 export async function POST(request: Request) {
     try {
         const body = await request.json();
@@ -60,6 +109,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Falta la fecha' }, { status: 400 });
         }
 
+        const result = await syncDiscountsForDate(dateStr)
+        return NextResponse.json({ success: true, source: 'manual', ...result })
+
+    } catch (e: any) {
+        return NextResponse.json({ success: false, error: e.message }, { status: 500 })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CORE: Sync discounts for a specific business date
+// ═══════════════════════════════════════════════════════════════════
+async function syncDiscountsForDate(dateStr: string) {
         const formattedDate = dateStr.split('-').join('')
 
         // 1. Auth
@@ -246,8 +307,8 @@ export async function POST(request: Request) {
             }
         }
 
-        return NextResponse.json({ success: true, date: dateStr, total_inserted: totalInserted })
+        return { date: dateStr, total_inserted: totalInserted }
     } catch (e: any) {
-        return NextResponse.json({ success: false, error: e.message }, { status: 500 })
+        throw e
     }
 }
