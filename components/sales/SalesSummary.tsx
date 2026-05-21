@@ -120,7 +120,7 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
                     </div>
 
                     <div className="mt-2 relative z-10">
-                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest mb-1">
+                        <p className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest mb-1">
                             {card.title}
                         </p>
                         <h3 className={`text-3xl lg:text-4xl font-semibold text-slate-900 dark:text-white tracking-tighter ${
@@ -129,12 +129,12 @@ export default function SalesSummary({ data, foodCost }: SummaryProps) {
                             {card.value}
                         </h3>
                         {card.subValue && (
-                            <p className="text-xs text-slate-600 dark:text-slate-400 font-mono font-bold mt-1">
+                            <p className="text-sm text-slate-600 dark:text-slate-400 font-mono font-bold mt-1">
                                 {card.subValue}
                             </p>
                         )}
                         {'secondarySubValue' in card && card.secondarySubValue && (
-                            <p className={`text-[10px] font-semibold mt-0.5 ${
+                            <p className={`text-xs font-semibold mt-0.5 ${
                                 card.secondarySubValue.includes('Critical') || card.secondarySubValue.includes('Crítico') 
                                     ? 'text-rose-500 dark:text-rose-400' 
                                     : card.secondarySubValue.includes('Prime') || card.secondarySubValue.includes('Primo') 
