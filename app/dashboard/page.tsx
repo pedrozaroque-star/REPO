@@ -235,7 +235,7 @@ function DashboardContent() {
 
             // 3. Sales + Food Cost + Anomalías (parallel)
             const [ventasRes, fcCacheRes, { data: anomRows }] = await Promise.all([
-                fetch(`/api/ventas?startDate=${startDateStr}&endDate=${endDateStr}&groupBy=day`, {
+                fetch(`/api/ventas?startDate=${startDateStr}&endDate=${endDateStr}&groupBy=day&skipCache=true`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 }).then(r => r.json()).catch(() => ({ rows: [] })),
                 fetch(`/api/inventory/food-cost-cache?startDate=${startDateStr}&endDate=${endDateStr}`)
