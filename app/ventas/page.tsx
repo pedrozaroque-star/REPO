@@ -1167,7 +1167,7 @@ function SalesPageContent() {
                                     <select
                                         value={selectedStore}
                                         onChange={(e) => setSelectedStore(e.target.value)}
-                                        className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 max-w-[160px] truncate"
+                                        className="appearance-none pl-8 pr-8 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors border border-black/5 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-w-[180px] w-auto"
                                     >
                                         <option value="all">{t('sales.all_stores')}</option>
                                         {storeList.map((store) => (
