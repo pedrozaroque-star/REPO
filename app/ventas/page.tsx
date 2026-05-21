@@ -1049,10 +1049,10 @@ function SalesPageContent() {
                                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1 mt-1 md:mt-0 max-w-full">
                                         <TrendingUp size={14} className="shrink-0" />
                                         <span>
-                                            <strong>Proyección Inteligente:</strong> Calculada usando
+                                            <strong>{t('sales.projection.title')}:</strong> {t('sales.projection.calculated_using')}
                                             {(() => {
                                                 const rowsWithMeta = data.rawRows.filter((r: any) => r.projectionMeta);
-                                                if (rowsWithMeta.length === 0) return ' las ventas del año pasado.';
+                                                if (rowsWithMeta.length === 0) return t('sales.projection.last_year_sales_fallback');
                                                 
                                                 let totalBase = 0;
                                                 let sumGrowth = 0;
@@ -1071,24 +1071,24 @@ function SalesPageContent() {
                                                 
                                                 let explanation = "";
                                                 if (totalBase > 0) {
-                                                    explanation += ` una base de $${totalBase.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+                                                    explanation += `${t('sales.projection.base_of')} $${totalBase.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
                                                 } else {
-                                                    explanation += ` las ventas`;
+                                                    explanation += `${t('sales.projection.the_sales')}`;
                                                 }
                                                 
-                                                explanation += ` de este mismo día el año pasado`;
+                                                explanation += `${t('sales.projection.last_year_same_day')}`;
                                                 
                                                 if (countGrowth > 0) {
                                                     const avgGrowth = sumGrowth / countGrowth;
-                                                    explanation += `, ajustada por la tendencia de las últimas 4 semanas (${avgGrowth > 0 ? '+' : ''}${avgGrowth.toFixed(1)}%)`;
+                                                    explanation += `${t('sales.projection.adjusted_trend')}${avgGrowth > 0 ? '+' : ''}${avgGrowth.toFixed(1)}%)`;
                                                 }
                                                 if (hasWeather) {
-                                                    explanation += ` y una penalidad del -5% por clima extremo`;
+                                                    explanation += `${t('sales.projection.weather_penalty')}`;
                                                 }
                                                 
                                                 const totalProj = data.rawRows.reduce((sum: number, r: any) => sum + (r.projectedSales || 0), 0);
                                                 if (totalProj > 0) {
-                                                    explanation += ` ➔ Total Proyectado: $${totalProj.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}.`;
+                                                    explanation += ` ➔ ${t('sales.projection.total_projected')}: $${totalProj.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}.`;
                                                 } else {
                                                     explanation += ".";
                                                 }
