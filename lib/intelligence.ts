@@ -37,6 +37,7 @@ export interface DayForecast {
     date: string
     store_id: string
     total_sales: number
+    base_sales?: number
     growth_factor_applied: number
     weather_adjustment?: boolean
     hours: OperatingHour[]
@@ -773,6 +774,7 @@ export async function generateSmartForecast(storeId: string, targetDateStr: stri
         date: targetDateStr,
         store_id: storeId,
         total_sales: finalTotalSales,
+        base_sales: baseSales,
         growth_factor_applied: growthFactorSales,
         weather_adjustment: weatherFactor < 1.0,
         hours: trimmedHours

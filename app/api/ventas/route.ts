@@ -142,7 +142,8 @@ export async function GET(request: NextRequest) {
                             });
                             projMeta = {
                                 growth_factor: forecast.growth_factor_applied,
-                                weather_adjusted: forecast.weather_adjustment || false
+                                weather_adjusted: forecast.weather_adjustment || false,
+                                base_sales: forecast.base_sales
                             };
                         }
 
@@ -244,7 +245,8 @@ export async function GET(request: NextRequest) {
                                 hourly: hourlyMap,
                                 meta: {
                                     growth_factor: forecast.growth_factor_applied,
-                                    weather_adjusted: forecast.weather_adjustment || false
+                                    weather_adjusted: forecast.weather_adjustment || false,
+                                    base_sales: forecast.base_sales
                                 }
                             })
 

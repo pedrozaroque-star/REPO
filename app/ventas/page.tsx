@@ -1049,20 +1049,51 @@ function SalesPageContent() {
                                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1 mt-1 md:mt-0 max-w-full">
                                         <TrendingUp size={14} className="shrink-0" />
                                         <span>
-                                            <strong>Proyección Inteligente:</strong> Calculada usando las ventas de este mismo día el año pasado
+                                            <strong>Proyección Inteligente:</strong> Calculada usando
                                             {(() => {
-                                                const meta = data.rawRows.find((r: any) => r.projectionMeta)?.projectionMeta;
-                                                if (!meta) return '.';
+                                                const rowsWithMeta = data.rawRows.filter((r: any) => r.projectionMeta);
+                                                if (rowsWithMeta.length === 0) return ' las ventas del año pasado.';
+                                                
+                                                let totalBase = 0;
+                                                let sumGrowth = 0;
+                                                let countGrowth = 0;
+                                                let hasWeather = false;
+                                                
+                                                rowsWithMeta.forEach((r: any) => {
+                                                    const m = r.projectionMeta;
+                                                    if (m.base_sales) totalBase += m.base_sales;
+                                                    if (m.growth_factor) {
+                                                        sumGrowth += (m.growth_factor - 1) * 100;
+                                                        countGrowth++;
+                                                    }
+                                                    if (m.weather_adjusted) hasWeather = true;
+                                                });
                                                 
                                                 let explanation = "";
-                                                if (meta.growth_factor) {
-                                                    const g = (meta.growth_factor - 1) * 100;
-                                                    explanation += `, con un ajuste de tendencia reciente del ${g > 0 ? '+' : ''}${g.toFixed(1)}%`;
+                                                if (totalBase > 0) {
+                                                    explanation += ` una base de $${totalBase.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+                                                } else {
+                                                    explanation += ` las ventas`;
                                                 }
-                                                if (meta.weather_adjusted) {
-                                                    explanation += ` y una penalización del -5% por clima extremo`;
+                                                
+                                                explanation += ` de este mismo día el año pasado`;
+                                                
+                                                if (countGrowth > 0) {
+                                                    const avgGrowth = sumGrowth / countGrowth;
+                                                    explanation += `, ajustada por la tendencia de las últimas 4 semanas (${avgGrowth > 0 ? '+' : ''}${avgGrowth.toFixed(1)}%)`;
                                                 }
-                                                return explanation + ".";
+                                                if (hasWeather) {
+                                                    explanation += ` y una penalidad del -5% por clima extremo`;
+                                                }
+                                                
+                                                const totalProj = data.rawRows.reduce((sum: number, r: any) => sum + (r.projectedSales || 0), 0);
+                                                if (totalProj > 0) {
+                                                    explanation += ` ➔ Total Proyectado: $${totalProj.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}.`;
+                                                } else {
+                                                    explanation += ".";
+                                                }
+                                                
+                                                return explanation;
                                             })()}
                                         </span>
                                     </div>
