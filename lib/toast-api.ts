@@ -1173,20 +1173,20 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                         }
                     }
                 } else {
-                    // Mock
-                    const salesVal = 2000 + Math.random() * 4000
+                    // API is unreachable and no cache exists. Return zeroed out metrics instead of fake data.
+                    connectionError = "Toast API connection failed and no cache available.";
                     return {
                         store,
                         date: dateStr,
                         salesMetrics: {
-                            netSales: salesVal,
-                            grossSales: salesVal * 1.1,
-                            discounts: salesVal * 0.1,
-                            tips: salesVal * 0.18,
-                            taxes: salesVal * 0.08,
+                            netSales: 0,
+                            grossSales: 0,
+                            discounts: 0,
+                            tips: 0,
+                            taxes: 0,
                             serviceCharges: 0,
-                            orders: Math.floor(salesVal / 25),
-                            guests: Math.floor(salesVal / 20),
+                            orders: 0,
+                            guests: 0,
                             hourlySales: {},
                             hourlyTickets: {},
                             uberSales: 0,
@@ -1195,9 +1195,9 @@ export const fetchToastData = async (options: ToastMetricsOptions): Promise<{ ro
                             ebtCount: 0,
                             ebtAmount: 0
                         },
-                        laborMetrics: { hours: (salesVal / 25) * 0.4, laborCost: ((salesVal / 25) * 0.4) * 18.50 },
+                        laborMetrics: { hours: 0, laborCost: 0, hourlyLabor: {} },
                         fromCache: false,
-                        hasError: false
+                        hasError: true
                     }
                 }
             }
@@ -1458,21 +1458,21 @@ export const getISOWeekInfo = (date: Date) => {
 
 // MOCK STORE LIST (Fallback)
 export const TOAST_STORES_MOCK = [
-    { id: '1', name: "Lynwood (Mock)" },
-    { id: '2', name: "South Gate (Mock)" },
-    { id: '3', name: "LA Central (Mock)" },
-    { id: '4', name: "Huntington Park (Mock)" },
-    { id: '5', name: "Hollywood (Mock)" },
-    { id: '6', name: "Downey (Mock)" },
-    { id: '7', name: "Norwalk (Mock)" },
-    { id: '8', name: "Rialto (Mock)" },
-    { id: '9', name: "LA Broadway (Mock)" },
-    { id: '10', name: "West Covina (Mock)" },
-    { id: '11', name: "Slauson (Mock)" },
-    { id: '12', name: "Santa Ana (Mock)" },
-    { id: '13', name: "La Puente (Mock)" },
-    { id: '14', name: "Azusa (Mock)" },
-    { id: '15', name: "Bell (Mock)" },
+    { id: '80a1ec95-bc73-402e-8884-e5abbe9343e6', name: "Lynwood" },
+    { id: '95866cfc-eeb8-4af9-9586-f78931e1ea04', name: "South Gate" },
+    { id: '8685e942-3f07-403a-afb6-faec697cd2cb', name: "LA Central" },
+    { id: '47256ade-2cd4-4073-9632-84567ad9e2c8', name: "Huntington Park" },
+    { id: '5fbb58f5-283c-4ea4-9415-04100ee6978b', name: "Hollywood" },
+    { id: 'b7f63b01-f089-4ad7-a346-afdb1803dc1a', name: "Downey" },
+    { id: '42ed15a6-106b-466a-9076-1e8f72451f6b', name: "Norwalk" },
+    { id: 'acf15327-54c8-4da4-8d0d-3ac0544dc422', name: "Rialto" },
+    { id: '475bc112-187d-4b9c-884d-1f6a041698ce', name: "LA Broadway" },
+    { id: '5f4a006e-9a6e-4bcf-b5bd-7f5e9d801a02', name: "West Covina" },
+    { id: '9625621e-1b5e-48d7-87ae-7094fab5a4fd', name: "Slauson" },
+    { id: '3c2d8251-c43c-43b8-8306-387e0a4ed7c2', name: "Santa Ana" },
+    { id: '3a803939-eb13-4def-a1a4-462df8e90623', name: "La Puente" },
+    { id: 'e0345b1f-d6d6-40b2-bd06-5f9f4fd944e8', name: "Azusa" },
+    { id: 'a83901db-2431-4283-834e-9502a2ba4b3b', name: "Bell" },
 ]
 // --- CONFIGURATION ---
 export async function getSalesCategories(storeGuid: string): Promise<Map<string, string>> {
