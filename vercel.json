@@ -50,7 +50,7 @@
         },
         {
             "path": "/api/sync-discounts",
-            "schedule": "40 13 * * *"
+            "schedule": "*/30 * * * *"
         },
         {
             "path": "/api/cron/sync-sales-today",

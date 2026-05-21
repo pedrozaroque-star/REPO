@@ -41,19 +41,59 @@ export async function GET(req: NextRequest) {
             allowDirtyCache: true // Read today's cache if populated by cron; live fallback if not
         }
 
-        const [salesResult, fcRes] = await Promise.all([
-            // 1. Sales + Labor via the UNIFIED engine (cache-first, live fallback for dirty dates)
-            fetchToastData(salesOptions),
+        // ═══════════════════════════════════════════════════
+        // 1. Sales + Labor via the UNIFIED engine (cache-first, live fallback for dirty dates)
+        // ═══════════════════════════════════════════════════
+        const salesResult = await fetchToastData(salesOptions)
 
-            // 2. Food Cost: direct Supabase cache read (separate calculation pipeline)
-            (async () => {
-                const supabase = await getSupabaseAdminClient()
-                return supabase.from('food_cost_daily_cache')
-                    .select('store_id, store_name, total_cost, net_sales, cost_percentage, business_date')
-                    .gte('business_date', startDate)
-                    .lte('business_date', endDate)
-            })()
-        ])
+        // ═══════════════════════════════════════════════════
+        // 2. Food Cost: SAME STRATEGY AS VENTAS MODULE
+        //    Cache-first → live fallback if cache miss
+        // ═══════════════════════════════════════════════════
+        let fcTotalCost = 0
+        let fcTotalSales = 0
+
+        try {
+            // Step A: Try cache (instant ~50ms)
+            const supabase = await getSupabaseAdminClient()
+            const { data: fcRows, error: fcErr } = await supabase
+                .from('food_cost_daily_cache')
+                .select('store_id, store_name, total_cost, net_sales, cost_percentage, business_date')
+                .gte('business_date', startDate)
+                .lte('business_date', endDate)
+
+            if (!fcErr && fcRows && fcRows.length > 0) {
+                // Cache hit — use pre-calculated data
+                fcRows.forEach(r => {
+                    fcTotalCost += Number(r.total_cost || 0)
+                    fcTotalSales += Number(r.net_sales || 0)
+                })
+            } else {
+                // Step B: Cache miss — live fallback for short ranges (≤7 days)
+                const rangeDays = Math.floor(
+                    (new Date(endDate + 'T00:00:00').getTime() - new Date(startDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)
+                ) + 1
+
+                if (rangeDays <= 7) {
+                    // Use the same full calculation endpoint as Ventas (which also populates cache)
+                    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
+                        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+                    const fcUrl = `${baseUrl}/api/inventory/food-cost?storeId=all&startDate=${startDate}&endDate=${endDate}`
+                    const fcRes = await fetch(fcUrl)
+                    const fcJson = await fcRes.json()
+
+                    if (fcJson.data && fcJson.data.length > 0) {
+                        fcJson.data.forEach((item: any) => {
+                            fcTotalCost += Number(item.total_cost || 0)
+                            fcTotalSales += Number(item.net_sales || 0)
+                        })
+                    }
+                }
+                // For ranges > 7 days without cache, leave as 0 (too expensive to calculate live)
+            }
+        } catch (fcError) {
+            console.error('[Dashboard KPIs] Food Cost Error:', fcError)
+        }
 
         // ── Aggregate Sales + Labor from fetchToastData rows ──
         // Each row = one store × one day (same structure as /api/ventas response)
@@ -69,21 +109,6 @@ export async function GET(req: NextRequest) {
         })
 
         const laborPct = totalSales > 0 ? (totalLaborCost / totalSales) * 100 : 0
-
-        // ── Aggregate Food Cost from cache ──
-        const fcRows = fcRes.data || []
-        let fcTotalCost = 0
-        let fcTotalSales = 0
-
-        if (fcRes.error) {
-            console.error('[Dashboard KPIs] FC Error:', fcRes.error)
-        } else {
-            fcRows.forEach(r => {
-                fcTotalCost += Number(r.total_cost || 0)
-                fcTotalSales += Number(r.net_sales || 0)
-            })
-        }
-
         const foodCostPct = fcTotalSales > 0 ? (fcTotalCost / fcTotalSales) * 100 : 0
 
         // ── Response (backward-compatible shape) ──
