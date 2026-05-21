@@ -1051,7 +1051,11 @@ function SalesPageContent() {
                                         <span>
                                             <strong>{t('sales.projection.title')}:</strong> {t('sales.projection.calculated_using')}
                                             {(() => {
-                                                const rowsWithMeta = data.rawRows.filter((r: any) => r.projectionMeta);
+                                                let targetRows = data.rawRows;
+                                                if (selectedStore !== 'all') {
+                                                    targetRows = targetRows.filter((r: any) => r.storeName === selectedStore || r.name === selectedStore || r.storeId === selectedStore);
+                                                }
+                                                const rowsWithMeta = targetRows.filter((r: any) => r.projectionMeta);
                                                 if (rowsWithMeta.length === 0) return t('sales.projection.last_year_sales_fallback');
                                                 
                                                 let totalBase = 0;
@@ -1086,7 +1090,7 @@ function SalesPageContent() {
                                                     explanation += `${t('sales.projection.weather_penalty')}`;
                                                 }
                                                 
-                                                const totalProj = data.rawRows.reduce((sum: number, r: any) => sum + (r.projectedSales || 0), 0);
+                                                const totalProj = targetRows.reduce((sum: number, r: any) => sum + (r.projectedSales || 0), 0);
                                                 if (totalProj > 0) {
                                                     explanation += ` ➔ ${t('sales.projection.total_projected')}: $${totalProj.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}.`;
                                                 } else {
