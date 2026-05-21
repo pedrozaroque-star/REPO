@@ -9,7 +9,7 @@ import {
     LayoutDashboard, Plus, BarChart3, Store, Users, ClipboardList,
     MessageSquare, AlertTriangle, CheckCircle, TrendingUp, Activity,
     Target, Timer, Award, Info, ShieldAlert, Camera, ExternalLink,
-    DollarSign, X, Receipt
+    DollarSign, X, Receipt, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FeedbackReviewModal from '@/components/FeedbackReviewModal'
@@ -127,6 +127,28 @@ function DashboardContent() {
     // Aliases de las fechas del estado — disponibles en todo el componente (JSX incluido)
     const startDateStr = startDate
     const endDateStr = endDate
+
+    // ── Shift date by N days (same pattern as Ventas module) ──
+    const shiftDate = (days: number) => {
+        const [sYear, sMonth, sDay] = startDate.split('-').map(Number)
+        const [eYear, eMonth, eDay] = endDate.split('-').map(Number)
+        const currentStart = new Date(sYear, sMonth - 1, sDay)
+        const currentEnd = new Date(eYear, eMonth - 1, eDay)
+        currentStart.setDate(currentStart.getDate() + days)
+        currentEnd.setDate(currentEnd.getDate() + days)
+        const formatD = (d: Date) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+        setTimeFilter('custom')
+        setStartDate(formatD(currentStart))
+        setEndDate(formatD(currentEnd))
+    }
+
+    // Disable right arrow when already on today's business date
+    const todayBusinessStr = (() => {
+        const d = new Date()
+        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+    })()
+    const isTodayOrFuture = endDate >= todayBusinessStr
 
     const fetchStats = async (signal?: AbortSignal) => {
         try {
@@ -408,8 +430,15 @@ function DashboardContent() {
                             <p className="hidden md:block text-sm font-bold text-slate-400 dark:text-slate-300 uppercase tracking-widest mt-1.5">{t('dashboard.subtitle')}</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="hidden lg:block">
+                    <div className="flex items-center gap-1">
+                        <div className="hidden lg:flex items-center gap-1">
+                            <button
+                                onClick={() => shiftDate(-1)}
+                                className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                                title="Día Anterior"
+                            >
+                                <ChevronLeft className="w-5 h-5" />
+                            </button>
                             <DateRangeFilter
                                 period={timeFilter}
                                 startDate={startDate}
@@ -420,6 +449,14 @@ function DashboardContent() {
                                     setEndDate(e)
                                 }}
                             />
+                            <button
+                                onClick={() => shiftDate(1)}
+                                disabled={isTodayOrFuture}
+                                className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                title="Día Siguiente"
+                            >
+                                <ChevronRight className="w-5 h-5" />
+                            </button>
                         </div>
                     </div>
                     <div className="hidden md:flex flex-col items-end">
@@ -429,7 +466,14 @@ function DashboardContent() {
                         </span>
                     </div>
                 </div>
-                <div className="lg:hidden mt-3">
+                <div className="lg:hidden mt-3 flex items-center gap-1">
+                    <button
+                        onClick={() => shiftDate(-1)}
+                        className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                        title="Día Anterior"
+                    >
+                        <ChevronLeft className="w-5 h-5" />
+                    </button>
                     <DateRangeFilter
                         period={timeFilter}
                         startDate={startDate}
@@ -439,8 +483,16 @@ function DashboardContent() {
                             setStartDate(s)
                             setEndDate(e)
                         }}
-                        className="w-full"
+                        className="flex-1"
                     />
+                    <button
+                        onClick={() => shiftDate(1)}
+                        disabled={isTodayOrFuture}
+                        className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:hover:text-white dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        title="Día Siguiente"
+                    >
+                        <ChevronRight className="w-5 h-5" />
+                    </button>
                 </div>
             </header>
 
@@ -498,7 +550,10 @@ function DashboardContent() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="md:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-0 border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col" style={{maxHeight:'320px'}}>
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-red-50/40 dark:bg-red-900/10">
-                            <h3 className="font-black text-red-900 dark:text-red-100 text-base flex items-center gap-3"><ShieldAlert size={22} className="text-red-500" /> Radar de Anomalías</h3>
+                            <div>
+                                <h3 className="font-black text-red-900 dark:text-red-100 text-base flex items-center gap-3"><ShieldAlert size={22} className="text-red-500" /> Radar de Descuentos</h3>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Descuentos Employee, Senior y First Responder mayores a $15</p>
+                            </div>
                             <div className="flex items-center gap-3">
                                 <span className="bg-red-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm">{stats.anomalies.length}</span>
                                 <button
@@ -531,7 +586,7 @@ function DashboardContent() {
                                     </tbody>
                                 </table>
                             ) : (
-                                <div className="h-full flex flex-col items-center justify-center py-10 text-slate-300"><CheckCircle size={36} className="mb-2 text-green-200" /><p className="text-xs font-bold text-slate-400">Sin anomalías detectadas</p></div>
+                                <div className="h-full flex flex-col items-center justify-center py-10 text-slate-300"><CheckCircle size={36} className="mb-2 text-green-200" /><p className="text-xs font-bold text-slate-400">Sin descuentos sospechosos detectados</p></div>
                             )}
                         </div>
                     </div>
