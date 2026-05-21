@@ -101,7 +101,7 @@ function SalesPageContent() {
     const [customHourEnd, setCustomHourEnd] = useState(14)
     const [showWelcomeModal, setShowWelcomeModal] = useState(false)
     const { user } = useAuth()
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
     const isAdmin = user?.role === 'admin'
 
     // Food Cost Integration State
@@ -1080,7 +1080,13 @@ function SalesPageContent() {
                                                     explanation += `${t('sales.projection.the_sales')}`;
                                                 }
                                                 
-                                                explanation += `${t('sales.projection.last_year_same_day')}`;
+                                                const d = new Date(startDate + 'T12:00:00');
+                                                d.setDate(d.getDate() - 364);
+                                                const lastYearStr = d.toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { 
+                                                    weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' 
+                                                });
+                                                
+                                                explanation += `${t('sales.projection.last_year_same_day')} (${lastYearStr})`;
                                                 
                                                 if (countGrowth > 0) {
                                                     const avgGrowth = sumGrowth / countGrowth;
