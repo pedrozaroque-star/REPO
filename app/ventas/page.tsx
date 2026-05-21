@@ -1046,22 +1046,25 @@ function SalesPageContent() {
                                     )}
                                 </span>
                                 {data?.groupByMode === 'hour' && data?.rawRows?.some((r: any) => r.projectionMeta) && (
-                                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1">
-                                        <TrendingUp size={12} className="shrink-0" />
-                                        <span>Base IA: Mismo día año pasado</span>
-                                        {(() => {
-                                            const meta = data.rawRows.find((r: any) => r.projectionMeta)?.projectionMeta;
-                                            if (!meta) return '';
-                                            let parts = [];
-                                            if (meta.growth_factor) {
-                                                const g = (meta.growth_factor - 1) * 100;
-                                                parts.push(`Tendencia ${g > 0 ? '+' : ''}${g.toFixed(1)}%`);
-                                            }
-                                            if (meta.weather_adjusted) {
-                                                parts.push(`Clima -5%`);
-                                            }
-                                            return parts.length > 0 ? <span className="font-semibold px-1">• {parts.join(' • ')}</span> : null;
-                                        })()}
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1 mt-1 md:mt-0 max-w-full">
+                                        <TrendingUp size={14} className="shrink-0" />
+                                        <span>
+                                            <strong>Proyección Inteligente:</strong> Calculada usando las ventas de este mismo día el año pasado
+                                            {(() => {
+                                                const meta = data.rawRows.find((r: any) => r.projectionMeta)?.projectionMeta;
+                                                if (!meta) return '.';
+                                                
+                                                let explanation = "";
+                                                if (meta.growth_factor) {
+                                                    const g = (meta.growth_factor - 1) * 100;
+                                                    explanation += `, con un ajuste de tendencia reciente del ${g > 0 ? '+' : ''}${g.toFixed(1)}%`;
+                                                }
+                                                if (meta.weather_adjusted) {
+                                                    explanation += ` y una penalización del -5% por clima extremo`;
+                                                }
+                                                return explanation + ".";
+                                            })()}
+                                        </span>
                                     </div>
                                 )}
                             </div>
