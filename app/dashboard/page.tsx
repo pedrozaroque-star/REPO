@@ -42,11 +42,10 @@ function DashboardContent() {
     const [anomalyDetails, setAnomalyDetails] = useState<any[]>([])
     const [anomalyLoading, setAnomalyLoading] = useState(false)
     const [orderDetailData, setOrderDetailData] = useState<{loading: boolean, data?: any, error?: string, checkId?: string, storeName?: string, cajeraName?: string} | null>(null)
-    const [timeFilter, setTimeFilter] = useState('month')
+    const [timeFilter, setTimeFilter] = useState('today')
     const [startDate, setStartDate] = useState(() => {
         const d = new Date()
         if (d.getHours() < 6) d.setDate(d.getDate() - 1) // Business day adjustment
-        d.setDate(1) // Start of month
         return d.toISOString().split('T')[0]
     })
     const [endDate, setEndDate] = useState(() => {
