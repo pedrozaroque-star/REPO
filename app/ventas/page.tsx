@@ -1045,6 +1045,26 @@ function SalesPageContent() {
                                         <span>{t('sales.updated')}: {lastUpdated.toLocaleTimeString()}</span>
                                     )}
                                 </span>
+                                {data?.groupByMode === 'hour' && data?.rawRows?.some((r: any) => r.projectionMeta) && (
+                                    <span className="text-[11px] text-indigo-500/80 dark:text-indigo-400/80 font-medium ml-1 flex items-center gap-1 animate-in fade-in duration-500">
+                                        <Info size={11} className="hidden sm:block" />
+                                        <span className="hidden sm:inline">Proyección IA calculada usando: Año Pasado</span>
+                                        <span className="sm:hidden">IA: Año Pasado</span>
+                                        {(() => {
+                                            const meta = data.rawRows.find((r: any) => r.projectionMeta)?.projectionMeta;
+                                            if (!meta) return '';
+                                            let parts = [];
+                                            if (meta.growth_factor) {
+                                                const g = (meta.growth_factor - 1) * 100;
+                                                parts.push(`Tendencia ${g > 0 ? '+' : ''}${g.toFixed(1)}%`);
+                                            }
+                                            if (meta.weather_adjusted) {
+                                                parts.push(`Clima -5%`);
+                                            }
+                                            return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+                                        })()}
+                                    </span>
+                                )}
                             </div>
                             <div className="flex items-center gap-3">
                                 <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">
@@ -1400,9 +1420,8 @@ function SalesPageContent() {
                                         </th>
                                         {['today', 'week', 'month'].includes(period) && (
                                             <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedToDate')}>
-                                                <div className="flex items-center justify-end gap-1 text-cyan-500" title="Proyección calculada por AI Intelligence Engine usando:&#10;• Histórico (año pasado)&#10;• Tendencia reciente (28 días)&#10;• Factor climático actual">
+                                                <div className="flex items-center justify-end gap-1 text-cyan-500">
                                             {t('sales.table.proj_to_date')}
-                                                    <Info size={14} className="text-cyan-500/50" />
                                                     {sortConfig?.key === 'projectedToDate' ? (
                                                         sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                     ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}
@@ -1418,9 +1437,8 @@ function SalesPageContent() {
                                             </div>
                                         </th>
                                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors group" onClick={() => requestSort('projectedSales')}>
-                                            <div className="flex items-center justify-end gap-1 text-indigo-500" title="Proyección Total calculada por AI Intelligence Engine usando:&#10;• Histórico (año pasado)&#10;• Tendencia reciente (28 días)&#10;• Factor climático actual">
+                                            <div className="flex items-center justify-end gap-1 text-indigo-500">
                                                 {t('sales.table.projected_col')}
-                                                <Info size={14} className="text-indigo-500/50" />
                                                 {sortConfig?.key === 'projectedSales' ? (
                                                     sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                                                 ) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-30 text-slate-400" />}

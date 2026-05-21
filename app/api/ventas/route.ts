@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
                 })
 
                 // Generate or fetch projections for each UNIQUE store
-                const projectionResults = new Map<string, { projectedHourly: Record<number, number>, projectedSales: number }>()
+                const projectionResults = new Map<string, { projectedHourly: Record<number, number>, projectedSales: number, meta?: any }>()
 
                 const projectionPromises = Array.from(storeMap.entries()).map(async ([storeId, sampleRow]) => {
                     try {
@@ -111,10 +111,12 @@ export async function GET(request: NextRequest) {
                         
                         let totalSales = 0;
                         let hourlyMap: Record<number, number> = {};
+                        let projMeta: any = {};
 
                         if (cached) {
                             totalSales = cached.total_sales;
                             hourlyMap = cached.hourly_data || {};
+                            projMeta = cached.meta || {};
                         } else {
                             // 2. Generate if missing
                             const forecast = await generateSmartForecast(storeId, startDate)
@@ -138,11 +140,16 @@ export async function GET(request: NextRequest) {
                                     generated_at: new Date().toISOString()
                                 }
                             });
+                            projMeta = {
+                                growth_factor: forecast.growth_factor_applied,
+                                weather_adjusted: forecast.weather_adjustment || false
+                            };
                         }
 
                         projectionResults.set(storeId, {
                             projectedHourly: hourlyMap,
-                            projectedSales: totalSales
+                            projectedSales: totalSales,
+                            meta: projMeta
                         })
                         
                     } catch (storeError) {
@@ -159,6 +166,7 @@ export async function GET(request: NextRequest) {
                     if (proj && !assignedStores.has(row.storeId)) {
                         row.projectedHourly = proj.projectedHourly
                         row.projectedSales = proj.projectedSales
+                        row.projectionMeta = proj.meta
                         assignedStores.add(row.storeId)
                     }
                 })
@@ -188,8 +196,8 @@ export async function GET(request: NextRequest) {
                     }
                 })
 
-                // Build projection cache: Map<"storeId|date", { total: number, hourly: Record<number, number> }>
-                const projectionCache = new Map<string, { total: number, hourly: Record<number, number> }>()
+                // Build projection cache: Map<"storeId|date", { total: number, hourly: Record<number, number>, meta: any }>
+                const projectionCache = new Map<string, { total: number, hourly: Record<number, number>, meta: any }>()
                 const missingCombinations: { storeId: string, dateStr: string }[] = []
 
                 // 1. Bulk Fetch from DB Cache
@@ -207,7 +215,8 @@ export async function GET(request: NextRequest) {
                         cachedProjections.forEach(row => {
                             projectionCache.set(`${row.store_id}|${row.business_date}`, {
                                 total: row.total_sales,
-                                hourly: row.hourly_data || {}
+                                hourly: row.hourly_data || {},
+                                meta: row.meta || {}
                             })
                         })
                     }
@@ -232,7 +241,11 @@ export async function GET(request: NextRequest) {
 
                             projectionCache.set(`${storeId}|${dateStr}`, {
                                 total: forecast.total_sales,
-                                hourly: hourlyMap
+                                hourly: hourlyMap,
+                                meta: {
+                                    growth_factor: forecast.growth_factor_applied,
+                                    weather_adjusted: forecast.weather_adjustment || false
+                                }
                             })
 
                             // Fire and forget cache save
@@ -262,6 +275,7 @@ export async function GET(request: NextRequest) {
                     if (projData) {
                         row.projectedSales = projData.total
                         row.projectedHourly = projData.hourly
+                        row.projectionMeta = projData.meta
                     }
                 })
 
