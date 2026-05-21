@@ -1027,7 +1027,7 @@ function SalesPageContent() {
 
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
                         <div>
-                            <div className="flex items-center gap-3 mb-2">
+                            <div className="flex items-center gap-3 mb-2 flex-wrap">
                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 shadow-sm">
                                     {t('sales.live_connected')}
                                 </span>
@@ -1046,10 +1046,9 @@ function SalesPageContent() {
                                     )}
                                 </span>
                                 {data?.groupByMode === 'hour' && data?.rawRows?.some((r: any) => r.projectionMeta) && (
-                                    <span className="text-[11px] text-indigo-500/80 dark:text-indigo-400/80 font-medium ml-1 flex items-center gap-1 animate-in fade-in duration-500">
-                                        <Info size={11} className="hidden sm:block" />
-                                        <span className="hidden sm:inline">Proyección IA calculada usando: Año Pasado</span>
-                                        <span className="sm:hidden">IA: Año Pasado</span>
+                                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium shadow-sm ml-1">
+                                        <TrendingUp size={12} className="shrink-0" />
+                                        <span>Base IA: Mismo día año pasado</span>
                                         {(() => {
                                             const meta = data.rawRows.find((r: any) => r.projectionMeta)?.projectionMeta;
                                             if (!meta) return '';
@@ -1061,9 +1060,9 @@ function SalesPageContent() {
                                             if (meta.weather_adjusted) {
                                                 parts.push(`Clima -5%`);
                                             }
-                                            return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+                                            return parts.length > 0 ? <span className="font-semibold px-1">• {parts.join(' • ')}</span> : null;
                                         })()}
-                                    </span>
+                                    </div>
                                 )}
                             </div>
                             <div className="flex items-center gap-3">
