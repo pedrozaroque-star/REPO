@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { formatDateLA } from '@/lib/checklistPermissions'
@@ -63,6 +63,10 @@ function DashboardContent() {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [user, setUser] = useState<any>(null)
 
+    // AbortController: cancels in-flight HTTP requests when user changes filter
+    // (Same pattern as Ventas module — prevents race conditions)
+    const abortControllerRef = useRef<AbortController | null>(null)
+
     useEffect(() => {
         const fetchUser = async () => {
             const token = localStorage.getItem('teg_token')
@@ -89,15 +93,34 @@ function DashboardContent() {
     }, [])
 
     useEffect(() => {
+        // Cancel any in-flight request from the PREVIOUS filter selection
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+        }
+        // Create a new AbortController for THIS filter selection
+        const controller = new AbortController()
+        abortControllerRef.current = controller
+
         // Ejecutar carga inicial
-        fetchStats()
+        fetchStats(controller.signal)
 
         // Auto-refresh cada 30 segundos (solo si no es custom range, para evitar refreshes molestos mientras editas fechas)
+        let interval: ReturnType<typeof setInterval> | undefined
         if (timeFilter !== 'custom') {
-            const interval = setInterval(fetchStats, 30000)
-            return () => clearInterval(interval)
+            interval = setInterval(() => {
+                // Each auto-refresh also gets its own abort signal
+                const refreshController = new AbortController()
+                abortControllerRef.current = refreshController
+                fetchStats(refreshController.signal)
+            }, 30000)
         }
-    }, [router, timeFilter, startDate, endDate]) // Re-run when dates change if in custom mode
+
+        return () => {
+            // Cleanup: cancel in-flight request + stop interval
+            controller.abort()
+            if (interval) clearInterval(interval)
+        }
+    }, [timeFilter, startDate, endDate]) // Re-run when dates change
 
     // getDateRange helper removed (logic handled by DateRangeFilter)
 
@@ -105,7 +128,7 @@ function DashboardContent() {
     const startDateStr = startDate
     const endDateStr = endDate
 
-    const fetchStats = async () => {
+    const fetchStats = async (signal?: AbortSignal) => {
         try {
             const token = localStorage.getItem('teg_token')
             const supabase = await getSupabaseClient()
@@ -234,29 +257,30 @@ function DashboardContent() {
             const { data: feedbacksRaw } = await queryFeedback
 
 
-            // 3. Sales + Food Cost + Anomalías — ALL from Supabase (instant, no API calls)
-            const [salesCacheRes, fcCacheRes, { data: anomRows }] = await Promise.all([
-                // Sales: direct from Supabase cache
-                supabase.from('sales_daily_cache')
-                    .select('store_id, store_name, net_sales, labor_cost, labor_hours, business_date')
-                    .gte('business_date', startDateStr).lte('business_date', endDateStr),
-                // Food Cost: direct from Supabase cache (NO fallback to heavy Toast PMIX API)
-                supabase.from('food_cost_daily_cache')
-                    .select('store_id, total_cost, net_sales, cost_percentage, business_date')
-                    .gte('business_date', startDateStr).lte('business_date', endDateStr),
+            // 3. KPIs (server-side, bypasses RLS) + Anomalías (parallel)
+            // ── ABORT CHECK: If filter changed while we were loading, stop early ──
+            if (signal?.aborted) return
+
+            const [kpisRes, { data: anomRows }] = await Promise.all([
+                // KPIs: server-side API using admin client (same pattern as Alerts)
+                fetch(`/api/dashboard/kpis?startDate=${startDateStr}&endDate=${endDateStr}`, { signal })
+                    .then(r => r.json())
+                    .catch((e) => {
+                        // AbortError is expected when user changes filter — return zeroes silently
+                        if (e?.name === 'AbortError') return { _aborted: true }
+                        return { totalSales: 0, totalLaborCost: 0, laborPct: 0, foodCostPct: 0, foodCostDollars: 0 }
+                    }),
                 // Anomalías: direct from Supabase
                 supabase.from('sales_discounts_log').select('id, store_id, store_name, discount_amount, discount_name, business_date, server_name, approver_name, order_id, check_id, opened_date').in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior']).gte('business_date', startDateStr).lte('business_date', endDateStr).gte('discount_amount', 15).order('id', { ascending: false }).limit(20)
             ])
-            const salesRows = salesCacheRes.data || []
-            const totalSales = salesRows.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0)
-            const totalLaborCost = salesRows.reduce((s: number, r: any) => s + Number(r.labor_cost || 0), 0)
-            const laborPct = totalSales > 0 ? (totalLaborCost / totalSales) * 100 : 0
-            // Food Cost from cache
-            const fcRows = fcCacheRes.data || []
-            const fcTotalCost = fcRows.reduce((s: number, r: any) => s + Number(r.total_cost || 0), 0)
-            const fcTotalSales = fcRows.reduce((s: number, r: any) => s + Number(r.net_sales || 0), 0)
-            const foodCostPct = fcTotalSales > 0 ? (fcTotalCost / fcTotalSales) * 100 : 0
-            const foodCostDollars = fcTotalCost
+            // If the request was aborted (user changed filter), bail out
+            if (kpisRes?._aborted || signal?.aborted) return
+
+            const totalSales = kpisRes.totalSales || 0
+            const totalLaborCost = kpisRes.totalLaborCost || 0
+            const laborPct = kpisRes.laborPct || 0
+            const foodCostPct = kpisRes.foodCostPct || 0
+            const foodCostDollars = kpisRes.foodCostDollars || 0
             const anomalies = (anomRows || []).map((a: any) => ({
                 id: a.id,
                 store: formatStoreName(a.store_name),
@@ -328,7 +352,9 @@ function DashboardContent() {
             })
 
             setLoading(false)
-        } catch (err) {
+        } catch (err: any) {
+            // AbortError is expected when user changes filter — silently ignore
+            if (err?.name === 'AbortError') return
             console.error(err)
             setLoading(false)
         }

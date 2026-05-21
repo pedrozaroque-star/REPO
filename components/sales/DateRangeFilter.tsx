@@ -61,15 +61,13 @@ export default function DateRangeFilter({ period, startDate, endDate, onChange, 
 
     const handlePreset = (p: Period) => {
         const today = new Date()
-        // Business logic adjustment: if hour < 6, today is technically yesterday in business terms, 
-        // BUT for the calendar utility usually we want literal dates. 
-        // However, the parent component handles the "business day" logic offset for defaults.
-        // We will stick to standard date-fns logic here and let parent handle specific fetch offsets if needed,
-        // OR we replicate the logic if we want exact match. 
-        // Given the instructions said "don't remove existing filters", I should try to match their behavior.
-        // The parent determines defaults. Here we just set standard ranges.
+        // 🕐 BUSINESS DAY ADJUSTMENT: The restaurant business day runs 6:00 AM → 5:59 AM next day.
+        // If it's before 6 AM, we are still in the PREVIOUS business day.
+        // This matches the same logic in Dashboard initial state and Ventas refreshData.
+        if (today.getHours() < 6) {
+            today.setDate(today.getDate() - 1)
+        }
 
-        // Let's use standard calendar days for the UI interaction.
         let s = today
         let e = today
 
