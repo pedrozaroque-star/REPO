@@ -121,6 +121,7 @@ export async function POST(request: Request) {
 // CORE: Sync discounts for a specific business date
 // ═══════════════════════════════════════════════════════════════════
 async function syncDiscountsForDate(dateStr: string) {
+    try {
         const formattedDate = dateStr.split('-').join('')
 
         // 1. Auth
