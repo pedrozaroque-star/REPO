@@ -689,37 +689,23 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
           setLocationValidated(true)
           // alert(`✅ Ubicación validada! Estás a ${Math.round(distance)}m de la tienda.`)
         } else {
-          const msg = `${t('inspections.form.alerts.location_far')}\n\nDistancia detectada: ${Math.round(distance)} metros.\nLímite permitido: 100 metros.`
-          
-          if (window.confirm(`${msg}\n\n¿Deseas guardar la inspección de todos modos? Se registrará una nota indicando que estabas fuera de rango.`)) {
-            setLocationValidated(true)
-            setFormData(prev => ({
-              ...prev,
-              observaciones: prev.observaciones 
-                ? prev.observaciones + `\n\n[SISTEMA]: Inspección guardada FUERA DE RANGO (${Math.round(distance)}m).`
-                : `[SISTEMA]: Inspección guardada FUERA DE RANGO (${Math.round(distance)}m).`
-            }))
-          }
+          alert(`${t('inspections.form.alerts.location_far')}\n\nDistancia detectada: ${Math.round(distance)} metros.\nLímite permitido: 100 metros.\n\n⚠️ REGLA ESTRICTA: Debes estar físicamente en la sucursal para poder enviar la inspección.`)
         }
       },
       (error) => {
         setValidatingLocation(false)
         console.error(error)
         let msg = t('inspections.form.alerts.location_error')
-        if (error.code === 1) msg = 'Permiso de ubicación denegado. Actívalo en la configuración de Chrome/Navegador.'
-        else if (error.code === 2) msg = 'Ubicación no disponible (GPS débil).'
-        else if (error.code === 3) msg = t('inspections.form.alerts.gps_timeout')
         
-        // Ofrecer guardar sin GPS para no perder el trabajo
-        if (window.confirm(`${msg}\n\n¿Deseas guardar la inspección de todos modos? Se registrará una nota indicando que no hubo validación GPS.`)) {
-          setLocationValidated(true)
-          setFormData(prev => ({
-            ...prev,
-            observaciones: prev.observaciones 
-              ? prev.observaciones + '\n\n[SISTEMA]: Inspección guardada SIN VALIDACIÓN GPS (Error/Permiso Denegado).'
-              : '[SISTEMA]: Inspección guardada SIN VALIDACIÓN GPS (Error/Permiso Denegado).'
-          }))
+        if (error.code === 1) {
+          msg = '🛑 PERMISO DE GPS DENEGADO 🛑\n\nPor políticas de la empresa, la ubicación es OBLIGATORIA.\n\n¿Cómo arreglarlo en tu celular?\n1. Toca el ícono de "Candado" o "Configuración" a la izquierda de la dirección de esta página (arriba).\n2. Ve a "Permisos" o "Configuración de sitios".\n3. En "Ubicación", selecciona "Permitir".\n4. Refresca la página.\n\n✅ Tu captura se guarda automáticamente, no perderás nada al refrescar.'
+        } else if (error.code === 2) {
+          msg = '🛑 UBICACIÓN NO DISPONIBLE 🛑\n\nTu celular no pudo encontrar tu ubicación GPS. Asegúrate de tener la "Ubicación" encendida en los ajustes principales de tu teléfono y sal a un área despejada.'
+        } else if (error.code === 3) {
+          msg = t('inspections.form.alerts.gps_timeout')
         }
+        
+        alert(msg)
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
