@@ -408,7 +408,7 @@ export async function GET(request: NextRequest) {
             // 1. Calculate unadulterated base recipe unit cost
             if (recipe) {
                 const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[], item.group_name)
-                baseUnitCost = costResult.totalCost
+                baseUnitCost = costResult.foodCost // STRICTLY FOOD COST, matches Menu Catalog "Costo"
                 missingPrices += costResult.missingPrices
 
                 // Sum meat pounds for the unadulterated base item
@@ -480,7 +480,7 @@ export async function GET(request: NextRequest) {
                         })
 
                         const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[], item.group_name)
-                        totalBaseCost += deltaRes.totalCost
+                        totalBaseCost += deltaRes.foodCost
                         // Avoid double counting missing prices for delta
 
                         deltaRes.breakdown.forEach(b => {
@@ -521,7 +521,7 @@ export async function GET(request: NextRequest) {
                     if (modRecipe) {
                         if (!halfGuids.includes(modGuid)) {
                             const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], item.group_name)
-                            totalModCost += modRes.totalCost
+                            totalModCost += modRes.foodCost
                             missingPrices += modRes.missingPrices
 
                             // Modifiers meat goes to totalModMeatLbs and is NEVER multiplied by item.quantity
