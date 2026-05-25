@@ -41,8 +41,8 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
         
         // --- Filter Packaging by Dining Option ---
         const type = ing.type || 'food'
-        if (type !== 'food') {
-            const doLower = (diningOption || '').toLowerCase()
+        if (type !== 'food' && diningOption !== undefined) {
+            const doLower = diningOption.toLowerCase()
             
             const isDineIn = doLower.includes('here') || doLower.includes('dine')
             const isDelivery = doLower.includes('uber') || doLower.includes('door') || doLower.includes('grub') || doLower.includes('delivery')
