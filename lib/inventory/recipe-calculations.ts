@@ -28,7 +28,7 @@ export function getConversionFactor(rUnit: string, iUnit: string): number {
     return 1
 }
 
-export function calculateIngredientCost(recipeQuantity: number, recipeUnit: string, inv: InventoryCostData, recipeType: 'raw' | 'cooked' = 'cooked'): number {
+export function calculateIngredientCost(recipeQuantity: number, recipeUnit: string, inv: InventoryCostData, recipeType: string = 'cooked'): number {
     const rawCount = Number(recipeQuantity) || 0
     if (rawCount === 0) return 0
 

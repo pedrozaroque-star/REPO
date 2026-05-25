@@ -14,15 +14,20 @@ export interface CostBreakdown {
 
 export interface RecipeCostResult {
     totalCost: number
+    foodCost: number
+    packagingCost: number
     breakdown: CostBreakdown[]
     missingPrices: number // Count of items with 0 or missing price
 }
 
 /**
  * Calculates the theoretical cost of a recipe based on its ingredients and their current inventory prices.
+ * Optionally filters packaging based on the dining option (e.g. 'for here', 'to go', 'uber eats').
  */
-export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryItem[]): RecipeCostResult {
+export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryItem[], diningOption?: string): RecipeCostResult {
     let totalCost = 0
+    let foodCost = 0
+    let packagingCost = 0
     let missingPrices = 0
     const breakdown: CostBreakdown[] = []
 
@@ -33,6 +38,20 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
     recipe.ingredients.forEach(ing => {
         const item = itemMap.get(ing.inventory_item_id)
         if (!item) return
+        
+        // --- Filter Packaging by Dining Option ---
+        const type = ing.type || 'food'
+        if (type !== 'food') {
+            const doLower = (diningOption || '').toLowerCase()
+            
+            const isDineIn = doLower.includes('here') || doLower.includes('dine')
+            const isDelivery = doLower.includes('uber') || doLower.includes('door') || doLower.includes('grub') || doLower.includes('delivery')
+            const isTakeout = !isDineIn && !isDelivery // Default to takeout if not dine-in or delivery
+            
+            if (type === 'cogs_dine_in' && !isDineIn) return
+            if (type === 'cogs_delivery' && !isDelivery) return
+            if (type === 'cogs_takeout' && !isTakeout) return
+        }
 
         // 1. Calculate Raw Usage (Apply Yield)
         // If yield is 0 or missing, default to 100% to avoid division by zero
@@ -73,11 +92,18 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
             isMissingPrice
         })
 
+        if (type === 'food') {
+            foodCost += cost
+        } else {
+            packagingCost += cost
+        }
         totalCost += cost
     })
 
     return {
         totalCost: Number(totalCost.toFixed(4)),
+        foodCost: Number(foodCost.toFixed(4)),
+        packagingCost: Number(packagingCost.toFixed(4)),
         breakdown,
         missingPrices
     }

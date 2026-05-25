@@ -11,7 +11,7 @@ export function calculateRawUsage(
     quantity: number,
     unit: UnitType,
     itemYieldPercent: number = 100,
-    recipeType: 'raw' | 'cooked' = 'raw'
+    recipeType: string = 'raw'
 ): { quantity: number, unit: UnitType } {
 
     // 1. Si la receta ya es en crudo, el uso es directo.

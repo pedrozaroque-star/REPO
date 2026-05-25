@@ -407,7 +407,7 @@ export async function GET(request: NextRequest) {
 
             // 1. Calculate unadulterated base recipe unit cost
             if (recipe) {
-                const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[])
+                const costResult = calculateRecipeCost(recipe, inventoryData as InventoryItem[], item.group_name)
                 baseUnitCost = costResult.totalCost
                 missingPrices += costResult.missingPrices
 
@@ -479,7 +479,7 @@ export async function GET(request: NextRequest) {
                             })
                         })
 
-                        const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[])
+                        const deltaRes = calculateRecipeCost(deltaRecipe as any, inventoryData as InventoryItem[], item.group_name)
                         totalBaseCost += deltaRes.totalCost
                         // Avoid double counting missing prices for delta
 
@@ -520,7 +520,7 @@ export async function GET(request: NextRequest) {
                     const modRecipe = recipeMap.get(modGuid)
                     if (modRecipe) {
                         if (!halfGuids.includes(modGuid)) {
-                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[])
+                            const modRes = calculateRecipeCost(modRecipe, inventoryData as InventoryItem[], item.group_name)
                             totalModCost += modRes.totalCost
                             missingPrices += modRes.missingPrices
 

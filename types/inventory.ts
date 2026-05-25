@@ -39,7 +39,7 @@ export interface RecipeIngredient {
     inventory_item_id: string
     quantity: number // Cantidad según la receta (ej: 1.5 oz)
     unit: UnitType   // Unidad de la receta (ej: 'oz')
-    type: 'raw' | 'cooked' // IMPORTANTE: ¿La cantidad es en crudo o cocinado?
+    type: string // 'raw' | 'cooked' | 'food' | 'cogs_dine_in' | 'cogs_takeout' | 'cogs_delivery'
 }
 
 export interface Recipe {
