@@ -1769,15 +1769,12 @@ export default function MissionControlRoles() {
                             const jsDay = activeDay.getDay();
                             const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
                             
-                            // 🔧 FIX BUG 1: Prioridad — tasks personalizadas > mapping estación
-                            // Si el assignment tiene tasks específicas → usar solo esas
-                            // Si no → usar el mapping live de la estación
-                            const liveTasks = (currentAssignee?.tasks && currentAssignee.tasks.length > 0)
-                              ? currentAssignee.tasks
-                              : [
-                                  ...(stationActivities[shiftStationKey] || []),
-                                  ...(stationActivities[`${shiftStationKey}_${myDayIndex}`] || [])
-                                ];
+                            // 🔧 RESTORE: Las tareas se combinan (Estación + Específicas del empleado)
+                            const liveTasks = [
+                              ...(currentAssignee?.tasks || []),
+                              ...(stationActivities[shiftStationKey] || []),
+                              ...(stationActivities[`${shiftStationKey}_${myDayIndex}`] || [])
+                            ];
                             
                             const uniqueTasks = Array.from(new Set(liveTasks as string[])).filter(Boolean);
 
