@@ -260,7 +260,7 @@ export default function DescansosPage() {
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
     const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[], learnedPrefs?: LearnedPreference[] }>({ shifts: [], hours: [], employees: [], jobs: [], learnedPrefs: [] })
 
-    const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false) => {
+    const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false, isRealtimeReload: boolean = false) => {
         setCalculating(true);
         await new Promise(r => setTimeout(r, 50));
 
@@ -312,7 +312,16 @@ export default function DescansosPage() {
             
             if (alreadyCalculated) {
                 console.log("⏭️ Bypass IA: Turnos ya calculados previamente. Cargando caché de BD.");
-                setSmartShifts(shiftsForAi);
+                // 🔧 FIX SYNC PC↔TABLETA: Inyectar los turnos de ausentes como fantasmas visuales
+                // para que el manager en PC pueda verlos (barra gris) y restaurarlos.
+                const absentShifts = shifts
+                    .filter((s: Shift) => s.employee_id !== null && absentSet.has(String(s.employee_id)))
+                    .map((s: Shift) => {
+                        const emp = employees.find((e: Employee) => e.id === s.employee_id);
+                        const empName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
+                        return { ...s, breaks_schedule: [], _isAbsent: true, employee_name: empName };
+                    });
+                setSmartShifts([...shiftsForAi, ...absentShifts]);
                 setCalculating(false);
                 return;
             }
@@ -320,7 +329,15 @@ export default function DescansosPage() {
 
         try {
             const augmented = scheduleBreaksWithDemand(shiftsForAi, hours, learnedPrefs || []);
-            setSmartShifts(augmented as Shift[]);
+            // 🔧 FIX SYNC PC↔TABLETA: Inyectar turnos de ausentes como fantasmas visuales
+            const absentShiftsForRender = shifts
+                .filter((s: Shift) => s.employee_id !== null && absentSet.has(String(s.employee_id)))
+                .map((s: Shift) => {
+                    const emp = employees.find((e: Employee) => e.id === s.employee_id);
+                    const empName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
+                    return { ...s, breaks_schedule: [], _isAbsent: true, employee_name: empName };
+                });
+            setSmartShifts([...(augmented as Shift[]), ...absentShiftsForRender]);
 
             const supabase = await getSupabaseClient()
             const shiftsToUpdate = augmented.filter((s: any) => {
@@ -331,7 +348,9 @@ export default function DescansosPage() {
                 return newStr !== oldStr;
             });
 
-            if (shiftsToUpdate.length > 0) {
+            if (shiftsToUpdate.length > 0 && !isRealtimeReload) {
+                // 🔧 FIX ANTI-LOOP: No re-escribir a BD si la recarga viene de Realtime
+                // (evita ping-pong entre PC y Tableta)
                 await Promise.all(shiftsToUpdate.map(async shift => {
                     if (!shift.id) return;
                     const { error } = await supabase.from('shifts').update({ breaks_schedule: shift.breaks_schedule }).eq('id', shift.id);
@@ -350,7 +369,8 @@ export default function DescansosPage() {
             }
 
             // 🚩 PERSISTENCIA PROFUNDA: Guardar ausentes en DB en Paralelo
-            if (isManualAction && shifts) {
+            // Solo escribir si es acción manual (no desde Realtime para evitar loops)
+            if (isManualAction && !isRealtimeReload && shifts) {
                 const validShifts = shifts.filter((s: Shift) => s.employee_id !== null && s.id != null);
                 await Promise.all(validShifts.map(async (s: Shift) => {
                     const id = String(s.employee_id);
@@ -506,7 +526,7 @@ export default function DescansosPage() {
         return Math.max(0, Math.min(100, ((shiftHour - START_HOUR) / 24) * 100))
     }, [currentTime])
 
-    const loadDayData = async () => {
+    const loadDayData = async (isRealtimeReload: boolean = false) => {
         if (!storeGuid) return;
         setCalculating(true) // Mostramos spinner de "Procesando" brevemente
 
@@ -661,7 +681,7 @@ export default function DescansosPage() {
                 // RUTA RÁPIDA (Bypass): Quitamos el cuadro de carga instantáneamente.
                 const data = { shifts: todayRawShifts, hours: [], employees: allEmpData as Employee[], jobs: jobs, learnedPrefs };
                 lastDataRef.current = data;
-                await triggerAiRecalculation(hydratedAbsentSet, data, false);
+                await triggerAiRecalculation(hydratedAbsentSet, data, false, false, isRealtimeReload);
                 setCalculating(false); // ¡PANTALLA LIBERADA EN ~150ms!
                 
                 // Cargamos el Heatmap y Toast en segundo plano sin bloquear al usuario
@@ -677,7 +697,7 @@ export default function DescansosPage() {
                 lastDataRef.current = fullData;
 
                 if (!alreadyCalculated) {
-                    triggerAiRecalculation(hydratedAbsentSet, fullData, false);
+                    triggerAiRecalculation(hydratedAbsentSet, fullData, false, false, isRealtimeReload);
                 }
             }
         } catch (error) {
@@ -716,7 +736,7 @@ export default function DescansosPage() {
                                     : '🔄 Turno actualizado — recargando...', 
                                 type: 'info' 
                             });
-                            loadDayData();
+                            loadDayData(true); // true = isRealtimeReload → evita loops de escritura
                         }, 1500);
                     }
                 })
@@ -1120,6 +1140,7 @@ export default function DescansosPage() {
                         ) : activeEmployees.map((emp) => {
                             // Link con los turnos inteligentes (ya traen la data de breaks inyectada)
                             const shift = smartShifts.find(s => String(s.employee_id) === String(emp.id))
+                            const isAbsent = !!(shift as any)?._isAbsent
                             const isOff = !shift
 
                             const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid)
@@ -1147,6 +1168,11 @@ export default function DescansosPage() {
                                         })()}
                                         {isOff ? (
                                             <div className="text-sm text-slate-400 font-bold mt-0.5">OFF</div>
+                                        ) : isAbsent ? (
+                                            <div className="text-sm text-red-400 font-bold mt-1 flex items-center gap-1.5">
+                                                <span>{new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-red-200">Ausente</span>
+                                            </div>
                                         ) : (
                                             <div className="text-sm text-slate-600 font-bold mt-1">
                                                 {new Date(shift.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
@@ -1164,13 +1190,13 @@ export default function DescansosPage() {
                                         {!isOff && (
                                             <motion.div
                                                 initial={{ opacity: 0, scaleX: 0 }}
-                                                animate={{ opacity: 1, scaleX: 1 }}
+                                                animate={{ opacity: isAbsent ? 0.45 : 1, scaleX: 1 }}
                                                 style={{
                                                     left: `${getTimelinePosition(shift.start_time)}%`,
                                                     width: `${getTimelineWidth(shift.start_time, shift.end_time)}%`,
                                                     transformOrigin: 'left'
                                                 }}
-                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-9 bg-indigo-100 border border-indigo-200 rounded-md flex items-center overflow-visible z-[70] shadow-sm`}
+                                                className={`absolute ${showRealPunches ? 'top-3' : 'top-1/2 -translate-y-1/2'} h-9 ${isAbsent ? 'bg-slate-200 border-slate-300 border-dashed' : 'bg-indigo-100 border border-indigo-200'} rounded-md flex items-center overflow-visible z-[70] shadow-sm`}
                                             >
                                                 {/* Scheduled Breaks */}
                                                 {shift.breaks_schedule?.map((b: any, idx: number) => {
