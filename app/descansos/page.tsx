@@ -754,6 +754,50 @@ export default function DescansosPage() {
         }
     }, [storeGuid, dateStr])
 
+    // --- POLLING TABLETA: Cada 10s verifica cambios manuales en Supabase ---
+    useEffect(() => {
+        if (!isFullscreen || !storeGuid || !dateStr) return;
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const supabase = await getSupabaseClient();
+                const { data: freshShifts } = await supabase
+                    .from('shifts')
+                    .select('id, breaks_schedule, is_callback')
+                    .eq('store_id', storeGuid)
+                    .eq('shift_date', dateStr);
+
+                if (!freshShifts || freshShifts.length === 0) return;
+
+                // Comparar con lo que tenemos en pantalla (smartShifts)
+                let hasChanges = false;
+                for (const fresh of freshShifts) {
+                    const current = smartShifts.find(s => s.id === fresh.id);
+                    if (!current) { hasChanges = true; break; }
+
+                    // Comparar breaks_schedule serializado
+                    const freshBreaks = JSON.stringify(fresh.breaks_schedule || []);
+                    const currentBreaks = JSON.stringify(current.breaks_schedule || []);
+                    if (freshBreaks !== currentBreaks) { hasChanges = true; break; }
+
+                    // Comparar is_callback (ausencias)
+                    if (!!fresh.is_callback !== !!(current as any).is_callback) { hasChanges = true; break; }
+                }
+
+                if (hasChanges) {
+                    console.log('📡 Tableta Polling: Cambio detectado en Supabase → recargando...');
+                    setAiStatus({ message: '🔄 Cambio detectado desde PC — actualizando...', type: 'info' });
+                    await loadDayData(true);
+                    setTimeout(() => setAiStatus(null), 3000);
+                }
+            } catch (err) {
+                console.error('Tablet polling error:', err);
+            }
+        }, 10_000);
+
+        return () => clearInterval(pollInterval);
+    }, [isFullscreen, storeGuid, dateStr, smartShifts])
+
     useEffect(() => {
         loadDayData()
     }, [storeGuid, dateStr])
