@@ -754,9 +754,9 @@ export default function DescansosPage() {
         }
     }, [storeGuid, dateStr])
 
-    // --- POLLING TABLETA: Cada 10s verifica cambios manuales en Supabase ---
+    // --- POLLING BIDIRECCIONAL: Cada 10s verifica cambios en Supabase (PC ↔ Tableta) ---
     useEffect(() => {
-        if (!isFullscreen || !storeGuid || !dateStr) return;
+        if (!storeGuid || !dateStr) return;
 
         const pollInterval = setInterval(async () => {
             try {
@@ -785,13 +785,14 @@ export default function DescansosPage() {
                 }
 
                 if (hasChanges) {
-                    console.log('📡 Tableta Polling: Cambio detectado en Supabase → recargando...');
-                    setAiStatus({ message: '🔄 Cambio detectado desde PC — actualizando...', type: 'info' });
+                    const source = isFullscreen ? 'PC' : 'Tableta';
+                    console.log(`📡 Polling: Cambio detectado en Supabase desde ${source} → recargando...`);
+                    setAiStatus({ message: `🔄 Cambio detectado desde ${source} — actualizando...`, type: 'info' });
                     await loadDayData(true);
                     setTimeout(() => setAiStatus(null), 3000);
                 }
             } catch (err) {
-                console.error('Tablet polling error:', err);
+                console.error('Sync polling error:', err);
             }
         }, 10_000);
 
