@@ -259,6 +259,7 @@ export default function DescansosPage() {
     const [absentModalEmp, setAbsentModalEmp] = useState<Employee | null>(null)
     const [aiStatus, setAiStatus] = useState<{ message: string, type: 'info' | 'success' | 'alert' } | null>(null)
     const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[], learnedPrefs?: LearnedPreference[] }>({ shifts: [], hours: [], employees: [], jobs: [], learnedPrefs: [] })
+    const lastPolledDbRef = useRef<string>('')  // Snapshot serializado de la BD para polling
 
     const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false, isRealtimeReload: boolean = false) => {
         setCalculating(true);
@@ -635,6 +636,12 @@ export default function DescansosPage() {
         const todayRawShifts = weekShifts.filter(s => s.shift_date === dateStr);
         setTodayShifts(todayRawShifts);
 
+        // Inicializar snapshot del polling con el estado actual de la BD
+        // para que el primer poll detecte cambios inmediatamente (no tenga que esperar 2 ciclos)
+        lastPolledDbRef.current = JSON.stringify(
+            todayRawShifts.map(s => ({ id: s.id, bs: (s as any).breaks_schedule, ic: (s as any).is_callback }))
+        );
+
         const dbAbsentees = todayRawShifts
             .filter(s => s.is_callback === true && s.employee_id !== null)
             .map(s => String(s.employee_id));
@@ -755,6 +762,8 @@ export default function DescansosPage() {
     }, [storeGuid, dateStr])
 
     // --- POLLING BIDIRECCIONAL: Cada 10s verifica cambios en Supabase (PC ↔ Tableta) ---
+    // Compara snapshot-BD-anterior vs snapshot-BD-actual (NO contra smartShifts)
+    // para evitar falsos positivos por los turnos de ausentes inyectados con breaks_schedule=[].
     useEffect(() => {
         if (!storeGuid || !dateStr) return;
 
@@ -769,22 +778,20 @@ export default function DescansosPage() {
 
                 if (!freshShifts || freshShifts.length === 0) return;
 
-                // Comparar con lo que tenemos en pantalla (smartShifts)
-                let hasChanges = false;
-                for (const fresh of freshShifts) {
-                    const current = smartShifts.find(s => s.id === fresh.id);
-                    if (!current) { hasChanges = true; break; }
+                // Serializar el snapshot actual de la BD
+                const freshSnapshot = JSON.stringify(
+                    freshShifts.map(s => ({ id: s.id, bs: s.breaks_schedule, ic: s.is_callback }))
+                );
 
-                    // Comparar breaks_schedule serializado
-                    const freshBreaks = JSON.stringify(fresh.breaks_schedule || []);
-                    const currentBreaks = JSON.stringify(current.breaks_schedule || []);
-                    if (freshBreaks !== currentBreaks) { hasChanges = true; break; }
-
-                    // Comparar is_callback (ausencias)
-                    if (!!fresh.is_callback !== !!(current as any).is_callback) { hasChanges = true; break; }
+                // Primera vez: guardar snapshot y salir (no hay con qué comparar)
+                if (!lastPolledDbRef.current) {
+                    lastPolledDbRef.current = freshSnapshot;
+                    return;
                 }
 
-                if (hasChanges) {
+                // Comparar BD actual vs BD anterior
+                if (freshSnapshot !== lastPolledDbRef.current) {
+                    lastPolledDbRef.current = freshSnapshot;
                     const source = isFullscreen ? 'PC' : 'Tableta';
                     console.log(`📡 Polling: Cambio detectado en Supabase desde ${source} → recargando...`);
                     setAiStatus({ message: `🔄 Cambio detectado desde ${source} — actualizando...`, type: 'info' });
@@ -797,7 +804,7 @@ export default function DescansosPage() {
         }, 10_000);
 
         return () => clearInterval(pollInterval);
-    }, [isFullscreen, storeGuid, dateStr, smartShifts])
+    }, [storeGuid, dateStr, isFullscreen])
 
     useEffect(() => {
         loadDayData()
