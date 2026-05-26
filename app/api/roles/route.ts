@@ -32,24 +32,49 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
     const body = await req.json()
-    const { assignments, store_id, start_date, end_date } = body
+    const { assignments, store_id, start_date, end_date, active_shift } = body
 
     if (!assignments || !Array.isArray(assignments) || !store_id || !start_date || !end_date) {
         return NextResponse.json({ error: 'Faltan parámetros críticos (assignments, store_id, dates)' }, { status: 400 })
     }
 
     try {
-        // 1. ELIMINACIÓN ATÓMICA: Limpiar la semana para esta tienda antes de re-insertar
-        // Esto garantiza que los puestos que se dejaron vacíos (borrados en el front) 
-        // realmente se borren de la base de datos.
-        const { error: deleteError } = await supabaseAdmin
-            .from('station_assignments')
-            .delete()
-            .eq('store_id', store_id)
-            .gte('assignment_date', start_date)
-            .lte('assignment_date', end_date);
+        // 1. ELIMINACIÓN SEGURA POR TURNO: Solo borrar el turno que se está guardando
+        // Esto evita que el save del turno AM borre los datos del turno PM (y viceversa)
+        // cuando hay 2 usuarios editando simultáneamente.
+        if (active_shift) {
+            const shiftSuffix = `_${active_shift}`;
+            // Obtener todos los assignments de la semana para filtrar por turno
+            const { data: existing } = await supabaseAdmin
+                .from('station_assignments')
+                .select('id, sub_position')
+                .eq('store_id', store_id)
+                .gte('assignment_date', start_date)
+                .lte('assignment_date', end_date);
 
-        if (deleteError) throw deleteError;
+            if (existing && existing.length > 0) {
+                const idsToDelete = existing
+                    .filter(a => a.sub_position?.endsWith(shiftSuffix))
+                    .map(a => a.id);
+                
+                if (idsToDelete.length > 0) {
+                    const { error: deleteError } = await supabaseAdmin
+                        .from('station_assignments')
+                        .delete()
+                        .in('id', idsToDelete);
+                    if (deleteError) throw deleteError;
+                }
+            }
+        } else {
+            // Fallback: borrar toda la semana (comportamiento legacy)
+            const { error: deleteError } = await supabaseAdmin
+                .from('station_assignments')
+                .delete()
+                .eq('store_id', store_id)
+                .gte('assignment_date', start_date)
+                .lte('assignment_date', end_date);
+            if (deleteError) throw deleteError;
+        }
 
         if (assignments.length === 0) {
             return NextResponse.json({ success: true, message: 'Semana limpiada (sin asignaciones)' });

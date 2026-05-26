@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLanguage } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase-client';
@@ -130,6 +130,10 @@ export default function MissionControlRoles() {
   const [specificTasksSearch, setSpecificTasksSearch] = useState('');
   const [taskSelectorForAssign, setTaskSelectorForAssign] = useState<any | null>(null);
   const [extraTaskSearchQuery, setExtraTaskSearchQuery] = useState('');
+
+  // 🔧 Ref para debounce de saveActivities (evita race conditions en clicks rápidos)
+  const saveMappingsTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingMappingsRef = useRef<Record<string, string[]> | null>(null);
 
   // States for Employee Contact Card
   const [selectedEmployeeCard, setSelectedEmployeeCard] = useState<any>(null);
@@ -435,8 +439,7 @@ export default function MissionControlRoles() {
   const saveActivities = async (newMaster?: any[], newMappings?: Record<string, string[]>) => {
     if (!selectedStoreGuid) return;
     try {
-      // 1. Save GLOBAL Library ONLY IF explicitly provided
-      // This prevents someone editing mappings at Store A from overwriting Jesus's new activities at Store B
+      // 1. Save GLOBAL Library IMMEDIATELY (no debounce needed, rare operation)
       if (newMaster) {
         await fetch('/api/roles/activities', {
           method: 'POST',
@@ -444,22 +447,37 @@ export default function MissionControlRoles() {
           body: JSON.stringify({
             store_id: 'GLOBAL',
             master_activities: newMaster,
-            station_mappings: {} // Library doesn't hold mappings
+            station_mappings: {}
           })
         });
       }
 
-      // 2. Save LOCAL Station Mappings ONLY IF explicitly provided
+      // 2. Save LOCAL Station Mappings WITH DEBOUNCE
+      // 🔧 FIX: Clicks rápidos causaban múltiples DELETE+INSERT que se pisaban.
+      // Ahora acumulamos el último estado y solo guardamos después de 500ms de inactividad.
       if (newMappings) {
-        await fetch('/api/roles/activities', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            store_id: selectedStoreGuid,
-            master_activities: [], // Local record doesn't hold the library
-            station_mappings: newMappings
-          })
-        });
+        pendingMappingsRef.current = newMappings;
+        if (saveMappingsTimerRef.current) {
+          clearTimeout(saveMappingsTimerRef.current);
+        }
+        saveMappingsTimerRef.current = setTimeout(async () => {
+          const mappingsToSave = pendingMappingsRef.current;
+          if (!mappingsToSave) return;
+          pendingMappingsRef.current = null;
+          try {
+            await fetch('/api/roles/activities', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                store_id: selectedStoreGuid,
+                master_activities: [],
+                station_mappings: mappingsToSave
+              })
+            });
+          } catch (e) {
+            console.error('Error saving debounced mappings:', e);
+          }
+        }, 500);
       }
     } catch (e) {
       console.error('Error saving activities:', e);
@@ -499,7 +517,7 @@ export default function MissionControlRoles() {
         },
         (payload: any) => {
           console.log('🔔 Real-time assignment update:', payload);
-          // Just fetch the assignments to stay updated
+          // Fetch assignments AND activities to stay fully synced (PC ↔ Tableta)
           const officialMonday = getMonday(currentWeekStart);
           const start = formatDateISO(officialMonday);
           const end = formatDateISO(addDays(officialMonday, 6));
@@ -509,6 +527,8 @@ export default function MissionControlRoles() {
             .then(data => {
               setAssignments(Array.isArray(data) ? data : []);
             });
+          // 🔧 FIX BUG 4: También recargar mappings de actividades
+          fetchActivities();
         }
       )
       .subscribe();
@@ -684,7 +704,9 @@ export default function MissionControlRoles() {
       if (employeeId === '') {
         newAssignments.splice(index, 1);
       } else {
-        newAssignments[index] = { ...newAssignments[index], employee_id: employeeId };
+        // 🔧 FIX BUG 2: Refrescar tasks con el mapping actual al cambiar empleado
+        // (evita que queden tareas obsoletas del snapshot anterior)
+        newAssignments[index] = { ...newAssignments[index], employee_id: employeeId, tasks: defaultTasks };
       }
     } else if (employeeId !== '') {
       newAssignments.push({
@@ -718,14 +740,20 @@ export default function MissionControlRoles() {
     const end = formatDateISO(addDays(getMonday(currentWeekStart), 6));
 
     try {
+      // 🔧 FIX: Solo enviar assignments del turno activo
+      // El DELETE en la API borra solo _AM o _PM, así que el INSERT solo debe poner el mismo turno
+      const shiftSuffix = `_${activeShift}`;
+      const shiftAssignments = assignments.filter(a => a.sub_position?.endsWith(shiftSuffix));
+
       const response = await fetch('/api/roles', {
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          assignments, 
+          assignments: shiftAssignments, 
           store_id: selectedStoreGuid,
           start_date: start,
-          end_date: end
+          end_date: end,
+          active_shift: activeShift
         })
       });
       
@@ -820,7 +848,7 @@ export default function MissionControlRoles() {
         const specificDayTasks = stationActivities[`${shiftStation}_${myDayIndex}`] || [];
         const defaultTasks = [...new Set([...dailyTasks, ...specificDayTasks])];
         
-        const currentTasks = a.tasks || defaultTasks;
+        const currentTasks = (a.tasks && a.tasks.length > 0) ? a.tasks : defaultTasks;
         
         return {
           ...a,
@@ -838,8 +866,10 @@ export default function MissionControlRoles() {
   };
 
   const copyLastWeek = async () => {
-    const startLast = format(subDays(currentWeekStart, 7), 'yyyy-MM-dd');
-    const endLast = format(subDays(currentWeekStart, 1), 'yyyy-MM-dd');
+    const officialMonday = getMonday(currentWeekStart);
+    const lastMonday = subDays(officialMonday, 7);
+    const startLast = formatDateISO(lastMonday);
+    const endLast = formatDateISO(addDays(lastMonday, 6));
 
     // Helper for legacy mapping inside copy
     const mapStationName = (oldName: string, groupHint?: string) => {
@@ -858,26 +888,47 @@ export default function MissionControlRoles() {
     const resp = await fetch(`/api/roles?store_id=${selectedStoreGuid}&start_date=${startLast}&end_date=${endLast}`);
     const lastData = await resp.json();
 
-    if (lastData && lastData.length > 0) {
-      const newAssignments = lastData.map((a: any) => {
-          const originalDate = new Date(a.assignment_date + 'T00:00:00');
-          const newDate = addDays(originalDate, 7);
-          const mappedName = mapStationName(a.main_station, a.station_group);
-          
-          return {
-              ...a,
-              main_station: mappedName,
-              sub_position: `${mappedName}${a.sub_position.includes('_PM') ? '_PM' : '_AM'}`,
-              station_group: findCurrentGroup(mappedName),
-              assignment_date: format(newDate, 'yyyy-MM-dd'),
-              id: undefined, created_at: undefined, updated_at: undefined
-          };
-      });
-      setAssignments(newAssignments);
-      alert('📅 Semana anterior copiada con éxito');
-    } else {
-      alert('No data from last week');
+    if (!lastData || lastData.length === 0) {
+      alert('No hay datos de la semana anterior para copiar.');
+      return;
     }
+
+    const newAssignments = lastData.map((a: any) => {
+        const originalDate = new Date(a.assignment_date + 'T12:00:00');
+        const newDate = addDays(originalDate, 7);
+        const newDateStr = format(newDate, 'yyyy-MM-dd');
+        const mappedName = mapStationName(a.main_station, a.station_group);
+        const isShiftPM = a.sub_position?.includes('_PM');
+        const shiftSuffix = isShiftPM ? '_PM' : '_AM';
+        const shiftStation = mappedName + shiftSuffix;
+        
+        // 🔧 FIX: Refrescar tasks con el mapping ACTUAL de la estación
+        // (no copiar el snapshot obsoleto de la semana pasada)
+        const jsDay = newDate.getDay();
+        const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
+        const dailyTasks = stationActivities[shiftStation] || [];
+        const specificDayTasks = stationActivities[`${shiftStation}_${myDayIndex}`] || [];
+        const freshTasks = [...new Set([...dailyTasks, ...specificDayTasks])];
+        
+        return {
+            // 🔧 FIX: NO copiar ...a (trae datos del JOIN como toast_employees)
+            // Solo copiar los campos que station_assignments necesita
+            store_id: selectedStoreGuid,
+            employee_id: a.employee_id,
+            main_station: mappedName,
+            sub_position: shiftStation,
+            station_group: findCurrentGroup(mappedName),
+            assignment_date: newDateStr,
+            tasks: freshTasks
+        };
+    });
+
+    // 🔧 FIX: Mostrar cuántos assignments se copiaron por turno
+    const amCount = newAssignments.filter((a: any) => a.sub_position.endsWith('_AM')).length;
+    const pmCount = newAssignments.filter((a: any) => a.sub_position.endsWith('_PM')).length;
+
+    setAssignments(newAssignments);
+    alert(`📅 Semana anterior clonada con éxito\n\nAM: ${amCount} asignaciones\nPM: ${pmCount} asignaciones\n\n⚠️ Recuerda guardar (Save) para que se persista.`);
   };
 
   const getAssignee = (date: Date, station: string) => {
@@ -1277,9 +1328,13 @@ export default function MissionControlRoles() {
                           const stationBase = a.main_station || a.sub_position.replace(shiftSuffix, '');
                           const shiftStationKey = `${stationBase}${shiftSuffix}`;
                           
-                          const hasTask = a.tasks?.includes(act.name) || 
-                                          stationActivities[shiftStationKey]?.includes(act.name) ||
-                                          stationActivities[`${shiftStationKey}_${myDayIndex}`]?.includes(act.name);
+                          // 🔧 FIX BUG 1: Prioridad en vez de OR
+                          // Si el assignment tiene tasks personalizadas → usar solo esas
+                          // Si no → usar el mapping de la estación (live)
+                          const hasTask = (a.tasks && a.tasks.length > 0)
+                            ? a.tasks.includes(act.name)
+                            : (stationActivities[shiftStationKey]?.includes(act.name) ||
+                               stationActivities[`${shiftStationKey}_${myDayIndex}`]?.includes(act.name));
                           return hasTask;
                         });
                       });
@@ -1319,10 +1374,11 @@ export default function MissionControlRoles() {
                                 const stationBase = a.main_station || a.sub_position.replace(shiftSuffix, '');
                                 const shiftStationKey = `${stationBase}${shiftSuffix}`;
                                 
-                                // SYNC FIX: Check both saved tasks, DAILY mappings and SPECIFIC DAY mappings
-                                const hasTask = a.tasks?.includes(act.name) || 
-                                                stationActivities[shiftStationKey]?.includes(act.name) ||
-                                                stationActivities[`${shiftStationKey}_${myDayIndex}`]?.includes(act.name);
+                                // 🔧 FIX BUG 1: Prioridad — tasks personalizadas > mapping estación
+                                const hasTask = (a.tasks && a.tasks.length > 0)
+                                  ? a.tasks.includes(act.name)
+                                  : (stationActivities[shiftStationKey]?.includes(act.name) ||
+                                     stationActivities[`${shiftStationKey}_${myDayIndex}`]?.includes(act.name));
                                 return isDateMatch && isShiftMatch && hasTask;
                               })
                               .map(a => {
@@ -1713,11 +1769,15 @@ export default function MissionControlRoles() {
                             const jsDay = activeDay.getDay();
                             const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
                             
-                            const liveTasks = [
-                              ...(currentAssignee?.tasks || []),
-                              ...(stationActivities[shiftStationKey] || []),
-                              ...(stationActivities[`${shiftStationKey}_${myDayIndex}`] || [])
-                            ];
+                            // 🔧 FIX BUG 1: Prioridad — tasks personalizadas > mapping estación
+                            // Si el assignment tiene tasks específicas → usar solo esas
+                            // Si no → usar el mapping live de la estación
+                            const liveTasks = (currentAssignee?.tasks && currentAssignee.tasks.length > 0)
+                              ? currentAssignee.tasks
+                              : [
+                                  ...(stationActivities[shiftStationKey] || []),
+                                  ...(stationActivities[`${shiftStationKey}_${myDayIndex}`] || [])
+                                ];
                             
                             const uniqueTasks = Array.from(new Set(liveTasks)).filter(Boolean);
 

@@ -11,6 +11,7 @@ export async function GET(req: Request) {
         .from('station_templates')
         .select('*')
         .eq('store_id', store_id)
+        .neq('template_name', '__CONFIG_ACTIVITIES__')
         .order('created_at', { ascending: false })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
