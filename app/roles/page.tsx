@@ -1779,7 +1779,7 @@ export default function MissionControlRoles() {
                                   ...(stationActivities[`${shiftStationKey}_${myDayIndex}`] || [])
                                 ];
                             
-                            const uniqueTasks = Array.from(new Set(liveTasks)).filter(Boolean);
+                            const uniqueTasks = Array.from(new Set(liveTasks as string[])).filter(Boolean);
 
                             if (uniqueTasks.length > 0) {
                               const groupedTasks = uniqueTasks.reduce((acc: any, taskName: string) => {
