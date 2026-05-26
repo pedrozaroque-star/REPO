@@ -2914,14 +2914,25 @@ export default function MissionControlRoles() {
                             const newMappings = { ...prev };
                             
                             assignmentDay.forEach(day => {
-                              const storageKey = day === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${day}`;
-                              const current = newMappings[storageKey] || [];
+                              // Clave para el turno actual
+                              const currentShiftKey = day === 'DIARIO' ? shiftStationKey : `${shiftStationKey}_${day}`;
                               
-                              if (newState) {
-                                if (!current.includes(act.name)) newMappings[storageKey] = [...current, act.name];
-                              } else {
-                                newMappings[storageKey] = current.filter((a: string) => a !== act.name);
-                              }
+                              // Clave para el turno opuesto (Espejo)
+                              const oppositeShift = activeShift === 'AM' ? 'PM' : 'AM';
+                              const oppositeShiftStationKey = `${showStationActivitiesModal}_${oppositeShift}`;
+                              const oppositeShiftKey = day === 'DIARIO' ? oppositeShiftStationKey : `${oppositeShiftStationKey}_${day}`;
+
+                              // Aplicar a ambos
+                              const keysToUpdate = [currentShiftKey, oppositeShiftKey];
+
+                              keysToUpdate.forEach(storageKey => {
+                                const current = newMappings[storageKey] || [];
+                                if (newState) {
+                                  if (!current.includes(act.name)) newMappings[storageKey] = [...current, act.name];
+                                } else {
+                                  newMappings[storageKey] = current.filter((a: string) => a !== act.name);
+                                }
+                              });
                             });
 
                             // Disparamos el guardado al backend asegurando que lleve el historial exacto sin perder clics rápidos
