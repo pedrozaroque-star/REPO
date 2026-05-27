@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, start_time, duration_minutes, activity, frequency, role, description } = body;
+    const { id, start_time, duration_minutes, activity, frequency, role, description, shift_type } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 });
@@ -16,6 +16,7 @@ export async function PATCH(request: Request) {
         start_time, 
         duration_minutes: duration_minutes ? Number(duration_minutes) : null, 
         activity, 
+        shift_type,
         frequency, 
         role, 
         description, 

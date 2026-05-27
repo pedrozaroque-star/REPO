@@ -140,14 +140,27 @@ export default function ProceduresTimeline() {
     return acc;
   }, {} as Record<string, Procedure[]>);
 
-  const formatTime = (timeStr: string) => {
+  const formatTimeRange = (timeStr: string, durationMin?: number) => {
     if (!timeStr) return '';
-    const [h, m] = timeStr.split(':');
-    let hours = parseInt(h);
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12; 
-    return `${hours}:${m} ${ampm}`;
+    const [h, m] = timeStr.split(':').map(Number);
+    
+    const formatSingle = (hours: number, mins: number) => {
+        const ampm = (hours % 24) >= 12 ? 'PM' : 'AM';
+        let displayHour = hours % 12;
+        displayHour = displayHour ? displayHour : 12; 
+        const displayMin = mins.toString().padStart(2, '0');
+        return `${displayHour}:${displayMin} ${ampm}`;
+    }
+
+    const startFormatted = formatSingle(h, m);
+    if (!durationMin) return startFormatted;
+
+    let endM = m + durationMin;
+    let endH = h + Math.floor(endM / 60);
+    endM = endM % 60;
+    
+    const endFormatted = formatSingle(endH, endM);
+    return `${startFormatted} - ${endFormatted}`;
   };
 
   // Convert HH:mm:ss back to HH:mm for input[type="time"]
@@ -283,9 +296,9 @@ export default function ProceduresTimeline() {
                                   onChange={(e) => handleChange('start_time', e.target.value + ':00')}
                                 />
                               ) : (
-                                <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 font-bold text-lg">
-                                  <Clock className="w-4 h-4" />
-                                  {formatTime(proc.start_time)}
+                                <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 font-bold text-sm sm:text-base whitespace-nowrap">
+                                  <Clock className="w-4 h-4 flex-shrink-0" />
+                                  {formatTimeRange(proc.start_time, proc.duration_minutes)}
                                 </div>
                               )}
 
@@ -362,6 +375,17 @@ export default function ProceduresTimeline() {
                               </div>
                               
                               <div className="flex flex-wrap gap-3 mt-3 items-center">
+                                {isEditing && (
+                                  <select
+                                    className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-24 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={editForm.shift_type || ''}
+                                    onChange={(e) => handleChange('shift_type', e.target.value)}
+                                  >
+                                    <option value="Apertura">Apertura</option>
+                                    <option value="Regular">Regular</option>
+                                    <option value="Cierre">Cierre</option>
+                                  </select>
+                                )}
                                 {isEditing ? (
                                   <input 
                                     type="text"
