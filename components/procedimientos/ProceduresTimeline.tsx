@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, Users, Calendar, Filter, ChevronDown, CheckCircle2, ChevronRight, PlayCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase'; // Assuming standard Supabase client location
+import { Clock, Users, Calendar, Filter, ChevronDown, CheckCircle2, ChevronRight, PlayCircle, Edit2, Save, X } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/components/ProtectedRoute';
 
 interface Procedure {
   id: string;
@@ -17,31 +18,98 @@ interface Procedure {
 }
 
 export default function ProceduresTimeline() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterShift, setFilterShift] = useState<string>('Todos');
   const [filterDay, setFilterDay] = useState<string>('Diario');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<Procedure>>({});
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     fetchProcedures();
   }, []);
+
+  const getSortValue = (timeStr: string) => {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    // El día laboral empieza a las 6 AM
+    // Las horas de 00:00 a 05:59 corresponden al final del turno de cierre del "día laboral actual"
+    const effectiveHour = h >= 6 ? h : h + 24;
+    return effectiveHour * 60 + m;
+  };
 
   const fetchProcedures = async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
         .from('operating_procedures')
-        .select('*')
-        .order('start_time', { ascending: true });
+        .select('*');
 
       if (error) throw error;
-      setProcedures(data || []);
+      
+      const sortedData = (data || []).sort((a, b) => getSortValue(a.start_time) - getSortValue(b.start_time));
+      setProcedures(sortedData);
     } catch (error) {
       console.error('Error fetching procedures:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditClick = (proc: Procedure, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(proc.id);
+    setEditForm(proc);
+    // Para que no se cierre si estaba expandido
+    if (expandedId !== proc.id) setExpandedId(proc.id);
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(null);
+    setEditForm({});
+  };
+
+  const handleSave = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!editingId) return;
+
+    try {
+      setSaving(true);
+      const res = await fetch(`/api/procedimientos`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ...editForm, id: editingId })
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al guardar');
+
+      // Update local state
+      setProcedures(prev => {
+        const newData = prev.map(p => p.id === editingId ? { ...p, ...editForm } : p);
+        return newData.sort((a, b) => getSortValue(a.start_time) - getSortValue(b.start_time));
+      });
+      
+      setEditingId(null);
+    } catch (err) {
+      console.error('Error:', err);
+      alert('Error al guardar los cambios');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChange = (field: keyof Procedure, value: any) => {
+    setEditForm(prev => ({ ...prev, [field]: value }));
   };
 
   const shiftColors: Record<string, string> = {
@@ -59,16 +127,13 @@ export default function ProceduresTimeline() {
   const filteredProcedures = procedures.filter(p => {
     if (filterShift !== 'Todos' && p.shift_type !== filterShift) return false;
     
-    // Day logic: if looking for 'Diario', show 'Diario'.
-    // If looking for a specific day (e.g. 'Viernes'), show 'Diario' + 'Viernes'.
     if (filterDay === 'Diario') {
       return p.frequency === 'Diario';
     } else {
-      return p.frequency === 'Diario' || p.frequency.includes(filterDay);
+      return p.frequency.toUpperCase() === 'DIARIO' || p.frequency.toUpperCase().includes(filterDay.toUpperCase());
     }
   });
 
-  // Group by shift type for better display if 'Todos' is selected
   const groupedProcedures = filteredProcedures.reduce((acc, proc) => {
     if (!acc[proc.shift_type]) acc[proc.shift_type] = [];
     acc[proc.shift_type].push(proc);
@@ -84,6 +149,13 @@ export default function ProceduresTimeline() {
     hours = hours ? hours : 12; 
     return `${hours}:${m} ${ampm}`;
   };
+
+  // Convert HH:mm:ss back to HH:mm for input[type="time"]
+  const getShortTime = (timeStr: string) => {
+    if (!timeStr) return '';
+    const parts = timeStr.split(':');
+    return `${parts[0]}:${parts[1]}`;
+  }
 
   if (loading) {
     return (
@@ -109,7 +181,6 @@ export default function ProceduresTimeline() {
             Procedimientos estandarizados para asegurar la excelencia operativa en Tacos Gavilan. Selecciona tu turno y día para ver tus responsabilidades.
           </p>
 
-          {/* Filters */}
           <div className="flex flex-wrap gap-4 items-center">
             <div className="flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 rounded-2xl p-1.5 shadow-inner border border-slate-200/50 dark:border-slate-700/50">
               <Filter className="w-4 h-4 text-slate-500 ml-2" />
@@ -176,93 +247,196 @@ export default function ProceduresTimeline() {
                 </div>
 
                 <div className="relative pl-4 sm:pl-12 border-l-2 border-slate-200/60 dark:border-slate-700/60 space-y-6">
-                  {shiftProcedures.map((proc, idx) => (
-                    <motion.div
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                      key={proc.id}
-                      className="relative"
-                    >
-                      {/* Timeline Dot */}
-                      <div className={`absolute -left-[21px] sm:-left-[53px] w-4 h-4 rounded-full border-4 border-white dark:border-[#0B1120] bg-gradient-to-br ${shiftColors[proc.shift_type]} shadow-sm z-10 top-6`} />
-                      
-                      {/* Task Card */}
-                      <div 
-                        className={`bg-white dark:bg-slate-800/80 rounded-2xl border transition-all duration-300 overflow-hidden cursor-pointer ${
-                          expandedId === proc.id 
-                            ? 'border-orange-500/50 shadow-[0_8px_30px_rgb(249,115,22,0.12)] dark:shadow-[0_8px_30px_rgb(249,115,22,0.05)]' 
-                            : 'border-slate-100 dark:border-slate-700/50 shadow-sm hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600'
-                        }`}
-                        onClick={() => setExpandedId(expandedId === proc.id ? null : proc.id)}
+                  {shiftProcedures.map((proc, idx) => {
+                    const isEditing = editingId === proc.id;
+
+                    return (
+                      <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.02 }}
+                        key={proc.id}
+                        className="relative"
                       >
-                        <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-4">
-                          {/* Time Column */}
-                          <div className="flex-shrink-0 sm:w-28 flex flex-row sm:flex-col items-center sm:items-start gap-2 sm:gap-1">
-                            <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 font-bold text-lg">
-                              <Clock className="w-4 h-4" />
-                              {formatTime(proc.start_time)}
-                            </div>
-                            {proc.duration_minutes && (
-                              <div className="text-xs font-medium text-slate-500 bg-slate-100 dark:bg-slate-700/50 px-2.5 py-1 rounded-full whitespace-nowrap">
-                                {proc.duration_minutes} min
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Content Column */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start gap-4">
-                              <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                                {proc.activity}
-                              </h3>
-                              <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-300 flex-shrink-0 ${expandedId === proc.id ? 'rotate-180 text-orange-500' : ''}`} />
+                        <div className={`absolute -left-[21px] sm:-left-[53px] w-4 h-4 rounded-full border-4 border-white dark:border-[#0B1120] bg-gradient-to-br ${shiftColors[proc.shift_type]} shadow-sm z-10 top-6`} />
+                        
+                        <div 
+                          className={`bg-white dark:bg-slate-800/80 rounded-2xl border transition-all duration-300 overflow-hidden ${!isEditing ? 'cursor-pointer' : ''} ${
+                            expandedId === proc.id || isEditing
+                              ? 'border-orange-500/50 shadow-[0_8px_30px_rgb(249,115,22,0.12)] dark:shadow-[0_8px_30px_rgb(249,115,22,0.05)]' 
+                              : 'border-slate-100 dark:border-slate-700/50 shadow-sm hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600'
+                          }`}
+                          onClick={() => {
+                            if (!isEditing) {
+                              setExpandedId(expandedId === proc.id ? null : proc.id);
+                            }
+                          }}
+                        >
+                          <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-4">
+                            {/* Time Column */}
+                            <div className="flex-shrink-0 sm:w-28 flex flex-row sm:flex-col items-center sm:items-start gap-2 sm:gap-1">
+                              {isEditing ? (
+                                <input 
+                                  type="time" 
+                                  className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded p-1 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                  value={getShortTime(editForm.start_time || '')}
+                                  onChange={(e) => handleChange('start_time', e.target.value + ':00')}
+                                />
+                              ) : (
+                                <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 font-bold text-lg">
+                                  <Clock className="w-4 h-4" />
+                                  {formatTime(proc.start_time)}
+                                </div>
+                              )}
+
+                              {isEditing ? (
+                                <div className="flex items-center mt-1">
+                                  <input 
+                                    type="number" 
+                                    placeholder="Min"
+                                    className="w-16 text-xs border border-slate-300 dark:border-slate-600 rounded p-1 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={editForm.duration_minutes || ''}
+                                    onChange={(e) => handleChange('duration_minutes', e.target.value)}
+                                  />
+                                </div>
+                              ) : (
+                                proc.duration_minutes && (
+                                  <div className="text-xs font-medium text-slate-500 bg-slate-100 dark:bg-slate-700/50 px-2.5 py-1 rounded-full whitespace-nowrap">
+                                    {proc.duration_minutes} min
+                                  </div>
+                                )
+                              )}
                             </div>
                             
-                            <div className="flex flex-wrap gap-3 mt-3">
-                              {proc.role && (
-                                <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-800/30">
-                                  <Users className="w-3 h-3" />
-                                  {proc.role}
-                                </div>
-                              )}
-                              {proc.frequency !== 'Diario' && (
-                                <div className="flex items-center gap-1 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2.5 py-1 rounded-full border border-purple-100 dark:border-purple-800/30">
-                                  <Calendar className="w-3 h-3" />
-                                  {proc.frequency}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Expandable Details */}
-                        <AnimatePresence>
-                          {expandedId === proc.id && proc.description && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <div className="px-5 pb-5 pt-0">
-                                <div className="h-px w-full bg-slate-100 dark:bg-slate-700/50 mb-4"></div>
-                                <div className="bg-orange-50/50 dark:bg-orange-900/10 rounded-xl p-4 border border-orange-100/50 dark:border-orange-500/10">
-                                  <h4 className="text-xs font-bold uppercase tracking-wider text-orange-600/80 dark:text-orange-500/80 mb-2 flex items-center gap-1.5">
-                                    <PlayCircle className="w-3.5 h-3.5" />
-                                    Detalles del Procedimiento
-                                  </h4>
-                                  <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                                    {proc.description}
-                                  </p>
+                            {/* Content Column */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start gap-4">
+                                {isEditing ? (
+                                  <input 
+                                    type="text"
+                                    className="w-full font-bold text-base sm:text-lg border border-slate-300 dark:border-slate-600 rounded p-1.5 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={editForm.activity || ''}
+                                    onChange={(e) => handleChange('activity', e.target.value)}
+                                    autoFocus
+                                  />
+                                ) : (
+                                  <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                                    {proc.activity}
+                                  </h3>
+                                )}
+                                
+                                <div className="flex items-center gap-2">
+                                  {isAdmin && !isEditing && (
+                                    <button 
+                                      onClick={(e) => handleEditClick(proc, e)}
+                                      className="text-slate-400 hover:text-blue-500 transition-colors p-1"
+                                      title="Editar"
+                                    >
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  {isEditing && (
+                                    <div className="flex gap-1">
+                                      <button 
+                                        onClick={handleSave}
+                                        disabled={saving}
+                                        className="text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 p-1.5 rounded transition-colors"
+                                        title="Guardar"
+                                      >
+                                        <Save className="w-4 h-4" />
+                                      </button>
+                                      <button 
+                                        onClick={handleCancelEdit}
+                                        disabled={saving}
+                                        className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded transition-colors"
+                                        title="Cancelar"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  )}
+                                  {!isEditing && (
+                                    <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-300 flex-shrink-0 ${expandedId === proc.id ? 'rotate-180 text-orange-500' : ''}`} />
+                                  )}
                                 </div>
                               </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    </motion.div>
-                  ))}
+                              
+                              <div className="flex flex-wrap gap-3 mt-3 items-center">
+                                {isEditing ? (
+                                  <input 
+                                    type="text"
+                                    placeholder="Rol (ej. Asistente)"
+                                    className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-32 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={editForm.role || ''}
+                                    onChange={(e) => handleChange('role', e.target.value)}
+                                  />
+                                ) : (
+                                  proc.role && (
+                                    <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-800/30">
+                                      <Users className="w-3 h-3" />
+                                      {proc.role}
+                                    </div>
+                                  )
+                                )}
+
+                                {isEditing ? (
+                                  <input 
+                                    type="text"
+                                    placeholder="Frecuencia"
+                                    className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-32 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={editForm.frequency || ''}
+                                    onChange={(e) => handleChange('frequency', e.target.value)}
+                                  />
+                                ) : (
+                                  proc.frequency !== 'Diario' && (
+                                    <div className="flex items-center gap-1 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 px-2.5 py-1 rounded-full border border-purple-100 dark:border-purple-800/30">
+                                      <Calendar className="w-3 h-3" />
+                                      {proc.frequency}
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Expandable Details */}
+                          <AnimatePresence>
+                            {(expandedId === proc.id || isEditing) && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                              >
+                                <div className="px-5 pb-5 pt-0">
+                                  <div className="h-px w-full bg-slate-100 dark:bg-slate-700/50 mb-4"></div>
+                                  <div className="bg-orange-50/50 dark:bg-orange-900/10 rounded-xl p-4 border border-orange-100/50 dark:border-orange-500/10">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-orange-600/80 dark:text-orange-500/80 mb-2 flex items-center gap-1.5">
+                                      <PlayCircle className="w-3.5 h-3.5" />
+                                      Detalles del Procedimiento
+                                    </h4>
+                                    
+                                    {isEditing ? (
+                                      <textarea 
+                                        className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded p-2 dark:bg-slate-700 text-slate-800 dark:text-slate-100 min-h-[80px]"
+                                        placeholder="Descripción o instrucciones..."
+                                        value={editForm.description || ''}
+                                        onChange={(e) => handleChange('description', e.target.value)}
+                                      />
+                                    ) : (
+                                      <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        {proc.description || 'Sin descripción adicional.'}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </motion.div>
             );
