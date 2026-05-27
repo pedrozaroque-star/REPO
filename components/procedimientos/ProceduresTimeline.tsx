@@ -269,19 +269,10 @@ export default function ProceduresTimeline() {
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3"></div>
         
         <div className="relative z-10">
-          <div className="flex justify-between items-start mb-2">
+          <div className="mb-2">
             <h1 className="text-3xl font-extrabold bg-gradient-to-r from-orange-600 to-red-600 dark:from-orange-400 dark:to-red-400 bg-clip-text text-transparent">
               Manual de Operaciones
             </h1>
-            {isAdmin && !isCreating && (
-              <button
-                onClick={() => setIsCreating(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-semibold shadow-md hover:shadow-lg transition-all hover:scale-[1.02] active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                Nueva Actividad
-              </button>
-            )}
           </div>
           <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-2xl text-sm sm:text-base">
             Procedimientos estandarizados para asegurar la excelencia operativa en Tacos Gavilan. Selecciona tu turno y día para ver tus responsabilidades.
@@ -742,6 +733,17 @@ export default function ProceduresTimeline() {
           })
         )}
       </div>
+
+      {/* ══════ Floating Action Button ══════ */}
+      {isAdmin && !isCreating && (
+        <button
+          onClick={() => { setIsCreating(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          className="fixed bottom-24 right-6 z-50 flex items-center gap-2 px-5 py-3.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-2xl text-sm font-bold shadow-[0_8px_30px_rgb(34,197,94,0.35)] hover:shadow-[0_8px_40px_rgb(34,197,94,0.5)] transition-all hover:scale-105 active:scale-95"
+        >
+          <Plus className="w-5 h-5" />
+          Nueva Actividad
+        </button>
+      )}
     </div>
   );
 }
