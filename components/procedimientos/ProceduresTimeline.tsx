@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, Users, Calendar, Filter, ChevronDown, CheckCircle2, ChevronRight, PlayCircle, Edit2, Save, X } from 'lucide-react';
+import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, Edit2, Save, X, Plus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/ProtectedRoute';
 
@@ -17,6 +17,16 @@ interface Procedure {
   description: string;
 }
 
+const EMPTY_FORM: Partial<Procedure> = {
+  start_time: '08:00:00',
+  duration_minutes: undefined,
+  activity: '',
+  shift_type: 'Apertura',
+  frequency: 'Diario',
+  role: '',
+  description: ''
+};
+
 export default function ProceduresTimeline() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
@@ -27,23 +37,39 @@ export default function ProceduresTimeline() {
   const [filterDay, setFilterDay] = useState<string>('Diario');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Procedure>>({});
   const [saving, setSaving] = useState(false);
+
+  // Create state
+  const [isCreating, setIsCreating] = useState(false);
+  const [createForm, setCreateForm] = useState<Partial<Procedure>>(EMPTY_FORM);
+
+  // Delete confirmation
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProcedures();
   }, []);
 
+  // ═══════════════════════════════════════
+  // Sorting: día laboral 6 AM → 5:59 AM
+  // ═══════════════════════════════════════
   const getSortValue = (timeStr: string) => {
     if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
-    // El día laboral empieza a las 6 AM
-    // Las horas de 00:00 a 05:59 corresponden al final del turno de cierre del "día laboral actual"
     const effectiveHour = h >= 6 ? h : h + 24;
     return effectiveHour * 60 + m;
   };
 
+  const sortProcedures = (data: Procedure[]) => {
+    return [...data].sort((a, b) => getSortValue(a.start_time) - getSortValue(b.start_time));
+  };
+
+  // ═══════════════════════════════════════
+  // FETCH
+  // ═══════════════════════════════════════
   const fetchProcedures = async () => {
     try {
       setLoading(true);
@@ -52,9 +78,7 @@ export default function ProceduresTimeline() {
         .select('*');
 
       if (error) throw error;
-      
-      const sortedData = (data || []).sort((a, b) => getSortValue(a.start_time) - getSortValue(b.start_time));
-      setProcedures(sortedData);
+      setProcedures(sortProcedures(data || []));
     } catch (error) {
       console.error('Error fetching procedures:', error);
     } finally {
@@ -62,11 +86,13 @@ export default function ProceduresTimeline() {
     }
   };
 
+  // ═══════════════════════════════════════
+  // EDIT
+  // ═══════════════════════════════════════
   const handleEditClick = (proc: Procedure, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingId(proc.id);
     setEditForm(proc);
-    // Para que no se cierre si estaba expandido
     if (expandedId !== proc.id) setExpandedId(proc.id);
   };
 
@@ -76,33 +102,82 @@ export default function ProceduresTimeline() {
     setEditForm({});
   };
 
-  const handleSave = async (e: React.MouseEvent) => {
+  const handleSaveEdit = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!editingId) return;
 
     try {
       setSaving(true);
-      const res = await fetch(`/api/procedimientos`, {
+      const res = await fetch('/api/procedimientos', {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...editForm, id: editingId })
       });
-
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al guardar');
 
-      // Update local state
-      setProcedures(prev => {
-        const newData = prev.map(p => p.id === editingId ? { ...p, ...editForm } : p);
-        return newData.sort((a, b) => getSortValue(a.start_time) - getSortValue(b.start_time));
-      });
-      
+      // Actualizar y re-ordenar automáticamente
+      setProcedures(prev => sortProcedures(
+        prev.map(p => p.id === editingId ? { ...p, ...editForm } as Procedure : p)
+      ));
       setEditingId(null);
-    } catch (err) {
+      setEditForm({});
+    } catch (err: any) {
       console.error('Error:', err);
-      alert('Error al guardar los cambios');
+      alert('Error al guardar: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ═══════════════════════════════════════
+  // CREATE
+  // ═══════════════════════════════════════
+  const handleCreate = async () => {
+    if (!createForm.activity?.trim()) {
+      alert('La actividad es obligatoria');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const res = await fetch('/api/procedimientos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createForm)
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al crear');
+
+      // Agregar y re-ordenar automáticamente
+      setProcedures(prev => sortProcedures([...prev, json.data as Procedure]));
+      setIsCreating(false);
+      setCreateForm(EMPTY_FORM);
+    } catch (err: any) {
+      console.error('Error:', err);
+      alert('Error al crear: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ═══════════════════════════════════════
+  // DELETE
+  // ═══════════════════════════════════════
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      setSaving(true);
+      const res = await fetch(`/api/procedimientos?id=${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al eliminar');
+
+      setProcedures(prev => prev.filter(p => p.id !== id));
+      setDeletingId(null);
+      if (expandedId === id) setExpandedId(null);
+    } catch (err: any) {
+      console.error('Error:', err);
+      alert('Error al eliminar: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -112,6 +187,13 @@ export default function ProceduresTimeline() {
     setEditForm(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleCreateChange = (field: keyof Procedure, value: any) => {
+    setCreateForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  // ═══════════════════════════════════════
+  // Colores y configuración visual
+  // ═══════════════════════════════════════
   const shiftColors: Record<string, string> = {
     'Apertura': 'from-amber-400 to-orange-500',
     'Regular': 'from-blue-400 to-cyan-500',
@@ -126,7 +208,6 @@ export default function ProceduresTimeline() {
 
   const filteredProcedures = procedures.filter(p => {
     if (filterShift !== 'Todos' && p.shift_type !== filterShift) return false;
-    
     if (filterDay === 'Diario') {
       return p.frequency === 'Diario';
     } else {
@@ -140,6 +221,9 @@ export default function ProceduresTimeline() {
     return acc;
   }, {} as Record<string, Procedure[]>);
 
+  // ═══════════════════════════════════════
+  // Formateo de tiempo
+  // ═══════════════════════════════════════
   const formatSingleTime = (hours: number, mins: number) => {
     const ampm = (hours % 24) >= 12 ? 'PM' : 'AM';
     let displayHour = hours % 12;
@@ -159,13 +243,15 @@ export default function ProceduresTimeline() {
     return { start, end: formatSingleTime(endH, endM) };
   };
 
-  // Convert HH:mm:ss back to HH:mm for input[type="time"]
   const getShortTime = (timeStr: string) => {
     if (!timeStr) return '';
     const parts = timeStr.split(':');
     return `${parts[0]}:${parts[1]}`;
-  }
+  };
 
+  // ═══════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -177,15 +263,26 @@ export default function ProceduresTimeline() {
   return (
     <div className="w-full max-w-6xl mx-auto p-4 sm:p-6 pb-24">
       
-      {/* Header Section */}
+      {/* ══════ Header Section ══════ */}
       <div className="mb-8 p-6 rounded-3xl bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/20 dark:border-slate-800/50 shadow-xl overflow-hidden relative">
         <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3"></div>
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3"></div>
         
         <div className="relative z-10">
-          <h1 className="text-3xl font-extrabold bg-gradient-to-r from-orange-600 to-red-600 dark:from-orange-400 dark:to-red-400 bg-clip-text text-transparent mb-2">
-            Manual de Operaciones
-          </h1>
+          <div className="flex justify-between items-start mb-2">
+            <h1 className="text-3xl font-extrabold bg-gradient-to-r from-orange-600 to-red-600 dark:from-orange-400 dark:to-red-400 bg-clip-text text-transparent">
+              Manual de Operaciones
+            </h1>
+            {isAdmin && !isCreating && (
+              <button
+                onClick={() => setIsCreating(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-semibold shadow-md hover:shadow-lg transition-all hover:scale-[1.02] active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                Nueva Actividad
+              </button>
+            )}
+          </div>
           <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-2xl text-sm sm:text-base">
             Procedimientos estandarizados para asegurar la excelencia operativa en Tacos Gavilan. Selecciona tu turno y día para ver tus responsabilidades.
           </p>
@@ -226,7 +323,136 @@ export default function ProceduresTimeline() {
         </div>
       </div>
 
-      {/* Timeline Section */}
+      {/* ══════ CREATE FORM (Modal-like card at top) ══════ */}
+      <AnimatePresence>
+        {isCreating && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="mb-8 p-6 rounded-2xl bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700 shadow-lg"
+          >
+            <h3 className="text-lg font-bold text-green-800 dark:text-green-300 mb-4 flex items-center gap-2">
+              <Plus className="w-5 h-5" />
+              Nueva Actividad
+            </h3>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+              {/* Actividad */}
+              <div className="sm:col-span-2 lg:col-span-3">
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Actividad *</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Lavar freidoras"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                  value={createForm.activity || ''}
+                  onChange={(e) => handleCreateChange('activity', e.target.value)}
+                  autoFocus
+                />
+              </div>
+              
+              {/* Hora de inicio */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Hora de Inicio</label>
+                <input
+                  type="time"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                  value={getShortTime(createForm.start_time || '08:00:00')}
+                  onChange={(e) => handleCreateChange('start_time', e.target.value + ':00')}
+                />
+              </div>
+
+              {/* Duración */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Duración (minutos)</label>
+                <input
+                  type="number"
+                  placeholder="Ej: 15"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                  value={createForm.duration_minutes || ''}
+                  onChange={(e) => handleCreateChange('duration_minutes', e.target.value)}
+                />
+              </div>
+
+              {/* Categoría */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Categoría *</label>
+                <select
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                  value={createForm.shift_type || 'Apertura'}
+                  onChange={(e) => handleCreateChange('shift_type', e.target.value)}
+                >
+                  <option value="Apertura">🌅 Apertura</option>
+                  <option value="Regular">☀️ Regular</option>
+                  <option value="Cierre">🌙 Cierre</option>
+                </select>
+              </div>
+
+              {/* Frecuencia */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Frecuencia *</label>
+                <select
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                  value={createForm.frequency || 'Diario'}
+                  onChange={(e) => handleCreateChange('frequency', e.target.value)}
+                >
+                  <option value="Diario">Diario</option>
+                  <option value="Lunes">Lunes</option>
+                  <option value="Martes">Martes</option>
+                  <option value="Miercoles">Miércoles</option>
+                  <option value="Jueves">Jueves</option>
+                  <option value="Viernes">Viernes</option>
+                  <option value="Sabado">Sábado</option>
+                  <option value="Domingo">Domingo</option>
+                  <option value="Jueves y Domingo">Jueves y Domingo</option>
+                </select>
+              </div>
+
+              {/* Responsable */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Responsable</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Asistente/SL"
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                  value={createForm.role || ''}
+                  onChange={(e) => handleCreateChange('role', e.target.value)}
+                />
+              </div>
+
+              {/* Descripción */}
+              <div className="sm:col-span-2 lg:col-span-3">
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Descripción / Instrucciones</label>
+                <textarea
+                  placeholder="Detalles de cómo realizar esta actividad..."
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 min-h-[60px] focus:ring-2 focus:ring-green-500 outline-none"
+                  value={createForm.description || ''}
+                  onChange={(e) => handleCreateChange('description', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setIsCreating(false); setCreateForm(EMPTY_FORM); }}
+                disabled={saving}
+                className="px-5 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 rounded-xl hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={saving || !createForm.activity?.trim()}
+                className="px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Guardando...' : 'Crear Actividad'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ══════ Timeline Section ══════ */}
       <div className="space-y-12">
         {Object.keys(groupedProcedures).length === 0 ? (
           <div className="text-center py-20 text-slate-500">
@@ -251,6 +477,7 @@ export default function ProceduresTimeline() {
                       {shiftIcons[shiftKey]}
                     </div>
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{shiftKey}</h2>
+                    <span className="text-sm text-slate-400 font-medium">({shiftProcedures.length})</span>
                     <div className="h-px flex-1 bg-gradient-to-r from-slate-200 dark:from-slate-700 to-transparent ml-4"></div>
                   </div>
                 </div>
@@ -258,6 +485,7 @@ export default function ProceduresTimeline() {
                 <div className="relative pl-4 sm:pl-12 border-l-2 border-slate-200/60 dark:border-slate-700/60 space-y-6">
                   {shiftProcedures.map((proc, idx) => {
                     const isEditing = editingId === proc.id;
+                    const isDeleting = deletingId === proc.id;
                     const timeData = getTimeData(proc.start_time, proc.duration_minutes);
 
                     return (
@@ -266,6 +494,7 @@ export default function ProceduresTimeline() {
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.02 }}
                         key={proc.id}
+                        layout
                         className="relative"
                       >
                         <div className={`absolute -left-[21px] sm:-left-[53px] w-4 h-4 rounded-full border-4 border-white dark:border-[#0B1120] bg-gradient-to-br ${shiftColors[proc.shift_type]} shadow-sm z-10 top-6`} />
@@ -274,14 +503,47 @@ export default function ProceduresTimeline() {
                           className={`bg-white dark:bg-slate-800/80 rounded-2xl border transition-all duration-300 overflow-hidden ${!isEditing ? 'cursor-pointer' : ''} ${
                             expandedId === proc.id || isEditing
                               ? 'border-orange-500/50 shadow-[0_8px_30px_rgb(249,115,22,0.12)] dark:shadow-[0_8px_30px_rgb(249,115,22,0.05)]' 
-                              : 'border-slate-100 dark:border-slate-700/50 shadow-sm hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600'
+                              : isDeleting
+                                ? 'border-red-400 shadow-[0_8px_30px_rgb(239,68,68,0.15)]'
+                                : 'border-slate-100 dark:border-slate-700/50 shadow-sm hover:shadow-md hover:border-slate-200 dark:hover:border-slate-600'
                           }`}
                           onClick={() => {
-                            if (!isEditing) {
+                            if (!isEditing && !isDeleting) {
                               setExpandedId(expandedId === proc.id ? null : proc.id);
                             }
                           }}
                         >
+                          {/* Delete confirmation bar */}
+                          <AnimatePresence>
+                            {isDeleting && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 px-4 py-3 flex items-center justify-between gap-4"
+                              >
+                                <span className="text-sm font-medium text-red-700 dark:text-red-300">
+                                  ¿Seguro que deseas eliminar esta actividad?
+                                </span>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={(e) => handleDelete(proc.id, e)}
+                                    disabled={saving}
+                                    className="px-3 py-1.5 text-xs font-bold text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+                                  >
+                                    {saving ? '...' : 'Sí, Eliminar'}
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setDeletingId(null); }}
+                                    className="px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
+                                  >
+                                    No
+                                  </button>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+
                           <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-4">
                             {/* Time Column */}
                             <div className="flex-shrink-0 sm:w-32 flex flex-row sm:flex-col items-center sm:items-start gap-2 sm:gap-0.5">
@@ -327,11 +589,11 @@ export default function ProceduresTimeline() {
                             
                             {/* Content Column */}
                             <div className="flex-1 min-w-0">
-                              <div className="flex justify-between items-start gap-4">
+                              <div className="flex justify-between items-start gap-2">
                                 {isEditing ? (
                                   <input 
                                     type="text"
-                                    className="w-full font-bold text-base sm:text-lg border border-slate-300 dark:border-slate-600 rounded p-1.5 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    className="w-full font-bold text-base border border-slate-300 dark:border-slate-600 rounded p-1.5 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
                                     value={editForm.activity || ''}
                                     onChange={(e) => handleChange('activity', e.target.value)}
                                     autoFocus
@@ -342,20 +604,29 @@ export default function ProceduresTimeline() {
                                   </h3>
                                 )}
                                 
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1 flex-shrink-0">
                                   {isAdmin && !isEditing && (
-                                    <button 
-                                      onClick={(e) => handleEditClick(proc, e)}
-                                      className="text-slate-400 hover:text-blue-500 transition-colors p-1"
-                                      title="Editar"
-                                    >
-                                      <Edit2 className="w-4 h-4" />
-                                    </button>
+                                    <>
+                                      <button 
+                                        onClick={(e) => handleEditClick(proc, e)}
+                                        className="text-slate-400 hover:text-blue-500 transition-colors p-1"
+                                        title="Editar"
+                                      >
+                                        <Edit2 className="w-4 h-4" />
+                                      </button>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); setDeletingId(isDeleting ? null : proc.id); }}
+                                        className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                                        title="Eliminar"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </>
                                   )}
                                   {isEditing && (
                                     <div className="flex gap-1">
                                       <button 
-                                        onClick={handleSave}
+                                        onClick={handleSaveEdit}
                                         disabled={saving}
                                         className="text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 p-1.5 rounded transition-colors"
                                         title="Guardar"
