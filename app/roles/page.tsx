@@ -248,6 +248,15 @@ export default function MissionControlRoles() {
     fetchStores();
   }, []);
 
+  // Persist Drive-Thru setting per store
+  useEffect(() => {
+    if (!selectedStoreGuid) return;
+    const stored = localStorage.getItem(`hasDriveThru_${selectedStoreGuid}`);
+    if (stored !== null) {
+      setHasDriveThru(stored === 'true');
+    }
+  }, [selectedStoreGuid]);
+
 
   const fetchStores = async () => {
     const { data } = await supabase.from('stores').select('*').order('name');
@@ -1011,7 +1020,13 @@ export default function MissionControlRoles() {
             <div className="flex items-center gap-3 px-4 border-l border-slate-100">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Has Drive-Thru</span>
               <button 
-                onClick={() => setHasDriveThru(!hasDriveThru)}
+                onClick={() => {
+                  const newVal = !hasDriveThru;
+                  setHasDriveThru(newVal);
+                  if (selectedStoreGuid) {
+                    localStorage.setItem(`hasDriveThru_${selectedStoreGuid}`, String(newVal));
+                  }
+                }}
                 className={`relative w-10 h-5 rounded-full transition-all duration-300 ${hasDriveThru ? 'bg-indigo-600 shadow-lg shadow-indigo-100' : 'bg-slate-200'}`}
               >
                 <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all duration-300 ${hasDriveThru ? 'left-6' : 'left-1'}`} />
