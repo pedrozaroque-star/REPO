@@ -140,27 +140,23 @@ export default function ProceduresTimeline() {
     return acc;
   }, {} as Record<string, Procedure[]>);
 
-  const formatTimeRange = (timeStr: string, durationMin?: number) => {
-    if (!timeStr) return '';
+  const formatSingleTime = (hours: number, mins: number) => {
+    const ampm = (hours % 24) >= 12 ? 'PM' : 'AM';
+    let displayHour = hours % 12;
+    displayHour = displayHour ? displayHour : 12; 
+    const displayMin = mins.toString().padStart(2, '0');
+    return `${displayHour}:${displayMin} ${ampm}`;
+  };
+
+  const getTimeData = (timeStr: string, durationMin?: number) => {
+    if (!timeStr) return { start: '', end: '' };
     const [h, m] = timeStr.split(':').map(Number);
-    
-    const formatSingle = (hours: number, mins: number) => {
-        const ampm = (hours % 24) >= 12 ? 'PM' : 'AM';
-        let displayHour = hours % 12;
-        displayHour = displayHour ? displayHour : 12; 
-        const displayMin = mins.toString().padStart(2, '0');
-        return `${displayHour}:${displayMin} ${ampm}`;
-    }
-
-    const startFormatted = formatSingle(h, m);
-    if (!durationMin) return startFormatted;
-
+    const start = formatSingleTime(h, m);
+    if (!durationMin) return { start, end: '' };
     let endM = m + durationMin;
     let endH = h + Math.floor(endM / 60);
     endM = endM % 60;
-    
-    const endFormatted = formatSingle(endH, endM);
-    return `${startFormatted} - ${endFormatted}`;
+    return { start, end: formatSingleTime(endH, endM) };
   };
 
   // Convert HH:mm:ss back to HH:mm for input[type="time"]
@@ -262,6 +258,7 @@ export default function ProceduresTimeline() {
                 <div className="relative pl-4 sm:pl-12 border-l-2 border-slate-200/60 dark:border-slate-700/60 space-y-6">
                   {shiftProcedures.map((proc, idx) => {
                     const isEditing = editingId === proc.id;
+                    const timeData = getTimeData(proc.start_time, proc.duration_minutes);
 
                     return (
                       <motion.div
@@ -287,37 +284,44 @@ export default function ProceduresTimeline() {
                         >
                           <div className="p-4 sm:p-5 flex flex-col sm:flex-row gap-4">
                             {/* Time Column */}
-                            <div className="flex-shrink-0 sm:w-28 flex flex-row sm:flex-col items-center sm:items-start gap-2 sm:gap-1">
+                            <div className="flex-shrink-0 sm:w-32 flex flex-row sm:flex-col items-center sm:items-start gap-2 sm:gap-0.5">
                               {isEditing ? (
-                                <input 
-                                  type="time" 
-                                  className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded p-1 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
-                                  value={getShortTime(editForm.start_time || '')}
-                                  onChange={(e) => handleChange('start_time', e.target.value + ':00')}
-                                />
-                              ) : (
-                                <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 font-bold text-sm sm:text-base whitespace-nowrap">
-                                  <Clock className="w-4 h-4 flex-shrink-0" />
-                                  {formatTimeRange(proc.start_time, proc.duration_minutes)}
-                                </div>
-                              )}
-
-                              {isEditing ? (
-                                <div className="flex items-center mt-1">
+                                <>
                                   <input 
-                                    type="number" 
-                                    placeholder="Min"
-                                    className="w-16 text-xs border border-slate-300 dark:border-slate-600 rounded p-1 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
-                                    value={editForm.duration_minutes || ''}
-                                    onChange={(e) => handleChange('duration_minutes', e.target.value)}
+                                    type="time" 
+                                    className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded p-1 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={getShortTime(editForm.start_time || '')}
+                                    onChange={(e) => handleChange('start_time', e.target.value + ':00')}
                                   />
-                                </div>
-                              ) : (
-                                proc.duration_minutes && (
-                                  <div className="text-xs font-medium text-slate-500 bg-slate-100 dark:bg-slate-700/50 px-2.5 py-1 rounded-full whitespace-nowrap">
-                                    {proc.duration_minutes} min
+                                  <div className="flex items-center mt-1 gap-1">
+                                    <input 
+                                      type="number" 
+                                      placeholder="Min"
+                                      className="w-16 text-xs border border-slate-300 dark:border-slate-600 rounded p-1 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                      value={editForm.duration_minutes || ''}
+                                      onChange={(e) => handleChange('duration_minutes', e.target.value)}
+                                    />
+                                    <span className="text-xs text-slate-400">min</span>
                                   </div>
-                                )
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-1.5 text-orange-600 dark:text-orange-400 font-bold text-base">
+                                    <Clock className="w-4 h-4 flex-shrink-0" />
+                                    {timeData.start}
+                                  </div>
+                                  {timeData.end && (
+                                    <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                                      <ChevronRight className="w-3 h-3" />
+                                      {timeData.end}
+                                    </div>
+                                  )}
+                                  {proc.duration_minutes && (
+                                    <div className="text-[10px] font-medium text-slate-400 bg-slate-100 dark:bg-slate-700/50 px-2 py-0.5 rounded-full whitespace-nowrap mt-1">
+                                      {proc.duration_minutes} min
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
                             
