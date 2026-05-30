@@ -25,7 +25,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, start_time, duration_minutes, activity, frequency, role, description, shift_type, shift, overrides } = body;
+    const { id, start_time, duration_minutes, activity, frequency, role, description, shift_type, shift, overrides, store_model } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 });
@@ -41,6 +41,7 @@ export async function PATCH(request: Request) {
     if (description !== undefined) updateData.description = description;
     if (shift !== undefined) updateData.shift = shift;
     if (overrides !== undefined) updateData.overrides = overrides;
+    if (store_model !== undefined) updateData.store_model = store_model;
 
     const { data, error } = await supabaseAdmin
       .from('operating_procedures')
@@ -63,7 +64,7 @@ export async function PATCH(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { start_time, duration_minutes, activity, frequency, role, description, shift_type, shift, overrides } = body;
+    const { start_time, duration_minutes, activity, frequency, role, description, shift_type, shift, overrides, store_model } = body;
 
     if (!activity || !shift_type) {
       return NextResponse.json({ 
@@ -83,7 +84,8 @@ export async function POST(request: Request) {
         role: role || null, 
         description: description || null,
         shift: shift || 'AMBOS',
-        overrides: overrides || {}
+        overrides: overrides || {},
+        store_model: store_model || 'AMBOS'
       })
       .select()
       .single();
