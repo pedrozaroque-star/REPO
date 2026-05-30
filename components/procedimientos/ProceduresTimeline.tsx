@@ -5,6 +5,7 @@ import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, Edit2, Save, X, Plus, Trash2, GripVertical, Info, Building2, Car } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/ProtectedRoute';
+import { useLanguage } from '@/lib/i18n';
 
 interface Procedure {
   id: string;
@@ -31,6 +32,7 @@ const EMPTY_FORM: Partial<Procedure> = {
 
 export default function ProceduresTimeline() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
   const [procedures, setProcedures] = useState<Procedure[]>([]);
@@ -156,7 +158,7 @@ export default function ProceduresTimeline() {
         body: JSON.stringify({ ...editForm, id: editingId })
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Error al guardar');
+      if (!res.ok) throw new Error(json.error || 'Error');
 
       // Actualizar y re-ordenar automáticamente
       setProcedures(prev => sortProcedures(
@@ -166,7 +168,7 @@ export default function ProceduresTimeline() {
       setEditForm({});
     } catch (err: any) {
       console.error('Error:', err);
-      alert('Error al guardar: ' + err.message);
+      alert(t('procedures.errors.save_error') + err.message);
     } finally {
       setSaving(false);
     }
@@ -177,7 +179,7 @@ export default function ProceduresTimeline() {
   // ═══════════════════════════════════════
   const handleCreate = async () => {
     if (!createForm.activity?.trim()) {
-      alert('La actividad es obligatoria');
+      alert(t('procedures.errors.activity_required'));
       return;
     }
 
@@ -189,7 +191,7 @@ export default function ProceduresTimeline() {
         body: JSON.stringify(createForm)
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Error al crear');
+      if (!res.ok) throw new Error(json.error || 'Error');
 
       // Agregar y re-ordenar automáticamente
       setProcedures(prev => sortProcedures([...prev, json.data as Procedure]));
@@ -197,7 +199,7 @@ export default function ProceduresTimeline() {
       setCreateForm(EMPTY_FORM);
     } catch (err: any) {
       console.error('Error:', err);
-      alert('Error al crear: ' + err.message);
+      alert(t('procedures.errors.create_error') + err.message);
     } finally {
       setSaving(false);
     }
@@ -212,14 +214,14 @@ export default function ProceduresTimeline() {
       setSaving(true);
       const res = await fetch(`/api/procedimientos?id=${id}`, { method: 'DELETE' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Error al eliminar');
+      if (!res.ok) throw new Error(json.error || 'Error');
 
       setProcedures(prev => prev.filter(p => p.id !== id));
       setDeletingId(null);
       if (expandedId === id) setExpandedId(null);
     } catch (err: any) {
       console.error('Error:', err);
-      alert('Error al eliminar: ' + err.message);
+      alert(t('procedures.errors.delete_error') + err.message);
     } finally {
       setSaving(false);
     }
@@ -246,6 +248,13 @@ export default function ProceduresTimeline() {
     'Apertura': '🌅',
     'Regular': '☀️',
     'Cierre': '🌙'
+  };
+
+  // Translated shift labels for display (values stay as DB values)
+  const shiftLabels: Record<string, string> = {
+    'Apertura': t('procedures.filters.opening'),
+    'Regular': t('procedures.filters.regular'),
+    'Cierre': t('procedures.filters.closing'),
   };
 
   const filteredProcedures = procedures.filter(p => {
@@ -317,36 +326,41 @@ export default function ProceduresTimeline() {
         <div className="relative z-10">
           <div className="mb-2 flex items-center gap-3">
             <h1 className="text-3xl font-extrabold bg-gradient-to-r from-orange-600 to-red-600 dark:from-orange-400 dark:to-red-400 bg-clip-text text-transparent">
-              Manual de Operaciones
+              {t('procedures.title')}
             </h1>
             <a
               href="/reunion"
               target="_blank"
-              title="¿Qué es esto? — Info para supervisores"
+              title={t('procedures.info_tooltip')}
               className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-800/40 transition-all hover:scale-110 border border-blue-200 dark:border-blue-700/50"
             >
               <Info className="w-4 h-4" />
             </a>
           </div>
           <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-2xl text-sm sm:text-base">
-            Procedimientos estandarizados para asegurar la excelencia operativa en Tacos Gavilan. Selecciona tu turno y día para ver tus responsabilidades.
+            {t('procedures.subtitle')}
           </p>
 
           <div className="flex flex-col gap-3">
             {/* Fila 1: Filtro de Turno */}
             <div className="flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 rounded-2xl p-1.5 shadow-inner border border-slate-200/50 dark:border-slate-700/50 w-fit">
               <Filter className="w-4 h-4 text-slate-500 ml-2" />
-              {['Todos', 'Apertura', 'Regular', 'Cierre'].map(shift => (
+              {[
+                { value: 'Todos', label: t('procedures.filters.all') },
+                { value: 'Apertura', label: t('procedures.filters.opening') },
+                { value: 'Regular', label: t('procedures.filters.regular') },
+                { value: 'Cierre', label: t('procedures.filters.closing') },
+              ].map(shift => (
                 <button
-                  key={shift}
-                  onClick={() => setFilterShift(shift)}
+                  key={shift.value}
+                  onClick={() => setFilterShift(shift.value)}
                   className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-300 ${
-                    filterShift === shift 
+                    filterShift === shift.value 
                       ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md' 
                       : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50'
                   }`}
                 >
-                  {shift}
+                  {shift.label}
                 </button>
               ))}
             </div>
@@ -355,14 +369,14 @@ export default function ProceduresTimeline() {
             <div className="flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 rounded-2xl p-1.5 shadow-inner border border-slate-200/50 dark:border-slate-700/50 w-fit">
               <Calendar className="w-4 h-4 text-slate-500 ml-2" />
               {[
-                { value: 'Diario', label: 'Todos', short: 'Todos' },
-                { value: 'Lunes', label: 'Lunes', short: 'Lu' },
-                { value: 'Martes', label: 'Martes', short: 'Ma' },
-                { value: 'Miercoles', label: 'Miércoles', short: 'Mi' },
-                { value: 'Jueves', label: 'Jueves', short: 'Ju' },
-                { value: 'Viernes', label: 'Viernes', short: 'Vi' },
-                { value: 'Sabado', label: 'Sábado', short: 'Sá' },
-                { value: 'Domingo', label: 'Domingo', short: 'Do' },
+                { value: 'Diario', label: t('procedures.days.all'), short: t('procedures.days.all') },
+                { value: 'Lunes', label: t('procedures.days.monday'), short: t('procedures.days.monday_short') },
+                { value: 'Martes', label: t('procedures.days.tuesday'), short: t('procedures.days.tuesday_short') },
+                { value: 'Miercoles', label: t('procedures.days.wednesday'), short: t('procedures.days.wednesday_short') },
+                { value: 'Jueves', label: t('procedures.days.thursday'), short: t('procedures.days.thursday_short') },
+                { value: 'Viernes', label: t('procedures.days.friday'), short: t('procedures.days.friday_short') },
+                { value: 'Sabado', label: t('procedures.days.saturday'), short: t('procedures.days.saturday_short') },
+                { value: 'Domingo', label: t('procedures.days.sunday'), short: t('procedures.days.sunday_short') },
               ].map(day => (
                 <button
                   key={day.value}
@@ -384,9 +398,9 @@ export default function ProceduresTimeline() {
             <div className="flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 rounded-2xl p-1.5 shadow-inner border border-slate-200/50 dark:border-slate-700/50 w-fit">
               <Building2 className="w-4 h-4 text-slate-500 ml-2" />
               {[
-                { value: 'Todos', label: 'Todos', icon: null },
-                { value: 'REGULAR', label: 'Regular', icon: <Building2 className="w-3.5 h-3.5" /> },
-                { value: 'DRIVE_THRU', label: 'Drive-Thru', icon: <Car className="w-3.5 h-3.5" /> },
+                { value: 'Todos', label: t('procedures.store_model.all'), icon: null },
+                { value: 'REGULAR', label: t('procedures.store_model.regular'), icon: <Building2 className="w-3.5 h-3.5" /> },
+                { value: 'DRIVE_THRU', label: t('procedures.store_model.drive_thru'), icon: <Car className="w-3.5 h-3.5" /> },
               ].map(model => (
                 <button
                   key={model.value}
@@ -417,16 +431,16 @@ export default function ProceduresTimeline() {
           >
             <h3 className="text-lg font-bold text-green-800 dark:text-green-300 mb-4 flex items-center gap-2">
               <Plus className="w-5 h-5" />
-              Nueva Actividad
+              {t('procedures.form.new_activity')}
             </h3>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
               {/* Actividad */}
               <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Actividad *</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.activity_label')}</label>
                 <input
                   type="text"
-                  placeholder="Ej: Lavar freidoras"
+                  placeholder={t('procedures.form.activity_placeholder')}
                   className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
                   value={createForm.activity || ''}
                   onChange={(e) => handleCreateChange('activity', e.target.value)}
@@ -436,7 +450,7 @@ export default function ProceduresTimeline() {
               
               {/* Hora de inicio */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Hora de Inicio</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.start_time')}</label>
                 <input
                   type="time"
                   className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
@@ -447,10 +461,10 @@ export default function ProceduresTimeline() {
 
               {/* Duración */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Duración (minutos)</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.duration')}</label>
                 <input
                   type="number"
-                  placeholder="Ej: 15"
+                  placeholder={t('procedures.form.duration_placeholder')}
                   className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
                   value={createForm.duration_minutes || ''}
                   onChange={(e) => handleCreateChange('duration_minutes', e.target.value)}
@@ -459,44 +473,44 @@ export default function ProceduresTimeline() {
 
               {/* Categoría */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Categoría *</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.category')}</label>
                 <select
                   className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
                   value={createForm.shift_type || 'Apertura'}
                   onChange={(e) => handleCreateChange('shift_type', e.target.value)}
                 >
-                  <option value="Apertura">🌅 Apertura</option>
-                  <option value="Regular">☀️ Regular</option>
-                  <option value="Cierre">🌙 Cierre</option>
+                  <option value="Apertura">{t('procedures.category_options.opening')}</option>
+                  <option value="Regular">{t('procedures.category_options.regular')}</option>
+                  <option value="Cierre">{t('procedures.category_options.closing')}</option>
                 </select>
               </div>
 
               {/* Frecuencia */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Frecuencia *</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.frequency')}</label>
                 <select
                   className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
                   value={createForm.frequency || 'Diario'}
                   onChange={(e) => handleCreateChange('frequency', e.target.value)}
                 >
-                  <option value="Diario">Diario</option>
-                  <option value="Lunes">Lunes</option>
-                  <option value="Martes">Martes</option>
-                  <option value="Miercoles">Miércoles</option>
-                  <option value="Jueves">Jueves</option>
-                  <option value="Viernes">Viernes</option>
-                  <option value="Sabado">Sábado</option>
-                  <option value="Domingo">Domingo</option>
-                  <option value="Jueves y Domingo">Jueves y Domingo</option>
+                  <option value="Diario">{t('procedures.frequency_options.daily')}</option>
+                  <option value="Lunes">{t('procedures.frequency_options.monday')}</option>
+                  <option value="Martes">{t('procedures.frequency_options.tuesday')}</option>
+                  <option value="Miercoles">{t('procedures.frequency_options.wednesday')}</option>
+                  <option value="Jueves">{t('procedures.frequency_options.thursday')}</option>
+                  <option value="Viernes">{t('procedures.frequency_options.friday')}</option>
+                  <option value="Sabado">{t('procedures.frequency_options.saturday')}</option>
+                  <option value="Domingo">{t('procedures.frequency_options.sunday')}</option>
+                  <option value="Jueves y Domingo">{t('procedures.frequency_options.thu_and_sun')}</option>
                 </select>
               </div>
 
               {/* Responsable */}
               <div>
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Responsable</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.responsible')}</label>
                 <input
                   type="text"
-                  placeholder="Ej: Asistente/SL"
+                  placeholder={t('procedures.form.responsible_placeholder')}
                   className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
                   value={createForm.role || ''}
                   onChange={(e) => handleCreateChange('role', e.target.value)}
@@ -505,9 +519,9 @@ export default function ProceduresTimeline() {
 
               {/* Descripción */}
               <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Descripción / Instrucciones</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.description')}</label>
                 <textarea
-                  placeholder="Detalles de cómo realizar esta actividad..."
+                  placeholder={t('procedures.form.description_placeholder')}
                   className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 min-h-[60px] focus:ring-2 focus:ring-green-500 outline-none"
                   value={createForm.description || ''}
                   onChange={(e) => handleCreateChange('description', e.target.value)}
@@ -521,14 +535,14 @@ export default function ProceduresTimeline() {
                 disabled={saving}
                 className="px-5 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 rounded-xl hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
               >
-                Cancelar
+                {t('procedures.form.cancel')}
               </button>
               <button
                 onClick={handleCreate}
                 disabled={saving || !createForm.activity?.trim()}
                 className="px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? 'Guardando...' : 'Crear Actividad'}
+                {saving ? t('procedures.form.saving') : t('procedures.form.create')}
               </button>
             </div>
           </motion.div>
@@ -539,7 +553,7 @@ export default function ProceduresTimeline() {
       <div className="space-y-12">
         {Object.keys(groupedProcedures).length === 0 ? (
           <div className="text-center py-20 text-slate-500">
-            No hay procedimientos que coincidan con los filtros seleccionados.
+            {t('procedures.empty')}
           </div>
         ) : (
           ['Apertura', 'Regular', 'Cierre'].map(shiftKey => {
@@ -559,7 +573,7 @@ export default function ProceduresTimeline() {
                     <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${shiftColors[shiftKey]} flex items-center justify-center text-xl shadow-lg`}>
                       {shiftIcons[shiftKey]}
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{shiftKey}</h2>
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{shiftLabels[shiftKey] || shiftKey}</h2>
                     <span className="text-sm text-slate-400 font-medium">({shiftProcedures.length})</span>
                     <div className="h-px flex-1 bg-gradient-to-r from-slate-200 dark:from-slate-700 to-transparent ml-4"></div>
                   </div>
@@ -614,7 +628,7 @@ export default function ProceduresTimeline() {
                                 className="bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 px-4 py-3 flex items-center justify-between gap-4"
                               >
                                 <span className="text-sm font-medium text-red-700 dark:text-red-300">
-                                  ¿Seguro que deseas eliminar esta actividad?
+                                  {t('procedures.delete_confirm')}
                                 </span>
                                 <div className="flex gap-2">
                                   <button
@@ -622,13 +636,13 @@ export default function ProceduresTimeline() {
                                     disabled={saving}
                                     className="px-3 py-1.5 text-xs font-bold text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
                                   >
-                                    {saving ? '...' : 'Sí, Eliminar'}
+                                    {saving ? '...' : t('procedures.delete_yes')}
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setDeletingId(null); }}
                                     className="px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
                                   >
-                                    No
+                                    {t('procedures.delete_no')}
                                   </button>
                                 </div>
                               </motion.div>
@@ -697,7 +711,7 @@ export default function ProceduresTimeline() {
                                 
                                 <div className="flex items-center gap-1 flex-shrink-0">
                                   {!isEditing && (
-                                    <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 mr-2" title="Arrastrar para reordenar">
+                                    <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 mr-2" title={t('procedures.actions.drag_reorder')}>
                                       <GripVertical className="w-5 h-5" />
                                     </div>
                                   )}
@@ -706,14 +720,14 @@ export default function ProceduresTimeline() {
                                       <button 
                                         onClick={(e) => handleEditClick(proc, e)}
                                         className="text-slate-400 hover:text-blue-500 transition-colors p-1"
-                                        title="Editar"
+                                        title={t('procedures.actions.edit')}
                                       >
                                         <Edit2 className="w-4 h-4" />
                                       </button>
                                       <button 
                                         onClick={(e) => { e.stopPropagation(); setDeletingId(isDeleting ? null : proc.id); }}
                                         className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                                        title="Eliminar"
+                                        title={t('procedures.actions.delete')}
                                       >
                                         <Trash2 className="w-4 h-4" />
                                       </button>
@@ -725,7 +739,7 @@ export default function ProceduresTimeline() {
                                         onClick={handleSaveEdit}
                                         disabled={saving}
                                         className="text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 p-1.5 rounded transition-colors"
-                                        title="Guardar"
+                                        title={t('procedures.form.save')}
                                       >
                                         <Save className="w-4 h-4" />
                                       </button>
@@ -733,7 +747,7 @@ export default function ProceduresTimeline() {
                                         onClick={handleCancelEdit}
                                         disabled={saving}
                                         className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded transition-colors"
-                                        title="Cancelar"
+                                        title={t('procedures.form.cancel')}
                                       >
                                         <X className="w-4 h-4" />
                                       </button>
@@ -752,15 +766,15 @@ export default function ProceduresTimeline() {
                                     value={editForm.shift_type || ''}
                                     onChange={(e) => handleChange('shift_type', e.target.value)}
                                   >
-                                    <option value="Apertura">Apertura</option>
-                                    <option value="Regular">Regular</option>
-                                    <option value="Cierre">Cierre</option>
+                                    <option value="Apertura">{shiftLabels['Apertura']}</option>
+                                    <option value="Regular">{shiftLabels['Regular']}</option>
+                                    <option value="Cierre">{shiftLabels['Cierre']}</option>
                                   </select>
                                 )}
                                 {isEditing ? (
                                   <input 
                                     type="text"
-                                    placeholder="Rol (ej. Asistente)"
+                                    placeholder={t('procedures.edit_role_placeholder')}
                                     className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-32 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
                                     value={editForm.role || ''}
                                     onChange={(e) => handleChange('role', e.target.value)}
@@ -777,7 +791,7 @@ export default function ProceduresTimeline() {
                                 {isEditing ? (
                                   <input 
                                     type="text"
-                                    placeholder="Frecuencia"
+                                    placeholder={t('procedures.edit_frequency_placeholder')}
                                     className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-32 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
                                     value={editForm.frequency || ''}
                                     onChange={(e) => handleChange('frequency', e.target.value)}
@@ -808,19 +822,19 @@ export default function ProceduresTimeline() {
                                   <div className="bg-orange-50/50 dark:bg-orange-900/10 rounded-xl p-4 border border-orange-100/50 dark:border-orange-500/10">
                                     <h4 className="text-xs font-bold uppercase tracking-wider text-orange-600/80 dark:text-orange-500/80 mb-2 flex items-center gap-1.5">
                                       <PlayCircle className="w-3.5 h-3.5" />
-                                      Detalles del Procedimiento
+                                      {t('procedures.details_title')}
                                     </h4>
                                     
                                     {isEditing ? (
                                       <textarea 
                                         className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded p-2 dark:bg-slate-700 text-slate-800 dark:text-slate-100 min-h-[80px]"
-                                        placeholder="Descripción o instrucciones..."
+                                        placeholder={t('procedures.edit_description_placeholder')}
                                         value={editForm.description || ''}
                                         onChange={(e) => handleChange('description', e.target.value)}
                                       />
                                     ) : (
                                       <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                                        {proc.description || 'Sin descripción adicional.'}
+                                        {proc.description || t('procedures.no_description')}
                                       </p>
                                     )}
                                   </div>
@@ -846,7 +860,7 @@ export default function ProceduresTimeline() {
           className="fixed bottom-24 right-6 z-50 flex items-center gap-2 px-5 py-3.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-2xl text-sm font-bold shadow-[0_8px_30px_rgb(34,197,94,0.35)] hover:shadow-[0_8px_40px_rgb(34,197,94,0.5)] transition-all hover:scale-105 active:scale-95"
         >
           <Plus className="w-5 h-5" />
-          Nueva Actividad
+          {t('procedures.form.new_activity')}
         </button>
       )}
     </div>
