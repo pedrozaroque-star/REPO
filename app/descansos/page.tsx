@@ -1186,7 +1186,7 @@ export default function DescansosPage() {
                     </div>
 
                     {/* Employees Rows */}
-                    <div className="divide-y divide-slate-100 relative z-10">
+                    <div className="divide-y divide-slate-100 relative">
                         {activeEmployees.length === 0 ? (
                             <div className="p-8 text-center text-slate-500">No scheduled shifts or Toast records for this day.</div>
                         ) : activeEmployees.map((emp) => {
@@ -1198,7 +1198,7 @@ export default function DescansosPage() {
                             const empPunch = punches.find(p => p.employee_toast_guid === emp.toast_guid)
 
                             return (
-                                <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group relative z-10 focus-within:z-50 hover:z-40">
+                                <div key={emp.id} className="flex hover:bg-slate-50 transition-colors group relative z-10 focus-within:z-50 hover:z-50">
                                     <div className="w-64 shrink-0 border-r border-slate-100 p-3 flex flex-col justify-center bg-white backdrop-blur">
                                         <div
                                             className={`text-lg leading-tight font-black truncate cursor-pointer transition-colors ${absentEmpIds.has(String(emp.id)) ? 'text-red-500 line-through opacity-80' : 'text-slate-800 hover:text-indigo-600'}`}
@@ -1289,7 +1289,7 @@ export default function DescansosPage() {
                                                     left: `${getTimelinePosition(empPunch.clock_in)}%`,
                                                     width: `${getTimelineWidth(empPunch.clock_in, empPunch.clock_out)}%`,
                                                 }}
-                                                className="absolute bottom-3 h-4 bg-cyan-900/50 border-b-2 border-cyan-500/50 rounded-sm flex items-center overflow-visible z-10 hover:z-30 focus-within:z-50"
+                                                className="absolute bottom-3 h-4 bg-cyan-900/50 border-b-2 border-cyan-500/50 rounded-sm flex items-center overflow-visible z-10 hover:z-[80] focus-within:z-[80]"
                                             >
                                                 {empPunch.breaks && Array.isArray(empPunch.breaks) && empPunch.breaks.map((rb: any, idx: number) => {
                                                     if (!rb.inDate) return null;

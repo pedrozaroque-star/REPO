@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, Edit2, Save, X, Plus, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
+import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, Edit2, Save, X, Plus, Trash2, GripVertical } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/ProtectedRoute';
 
@@ -15,6 +15,7 @@ interface Procedure {
   frequency: string;
   role: string;
   description: string;
+  overrides?: any;
 }
 
 const EMPTY_FORM: Partial<Procedure> = {
@@ -64,7 +65,44 @@ export default function ProceduresTimeline() {
   };
 
   const sortProcedures = (data: Procedure[]) => {
-    return [...data].sort((a, b) => getSortValue(a.start_time) - getSortValue(b.start_time));
+    return [...data].sort((a, b) => {
+      const timeDiff = getSortValue(a.start_time) - getSortValue(b.start_time);
+      if (timeDiff !== 0) return timeDiff;
+      // If times are equal, sort by order_index
+      const aOrder = a.overrides?.order_index || 0;
+      const bOrder = b.overrides?.order_index || 0;
+      return aOrder - bOrder;
+    });
+  };
+
+  const handleReorder = async (shiftType: string, newOrder: Procedure[]) => {
+    // 1. Update local state immediately for snappy UI
+    setProcedures(prev => {
+      const otherShifts = prev.filter(p => p.shift_type !== shiftType);
+      
+      // Update the overrides.order_index of the newOrder
+      const updatedOrder = newOrder.map((proc, index) => ({
+        ...proc,
+        overrides: { ...(proc.overrides || {}), order_index: index }
+      }));
+      
+      return sortProcedures([...otherShifts, ...updatedOrder]);
+    });
+
+    // 2. Persist changes to backend asynchronously
+    try {
+      const promises = newOrder.map((proc, index) => {
+        const newOverrides = { ...(proc.overrides || {}), order_index: index };
+        return fetch('/api/procedimientos', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: proc.id, overrides: newOverrides })
+        });
+      });
+      // We don't await because we want the UI to be responsive immediately
+    } catch (e) {
+      console.error('Failed to save order_index', e);
+    }
   };
 
   // ═══════════════════════════════════════
@@ -78,7 +116,9 @@ export default function ProceduresTimeline() {
         .select('*');
 
       if (error) throw error;
-      setProcedures(sortProcedures(data || []));
+      
+      const filteredData = (data || []).filter(p => p.role !== 'ROLES_MODULE');
+      setProcedures(sortProcedures(filteredData));
     } catch (error) {
       console.error('Error fetching procedures:', error);
     } finally {
@@ -473,19 +513,24 @@ export default function ProceduresTimeline() {
                   </div>
                 </div>
 
-                <div className="relative pl-4 sm:pl-12 border-l-2 border-slate-200/60 dark:border-slate-700/60 space-y-6">
+                <Reorder.Group 
+                  axis="y" 
+                  values={shiftProcedures} 
+                  onReorder={(newOrder) => handleReorder(shiftKey, newOrder)}
+                  className="relative pl-4 sm:pl-12 border-l-2 border-slate-200/60 dark:border-slate-700/60 space-y-6 list-none"
+                >
                   {shiftProcedures.map((proc, idx) => {
                     const isEditing = editingId === proc.id;
                     const isDeleting = deletingId === proc.id;
                     const timeData = getTimeData(proc.start_time, proc.duration_minutes);
 
                     return (
-                      <motion.div
+                      <Reorder.Item
+                        value={proc}
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.02 }}
                         key={proc.id}
-                        layout
                         className="relative"
                       >
                         <div className={`absolute -left-[21px] sm:-left-[53px] w-4 h-4 rounded-full border-4 border-white dark:border-[#0B1120] bg-gradient-to-br ${shiftColors[proc.shift_type]} shadow-sm z-10 top-6`} />
@@ -596,6 +641,11 @@ export default function ProceduresTimeline() {
                                 )}
                                 
                                 <div className="flex items-center gap-1 flex-shrink-0">
+                                  {!isEditing && (
+                                    <div className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 mr-2" title="Arrastrar para reordenar">
+                                      <GripVertical className="w-5 h-5" />
+                                    </div>
+                                  )}
                                   {isAdmin && !isEditing && (
                                     <>
                                       <button 
@@ -724,10 +774,10 @@ export default function ProceduresTimeline() {
                             )}
                           </AnimatePresence>
                         </div>
-                      </motion.div>
+                      </Reorder.Item>
                     );
                   })}
-                </div>
+                </Reorder.Group>
               </motion.div>
             );
           })

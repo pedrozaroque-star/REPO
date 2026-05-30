@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-// Helper: verificar autenticación básica
-function getAuthFromRequest(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader) return null;
+// ═══════════════════════════════════════
+// GET - Obtener todos los procedimientos
+// ═══════════════════════════════════════
+export async function GET() {
   try {
-    const token = authHeader.replace('Bearer ', '');
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload;
-  } catch {
-    return null;
+    const { data, error } = await supabaseAdmin
+      .from('operating_procedures')
+      .select('*')
+      .order('start_time', { ascending: true });
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true, data: data || [] });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
@@ -20,24 +25,26 @@ function getAuthFromRequest(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, start_time, duration_minutes, activity, frequency, role, description, shift_type } = body;
+    const { id, start_time, duration_minutes, activity, frequency, role, description, shift_type, shift, overrides } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 });
     }
 
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (start_time !== undefined) updateData.start_time = start_time;
+    if (duration_minutes !== undefined) updateData.duration_minutes = duration_minutes ? Number(duration_minutes) : null;
+    if (activity !== undefined) updateData.activity = activity;
+    if (shift_type !== undefined) updateData.shift_type = shift_type;
+    if (frequency !== undefined) updateData.frequency = frequency;
+    if (role !== undefined) updateData.role = role;
+    if (description !== undefined) updateData.description = description;
+    if (shift !== undefined) updateData.shift = shift;
+    if (overrides !== undefined) updateData.overrides = overrides;
+
     const { data, error } = await supabaseAdmin
       .from('operating_procedures')
-      .update({ 
-        start_time, 
-        duration_minutes: duration_minutes ? Number(duration_minutes) : null, 
-        activity, 
-        shift_type,
-        frequency, 
-        role, 
-        description, 
-        updated_at: new Date().toISOString() 
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -56,12 +63,12 @@ export async function PATCH(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { start_time, duration_minutes, activity, frequency, role, description, shift_type } = body;
+    const { start_time, duration_minutes, activity, frequency, role, description, shift_type, shift, overrides } = body;
 
-    if (!activity || !shift_type || !frequency) {
+    if (!activity || !shift_type) {
       return NextResponse.json({ 
         success: false, 
-        error: 'Actividad, categoría y frecuencia son obligatorios' 
+        error: 'Actividad y categoría son obligatorios' 
       }, { status: 400 });
     }
 
@@ -72,9 +79,11 @@ export async function POST(request: Request) {
         duration_minutes: duration_minutes ? Number(duration_minutes) : null, 
         activity, 
         shift_type,
-        frequency, 
+        frequency: frequency || 'Diario', 
         role: role || null, 
-        description: description || null
+        description: description || null,
+        shift: shift || 'AMBOS',
+        overrides: overrides || {}
       })
       .select()
       .single();

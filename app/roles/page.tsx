@@ -406,33 +406,33 @@ export default function MissionControlRoles() {
   const fetchActivities = async () => {
     if (!selectedStoreGuid) return;
     try {
-      // 1. Fetch GLOBAL library
-      const globalResp = await fetch(`/api/roles/activities?store_id=GLOBAL`);
-      const globalData = await globalResp.json();
-      
-      let masterList = globalData.master_activities || [];
+      // 1. Fetch master activities from unified source (operating_procedures)
+      const procsResp = await fetch('/api/procedimientos');
+      const procsResult = await procsResp.json();
+      const procs = procsResult.data || [];
 
-      // MIGRATION BRIDGE: If Global is empty, try to rescue from Local
-      if (masterList.length === 0) {
-        console.log("Empty Global Library. Attempting migration from local store...");
-        const localResp = await fetch(`/api/roles/activities?store_id=${selectedStoreGuid}`);
-        const localData = await localResp.json();
-        
-        if (localData.master_activities && localData.master_activities.length > 0) {
-          masterList = localData.master_activities;
-          // Immediately promote to Global
-          await fetch('/api/roles/activities', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              store_id: 'GLOBAL',
-              master_activities: masterList,
-              station_mappings: {}
-            })
-          });
-          console.log("✅ Migration successful: Local activities promoted to GLOBAL.");
-        }
-      }
+      // Transform operating_procedures rows → same format ROLES expects
+      const masterList = procs.map((p: any) => ({
+        id: String(p.id),
+        name: p.activity,
+        category: p.shift_type === 'Apertura' ? 'APERTURA' : p.shift_type === 'Cierre' ? 'CIERRE' : 'ACTIVIDAD REGULAR',
+        startTime: p.start_time ? p.start_time.substring(0, 5) : '',
+        endTime: p.start_time && p.duration_minutes ? (() => {
+          const [h, m] = p.start_time.substring(0, 5).split(':').map(Number);
+          const totalMin = h * 60 + m + p.duration_minutes;
+          const eh = Math.floor(totalMin / 60) % 24;
+          const em = totalMin % 60;
+          return `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
+        })() : '',
+        shift: p.shift || 'AMBOS',
+        overrides: p.overrides || {},
+        // Preserve extra fields for Procedimientos module
+        _procId: p.id,
+        _frequency: p.frequency,
+        _role: p.role,
+        _description: p.description,
+        _duration: p.duration_minutes,
+      }));
 
       // 2. Fetch LOCAL mappings (station to task links are store-specific)
       const localResp = await fetch(`/api/roles/activities?store_id=${selectedStoreGuid}`);
@@ -448,20 +448,11 @@ export default function MissionControlRoles() {
   const saveActivities = async (newMaster?: any[], newMappings?: Record<string, string[]>) => {
     if (!selectedStoreGuid) return;
     try {
-      // 1. Save GLOBAL Library IMMEDIATELY (no debounce needed, rare operation)
-      if (newMaster) {
-        await fetch('/api/roles/activities', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            store_id: 'GLOBAL',
-            master_activities: newMaster,
-            station_mappings: {}
-          })
-        });
-      }
+      // Master activities are now saved via /api/procedimientos (POST/PATCH/DELETE)
+      // This function ONLY handles station mappings now.
+      // The newMaster param is kept for backward compatibility but ignored for saving.
 
-      // 2. Save LOCAL Station Mappings WITH DEBOUNCE
+      // Save LOCAL Station Mappings WITH DEBOUNCE
       // 🔧 FIX: Clicks rápidos causaban múltiples DELETE+INSERT que se pisaban.
       // Ahora acumulamos el último estado y solo guardamos después de 500ms de inactividad.
       if (newMappings) {
@@ -499,7 +490,20 @@ export default function MissionControlRoles() {
     // --- REAL-TIME SUBSCRIPTIONS ---
     const channel = supabase
       .channel('mission-control-sync')
-      // 1. Listen for Library Changes (Master Activities)
+      // 1. Listen for Library Changes (Master Activities from operating_procedures)
+      .on(
+        'postgres_changes',
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'operating_procedures'
+        },
+        (payload: any) => {
+          console.log('🔔 Real-time activity update from procedures:', payload);
+          fetchActivities();
+        }
+      )
+      // 1b. Listen for Station Mapping changes (station_templates)
       .on(
         'postgres_changes',
         { 
@@ -509,7 +513,7 @@ export default function MissionControlRoles() {
           filter: `template_name=eq.__CONFIG_ACTIVITIES__`
         },
         (payload: any) => {
-          console.log('🔔 Real-time activity update:', payload);
+          console.log('🔔 Real-time mapping update:', payload);
           if (payload.new && (payload.new.store_id === 'GLOBAL' || payload.new.store_id === selectedStoreGuid)) {
              fetchActivities();
           }
@@ -593,6 +597,8 @@ export default function MissionControlRoles() {
     let localAssignments = [...assignments];
 
     if (editingActivityId) {
+      const editTarget = activities.find(a => a.id === editingActivityId);
+      
       updated = activities.map(a => {
         if (a.id === editingActivityId) {
           oldName = a.name;
@@ -615,6 +621,31 @@ export default function MissionControlRoles() {
           };
         }
         return a;
+      });
+
+      // --- SAVE TO operating_procedures via API ---
+      const shift_type = newActivity.category === 'APERTURA' ? 'Apertura' : newActivity.category === 'CIERRE' ? 'Cierre' : 'Regular';
+      let duration_minutes = null;
+      if (newActivity.startTime && newActivity.endTime) {
+        const [sh, sm] = newActivity.startTime.split(':').map(Number);
+        const [eh, em] = newActivity.endTime.split(':').map(Number);
+        let startMin = sh * 60 + sm, endMin = eh * 60 + em;
+        if (endMin <= startMin) endMin += 24 * 60;
+        duration_minutes = endMin - startMin;
+      }
+      
+      fetch('/api/procedimientos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editTarget?._procId || editingActivityId,
+          activity: newName,
+          shift_type,
+          start_time: newActivity.startTime ? newActivity.startTime + ':00' : null,
+          duration_minutes,
+          shift: newActivity.shift,
+          overrides: updated.find(a => a.id === editingActivityId)?.overrides || {}
+        })
       });
 
       // --- CASCADING RENAME ---
@@ -645,7 +676,34 @@ export default function MissionControlRoles() {
       const exists = !force && activities.some(a => a.name === newName);
       if (exists) return;
       
-      // New activity: sets the "Base/Default" schedule
+      // New activity: save to operating_procedures via API
+      const shift_type = newActivity.category === 'APERTURA' ? 'Apertura' : newActivity.category === 'CIERRE' ? 'Cierre' : 'Regular';
+      let duration_minutes = null;
+      if (newActivity.startTime && newActivity.endTime) {
+        const [sh, sm] = newActivity.startTime.split(':').map(Number);
+        const [eh, em] = newActivity.endTime.split(':').map(Number);
+        let startMin = sh * 60 + sm, endMin = eh * 60 + em;
+        if (endMin <= startMin) endMin += 24 * 60;
+        duration_minutes = endMin - startMin;
+      }
+
+      // Create in DB first, then use returned ID
+      fetch('/api/procedimientos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity: newName,
+          shift_type,
+          start_time: newActivity.startTime ? newActivity.startTime + ':00' : null,
+          duration_minutes,
+          shift: newActivity.shift,
+          overrides: {},
+          frequency: 'Diario',
+          role: 'ROLES_MODULE'
+        })
+      }).then(() => fetchActivities());
+
+      // Optimistic local update
       updated = [...activities, { 
         ...newActivity, 
         name: newName,
@@ -658,7 +716,7 @@ export default function MissionControlRoles() {
     setNewActivity({ name: '', category: 'APERTURA', startTime: '', endTime: '', shift: 'AM' });
     setEditingActivityId(null);
     
-    // Save master activities & conditionally mappings
+    // Save station mappings if they changed (master is now saved via /api/procedimientos above)
     saveActivities(updated, mappingsUpdated ? localMappings : undefined);
 
     // Conditionally save assignments to DB in the background
@@ -2759,7 +2817,21 @@ export default function MissionControlRoles() {
                                               if(confirm('⚠️ ¡ALERTA DE IMPACTO GLOBAL!\n\nEsta acción eliminará la actividad de TODAS las tiendas de la corporación y no se puede deshacer.\n\nSE RECOMIENDA que esta acción sea realizada o validada por un SUPERVISOR. ¿Estás seguro de que deseas proceder?')) {
                                                 const updated = activities.filter(a => a.id !== act.id);
                                                 setActivities(updated);
-                                                saveActivities(updated);
+                                                // Delete from operating_procedures DB
+                                                fetch(`/api/procedimientos?id=${act._procId || act.id}`, { method: 'DELETE' });
+                                                // Save mappings cleanup (remove deleted activity name from all station mappings)
+                                                const cleanMappings = { ...stationActivities };
+                                                let mappingsChanged = false;
+                                                Object.keys(cleanMappings).forEach(key => {
+                                                  if (cleanMappings[key]?.includes(act.name)) {
+                                                    cleanMappings[key] = cleanMappings[key].filter((t: string) => t !== act.name);
+                                                    mappingsChanged = true;
+                                                  }
+                                                });
+                                                if (mappingsChanged) {
+                                                  setStationActivities(cleanMappings);
+                                                  saveActivities(undefined, cleanMappings);
+                                                }
                                               }
                                             }}
                                             title="Eliminar de TODAS las tiendas"
