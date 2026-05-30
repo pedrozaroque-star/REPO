@@ -59,6 +59,33 @@ export default function ProceduresTimeline() {
   }, []);
 
   // ═══════════════════════════════════════
+  // REALTIME: Sincronización instantánea entre dispositivos
+  // ═══════════════════════════════════════
+  useEffect(() => {
+    let debounceTimer: NodeJS.Timeout | null = null;
+
+    const channel = supabase
+      .channel('procedures-realtime')
+      .on('postgres_changes', {
+        event: '*',  // INSERT, UPDATE, DELETE
+        schema: 'public',
+        table: 'operating_procedures',
+      }, () => {
+        // Debounce: si llegan varios cambios seguidos, solo recargamos una vez
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          fetchProcedures();
+        }, 800);
+      })
+      .subscribe();
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // ═══════════════════════════════════════
   // Sorting: día laboral 6 AM → 5:59 AM
   // ═══════════════════════════════════════
   const getSortValue = (timeStr: string) => {
