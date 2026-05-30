@@ -27,7 +27,8 @@ const EMPTY_FORM: Partial<Procedure> = {
   shift_type: 'Apertura',
   frequency: 'Diario',
   role: '',
-  description: ''
+  description: '',
+  store_model: 'AMBOS'
 };
 
 export default function ProceduresTimeline() {
@@ -285,16 +286,23 @@ export default function ProceduresTimeline() {
   };
 
   const filteredProcedures = procedures.filter(p => {
+    // Filtro de turno (Apertura/Regular/Cierre)
     if (filterShift !== 'Todos' && p.shift_type !== filterShift) return false;
+    
+    // Filtro de modelo de tienda (Regular/Drive-Thru)
     if (filterModel !== 'Todos') {
       const model = p.store_model || 'AMBOS';
       if (model !== 'AMBOS' && model !== filterModel) return false;
     }
-    if (filterDay === 'Diario') {
-      return p.frequency === 'Diario';
-    } else {
-      return p.frequency.toUpperCase() === 'DIARIO' || p.frequency.toUpperCase().includes(filterDay.toUpperCase());
-    }
+    
+    // Filtro de día
+    // 'Diario' = Todos → muestra TODAS las actividades sin importar frecuencia
+    if (filterDay === 'Diario') return true;
+    
+    // Día específico → muestra las de frecuencia 'Diario' + las de ese día
+    const freq = (p.frequency || '').toUpperCase();
+    if (freq === 'DIARIO') return true;
+    return freq.includes(filterDay.toUpperCase());
   });
 
   const groupedProcedures = filteredProcedures.reduce((acc, proc) => {
@@ -542,6 +550,20 @@ export default function ProceduresTimeline() {
                   value={createForm.role || ''}
                   onChange={(e) => handleCreateChange('role', e.target.value)}
                 />
+              </div>
+
+              {/* Modelo de Tienda */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.store_model.label')}</label>
+                <select
+                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                  value={createForm.store_model || 'AMBOS'}
+                  onChange={(e) => handleCreateChange('store_model', e.target.value)}
+                >
+                  <option value="AMBOS">{t('procedures.store_model.all')}</option>
+                  <option value="REGULAR">{t('procedures.store_model.regular')}</option>
+                  <option value="DRIVE_THRU">{t('procedures.store_model.drive_thru')}</option>
+                </select>
               </div>
 
               {/* Descripción */}
@@ -831,6 +853,24 @@ export default function ProceduresTimeline() {
                                     </div>
                                   )
                                 )}
+                                {isEditing ? (
+                                  <select
+                                    className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-28 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={editForm.store_model || 'AMBOS'}
+                                    onChange={(e) => handleChange('store_model', e.target.value)}
+                                  >
+                                    <option value="AMBOS">{t('procedures.store_model.all')}</option>
+                                    <option value="REGULAR">{t('procedures.store_model.regular')}</option>
+                                    <option value="DRIVE_THRU">{t('procedures.store_model.drive_thru')}</option>
+                                  </select>
+                                ) : (
+                                  proc.store_model && proc.store_model !== 'AMBOS' && (
+                                    <div className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-800/30">
+                                      {proc.store_model === 'DRIVE_THRU' ? <Car className="w-3 h-3" /> : <Building2 className="w-3 h-3" />}
+                                      {proc.store_model === 'DRIVE_THRU' ? 'Drive-Thru' : 'Regular'}
+                                    </div>
+                                  )
+                                )}
                               </div>
                             </div>
                           </div>
@@ -883,7 +923,12 @@ export default function ProceduresTimeline() {
       {/* ══════ Floating Action Button ══════ */}
       {isAdmin && !isCreating && (
         <button
-          onClick={() => { setIsCreating(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          onClick={() => { 
+            setIsCreating(true); 
+            // Heredar el modelo de tienda del filtro activo
+            setCreateForm(prev => ({ ...EMPTY_FORM, store_model: filterModel !== 'Todos' ? filterModel : 'AMBOS' }));
+            window.scrollTo({ top: 0, behavior: 'smooth' }); 
+          }}
           className="fixed bottom-36 sm:bottom-24 right-4 sm:right-6 z-50 flex items-center gap-2 px-4 sm:px-5 py-3 sm:py-3.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-2xl text-xs sm:text-sm font-bold shadow-[0_8px_30px_rgb(34,197,94,0.35)] hover:shadow-[0_8px_40px_rgb(34,197,94,0.5)] transition-all hover:scale-105 active:scale-95"
         >
           <Plus className="w-5 h-5" />
