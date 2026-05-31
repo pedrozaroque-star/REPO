@@ -18,6 +18,7 @@ interface Procedure {
   description: string;
   overrides?: any;
   store_model?: string;
+  shift?: string;
 }
 
 const EMPTY_FORM: Partial<Procedure> = {
@@ -28,7 +29,8 @@ const EMPTY_FORM: Partial<Procedure> = {
   frequency: 'Diario',
   role: '',
   description: '',
-  store_model: 'AMBOS'
+  store_model: 'AMBOS',
+  shift: 'AMBOS'
 };
 
 export default function ProceduresTimeline() {
@@ -868,6 +870,31 @@ export default function ProceduresTimeline() {
                                     <div className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-800/30">
                                       {proc.store_model === 'DRIVE_THRU' ? <Car className="w-3 h-3" /> : <Building2 className="w-3 h-3" />}
                                       {proc.store_model === 'DRIVE_THRU' ? 'Drive-Thru' : 'Regular'}
+                                    </div>
+                                  )
+                                )}
+                                {isEditing ? (
+                                  <select
+                                    className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-28 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                    value={editForm.shift || 'AMBOS'}
+                                    onChange={(e) => handleChange('shift', e.target.value)}
+                                  >
+                                    <option value="AMBOS">{t('procedures.shift.both')}</option>
+                                    <option value="AM">{t('procedures.shift.am')}</option>
+                                    <option value="PM">{t('procedures.shift.pm')}</option>
+                                  </select>
+                                ) : (
+                                  proc.shift && proc.shift !== 'AMBOS' ? (
+                                    <div className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${
+                                      proc.shift === 'AM'
+                                        ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-800/30'
+                                        : 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/30'
+                                    }`}>
+                                      {proc.shift === 'AM' ? '🌅 AM' : '🌙 PM'}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/20 px-2.5 py-1 rounded-full border border-slate-100 dark:border-slate-800/30">
+                                      🔄 {t('procedures.shift.both')}
                                     </div>
                                   )
                                 )}

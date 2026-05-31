@@ -1178,6 +1178,12 @@ const dictionaries: Record<Language, any> = {
                 regular: '☀️ Regular',
                 closing: '🌙 Cierre',
             },
+            shift: {
+                label: 'Turno de Trabajo *',
+                am: '🌅 Turno AM',
+                pm: '🌙 Turno PM',
+                both: '🔄 Ambos Turnos',
+            },
             actions: {
                 edit: 'Editar',
                 delete: 'Eliminar',
@@ -2367,6 +2373,12 @@ const dictionaries: Record<Language, any> = {
                 opening: '🌅 Opening',
                 regular: '☀️ Regular',
                 closing: '🌙 Closing',
+            },
+            shift: {
+                label: 'Shift *',
+                am: '🌅 AM Shift',
+                pm: '🌙 PM Shift',
+                both: '🔄 Both Shifts',
             },
             actions: {
                 edit: 'Edit',
