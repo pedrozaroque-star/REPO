@@ -53,7 +53,7 @@ const format12HourTo24Hour = (hour12: number, minute: number, ampm: 'AM' | 'PM')
 export default function ProceduresTimeline() {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isAdmin = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '');
 
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loading, setLoading] = useState(true);
