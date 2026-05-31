@@ -33,6 +33,23 @@ const EMPTY_FORM: Partial<Procedure> = {
   shift: 'AMBOS'
 };
 
+const parseTimeTo12Hour = (timeStr: string) => {
+  if (!timeStr) return { hour12: 8, minute: 0, ampm: 'AM' as const };
+  const [h, m] = timeStr.split(':').map(Number);
+  const ampm: 'AM' | 'PM' = h >= 12 ? 'PM' : 'AM';
+  let hour12 = h % 12;
+  hour12 = hour12 === 0 ? 12 : hour12;
+  return { hour12, minute: m || 0, ampm };
+};
+
+const format12HourTo24Hour = (hour12: number, minute: number, ampm: 'AM' | 'PM') => {
+  let h = hour12 % 12;
+  if (ampm === 'PM') h += 12;
+  const hh = String(h).padStart(2, '0');
+  const mm = String(minute).padStart(2, '0');
+  return `${hh}:${mm}:00`;
+};
+
 export default function ProceduresTimeline() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -488,12 +505,62 @@ export default function ProceduresTimeline() {
               {/* Hora de inicio */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t('procedures.form.start_time')}</label>
-                <input
-                  type="time"
-                  className="w-full border border-slate-300 dark:border-slate-600 rounded-xl p-2.5 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
-                  value={getShortTime(createForm.start_time || '08:00:00')}
-                  onChange={(e) => handleCreateChange('start_time', e.target.value + ':00')}
-                />
+                <div className="flex gap-1.5 items-center">
+                  {/* Horas */}
+                  <select
+                    className="w-16 border border-slate-300 dark:border-slate-600 rounded-xl p-2 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                    value={parseTimeTo12Hour(createForm.start_time || '08:00:00').hour12}
+                    onChange={(e) => {
+                      const { minute, ampm } = parseTimeTo12Hour(createForm.start_time || '08:00:00');
+                      const newTime = format12HourTo24Hour(Number(e.target.value), minute, ampm);
+                      handleCreateChange('start_time', newTime);
+                    }}
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                  <span className="text-slate-400 font-bold">:</span>
+                  {/* Minutos */}
+                  <select
+                    className="w-16 border border-slate-300 dark:border-slate-600 rounded-xl p-2 text-sm dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-green-500 outline-none"
+                    value={parseTimeTo12Hour(createForm.start_time || '08:00:00').minute}
+                    onChange={(e) => {
+                      const { hour12, ampm } = parseTimeTo12Hour(createForm.start_time || '08:00:00');
+                      const newTime = format12HourTo24Hour(hour12, Number(e.target.value), ampm);
+                      handleCreateChange('start_time', newTime);
+                    }}
+                  >
+                    {Array.from({ length: 60 }, (_, i) => i).map(m => (
+                      <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                  {/* AM/PM */}
+                  <div className="flex bg-slate-100 dark:bg-slate-700/50 rounded-xl p-1 border border-slate-300/50 dark:border-slate-600/50">
+                    {(['AM', 'PM'] as const).map(ap => {
+                      const currentAmpm = parseTimeTo12Hour(createForm.start_time || '08:00:00').ampm;
+                      const active = currentAmpm === ap;
+                      return (
+                        <button
+                          key={ap}
+                          type="button"
+                          onClick={() => {
+                            const { hour12, minute } = parseTimeTo12Hour(createForm.start_time || '08:00:00');
+                            const newTime = format12HourTo24Hour(hour12, minute, ap);
+                            handleCreateChange('start_time', newTime);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                            active
+                              ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm'
+                              : 'text-slate-500 hover:bg-slate-200/50 dark:hover:bg-slate-600/30'
+                          }`}
+                        >
+                          {ap}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               {/* Duración */}
@@ -705,12 +772,65 @@ export default function ProceduresTimeline() {
                             <div className="flex-shrink-0 sm:w-32 flex flex-row sm:flex-col items-center sm:items-start gap-2 sm:gap-0.5">
                               {isEditing ? (
                                 <>
-                                  <input 
-                                    type="time" 
-                                    className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded p-1 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
-                                    value={getShortTime(editForm.start_time || '')}
-                                    onChange={(e) => handleChange('start_time', e.target.value + ':00')}
-                                  />
+                                  <div className="flex flex-col gap-1 w-full">
+                                    <div className="flex gap-1 items-center justify-start">
+                                      {/* Horas */}
+                                      <select
+                                        className="w-11 border border-slate-300 dark:border-slate-600 rounded p-1 text-xs dark:bg-slate-700 text-slate-800 dark:text-slate-100 outline-none"
+                                        value={parseTimeTo12Hour(editForm.start_time || '08:00:00').hour12}
+                                        onChange={(e) => {
+                                          const { minute, ampm } = parseTimeTo12Hour(editForm.start_time || '08:00:00');
+                                          const newTime = format12HourTo24Hour(Number(e.target.value), minute, ampm);
+                                          handleChange('start_time', newTime);
+                                        }}
+                                      >
+                                        {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                                          <option key={h} value={h}>{h}</option>
+                                        ))}
+                                      </select>
+                                      <span className="text-slate-400 font-bold">:</span>
+                                      {/* Minutos */}
+                                      <select
+                                        className="w-11 border border-slate-300 dark:border-slate-600 rounded p-1 text-xs dark:bg-slate-700 text-slate-800 dark:text-slate-100 outline-none"
+                                        value={parseTimeTo12Hour(editForm.start_time || '08:00:00').minute}
+                                        onChange={(e) => {
+                                          const { hour12, ampm } = parseTimeTo12Hour(editForm.start_time || '08:00:00');
+                                          const newTime = format12HourTo24Hour(hour12, Number(e.target.value), ampm);
+                                          handleChange('start_time', newTime);
+                                        }}
+                                      >
+                                        {Array.from({ length: 60 }, (_, i) => i).map(m => (
+                                          <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    
+                                    {/* AM/PM Selector */}
+                                    <div className="flex bg-slate-100 dark:bg-slate-700/50 rounded p-0.5 border border-slate-300/50 dark:border-slate-600/50 w-[78px]">
+                                      {(['AM', 'PM'] as const).map(ap => {
+                                        const currentAmpm = parseTimeTo12Hour(editForm.start_time || '08:00:00').ampm;
+                                        const active = currentAmpm === ap;
+                                        return (
+                                          <button
+                                            key={ap}
+                                            type="button"
+                                            onClick={() => {
+                                              const { hour12, minute } = parseTimeTo12Hour(editForm.start_time || '08:00:00');
+                                              const newTime = format12HourTo24Hour(hour12, minute, ap);
+                                              handleChange('start_time', newTime);
+                                            }}
+                                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all w-1/2 text-center ${
+                                              active
+                                                ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm'
+                                                : 'text-slate-500 hover:bg-slate-200/50 dark:hover:bg-slate-600/30'
+                                            }`}
+                                          >
+                                            {ap}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
                                   <div className="flex items-center mt-1 gap-1">
                                     <input 
                                       type="number" 
