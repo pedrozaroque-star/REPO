@@ -314,8 +314,7 @@ export default function ReunionPage() {
             Una tienda nueva no tiene que &ldquo;inventar&rdquo; cómo hacer las cosas — simplemente sigue el Manual y funciona.
           </p>
         </div>
-
-        {/* ═══ ECOSISTEMA DIGITAL ═══ */}
+        {/* ═══ ECOSISTEMA DIGITAL (con módulos concluidos incluidos) ═══ */}
         <section style={{
           background: 'white',
           borderRadius: '1.25rem',
@@ -333,8 +332,171 @@ export default function ReunionPage() {
           <p style={{
             fontSize: '0.85rem', color: '#64748b', margin: '0 0 1.25rem', lineHeight: 1.5,
           }}>
-            El Manual de Operaciones es solo una pieza de un ecosistema completo que se está construyendo para profesionalizar y escalar la empresa:
+            El Manual de Operaciones es solo una pieza de un ecosistema completo que se está construyendo para profesionalizar y escalar la empresa. Varios módulos <strong style={{ color: '#16a34a' }}>ya están concluidos y en producción</strong>:
           </p>
+
+          {/* ── MÓDULOS CONCLUIDOS ── */}
+          <div style={{
+            background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
+            borderRadius: '0.75rem',
+            padding: '0.5rem 0.75rem',
+            marginBottom: '0.75rem',
+            border: '1px solid #bbf7d0',
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+          }}>
+            <span style={{ fontSize: '0.85rem' }}>🏁</span>
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#16a34a' }}>MÓDULOS CONCLUIDOS — Ya en operación</span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {[
+              {
+                emoji: '🧠',
+                title: 'Descansos AI (Breaks & Lunches)',
+                desc: 'Asignación automática de descansos y comidas basada en inteligencia artificial. Analiza el volumen de ventas por hora y distribuye los breaks respetando las leyes laborales de California, maximizando la cobertura en horas pico.',
+                color: '#16a34a',
+                bgColor: '#fffbeb',
+                borderColor: '#fde68a',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '🎭',
+                title: 'Roles y Posiciones',
+                desc: 'Gestión centralizada de roles por tienda. Define quién hace qué: cocineros, cajeros, taqueros, preparadores. Asignación visual con colores y organización automática por prioridad de puesto.',
+                color: '#16a34a',
+                bgColor: '#faf5ff',
+                borderColor: '#ddd6fe',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '🥩',
+                title: 'Preparador de Bodega',
+                desc: 'Módulo para el equipo de preparación. Control de carnes, salsas y mise en place. Cada preparador ve exactamente qué debe preparar, en qué cantidades y en qué orden.',
+                color: '#16a34a',
+                bgColor: '#fef2f2',
+                borderColor: '#fecaca',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '📋',
+                title: 'Checklist de Asistentes de Manager',
+                desc: 'Lista de verificación digital para los asistentes. Cada turno tiene sus tareas obligatorias que deben completarse y registrarse. Se sabe quién hizo qué y a qué hora.',
+                color: '#16a34a',
+                bgColor: '#eff6ff',
+                borderColor: '#bfdbfe',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '👔',
+                title: 'Checklist de Managers',
+                desc: 'El gerente de tienda tiene su propio checklist con responsabilidades administrativas, de supervisión y seguimiento. Todo documentado digitalmente.',
+                color: '#16a34a',
+                bgColor: '#f0f9ff',
+                borderColor: '#bae6fd',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+              {
+                emoji: '🔍',
+                title: 'Inspecciones de Supervisores',
+                desc: 'Los propios supervisores cuentan con formularios de inspección digital para evaluar la operación de cada tienda: limpieza, presentación, cumplimiento de procedimientos y calidad del servicio.',
+                color: '#16a34a',
+                bgColor: '#ecfdf5',
+                borderColor: '#a7f3d0',
+                status: '✅ Concluido',
+                statusColor: '#16a34a',
+                statusBg: '#f0fdf4',
+                statusBorder: '#bbf7d0',
+              },
+            ].map((item, i) => (
+              <div key={`done-${i}`} style={{
+                background: item.bgColor,
+                borderRadius: '1rem',
+                padding: '1rem 1.25rem',
+                border: `1px solid ${item.borderColor}`,
+                display: 'flex', gap: '1rem', alignItems: 'flex-start',
+              }}>
+                <div style={{
+                  fontSize: '1.75rem', flexShrink: 0, marginTop: '2px',
+                  width: '2.75rem', height: '2.75rem',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'white',
+                  borderRadius: '0.75rem',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                  border: `1px solid ${item.borderColor}`,
+                }}>
+                  {item.emoji}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+                    <strong style={{ fontSize: '0.9rem', color: '#0f172a' }}>{item.title}</strong>
+                    <span style={{
+                      fontSize: '0.6rem', fontWeight: 700, color: item.statusColor,
+                      background: item.statusBg,
+                      padding: '0.15rem 0.5rem', borderRadius: '1rem',
+                      border: `1px solid ${item.statusBorder}`,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+                    {item.desc}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabletas en prueba */}
+          <div style={{
+            marginTop: '1rem',
+            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+            borderRadius: '1rem',
+            padding: '1.25rem',
+            border: '1px solid #93c5fd',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📱</div>
+            <h3 style={{
+              fontSize: '1rem', fontWeight: 800, color: '#1d4ed8', margin: '0 0 0.5rem',
+            }}>
+              4 Tabletas Nuevas en Pruebas
+            </h3>
+            <p style={{
+              fontSize: '0.85rem', color: '#475569', margin: 0, lineHeight: 1.6,
+            }}>
+              Se están realizando pruebas en <strong style={{ color: '#1d4ed8' }}>4 tabletas nuevas</strong> en la <strong style={{ color: '#0f172a' }}>Sucursal Slauson</strong> (tienda piloto), donde el equipo tendrá acceso a todos estos módulos en un solo dispositivo: descansos, roles, checklists, inspecciones y el manual de operaciones — <strong style={{ color: '#0f172a' }}>todo en un solo sistema</strong>, sin papeles, sin hojas de Excel, sin WhatsApp.
+            </p>
+          </div>
+
+          {/* ── SEPARADOR ── */}
+          <div style={{
+            marginTop: '1.25rem',
+            marginBottom: '0.75rem',
+            background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+            borderRadius: '0.75rem',
+            padding: '0.5rem 0.75rem',
+            border: '1px solid #fde68a',
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+          }}>
+            <span style={{ fontSize: '0.85rem' }}>🚧</span>
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#d97706' }}>EN DESARROLLO Y PRÓXIMAMENTE</span>
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             {[
@@ -411,7 +573,7 @@ export default function ReunionPage() {
                 status: 'En Producción',
               },
             ].map((item, i) => (
-              <div key={i} style={{
+              <div key={`dev-${i}`} style={{
                 background: item.bgColor,
                 borderRadius: '1rem',
                 padding: '1rem 1.25rem',
@@ -450,6 +612,7 @@ export default function ReunionPage() {
             ))}
           </div>
 
+          {/* Visión */}
           <div style={{
             marginTop: '1.25rem',
             background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
@@ -462,7 +625,7 @@ export default function ReunionPage() {
               fontSize: '0.85rem', color: '#475569', margin: 0, lineHeight: 1.5,
               fontWeight: 600,
             }}>
-              🧩 Todo esto se conecta entre sí. La meta es tener un <strong style={{ color: '#0f172a' }}>sistema integral</strong> donde cada pieza trabaje en conjunto para hacer crecer la empresa de forma profesional y escalable.
+              🎯 La visión: <strong style={{ color: '#0f172a' }}>UN solo sistema</strong> donde el Asistente hace su checklist, el Manager supervisa el suyo, el Supervisor inspecciona, y la corporación ve todo en tiempo real — desde cualquier dispositivo.
             </p>
           </div>
         </section>
