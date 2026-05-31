@@ -377,7 +377,7 @@ export default function ReunionPage() {
               {
                 emoji: '🥩',
                 title: 'Preparador de Bodega',
-                desc: 'Módulo para el equipo de preparación. Control de carnes, salsas y mise en place. Cada preparador ve exactamente qué debe preparar, en qué cantidades y en qué orden.',
+                desc: 'Módulo para el equipo de preparación. Control de carnes, salsas y preparación de ingredientes. Cada preparador ve exactamente qué debe preparar, en qué cantidades y en qué orden.',
                 color: '#16a34a',
                 bgColor: '#fef2f2',
                 borderColor: '#fecaca',
@@ -480,7 +480,32 @@ export default function ReunionPage() {
             <p style={{
               fontSize: '0.85rem', color: '#475569', margin: 0, lineHeight: 1.6,
             }}>
-              Se están realizando pruebas en <strong style={{ color: '#1d4ed8' }}>4 tabletas nuevas</strong> en la <strong style={{ color: '#0f172a' }}>Sucursal Slauson</strong> (tienda piloto), donde el equipo tendrá acceso a todos estos módulos en un solo dispositivo: descansos, roles, checklists, inspecciones y el manual de operaciones — <strong style={{ color: '#0f172a' }}>todo en un solo sistema</strong>, sin papeles, sin hojas de Excel, sin WhatsApp.
+              Se están realizando pruebas con <strong style={{ color: '#1d4ed8' }}>4 tabletas nuevas</strong> en la <strong style={{ color: '#0f172a' }}>Sucursal Slauson</strong> (tienda piloto), cada una dedicada a una función específica:
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem', textAlign: 'left' }}>
+              {[
+                { qty: '2', label: 'Preparador de Bodega', desc: 'Control de carnes, salsas y preparación de ingredientes en tiempo real', icon: '🥩' },
+                { qty: '1', label: 'Tablero de Roles', desc: 'Asignación visual de posiciones por turno', icon: '🎭' },
+                { qty: '1', label: 'Breaks & Lunches AI', desc: 'Descansos inteligentes optimizados por volumen de ventas', icon: '🧠' },
+              ].map((t, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.75rem',
+                  background: 'white', borderRadius: '0.75rem', padding: '0.6rem 1rem',
+                  border: '1px solid #bfdbfe',
+                }}>
+                  <span style={{ fontSize: '1.25rem' }}>{t.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ fontSize: '0.85rem', color: '#0f172a' }}>{t.qty}x {t.label}</strong>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block' }}>{t.desc}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p style={{
+              fontSize: '0.8rem', color: '#475569', margin: '0.75rem 0 0', lineHeight: 1.5, textAlign: 'center',
+              fontStyle: 'italic',
+            }}>
+              Sin papeles, sin hojas de Excel, sin WhatsApp — <strong style={{ color: '#0f172a' }}>todo digitalizado en un solo sistema</strong>.
             </p>
           </div>
 
