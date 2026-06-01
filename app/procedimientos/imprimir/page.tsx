@@ -201,7 +201,7 @@ function PrintProceduresContent() {
             if (!shiftProcedures || shiftProcedures.length === 0) return null;
 
             return (
-              <div key={shiftKey} className="break-inside-avoid">
+              <div key={shiftKey} className="mb-8">
                 <h2 className="text-lg font-black uppercase tracking-wide border-b-2 border-black pb-1 mb-3">
                   {shiftLabels[shiftKey] || shiftKey} ({shiftProcedures.length})
                 </h2>
@@ -223,7 +223,7 @@ function PrintProceduresContent() {
                       const timeStr = timeData.end ? `${timeData.start} - ${timeData.end}` : timeData.start;
 
                       return (
-                        <tr key={proc.id} className={`border-b border-slate-300 align-top ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                        <tr key={proc.id} className={`border-b border-slate-300 align-top break-inside-avoid ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                           {/* Time */}
                           <td className="py-2 px-2 font-bold border-r border-slate-300 text-slate-900">
                             {timeStr || 'Flexible'}
