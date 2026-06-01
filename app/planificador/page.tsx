@@ -1,5 +1,20 @@
 'use client'
 
+/**
+ * @module Planificador
+ * @description Página principal para la planificación y gestión de horarios semanales de los empleados de cada sucursal de Tacos El Gavilan. Permite a los gerentes crear, editar, clonar y publicar turnos.
+ * @businessRules
+ * - El día laboral comienza a las 6:00 AM y termina a las 5:59 AM del día siguiente.
+ * - El turno de la tarde (PM) se considera a partir de las 5:00 PM.
+ * - Si un empleado tiene asistencia registrada (punches de Toast) en un día específico pero no cuenta con un turno programado en la base de datos, el sistema genera automáticamente un turno en estado "borrador" (draft) con sus horas reales de entrada/salida para asegurar que sus costos laborales y horas se reflejen correctamente en el Budget Tool, Ventas y Reportes.
+ * @dataFlow
+ * - Consulta y sincroniza información desde `toast_employees`, `toast_jobs`, `punches` y `shifts` en Supabase.
+ * - Utiliza hooks dedicados para calcular estadísticas semanales, proyecciones inteligentes y alertas de infracciones de descanso.
+ * @notes
+ * - La lógica de auto-generación de borradores se ejecuta automáticamente al cargar/cargar datos de la tienda.
+ * - El modal informativo de bienvenida para la función "Clonar" está programado para aparecer en cada carga hasta el martes 9 de junio de 2026 inclusive.
+ */
+
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle, AlertTriangle, Copy, Sparkles } from 'lucide-react'
@@ -523,6 +538,8 @@ export default function SchedulePlanner() {
         const startStr = formatDateISO(weekStart)
         const endStr = formatDateISO(addDays(weekStart, 6))
 
+        let filteredEmployees: any[] = []
+
         // Employees
         // Employees - Fetch with manual pagination to bypass 1000 row limit
         let allEmpData: any[] = []
@@ -555,7 +572,7 @@ export default function SchedulePlanner() {
 
 
         if (allEmpData) {
-            const filtered = allEmpData.filter((e: any) => {
+            filteredEmployees = allEmpData.filter((e: any) => {
                 // Robust Store ID Check
                 let empStoreIds: string[] = []
 
@@ -583,10 +600,10 @@ export default function SchedulePlanner() {
             })
 
             // Re-sort considering our force override
-            filtered.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+            filteredEmployees.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
 
             // Sort logic reused if needed, but DB sort_order should prevail
-            setEmployees(filtered)
+            setEmployees(filteredEmployees)
         }
 
         // Shifts
@@ -597,7 +614,81 @@ export default function SchedulePlanner() {
             .gte('shift_date', startStr)
             .lte('shift_date', endStr)
 
-        if (shiftData) setShifts(shiftData)
+        // Auto-detect missing planned shifts from actual Toast punches
+        if (shiftData) {
+            // Ensure jobs are loaded
+            let activeJobs = jobs
+            if (activeJobs.length === 0) {
+                const { data: jobsData } = await supabase.from('toast_jobs').select('*').order('title')
+                if (jobsData) {
+                    setJobs(jobsData)
+                    activeJobs = jobsData
+                }
+            }
+
+            const { data: punchData } = await supabase
+                .from('punches')
+                .select('business_date, employee_toast_guid, job_toast_guid, clock_in, clock_out')
+                .eq('store_id', storeGuid)
+                .gte('business_date', startStr)
+                .lte('business_date', endStr)
+
+            const missingShifts: any[] = []
+            if (punchData && filteredEmployees && filteredEmployees.length > 0 && activeJobs && activeJobs.length > 0) {
+                punchData.forEach((p: any) => {
+                    if (!p.employee_toast_guid) return
+                    // Find matching employee in our store
+                    const emp = filteredEmployees.find((e: any) => e.toast_guid === p.employee_toast_guid)
+                    if (!emp) return
+
+                    // Check if shift already exists on this day for this employee
+                    const hasShift = shiftData.some((s: any) => s.employee_id === emp.id && s.shift_date === p.business_date)
+                    if (!hasShift) {
+                        // Find matching job
+                        let matchedJob = activeJobs.find((j: any) => j.guid === p.job_toast_guid)
+                        if (!matchedJob && emp.job_references && emp.job_references.length > 0) {
+                            matchedJob = activeJobs.find((j: any) => j.guid === emp.job_references[0].guid)
+                        }
+                        const jobId = matchedJob?.id || activeJobs[0]?.id
+
+                        if (jobId) {
+                            // Calculate end time: 8 hours after start_time if clock_out is null
+                            let endTime = p.clock_out
+                            if (!endTime && p.clock_in) {
+                                endTime = new Date(new Date(p.clock_in).getTime() + 8 * 60 * 60 * 1000).toISOString()
+                            }
+
+                            missingShifts.push({
+                                employee_id: emp.id,
+                                job_id: jobId,
+                                store_id: storeGuid,
+                                start_time: p.clock_in,
+                                end_time: endTime,
+                                status: 'draft',
+                                shift_date: p.business_date,
+                                notes: 'Auto-generado por asistencia real (Punch Toast)'
+                            })
+                        }
+                    }
+                })
+            }
+
+            if (missingShifts.length > 0) {
+                console.log(`🚀 [Auto-Shift] Inserting ${missingShifts.length} missing shifts from Toast punches...`)
+                const { data: insertedShifts, error: insertErr } = await supabase
+                    .from('shifts')
+                    .insert(missingShifts)
+                    .select()
+
+                if (insertErr) {
+                    console.error('Error inserting missing shifts:', insertErr)
+                } else if (insertedShifts) {
+                    shiftData.push(...insertedShifts)
+                }
+            }
+
+            setShifts(shiftData)
+        }
 
         // removed snapshot load
 
