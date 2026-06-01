@@ -1,4 +1,17 @@
-
+/**
+ * @module api/cron/sync-sales
+ * @description Daily Vercel cron handler that synchronizes sales metrics from Toast API to the Supabase cache.
+ * 
+ * @businessRules
+ * - **Ventana de Sincronización (Last 3 Days)**: Sincroniza los últimos 3 días de ventas para capturar ajustes tardíos de gerentes (Manager Edits), actualizaciones de reembolsos (Refunds) o transacciones anuladas (Voids).
+ * - **Patrón Delete-before-insert (Borrado previo)**: Para evitar filas duplicadas o problemas de integridad referencial, el registro de caché de ventas para una fecha específica se elimina explícitamente antes de insertar los datos frescos recién obtenidos de Toast.
+ * 
+ * @dataFlow
+ * - Invocación del endpoint -> Llama a `fetchToastData` (con `skipCache: true`) -> Elimina registros previos en `sales_daily_cache` -> Inserta las métricas frescas diarias en Supabase.
+ * 
+ * @notes
+ * - Valida la firma del header `Authorization` usando el secreto `CRON_SECRET` provisto por Vercel Cron para asegurar el endpoint.
+ */
 import { NextResponse } from 'next/server'
 import { fetchToastData } from '@/lib/toast-api'
 

@@ -1,3 +1,20 @@
+/**
+ * @module lib/toast-labor
+ * @description Module for synchronizing employee rosters, job definitions, and punch timecards from Toast API.
+ * 
+ * @businessRules
+ * - **Asignación de Día Laboral (Business Date)**: Los registros de tiempo (punches) se procesan y asignan a su respectiva fecha de negocio.
+ * - **Regla de las 6 AM (6 AM Rule)**: Los turnos marcados (clocked-in) antes de las 6:00 AM hora de Los Ángeles son asignados de forma obligatoria al día calendario anterior.
+ * - **Cálculo de Horas Extras (OT/DT)**: Las horas extras (Overtime - OT y Double Time - DT) son sincronizadas directamente desde Toast o estimadas aplicando las regulaciones de California.
+ * - **Mapeo Multitienda (Multi-store mapping)**: Se conserva el historial de empleados que trabajan en múltiples tiendas guardando arreglos de IDs de sucursales (`store_ids`) en la base de datos sin sobrescribir asociaciones previas.
+ * 
+ * @dataFlow
+ * - Toast `/labor/v1/employees`, `/labor/v1/jobs`, `/labor/v1/timeEntries` -> se parsean y se suben en lotes (chunk-upsert) a las tablas `toast_employees`, `toast_jobs` y `punches` en Supabase.
+ * 
+ * @notes
+ * - **Protección contra Bucles Infinitos**: El flujo de paginación incluye protección contra bucles de llamadas infinitos si el API retorna repetidamente el mismo set de IDs.
+ * - **Safety Check**: Si se reciben cero (0) registros para un rango multidía, el sync abortará para evitar eliminaciones masivas accidentales en la base de datos local.
+ */
 import { getSupabaseClient } from '@/lib/supabase'
 import { fetchToastData } from '@/lib/toast-api' // Re-using auth helpers if possible, or refactoring
 // Duplicate Fetch Logic for cleanliness or refactor toast-api later.

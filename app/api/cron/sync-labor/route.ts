@@ -1,4 +1,16 @@
-
+/**
+ * @module api/cron/sync-labor
+ * @description Daily Vercel cron handler that synchronizes employee data, job classifications, and punches from Toast API to Supabase.
+ * 
+ * @businessRules
+ * - **Ventana de Lookback (Last 3 Days)**: Sincroniza únicamente los últimos 3 días para todas las sucursales activas. Esto previene que se agote el tiempo de ejecución (timeout) de Vercel y cubre ajustes de horarios tardíos.
+ * 
+ * @dataFlow
+ * - Invocación del endpoint -> Lee las tiendas activas con Toast GUID (`external_id`) -> Ejecuta en cadena `syncToastEmployees`, `syncToastJobs` y `syncToastPunches` -> Actualiza metadatos de empleados, puestos y punches en Supabase.
+ * 
+ * @notes
+ * - La duración máxima de la función está configurada a 300 segundos (`maxDuration = 300`), que es el límite de Vercel Pro.
+ */
 import { NextResponse } from 'next/server'
 import { getSupabaseClient } from '@/lib/supabase'
 import { syncToastPunches, syncToastEmployees, syncToastJobs } from '@/lib/toast-labor'

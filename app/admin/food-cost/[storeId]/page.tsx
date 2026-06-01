@@ -1,5 +1,60 @@
 'use client'
 
+/**
+ * @module admin/food-cost/[storeId]/page
+ *
+ * MODULE:
+ * Página de detalle de Food Cost a nivel tienda. Muestra el desglose de costo
+ * por producto para una tienda específica, con columnas para ventas netas,
+ * costo unitario, costo total, % de food cost, libras de carne, descuentos,
+ * extras (modifiers), y status de receta.
+ *
+ * BUSINESS RULES:
+ * - URL: `/admin/food-cost/[storeId]?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&period=...`
+ * - Períodos soportados: today, yesterday, week, month, quarter, last_week,
+ *   last_7, last_month, custom.
+ * - REGLA DE LAS 6 AM: Para 'today', si la hora actual < 6 AM, el "hoy"
+ *   operativo es el día anterior (el día laboral no ha terminado).
+ * - Período 'custom': Lee startDate y endDate de los URL search params.
+ * - Color coding del % de food cost:
+ *     • Verde (emerald): ≤30% → saludable
+ *     • Amarillo: >30% y ≤40% → precaución
+ *     • Rojo (rose): >40% → alerta, investigar
+ * - "Zero Sales": Se marca en rojo cuando un producto tiene costo pero
+ *   $0 en ventas (posible desperdicio o error de registro).
+ * - Status de receta: ✅ = receta completa, 🟡 = faltan precios en inventario,
+ *   "No Recipe" = producto sin receta configurada.
+ *
+ * BUG FIX (2026-06-01):
+ * El período 'custom' no disparaba el fetch de datos al cargar la página
+ * por primera vez. Fix: el `useEffect` ahora ejecuta `refreshData()` cuando
+ * `period !== 'custom'` O cuando es custom PERO ya tiene startDate y endDate
+ * en los URL params.
+ *
+ * DATA FLOW:
+ * 1. Lee `storeId` de URL params y `period/startDate/endDate` de search params
+ * 2. `refreshData()` calcula el rango de fechas según el período seleccionado
+ * 3. Fetch a `/api/inventory/food-cost?storeId=X&startDate=Y&endDate=Z`
+ * 4. La respuesta `json.data[]` (FoodCostItem[]) se guarda en state
+ * 5. `useMemo` filtra por searchTerm y ordena por la columna seleccionada
+ * 6. `FoodCostSummary` muestra totales agregados
+ * 7. Click en cualquier fila abre `ProductDetailModal` con desglose de receta
+ *
+ * Dependencias:
+ * - `@/components/food-cost/FoodCostSummary` → widget de resumen (totales)
+ * - `@/components/food-cost/ProductDetailModal` → modal de detalle por producto
+ * - `@/components/sales/DateRangeFilter` → selector de período/fechas
+ * - `@/components/SurpriseLoader` → loading spinner animado
+ * - `@/lib/supabase` → `formatStoreName` (formato legible del nombre de tienda)
+ * - `@/lib/i18n` → `useLanguage()` / `t()` para traducciones ES/EN
+ *
+ * NOTES:
+ * - La tabla tiene scroll horizontal y vertical con scrollbar estilizado.
+ * - La fila de subtotales es sticky al fondo con sombra para visibilidad.
+ * - El sort por defecto es `quantity desc`, pero internamente ordena por
+ *   `food_cost_percent desc` (decisión de diseño: mostrar los más costosos primero).
+ * - El GUID del producto se muestra parcialmente (8 chars) solo en hover.
+ */
 import React, { useState, useEffect, useMemo } from 'react'
 import { ChevronDown, ChevronUp, Store, RefreshCw, ArrowUpDown, Search, CheckCircle2, ArrowLeft } from 'lucide-react'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
@@ -141,10 +196,12 @@ export default function StoreFoodCostDetail() {
     }, [endDate, period, startDate, storeIdParam, t])
 
     useEffect(() => {
-        if (period !== 'custom') {
+        // Always fetch: for preset periods AND for custom when URL has dates
+        if (period !== 'custom' || (startDate && endDate)) {
             refreshData()
         }
-    }, [period, refreshData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [period])
 
     // Memoized Data Processing
     const { filteredTableData, summaryData } = useMemo(() => {

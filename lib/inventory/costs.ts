@@ -1,3 +1,49 @@
+/**
+ * @module lib/inventory/costs
+ *
+ * MODULE:
+ * Motor de cálculo de costo teórico (theoretical food cost) para recetas.
+ * Toma una receta, la lista de items de inventario con sus precios actuales,
+ * y opcionalmente el dining option (canal de venta) para producir un desglose
+ * completo de costo: foodCost + packagingCost = totalCost.
+ *
+ * BUSINESS RULES:
+ * - Cada ingrediente se busca en inventario por `inventory_item_id`.
+ * - El costo unitario se calcula con `calculateIngredientCost()` (lógica central
+ *   de conversión de unidades + yield).
+ * - Clasificación de costos por `ingredient.type`:
+ *     • 'food' | 'raw' | 'cooked' → foodCost (costo de materia prima / alimento)
+ *     • 'cogs_dine_in'            → packagingCost SOLO para pedidos "For Here" / "Dine In"
+ *     • 'cogs_delivery'           → packagingCost SOLO para Uber Eats, DoorDash, etc.
+ *     • 'cogs_takeout'            → packagingCost SOLO para To Go (ni dine-in ni delivery)
+ * - Si `diningOption` no se pasa, se incluyen TODOS los tipos de packaging.
+ * - Items sin precio (`purchase_unit_cost <= 0`) se marcan como `isMissingPrice`.
+ *
+ * CRITICAL BUG FIX (2026-06-01):
+ * Los tipos 'raw' y 'cooked' estaban siendo clasificados erróneamente como
+ * packaging en vez de food. Esto causaba que productos como Party Trays
+ * reportaran $0.00 de foodCost (toda la carne iba a packagingCost).
+ * Fix: `isFood = (type === 'food' || type === 'raw' || type === 'cooked')`.
+ *
+ * DATA FLOW:
+ * Recipe.ingredients[] → inventoryItems Map lookup → calculateRawUsage() (para UI)
+ *                      → calculateIngredientCost() (para costo real)
+ *                      → classify food vs packaging → aggregate → RecipeCostResult
+ *
+ * Dependencias:
+ * - `./conversions` → `calculateRawUsage`, `normalizeToLbs` (yield adjustment)
+ * - `./recipe-calculations` → `calculateIngredientCost` (unit conversion + pricing)
+ * - `@/types/inventory` → `InventoryItem`, `Recipe`, `RecipeIngredient`
+ *
+ * NOTES:
+ * - `calculateRawUsage()` se llama SOLO para mostrar la cantidad cruda en el
+ *   breakdown de la UI. El costo real lo calcula `calculateIngredientCost()`.
+ * - Los valores de retorno se redondean a 4 decimales para evitar errores
+ *   de punto flotante en acumulaciones grandes.
+ * - El filtro de dining option usa substring matching (case-insensitive):
+ *   'here'/'dine' → dine-in, 'uber'/'door'/'grub'/'delivery' → delivery,
+ *   cualquier otro → takeout.
+ */
 import { InventoryItem, Recipe, RecipeIngredient } from '@/types/inventory'
 import { calculateRawUsage, normalizeToLbs } from './conversions'
 import { calculateIngredientCost } from './recipe-calculations'
@@ -92,7 +138,10 @@ export function calculateRecipeCost(recipe: Recipe, inventoryItems: InventoryIte
             isMissingPrice
         })
 
-        if (type === 'food') {
+        // 'food', 'raw', 'cooked' are all food ingredients
+        // Only 'cogs_*' types (cogs_dine_in, cogs_delivery, cogs_takeout) are packaging/supplies
+        const isFood = (type === 'food' || type === 'raw' || type === 'cooked')
+        if (isFood) {
             foodCost += cost
         } else {
             packagingCost += cost

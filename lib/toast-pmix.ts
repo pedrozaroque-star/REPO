@@ -1,3 +1,19 @@
+/**
+ * @module lib/toast-pmix
+ * @description Fetches and aggregates the Product Mix (PMIX) from Toast API. Key to determining item-level sales volume.
+ * 
+ * @businessRules
+ * - **Integración de Modificadores (Bundling)**: Integra las selecciones de modificadores dentro de los items padres si se activa la opción de agrupación para simplificar el análisis de costos.
+ * - **Fusión de Dining Options**: Agrupa y unifica los tipos de servicio (dining options) para facilitar el análisis financiero y de rendimiento de canales de delivery de terceros (3rd-party delivery).
+ * - **Ajuste de Media Porción de Carne (Half Meat Adjustments)**: Identifica y cuenta modificadores con prefijo "Half" (ej: "Half Pollo", "Half Pastor") para reducir el cálculo del costo de carne completa en un 50% durante el análisis de recetas.
+ * 
+ * @dataFlow
+ * - Toast `/orders/v2/ordersBulk` o tablas de caché -> procesa las selecciones (selections) y distribuciones de cantidad por item -> retorna listas de items de menú vendidos (`ProductMixItem[]`) con sus ventas netas, cantidades y mapeo de modificadores.
+ * 
+ * @notes
+ * - Implementa un mecanismo de caché autosanable (`pmix_daily_cache`) para evitar llamadas duplicadas y costosas al API.
+ * - Dado el límite estricto de Toast API, las fechas se procesan de forma estrictamente secuencial para evitar errores 429.
+ */
 import { getAuthToken, getDiningOptions } from './toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 

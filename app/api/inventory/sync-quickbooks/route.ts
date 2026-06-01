@@ -1,4 +1,55 @@
-
+/**
+ * @module api/inventory/sync-quickbooks
+ *
+ * MODULE:
+ * Endpoint de sincronización de precios de inventario desde QuickBooks Online (QBO).
+ * Se ejecuta diariamente vía cron (7 AM PDT) o manualmente vía GET/POST.
+ * Actualiza `inventory_items.purchase_unit_cost` con el costo real de compra
+ * del proveedor y registra cambios de precio en `inventory_price_history`.
+ *
+ * BUSINESS RULES:
+ * - PRECIO CORRECTO: Se usa `PurchaseCost` (costo de compra al proveedor externo),
+ *   NO `UnitPrice` (precio de venta/reventa). Ejemplo real: "Papelito Para Torta"
+ *   tiene UnitPrice=$18 (venta) vs PurchaseCost=$0.58 (compra). Usar UnitPrice
+ *   causaba oscilaciones de costos absurdas.
+ * - Fallback: `UnitPrice` solo se usa para items NonInventory/Service sin PurchaseCost.
+ * - MODELO BODEGA: La bodega de Tacos Gavilán es el proveedor interno que compra
+ *   al proveedor externo y revende a los restaurantes. Items creados desde QB
+ *   se marcan con `is_bodega: true` (items de almacén/warehouse). Ambos tipos
+ *   (bodega y restaurant) usan PurchaseCost porque representa el costo real
+ *   del proveedor externo.
+ * - Solo se procesan items de QB con Type = 'Inventory' o 'NonInventory'.
+ *
+ * DATA FLOW:
+ * 1. Lee la integración de QB desde `integrations` table (tokens OAuth)
+ * 2. Renueva el OAuth token via `authClient.refreshUsingToken()`
+ * 3. Inicializa QB client con `node-quickbooks` SDK
+ * 4. Fetch de todos los items activos de QB (`findItems`)
+ * 5. Para cada QB item:
+ *    - Case A (ya mapeado): Actualiza precio en `inventory_items`, registra
+ *      cambio en `inventory_price_history` si |oldPrice - newPrice| > $0.001
+ *    - Case B (no mapeado, nombre coincide): Crea mapping en `quickbooks_mappings`
+ *    - Case C (no mapeado, no existe): Crea nuevo `inventory_item` + mapping
+ *
+ * Dependencias:
+ * - `@/lib/supabase` → `getSupabaseAdminClient` (acceso admin a DB)
+ * - `@/lib/quickbooks` → `authClient` (OAuth2 client para QuickBooks)
+ * - `node-quickbooks` → SDK para la API de QuickBooks Online
+ *
+ * Tablas Supabase:
+ * - `integrations` → tokens OAuth, realm_id de QuickBooks
+ * - `inventory_items` → catálogo interno de ingredientes con precios
+ * - `quickbooks_mappings` → relación QB item ID ↔ inventory_item_id
+ * - `inventory_price_history` → historial de cambios de precio por item
+ *
+ * NOTES:
+ * - Si el token refresh falla, se intenta usar el token existente (probable 401).
+ * - `DEFAULT_CATEGORY_ID` apunta a la categoría "QuickBooks Import" para items
+ *   auto-creados que no tienen categoría asignada.
+ * - Items nuevos se crean con `unit_type: 'Unit'` por defecto; el gerente
+ *   debe ajustar la unidad correcta después.
+ * - El matching de nombres es exact-match case-insensitive con trim.
+ */
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { authClient } from '@/lib/quickbooks';
@@ -90,7 +141,12 @@ export async function POST() {
         for (const qbItem of qbItems) {
             if (qbItem.Type !== 'Inventory' && qbItem.Type !== 'NonInventory') continue;
 
-            const rate = Number(qbItem.UnitPrice || 0);
+            // CRITICAL: Use PurchaseCost (costo de compra al proveedor), NOT UnitPrice (precio de venta).
+            // UnitPrice caused oscillation bugs (e.g., Papelito Para Torta: $18 sale vs $0.58 purchase).
+            // Fallback to UnitPrice only for NonInventory/Service items that lack PurchaseCost.
+            const purchaseCost = Number(qbItem.PurchaseCost || 0);
+            const unitPrice = Number(qbItem.UnitPrice || 0);
+            const rate = purchaseCost > 0 ? purchaseCost : unitPrice;
 
             // Case A: Already mapped
             const existingMapping = existingMappings?.find(m => m.qb_item_id === qbItem.Id);

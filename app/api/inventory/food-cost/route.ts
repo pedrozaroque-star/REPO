@@ -1,3 +1,33 @@
+/**
+ * @module FoodCostAPI
+ * @description Motor principal de cálculo de Food Cost teórico.
+ *   Recibe un rango de fechas y (opcionalmente) un storeId, obtiene el Product Mix
+ *   (PMIX) de Toast, cruza cada item vendido con su receta en Supabase, y calcula
+ *   el costo teórico de cada ingrediente usando precios históricos del inventario.
+ *
+ * @businessRules
+ *   - El food cost se calcula a nivel de ITEM vendido (cada línea del PMIX).
+ *   - Items sin receta contribuyen $0 al food cost (se marcan has_recipe=false).
+ *   - Las recetas se buscan por GUID primero, luego por nombre (fallback).
+ *   - Los Party Trays (15-20, 20-25, 25-30, 30-40 People) NO tienen receta en DB:
+ *     se generan recetas VIRTUALES parseando los modificadores del nombre del item.
+ *   - Los modificadores "Half Meat" (e.g., Half Pastor en un Burrito Asada) ajustan
+ *     la porción de carne base -50% e inyectan +50% de la carne sustituta.
+ *   - Precios históricos: usa `inventory_price_history` para obtener el precio vigente
+ *     en la fecha del reporte ("La Máquina del Tiempo").
+ *
+ * @dataFlow
+ *   Toast Orders API → getProductMix() → PMIX items
+ *   Supabase recipes → recipeMap (GUID → Recipe)
+ *   Supabase inventory_items + price_history → inventoryData con precios históricos
+ *   PMIX × Recipes × Prices → calculateRecipeCost() → report[]
+ *   report → food_cost_daily_cache (write-through para single-day queries)
+ *
+ * @notes
+ *   - [2026-06-01] FIX: costs.ts clasificaba 'raw'/'cooked' como packaging → $0 food cost en party trays.
+ *   - [2026-06-01] net_sales en cache se toma de sales_daily_cache (no del PMIX) para paridad con Ventas.
+ *   - La normalización defensiva de modifiers (cap qty) protege contra cache corrupto antiguo.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseClient, getSupabaseAdminClient } from '@/lib/supabase'

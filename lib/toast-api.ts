@@ -1,3 +1,21 @@
+/**
+ * @module lib/toast-api
+ * @description Central integration module for Toast API v2 Orders bulk and authentication. Handles direct connections to Toast API, auth token caching/lifecycle, and parsing of order structures into database-friendly sales metrics.
+ * 
+ * @businessRules
+ * - **Cálculo de Net Sales**: Debe coincidir exactamente con los estados financieros corporativos al centavo: `Sum(Item.Price) - Sum(Item.Discounts) - Sum(Item.Refunds) - Sum(UnlinkedRefunds)`. Los totales a nivel de cabecera (header) no son confiables; la fuente de verdad siempre son los items individuales (`selections`).
+ * - **Mapeo de Tiendas (Stores)**: Está hardcodeado en el objeto `STORES` o manejado dinámicamente debido a que el endpoint de descubrimiento `/restaurants` está deshabilitado o retorna error 405.
+ * - **Canales de Delivery de Terceros (3rd-party Delivery)**: Uber Eats, DoorDash y Grubhub deben mapearse dinámicamente usando `getDiningOptionsMap` porque los GUIDs de las opciones de servicio (dining options) cambian por instancia de cada tienda. NUNCA hardcodear estos GUIDs de comedor.
+ * - **Límites del Día Laboral (Business Date boundaries)**: El día laboral comienza a las 6:00 AM y termina a las 5:59 AM del día siguiente (Turno PM inicia a las 5:00 PM). Se utiliza la zona horaria de Los Ángeles para una asignación precisa del día de negocio (6 AM Rule).
+ * 
+ * @dataFlow
+ * - Toast API `/orders/v2/ordersBulk` -> `fetchToastData()` -> parsing selections, discounts, and payments -> outputs raw metrics and daily aggregates.
+ * - Utiliza la tabla `integrations` en Supabase para el almacenamiento del token OAuth de Toast API.
+ * 
+ * @notes
+ * - Implementa caché en Supabase (`sales_daily_cache` y `punches`) para evitar llamadas API costosas y repetitivas.
+ * - En caso de requerir reparación de datos corruptos o antiguos, se debe borrar explícitamente la entrada del día en la caché (`.delete().eq('business_date', date)`) antes de invocar el fetch.
+ */
 import { getSupabaseClient } from '@/lib/supabase'
 import fs from 'fs'
 import path from 'path'

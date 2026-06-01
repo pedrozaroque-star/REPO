@@ -1,5 +1,27 @@
 'use client'
 
+/**
+ * @module FoodCostDashboard
+ * @description Dashboard principal de Food Cost — Reporte General.
+ *   Muestra el costo teórico de alimentos por tienda con KPIs, gráficas y tabla comparativa.
+ *   Al hacer clic en una tienda, abre la vista detallada por producto (/admin/food-cost/[storeId]).
+ *
+ * @businessRules
+ *   - Usa datos del food_cost_daily_cache (pre-calculado) + cálculo en vivo vía API.
+ *   - Las ventas netas (net_sales) se toman de sales_daily_cache para paridad con el módulo de Ventas.
+ *   - La tabla "Food Cost by Store" agrega items por store_name y muestra FC%, meat lbs, discounts.
+ *   - Cada fila de tienda es clickeable → abre window.open() con los mismos filtros de fecha.
+ *   - Soporta periodos: today, yesterday, week, month, quarter, last_week, last_7, last_month, custom.
+ *
+ * @dataFlow
+ *   /api/inventory/food-cost?storeId=all → datos por item
+ *   /api/sales/net-sales → ventas netas autoritativas por tienda (KPI parity)
+ *   Agregación client-side: items → storeMap → chartArr + storeTableData
+ *
+ * @notes
+ *   - El FC% total puede no coincidir exactamente con la suma de porcentajes individuales
+ *     porque el net_sales se overridea desde sales_daily_cache (not from PMIX).
+ */
 import React, { useState, useEffect, useMemo } from 'react'
 import { ChevronDown, ChevronUp, Store, RefreshCw, Download, ArrowUpDown, Search, CheckCircle2 } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'

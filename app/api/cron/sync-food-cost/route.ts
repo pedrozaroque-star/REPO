@@ -1,3 +1,53 @@
+/**
+ * @module api/cron/sync-food-cost
+ *
+ * MODULE:
+ * Vercel Cron Job que pre-calcula y cachea los datos de Food Cost para el mes
+ * actual completo. Garantiza que el dashboard de Food Cost siempre tenga datos
+ * listos sin requerir visita manual de ningún usuario.
+ *
+ * BUSINESS RULES:
+ * - SCHEDULE: Se ejecuta después de sync-sales (UTC 19:00 = 11:00 AM PT).
+ *   Esto asegura que las ventas del día anterior ya estén sincronizadas
+ *   cuando se calculan los costos.
+ * - RANGO DE FECHAS: Día 1 del mes actual → ayer. Solo procesa días
+ *   finalizados (nunca el día en curso, porque las ventas aún no cierran).
+ * - REGLA DE LAS 6 AM: El día laboral empieza a las 6:00 AM y termina a las
+ *   5:59 AM del día siguiente. Si el cron se ejecuta antes de las 6 AM,
+ *   "hoy" operativo es el día anterior.
+ * - CACHE FRESCOS: Si un día ya tiene cache con menos de 12 horas de
+ *   antigüedad, se salta (skip) para no desperdiciar compute.
+ * - CACHE STALE: Si el cache tiene más de 12h, se borra y se recalcula
+ *   para capturar ajustes de gerentes (ej: recetas editadas, precios
+ *   corregidos durante el día).
+ * - PATRÓN DELETE-THEN-RECALCULATE: Igual que sync-sales, se borra
+ *   explícitamente la entrada del día antes de recalcular para evitar
+ *   datos duplicados o corruptos.
+ *
+ * DATA FLOW:
+ * 1. Determina rango [1er día del mes → ayer] en timezone America/Los_Angeles
+ * 2. Para cada día en el rango:
+ *    a. Consulta `food_cost_daily_cache` → ¿existe? ¿es fresco (<12h)?
+ *    b. Si es fresco → skip
+ *    c. Si es stale o no existe → DELETE del cache viejo
+ *    d. Llama a `/api/inventory/food-cost?storeId=all&startDate=X&endDate=X`
+ *       (misma API que usa el dashboard, con write-through al cache)
+ * 3. Retorna resumen de días procesados, cacheados, saltados y errores
+ *
+ * Dependencias:
+ * - `/api/inventory/food-cost` → API interna que calcula food cost + escribe cache
+ * - `@/lib/supabase` → `getSupabaseAdminClient` (acceso admin)
+ * - Tabla `food_cost_daily_cache` → cache de resultados por business_date
+ * - Variable `CRON_SECRET` → autenticación de Vercel Cron
+ * - Variable `VERCEL_URL` → para construir la URL interna del API call
+ *
+ * NOTES:
+ * - `maxDuration = 300` (5 min) es el máximo de Vercel Pro. Si hay muchos
+ *   días sin cache (ej: inicio de mes) puede acercarse al límite.
+ * - La llamada interna a `/api/inventory/food-cost` no requiere auth header
+ *   porque es una API pública interna.
+ * - En desarrollo local usa `http://localhost:3000` como baseUrl.
+ */
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
 
