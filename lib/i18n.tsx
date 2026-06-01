@@ -1144,6 +1144,7 @@ const dictionaries: Record<Language, any> = {
             title: 'Manual de Operaciones',
             subtitle: 'Procedimientos estandarizados para asegurar la excelencia operativa en Tacos Gavilan. Selecciona tu turno y día para ver tus responsabilidades.',
             info_tooltip: '¿Qué es esto? — Info para supervisores',
+            print_tooltip: 'Imprimir PDF (Filtros Activos)',
             filters: {
                 all: 'Todos',
                 opening: 'Apertura',
@@ -2369,6 +2370,7 @@ const dictionaries: Record<Language, any> = {
             title: 'Operations Manual',
             subtitle: 'Standardized procedures to ensure operational excellence at Tacos Gavilan. Select your shift and day to see your responsibilities.',
             info_tooltip: 'What is this? — Info for supervisors',
+            print_tooltip: 'Print PDF (Active Filters)',
             filters: {
                 all: 'All',
                 opening: 'Opening',

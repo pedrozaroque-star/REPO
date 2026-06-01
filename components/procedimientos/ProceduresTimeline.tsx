@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, Edit2, Save, X, Plus, Trash2, GripVertical, Info, Building2, Car } from 'lucide-react';
+import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, Edit2, Save, X, Plus, Trash2, GripVertical, Info, Building2, Car, Printer } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/ProtectedRoute';
 import { useLanguage } from '@/lib/i18n';
@@ -390,6 +390,17 @@ export default function ProceduresTimeline() {
             >
               <Info className="w-4 h-4" />
             </a>
+
+            <button
+              onClick={() => {
+                const url = `/procedimientos/imprimir?shift=${filterShift}&day=${filterDay}&model=${filterModel}`;
+                window.open(url, '_blank');
+              }}
+              title={t('procedures.print_tooltip') || 'Imprimir PDF (Filtros Activos)'}
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all hover:scale-110 border border-slate-200 dark:border-slate-700/50"
+            >
+              <Printer className="w-4 h-4" />
+            </button>
           </div>
           <p className="text-slate-600 dark:text-slate-400 mb-4 sm:mb-6 max-w-2xl text-xs sm:text-base leading-relaxed">
             {t('procedures.subtitle')}
