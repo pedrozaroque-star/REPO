@@ -35,7 +35,7 @@ export default function ClientLayout({
     }, [pathname])
 
     // Public routes - no navigation chrome
-    const publicRoutes = ['/login', '/', '/auth/login', '/clientes', '/evaluacion', '/feedback-publico', '/planificador/imprimir', '/tv']
+    const publicRoutes = ['/login', '/', '/auth/login', '/clientes', '/evaluacion', '/feedback-publico', '/planificador/imprimir', '/tv', '/procedimientos/imprimir']
     const isPublicPage = publicRoutes.includes(pathname)
 
     // Full-width routes (large tables, schedules, etc.)

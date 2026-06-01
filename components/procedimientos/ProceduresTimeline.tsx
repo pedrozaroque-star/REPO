@@ -1097,7 +1097,7 @@ export default function ProceduresTimeline() {
       {/* ══════ Vista Previa de Impresión (Modal iframe) ══════ */}
       <AnimatePresence>
         {isPrintModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-6">
+          <div className="print-modal-overlay fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-6">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1145,6 +1145,44 @@ export default function ProceduresTimeline() {
           </div>
         )}
       </AnimatePresence>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body > * {
+            display: none !important;
+          }
+          .print-modal-overlay {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            z-index: 9999999 !important;
+          }
+          .print-modal-overlay > div {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+            border-radius: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: white !important;
+          }
+          .print-modal-overlay > div > div:first-child {
+            display: none !important;
+          }
+          #procedures-print-frame {
+            display: block !important;
+            width: 100% !important;
+            height: 100% !important;
+            border: none !important;
+          }
+        }
+      `}} />
     </div>
   );
 }
