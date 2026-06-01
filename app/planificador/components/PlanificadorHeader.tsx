@@ -1,5 +1,5 @@
 
-import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee } from 'lucide-react'
+import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee, Copy } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { WeekSelector } from './WeekSelector'
 import { formatStoreName } from '../lib/utils'
@@ -21,7 +21,8 @@ export function PlanificadorHeader({
     googleConnected,
     googleEmail,
     isToolbarVisible,
-    setIsToolbarVisible
+    setIsToolbarVisible,
+    onCloneClick
 }: any) {
     const { t } = useLanguage()
 
@@ -54,6 +55,14 @@ export function PlanificadorHeader({
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-4">
+                    <button
+                        onClick={onCloneClick}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-lg text-xs font-bold shadow-sm transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                    >
+                        <Copy size={16} />
+                        <span>{t('planner.header.clone')}</span>
+                    </button>
+
                     <Link 
                         href={`/descansos?store=${selectedStoreId}&date=${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`} 
                         className="hidden md:flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white rounded-lg text-xs font-black shadow-md transition-transform hover:scale-105 active:scale-95"

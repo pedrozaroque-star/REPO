@@ -2,6 +2,7 @@ import React from 'react'
 import { Reorder, useDragControls } from 'framer-motion'
 import { GripVertical, Plus, Mail, Phone } from 'lucide-react'
 import { formatTime12h, stringToColor } from '../lib/utils'
+import { useLanguage } from '@/lib/i18n'
 
 export function EmployeeRow({
     emp,
@@ -16,6 +17,22 @@ export function EmployeeRow({
     setModalConfig
 }: any) {
     const controls = useDragControls()
+    const { t } = useLanguage()
+
+    // Helper to get employee payrate / wage rate
+    const getEmployeeWageRate = () => {
+        if (!emp.wage_data || !Array.isArray(emp.wage_data) || emp.wage_data.length === 0) {
+            return null;
+        }
+        // Try to find the wage for the primary job reference
+        const primaryJobGuid = emp.job_references?.[0]?.guid;
+        if (primaryJobGuid) {
+            const primaryWage = emp.wage_data.find((w: any) => w.job_guid === primaryJobGuid);
+            if (primaryWage) return primaryWage.wage;
+        }
+        // Fallback to the first available wage override
+        return emp.wage_data[0].wage;
+    };
 
     return (
         <Reorder.Item
@@ -67,7 +84,11 @@ export function EmployeeRow({
                                     <h4 className="font-bold text-gray-900 dark:text-white text-base leading-tight">
                                         {emp.first_name} {emp.last_name}
                                     </h4>
-                                    <p className="text-xs text-gray-400 font-mono mt-0.5">{emp.external_employee_id || 'No ID'}</p>
+                                    {getEmployeeWageRate() !== null && (
+                                        <p className="text-xs text-gray-400 font-mono mt-0.5">
+                                            {t('planner.payrate')}: ${Number(getEmployeeWageRate()).toFixed(2)}/hr
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             <div className="space-y-2">

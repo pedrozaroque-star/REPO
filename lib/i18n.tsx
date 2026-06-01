@@ -826,6 +826,9 @@ const dictionaries: Record<Language, any> = {
             syncing_toast: 'Sincronizando datos de Toast...',
             syncing: 'Syncing...',
             table_header: 'Equipo',
+            pos_code: 'Código POS',
+            payrate: 'Sueldo/Hora',
+            no_id: 'Sin ID',
             days: {
                 sun: 'DOM',
                 mon: 'LUN',
@@ -838,7 +841,8 @@ const dictionaries: Record<Language, any> = {
             header: {
                 draft_label: 'Borrador',
                 publish_changes: 'Publicar Cambios',
-                published: 'Publicado'
+                published: 'Publicado',
+                clone: 'Clonar'
             },
             tooltips: {
                 ai_generator: {
@@ -877,6 +881,24 @@ const dictionaries: Record<Language, any> = {
                     message: '¿Actualizar la lista de empleados y puestos desde Toast?\nEsto traerá nuevos ingresos y actualizará roles.',
                     success_title: 'Sincronización Exitosa',
                     success_message: 'Se han actualizado {n} perfiles de empleados.\nRoles y permisos al día.'
+                },
+                clone: {
+                    title: 'Clonar Horario',
+                    subtitle: 'Copia los turnos asignados de una semana anterior a la semana actual.',
+                    source_label: 'Selecciona la semana de origen:',
+                    conflict_label: 'Acción en caso de conflicto:',
+                    conflict_overwrite: 'Sobrescribir (Borrar turnos actuales)',
+                    conflict_merge: 'Combinar (Mantener turnos actuales)',
+                    cancel: 'Cancelar',
+                    confirm: 'Clonar Horario',
+                    success_title: '¡Horario Clonado!',
+                    success_message: 'Se han copiado {n} turnos de la semana seleccionada.',
+                    empty_message: 'No se encontraron turnos asignados en la semana seleccionada.',
+                    weeks_1: 'Semana anterior',
+                    weeks_2: 'Hace 2 semanas',
+                    weeks_3: 'Hace 3 semanas',
+                    weeks_4: 'Hace 4 semanas',
+                    weeks_custom: 'Fecha personalizada...'
                 },
                 smart_gen: {
                     title: 'Generador Inteligente',
@@ -932,7 +954,14 @@ const dictionaries: Record<Language, any> = {
                 publish_notify_error: 'Publicado, pero error al notificar',
                 budget_error: 'Error guardando presupuesto'
             },
-            employees_scheduled: 'Empleados Programados'
+            employees_scheduled: 'Empleados Programados',
+            // TODO: DELETE THIS BLOCK AFTER JUNE 9, 2026 (Expired Clone Modal announcement)
+            welcome_modal: {
+                title: '¡Descubre la Clonación de Horarios!',
+                subtitle: 'Nueva función disponible en tu Planificador 📅',
+                description: '¡Planifica más rápido que nunca! Con el nuevo botón "Clonar" en la barra de herramientas, ahora puedes copiar de inmediato todos los turnos asignados de semanas anteriores. Elige copiar la semana pasada, 2, 3 o 4 semanas atrás, o un rango personalizado, y decide si deseas sobrescribir o combinar con los turnos actuales.',
+                button: '¡Excelente, gracias!'
+            }
         },
         food_cost: {
             title: 'Reporte de Costos (Food Cost)',
@@ -2022,6 +2051,9 @@ const dictionaries: Record<Language, any> = {
             syncing_toast: 'Syncing Toast data...',
             syncing: 'Syncing...',
             table_header: 'Team',
+            pos_code: 'POS Code',
+            payrate: 'Payrate',
+            no_id: 'No ID',
             days: {
                 sun: 'SUN',
                 mon: 'MON',
@@ -2034,7 +2066,8 @@ const dictionaries: Record<Language, any> = {
             header: {
                 draft_label: 'Draft',
                 publish_changes: 'Publish Changes',
-                published: 'Published'
+                published: 'Published',
+                clone: 'Clone'
             },
             tooltips: {
                 ai_generator: {
@@ -2073,6 +2106,24 @@ const dictionaries: Record<Language, any> = {
                     message: 'Update the employee list and positions from Toast?\nThis will bring new hires and update roles.',
                     success_title: 'Sync Successful',
                     success_message: '{n} employee profiles updated.\nRoles and permissions up to date.'
+                },
+                clone: {
+                    title: 'Clone Schedule',
+                    subtitle: 'Copy assigned shifts from a past week to the current week.',
+                    source_label: 'Select source week:',
+                    conflict_label: 'Conflict resolution:',
+                    conflict_overwrite: 'Overwrite (Delete current shifts)',
+                    conflict_merge: 'Merge (Keep current shifts)',
+                    cancel: 'Cancel',
+                    confirm: 'Clone Schedule',
+                    success_title: 'Schedule Cloned!',
+                    success_message: 'Successfully copied {n} shifts from the selected week.',
+                    empty_message: 'No assigned shifts found in the selected week.',
+                    weeks_1: 'Previous week',
+                    weeks_2: '2 weeks ago',
+                    weeks_3: '3 weeks ago',
+                    weeks_4: '4 weeks ago',
+                    weeks_custom: 'Custom date...'
                 },
                 smart_gen: {
                     title: 'Smart Generator',
@@ -2128,7 +2179,14 @@ const dictionaries: Record<Language, any> = {
                 publish_notify_error: 'Published, but notification error',
                 budget_error: 'Error saving budget'
             },
-            employees_scheduled: 'Employees Scheduled'
+            employees_scheduled: 'Employees Scheduled',
+            // TODO: DELETE THIS BLOCK AFTER JUNE 9, 2026 (Expired Clone Modal announcement)
+            welcome_modal: {
+                title: 'Discover Schedule Cloning!',
+                subtitle: 'New feature available in your Planner 📅',
+                description: 'Plan faster than ever! With the new "Clone" button in the toolbar, you can now instantly copy all assigned shifts from prior weeks. Choose to copy the previous week, 2, 3, or 4 weeks ago, or a custom range, and decide whether to overwrite or merge with current shifts.',
+                button: 'Excellent, thanks!'
+            }
         },
         food_cost: {
             title: 'Food Cost Report',

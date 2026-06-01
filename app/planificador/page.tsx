@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
-import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle, AlertTriangle } from 'lucide-react'
+import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle, AlertTriangle, Copy, Sparkles } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -24,6 +24,7 @@ import { PrintModal } from './components/PrintModal'
 import { GmailConnectModal } from './components/GmailConnectModal'
 import { SalesDetailModal } from './components/SalesDetailModal'
 import { MobilePlannerView } from './components/MobilePlannerView'
+import { CloneModal } from './components/CloneModal'
 
 // Hooks
 import { useWeeklyStats } from './hooks/useWeeklyStats'
@@ -90,6 +91,8 @@ export default function SchedulePlanner() {
     const [currentDate, setCurrentDate] = useState(new Date())
     const [stores, setStores] = useState<any[]>([])
     const [selectedStoreId, setSelectedStoreId] = useState<string>('')
+    const [showCloneModal, setShowCloneModal] = useState(false)
+    const [showWelcomeModal, setShowWelcomeModal] = useState(false)
     const [employees, setEmployees] = useState<Employee[]>([])
     const [jobs, setJobs] = useState<Job[]>([])
     const [shifts, setShifts] = useState<Shift[]>([])
@@ -106,6 +109,16 @@ export default function SchedulePlanner() {
         checkMobile()
         window.addEventListener('resize', checkMobile)
         return () => window.removeEventListener('resize', checkMobile)
+    }, [])
+
+    // TODO: DELETE THIS EFFECT AFTER JUNE 9, 2026 (Expired Clone Modal announcement)
+    // Welcome modal check for Clone feature (Active until Tuesday, June 9, 2026)
+    useEffect(() => {
+        const today = new Date()
+        const expirationDate = new Date('2026-06-09T00:00:00') // June 9, 2026
+        if (today < expirationDate) {
+            setShowWelcomeModal(true)
+        }
     }, [])
 
     // --- HOOKS ---
@@ -936,6 +949,96 @@ export default function SchedulePlanner() {
         })
     }
 
+    const handleCloneWeek = async (sourceWeekStart: Date, overwrite: boolean) => {
+        if (!storeGuid) return
+        setIsProcessing(true)
+        try {
+            const supabase = await getSupabaseClient()
+            const sourceStartStr = formatDateISO(sourceWeekStart)
+            const sourceEndStr = formatDateISO(addDays(sourceWeekStart, 6))
+
+            // 1. Fetch shifts from the source week
+            const { data: sourceShifts, error: fetchErr } = await supabase
+                .from('shifts')
+                .select('*')
+                .eq('store_id', storeGuid)
+                .gte('shift_date', sourceStartStr)
+                .lte('shift_date', sourceEndStr)
+
+            if (fetchErr) throw fetchErr
+
+            if (!sourceShifts || sourceShifts.length === 0) {
+                toast.error(t('planner.modals.clone.empty_message') || 'No shifts found to clone.')
+                setIsProcessing(false)
+                return
+            }
+
+            const targetStartStr = formatDateISO(weekStart)
+            const targetEndStr = formatDateISO(addDays(weekStart, 6))
+
+            // 2. If overwrite mode is true, clear current target week shifts first
+            if (overwrite) {
+                const clearRes = await fetch('/api/scheduler/clear-week', {
+                    method: 'POST',
+                    body: JSON.stringify({ storeId: storeGuid, startDate: targetStartStr, endDate: targetEndStr })
+                })
+                if (!clearRes.ok) throw new Error('Failed to clear current week shifts')
+            }
+
+            // 3. Map shifts to the target week
+            const newShifts = sourceShifts.map((s: any) => {
+                const origShiftDate = new Date(s.shift_date + 'T12:00:00')
+                let day = origShiftDate.getDay()
+                const dayOffset = day === 0 ? 6 : day - 1
+
+                const targetDateObj = addDays(weekStart, dayOffset)
+                const dateStr = formatDateISO(targetDateObj)
+
+                const origStart = new Date(s.start_time)
+                const newStart = new Date(targetDateObj)
+                newStart.setHours(origStart.getHours(), origStart.getMinutes(), origStart.getSeconds(), 0)
+
+                const duration = new Date(s.end_time).getTime() - origStart.getTime()
+                const newEnd = new Date(newStart.getTime() + duration)
+
+                return {
+                    employee_id: s.employee_id,
+                    job_id: s.job_id,
+                    store_id: storeGuid,
+                    start_time: newStart.toISOString(),
+                    end_time: newEnd.toISOString(),
+                    shift_date: dateStr,
+                    is_open: s.is_open,
+                    notes: s.notes || null,
+                    breaks_schedule: s.breaks_schedule || null,
+                    status: 'draft'
+                }
+            })
+
+            // 4. Insert new shifts
+            const { error: insertErr } = await supabase.from('shifts').insert(newShifts)
+            if (insertErr) throw insertErr
+
+            // 5. Reload data and notify success
+            await loadStoreData()
+            setShowCloneModal(false)
+
+            setConfirmModal({
+                isOpen: true,
+                title: t('planner.modals.clone.success_title'),
+                message: t('planner.modals.clone.success_message').replace('{n}', String(newShifts.length)),
+                type: 'success',
+                icon: Copy,
+                onConfirm: () => setConfirmModal((prev: any) => ({ ...prev, isOpen: false }))
+            })
+        } catch (err: any) {
+            console.error('Error cloning week:', err)
+            toast.error(err.message || 'Error al clonar el horario')
+        } finally {
+            setIsProcessing(false)
+        }
+    }
+
     // --- OTHER ACTIONS ---
     const handleReorder = async (newOrder: any[]) => {
         // Simplified Logic: Update state then DB (no complex merge needed if UI is correct)
@@ -1226,6 +1329,10 @@ export default function SchedulePlanner() {
         return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
     }, [])
 
+    const handleCloseWelcomeModal = () => {
+        setShowWelcomeModal(false)
+    }
+
     if (loading) return <SurpriseLoader loadingText={t('planner.loading')} syncingText={t('planner.syncing_toast')} />
 
     return (
@@ -1252,6 +1359,47 @@ export default function SchedulePlanner() {
                 name={templateName}
                 setName={setTemplateName}
             />
+            <CloneModal
+                isOpen={showCloneModal}
+                onClose={() => setShowCloneModal(false)}
+                onConfirm={handleCloneWeek}
+                weekStart={weekStart}
+                isProcessing={isProcessing}
+            />
+
+            {/* TODO: DELETE THIS MODAL JSX AFTER JUNE 9, 2026 (Expired Clone Modal announcement) */}
+            {showWelcomeModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative">
+                        <button 
+                            onClick={handleCloseWelcomeModal}
+                            className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
+                        >
+                            <X size={20} />
+                        </button>
+                        <div className="p-8">
+                            <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-6 shadow-inner">
+                                <Sparkles size={32} />
+                            </div>
+                            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 leading-tight">
+                                {t('planner.welcome_modal.title')}
+                            </h2>
+                            <h3 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 mb-4 uppercase tracking-wider">
+                                {t('planner.welcome_modal.subtitle')}
+                            </h3>
+                            <p className="text-slate-600 dark:text-slate-400 leading-relaxed mb-6 text-sm">
+                                {t('planner.welcome_modal.description')}
+                            </p>
+                            <button 
+                                onClick={handleCloseWelcomeModal}
+                                className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 cursor-pointer flex items-center justify-center gap-2"
+                            >
+                                <span>{t('planner.welcome_modal.button')}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {isConfirmModalOpen && (
                 <PremiumConfirmModal
                     isOpen={isConfirmModalOpen}
@@ -1302,6 +1450,7 @@ export default function SchedulePlanner() {
                 setIsConfirmModalOpen={setIsConfirmModalOpen}
                 isToolbarVisible={isToolbarVisible}
                 setIsToolbarVisible={setIsToolbarVisible}
+                onCloneClick={() => setShowCloneModal(true)}
             />
 
             <AnimatePresence>
