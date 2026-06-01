@@ -74,6 +74,9 @@ export default function ProceduresTimeline() {
   // Delete confirmation
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Print modal state
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
   useEffect(() => {
     fetchProcedures();
   }, []);
@@ -392,10 +395,7 @@ export default function ProceduresTimeline() {
             </a>
 
             <button
-              onClick={() => {
-                const url = `/procedimientos/imprimir?shift=${filterShift}&day=${filterDay}&model=${filterModel}`;
-                window.open(url, '_blank');
-              }}
+              onClick={() => setIsPrintModalOpen(true)}
               title={t('procedures.print_tooltip') || 'Imprimir PDF (Filtros Activos)'}
               className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all hover:scale-110 border border-slate-200 dark:border-slate-700/50"
             >
@@ -1093,6 +1093,57 @@ export default function ProceduresTimeline() {
           {t('procedures.form.new_activity')}
         </button>
       )}
+
+      {/* ══════ Vista Previa de Impresión (Modal iframe) ══════ */}
+      <AnimatePresence>
+        {isPrintModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full h-full max-w-5xl flex flex-col overflow-hidden relative border border-slate-200 dark:border-slate-800"
+            >
+              {/* Header del Modal */}
+              <div className="flex justify-between items-center p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                <h2 className="text-sm sm:text-lg font-bold flex items-center gap-2 text-slate-800 dark:text-white">
+                  <Printer size={20} className="text-orange-500" />
+                  {t('procedures.print_modal.title')}
+                </h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const iframe = document.getElementById('procedures-print-frame') as HTMLIFrameElement;
+                      if (iframe && iframe.contentWindow) {
+                        iframe.contentWindow.print();
+                      }
+                    }}
+                    className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white px-3 sm:px-4 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-md shadow-orange-500/20"
+                  >
+                    <Printer size={15} /> {t('procedures.print_modal.print')}
+                  </button>
+                  <button
+                    onClick={() => setIsPrintModalOpen(false)}
+                    className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500 dark:text-slate-400"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Contenedor del Iframe */}
+              <div className="flex-1 bg-slate-100 dark:bg-slate-950 overflow-hidden relative">
+                <iframe
+                  id="procedures-print-frame"
+                  src={`/procedimientos/imprimir?shift=${filterShift}&day=${filterDay}&model=${filterModel}`}
+                  className="w-full h-full border-0 block"
+                  title="Print Preview"
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
