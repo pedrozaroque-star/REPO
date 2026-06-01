@@ -1115,6 +1115,7 @@ export default function ProceduresTimeline() {
                     onClick={() => {
                       const iframe = document.getElementById('procedures-print-frame') as HTMLIFrameElement;
                       if (iframe && iframe.contentWindow) {
+                        iframe.contentWindow.focus();
                         iframe.contentWindow.print();
                       }
                     }}
