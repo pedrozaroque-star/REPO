@@ -209,12 +209,11 @@ function PrintProceduresContent() {
                 <table className="w-full text-xs border-collapse border border-slate-400">
                   <thead>
                     <tr className="bg-slate-100 text-black font-extrabold border-b border-slate-400">
-                      <th className="py-2 px-2 text-left border-r border-slate-300 w-[14%]">Hora</th>
-                      <th className="py-2 px-2 text-left border-r border-slate-300 w-[45%]">Actividad / Descripción</th>
+                      <th className="py-2 px-2 text-left border-r border-slate-300 w-[15%]">Hora</th>
+                      <th className="py-2 px-2 text-left border-r border-slate-300 w-[50%]">Actividad / Descripción</th>
                       <th className="py-2 px-2 text-left border-r border-slate-300 w-[15%]">Responsable</th>
                       <th className="py-2 px-2 text-center border-r border-slate-300 w-[10%]">Turno</th>
-                      <th className="py-2 px-2 text-center border-r border-slate-300 w-[10%]">Frecuencia</th>
-                      <th className="py-2 px-2 text-center w-[6%]">Firma</th>
+                      <th className="py-2 px-2 text-center w-[10%]">Frecuencia</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -257,13 +256,8 @@ function PrintProceduresContent() {
                           </td>
 
                           {/* Frequency */}
-                          <td className="py-2 px-2 text-center border-r border-slate-300 font-semibold text-slate-800">
+                          <td className="py-2 px-2 text-center font-semibold text-slate-800">
                             {proc.frequency}
-                          </td>
-
-                          {/* Checkbox / Sign-off */}
-                          <td className="py-2 px-2 text-center align-middle">
-                            <div className="w-4 h-4 border-2 border-slate-500 rounded mx-auto"></div>
                           </td>
                         </tr>
                       );
