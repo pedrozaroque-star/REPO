@@ -321,12 +321,28 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
     }
 
     // =========================================================================
-    // RENDER — Basecamp 3/4 Classic Design
+    // RENDER — Basecamp 3/4 Real Design (Flat Lists + Inline Avatars)
     // =========================================================================
+
+    // Avatar utilities — consistent color per person name
+    const AVATAR_COLORS = ['#3498DB', '#E74C3C', '#27AE60', '#F39C12', '#8E44AD', '#1ABC9C', '#D35400', '#2980B9', '#C0392B', '#16A085', '#F1C40F', '#9B59B6']
+    const getAvatarColor = (name: string) => {
+        let hash = 0
+        for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+        return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+    }
+    const getInitials = (name: string) => {
+        const parts = name.trim().split(/\s+/)
+        return parts.length >= 2 ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase() : name.slice(0, 2).toUpperCase()
+    }
+
+    // List dot colors — each list gets a consistent colored dot
+    const LIST_DOT_COLORS = ['#27AE60', '#E67E22', '#3498DB', '#E74C3C', '#8E44AD', '#1ABC9C', '#F39C12', '#2980B9', '#D35400', '#16A085']
+
     return (
-        <div className="flex-1 w-full flex flex-col" style={{ maxWidth: 720, margin: '0 auto' }}>
-            {/* Header — Basecamp style: centered title with "New list" button */}
-            <div style={{ textAlign: 'center', padding: '32px 0 24px' }}>
+        <div style={{ maxWidth: 780, margin: '0 auto', padding: '0 16px' }}>
+            {/* ── Header — Basecamp style: centered title + "New list" button ── */}
+            <div style={{ textAlign: 'center', padding: '32px 0 28px' }}>
                 <h2 style={{
                     fontSize: 28, fontWeight: 700, color: '#1D2D35',
                     margin: 0, lineHeight: 1.2
@@ -338,7 +354,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                         onClick={() => setShowAddList(true)}
                         style={{
                             display: 'inline-flex', alignItems: 'center', gap: 6,
-                            padding: '8px 16px', borderRadius: 6, border: '1px solid #1D7DB5',
+                            padding: '8px 18px', borderRadius: 6, border: 'none',
                             background: '#1D7DB5', color: '#fff', fontSize: 14, fontWeight: 600,
                             cursor: 'pointer', transition: 'background 0.15s'
                         }}
@@ -351,51 +367,49 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                 </div>
             </div>
 
-            {/* Loading */}
+            {/* ── Loading State ── */}
             {loading && lists.length === 0 ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                     <Loader2 className="animate-spin" style={{ width: 32, height: 32, color: '#1D7DB5' }} />
                 </div>
             ) : lists.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                    {lists.map((list) => {
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+                    {lists.map((list, listIdx) => {
                         const openTasks = list.tasks.filter((tk: any) => !tk.is_completed)
                         const completedTasks = list.tasks.filter((tk: any) => tk.is_completed)
                         const isExpanded = expandedCompleted[list.id] || false
+                        const dotColor = LIST_DOT_COLORS[listIdx % LIST_DOT_COLORS.length]
 
                         return (
-                            <div key={list.id} style={{
-                                background: '#FFFFFF', border: '1px solid #E8E6E1',
-                                borderRadius: 8, overflow: 'hidden'
-                            }}>
-                                {/* List Header */}
+                            <div key={list.id}>
+                                {/* ── List Header: colored dot + bold name (FLAT, no card box) ── */}
                                 <div style={{
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                    padding: '16px 20px', borderBottom: '1px solid #E8E6E1',
-                                    background: '#FAFAF8'
+                                    display: 'flex', alignItems: 'center', gap: 10,
+                                    marginBottom: 4
                                 }}>
-                                    <div>
-                                        <h3 style={{
-                                            fontSize: 17, fontWeight: 700, color: '#1D2D35',
-                                            margin: 0, lineHeight: 1.3
-                                        }}>
-                                            {list.list_name}
-                                        </h3>
-                                        {list.description && (
-                                            <p style={{ fontSize: 13, color: '#6B7B8D', margin: '4px 0 0' }}>
-                                                {list.description}
-                                            </p>
-                                        )}
-                                    </div>
                                     <span style={{
-                                        fontSize: 13, color: '#6B7B8D', fontWeight: 500, whiteSpace: 'nowrap'
+                                        width: 12, height: 12, borderRadius: '50%',
+                                        background: dotColor, flexShrink: 0
+                                    }} />
+                                    <h3 style={{
+                                        fontSize: 18, fontWeight: 700, color: '#1D2D35',
+                                        margin: 0, lineHeight: 1.3
                                     }}>
-                                        {openTasks.length} / {list.tasks.length}
-                                    </span>
+                                        {list.list_name}
+                                    </h3>
                                 </div>
+                                {list.description && (
+                                    <p style={{
+                                        fontSize: 13, color: '#6B7B8D', margin: '0 0 6px 22px'
+                                    }}>
+                                        {list.description}
+                                    </p>
+                                )}
 
-                                {/* Open Tasks */}
-                                <div>
+                                {/* ── Open Tasks — single-line items with inline avatars ── */}
+                                <div style={{
+                                    borderTop: '1px solid #E8E6E1'
+                                }}>
                                     {openTasks.length > 0 ? openTasks.map((task: any) => (
                                         <div
                                             key={task.id}
@@ -403,18 +417,19 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 setSelectedTask(task)
                                                 setSelectedTaskListId(list.id)
                                             }}
+                                            className="group"
                                             style={{
-                                                display: 'flex', alignItems: 'flex-start', gap: 12,
-                                                padding: '12px 20px', borderBottom: '1px solid #F0EFEB',
+                                                display: 'flex', alignItems: 'center', gap: 10,
+                                                padding: '10px 4px 10px 0',
+                                                borderBottom: '1px solid #F0EFEB',
                                                 cursor: 'pointer', transition: 'background 0.1s',
                                                 position: 'relative'
                                             }}
-                                            className="group"
                                             onMouseEnter={e => (e.currentTarget.style.background = '#FAFAF8')}
                                             onMouseLeave={e => (e.currentTarget.style.background = '')}
                                         >
                                             {/* Checkbox */}
-                                            <div style={{ flexShrink: 0, marginTop: 2 }}>
+                                            <div style={{ flexShrink: 0 }}>
                                                 {actionLoading === task.id ? (
                                                     <Loader2 className="animate-spin" style={{ width: 18, height: 18, color: '#1D7DB5' }} />
                                                 ) : (
@@ -431,41 +446,61 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 )}
                                             </div>
 
-                                            {/* Content */}
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <p style={{
-                                                    fontSize: 15, fontWeight: 500, color: '#1D2D35',
-                                                    margin: 0, lineHeight: 1.4,
-                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                                                }}>
-                                                    {task.task_name}
-                                                </p>
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 12,
-                                                    marginTop: 4, fontSize: 12, color: '#6B7B8D'
-                                                }}>
-                                                    {task.assignee && (
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                            <User size={12} />
-                                                            {task.assignee}
-                                                        </span>
-                                                    )}
-                                                    {task.due_date && (
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                            <Calendar size={12} />
-                                                            {task.due_date}
-                                                        </span>
-                                                    )}
-                                                    {task.comments && task.comments.length > 0 && (
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                            <MessageSquare size={12} />
-                                                            {task.comments.length}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
+                                            {/* Task name */}
+                                            <span style={{
+                                                fontSize: 15, fontWeight: 500, color: '#1D2D35',
+                                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                flex: 1, minWidth: 0, lineHeight: '20px'
+                                            }}>
+                                                {task.task_name}
+                                            </span>
 
-                                            {/* Delete */}
+                                            {/* Inline avatar circles (18px each) */}
+                                            {task.assigneeList && task.assigneeList.length > 0 && (
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0
+                                                }}>
+                                                    {task.assigneeList.map((a: any) => (
+                                                        <span
+                                                            key={a.id}
+                                                            title={a.name}
+                                                            style={{
+                                                                width: 20, height: 20, borderRadius: '50%',
+                                                                background: getAvatarColor(a.name),
+                                                                color: '#fff', fontSize: 9, fontWeight: 700,
+                                                                display: 'inline-flex', alignItems: 'center',
+                                                                justifyContent: 'center', flexShrink: 0,
+                                                                lineHeight: 1
+                                                            }}
+                                                        >
+                                                            {getInitials(a.name)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Due date icon */}
+                                            {task.due_date && (
+                                                <span style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                                                    fontSize: 12, color: '#6B7B8D', flexShrink: 0
+                                                }}>
+                                                    <Calendar size={13} />
+                                                </span>
+                                            )}
+
+                                            {/* Comment count icon */}
+                                            {task.comments && task.comments.length > 0 && (
+                                                <span style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 2,
+                                                    fontSize: 12, color: '#6B7B8D', flexShrink: 0
+                                                }}>
+                                                    <MessageSquare size={13} />
+                                                    {task.comments.length}
+                                                </span>
+                                            )}
+
+                                            {/* Delete (hover only) */}
                                             <button
                                                 onClick={(e) => handleDeleteTask(list.id, task, e)}
                                                 className="opacity-0 group-hover:opacity-100"
@@ -483,7 +518,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                         </div>
                                     )) : (
                                         <p style={{
-                                            fontSize: 14, color: '#6B7B8D', padding: '16px 20px',
+                                            fontSize: 14, color: '#6B7B8D', padding: '12px 0',
                                             margin: 0, fontStyle: 'italic'
                                         }}>
                                             {t('basecamp.no_open_tasks') || '✅ All tasks completed'}
@@ -491,16 +526,14 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     )}
                                 </div>
 
-                                {/* Completed Tasks Toggle */}
+                                {/* ── Completed Tasks Toggle (✅ N completed) ── */}
                                 {completedTasks.length > 0 && (
                                     <div>
                                         <button
                                             onClick={() => toggleCompletedSection(list.id)}
                                             style={{
-                                                display: 'flex', alignItems: 'center', gap: 8,
-                                                width: '100%', textAlign: 'left',
-                                                padding: '12px 20px', border: 'none',
-                                                borderTop: '1px solid #E8E6E1', background: '#FAFAF8',
+                                                display: 'flex', alignItems: 'center', gap: 6,
+                                                padding: '10px 0', border: 'none', background: 'transparent',
                                                 cursor: 'pointer', fontSize: 13, fontWeight: 600,
                                                 color: '#6B7B8D', transition: 'color 0.15s'
                                             }}
@@ -513,9 +546,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                         </button>
 
                                         {isExpanded && (
-                                            <div style={{
-                                                borderLeft: '3px solid #4BAE4F', marginLeft: 20
-                                            }}>
+                                            <div>
                                                 {completedTasks.map((task: any) => (
                                                     <div
                                                         key={task.id}
@@ -524,15 +555,16 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                             setSelectedTaskListId(list.id)
                                                         }}
                                                         style={{
-                                                            display: 'flex', alignItems: 'flex-start', gap: 12,
-                                                            padding: '10px 20px', borderBottom: '1px solid #F0EFEB',
+                                                            display: 'flex', alignItems: 'center', gap: 10,
+                                                            padding: '8px 4px 8px 0',
+                                                            borderBottom: '1px solid #F0EFEB',
                                                             cursor: 'pointer', transition: 'background 0.1s'
                                                         }}
                                                         onMouseEnter={e => (e.currentTarget.style.background = '#FAFAF8')}
                                                         onMouseLeave={e => (e.currentTarget.style.background = '')}
                                                     >
                                                         {/* Checked box */}
-                                                        <div style={{ flexShrink: 0, marginTop: 2 }}>
+                                                        <div style={{ flexShrink: 0 }}>
                                                             {actionLoading === task.id ? (
                                                                 <Loader2 className="animate-spin" style={{ width: 16, height: 16, color: '#4BAE4F' }} />
                                                             ) : (
@@ -551,33 +583,51 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            <p style={{
-                                                                fontSize: 15, fontWeight: 400, color: '#A0A0A0',
-                                                                margin: 0, lineHeight: 1.4,
-                                                                textDecoration: 'line-through',
-                                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                                        {/* Completed task name (strikethrough + grey) */}
+                                                        <span style={{
+                                                            fontSize: 15, fontWeight: 400, color: '#A0A0A0',
+                                                            textDecoration: 'line-through',
+                                                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                            flex: 1, minWidth: 0, lineHeight: '20px'
+                                                        }}>
+                                                            {task.task_name}
+                                                        </span>
+
+                                                        {/* Inline avatar circles for completed tasks too */}
+                                                        {task.assigneeList && task.assigneeList.length > 0 && (
+                                                            <div style={{
+                                                                display: 'flex', alignItems: 'center', gap: 3,
+                                                                flexShrink: 0, opacity: 0.5
                                                             }}>
-                                                                {task.task_name}
-                                                            </p>
-                                                            {(task.assignee || (task.comments && task.comments.length > 0)) && (
-                                                                <div style={{
-                                                                    display: 'flex', alignItems: 'center', gap: 12,
-                                                                    marginTop: 2, fontSize: 11, color: '#B0B0B0'
-                                                                }}>
-                                                                    {task.assignee && (
-                                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                                                                            <User size={10} /> {task.assignee}
-                                                                        </span>
-                                                                    )}
-                                                                    {task.comments && task.comments.length > 0 && (
-                                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                                                                            <MessageSquare size={10} /> {task.comments.length}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
+                                                                {task.assigneeList.map((a: any) => (
+                                                                    <span
+                                                                        key={a.id}
+                                                                        title={a.name}
+                                                                        style={{
+                                                                            width: 18, height: 18, borderRadius: '50%',
+                                                                            background: getAvatarColor(a.name),
+                                                                            color: '#fff', fontSize: 8, fontWeight: 700,
+                                                                            display: 'inline-flex', alignItems: 'center',
+                                                                            justifyContent: 'center', flexShrink: 0,
+                                                                            lineHeight: 1
+                                                                        }}
+                                                                    >
+                                                                        {getInitials(a.name)}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Comment count */}
+                                                        {task.comments && task.comments.length > 0 && (
+                                                            <span style={{
+                                                                display: 'inline-flex', alignItems: 'center', gap: 2,
+                                                                fontSize: 11, color: '#B0B0B0', flexShrink: 0
+                                                            }}>
+                                                                <MessageSquare size={11} />
+                                                                {task.comments.length}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 ))}
                                             </div>
@@ -585,86 +635,85 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     </div>
                                 )}
 
-                                {/* ── Add a to-do (Basecamp-style inline expanding form) ── */}
+                                {/* ── "Add a to-do" — blue text link (Basecamp style) ── */}
                                 {addingTaskId === list.id ? (
                                     <div style={{
-                                        borderTop: '1px solid #E8E6E1', background: '#FAFAF8'
+                                        marginTop: 8, padding: '12px 16px',
+                                        background: '#FAFAF8', border: '1px solid #E8E6E1',
+                                        borderRadius: 6
                                     }}>
                                         <form onSubmit={(e) => handleAddTask(list.id, list.bc_id, e)}>
-                                            {/* Main input — looks like a todo item being typed */}
+                                            {/* Task name input row */}
                                             <div style={{
-                                                display: 'flex', alignItems: 'flex-start', gap: 12,
-                                                padding: '14px 20px', borderBottom: '1px solid #E8E6E1'
+                                                display: 'flex', alignItems: 'center', gap: 10,
+                                                marginBottom: 10
                                             }}>
                                                 <div style={{
                                                     width: 18, height: 18, border: '2px solid #D5D3CE',
-                                                    borderRadius: 3, marginTop: 3, flexShrink: 0, opacity: 0.5
+                                                    borderRadius: 3, flexShrink: 0, opacity: 0.5
                                                 }} />
-                                                <div style={{ flex: 1 }}>
-                                                    <input
-                                                        type="text"
-                                                        required
-                                                        value={newTaskName}
-                                                        onChange={(e) => setNewTaskName(e.target.value)}
-                                                        placeholder={t('basecamp.task_placeholder')}
-                                                        autoFocus
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={newTaskName}
+                                                    onChange={(e) => setNewTaskName(e.target.value)}
+                                                    placeholder={t('basecamp.task_placeholder')}
+                                                    autoFocus
+                                                    style={{
+                                                        flex: 1, padding: '6px 0', border: 'none',
+                                                        fontSize: 15, fontWeight: 500, color: '#1D2D35',
+                                                        outline: 'none', background: 'transparent',
+                                                        lineHeight: '24px',
+                                                        borderBottom: '2px solid #1D7DB5'
+                                                    }}
+                                                />
+                                            </div>
+                                            {/* Controls row: assign + due date */}
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', gap: 16,
+                                                marginBottom: 12, paddingLeft: 28
+                                            }}>
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 6
+                                                }}>
+                                                    <User size={14} style={{ color: '#6B7B8D' }} />
+                                                    <select
+                                                        value={newTaskAssignee}
+                                                        onChange={(e) => setNewTaskAssignee(e.target.value)}
                                                         style={{
-                                                            width: '100%', padding: 0, border: 'none',
-                                                            fontSize: 15, fontWeight: 500, color: '#1D2D35',
-                                                            outline: 'none', background: 'transparent',
-                                                            lineHeight: '24px'
+                                                            border: 'none', background: 'transparent',
+                                                            fontSize: 13, color: newTaskAssignee ? '#1D2D35' : '#6B7B8D',
+                                                            cursor: 'pointer', outline: 'none',
+                                                            padding: '2px 0', fontWeight: newTaskAssignee ? 500 : 400
+                                                        }}
+                                                    >
+                                                        <option value="">{t('basecamp.assignee_label')}</option>
+                                                        {(project.people || []).map((p: any) => (
+                                                            <option key={p.id} value={p.id}>{p.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 6
+                                                }}>
+                                                    <Calendar size={14} style={{ color: '#6B7B8D' }} />
+                                                    <input
+                                                        type="date"
+                                                        value={newTaskDueDate}
+                                                        onChange={(e) => setNewTaskDueDate(e.target.value)}
+                                                        style={{
+                                                            border: 'none', background: 'transparent',
+                                                            fontSize: 13, color: newTaskDueDate ? '#1D2D35' : '#6B7B8D',
+                                                            cursor: 'pointer', outline: 'none', padding: '2px 0'
                                                         }}
                                                     />
-                                                    {/* Subtle controls row: assign + due date like Basecamp */}
-                                                    <div style={{
-                                                        display: 'flex', alignItems: 'center', gap: 16,
-                                                        marginTop: 8
-                                                    }}>
-                                                        {/* Assign control */}
-                                                        <div style={{
-                                                            display: 'flex', alignItems: 'center', gap: 6
-                                                        }}>
-                                                            <User size={14} style={{ color: '#6B7B8D' }} />
-                                                            <select
-                                                                value={newTaskAssignee}
-                                                                onChange={(e) => setNewTaskAssignee(e.target.value)}
-                                                                style={{
-                                                                    border: 'none', background: 'transparent',
-                                                                    fontSize: 13, color: newTaskAssignee ? '#1D2D35' : '#6B7B8D',
-                                                                    cursor: 'pointer', outline: 'none',
-                                                                    padding: '2px 0', fontWeight: newTaskAssignee ? 500 : 400
-                                                                }}
-                                                            >
-                                                                <option value="">{t('basecamp.assignee_label')}</option>
-                                                                {(project.people || []).map((p: any) => (
-                                                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                        {/* Due date control */}
-                                                        <div style={{
-                                                            display: 'flex', alignItems: 'center', gap: 6
-                                                        }}>
-                                                            <Calendar size={14} style={{ color: '#6B7B8D' }} />
-                                                            <input
-                                                                type="date"
-                                                                value={newTaskDueDate}
-                                                                onChange={(e) => setNewTaskDueDate(e.target.value)}
-                                                                style={{
-                                                                    border: 'none', background: 'transparent',
-                                                                    fontSize: 13, color: newTaskDueDate ? '#1D2D35' : '#6B7B8D',
-                                                                    cursor: 'pointer', outline: 'none', padding: '2px 0'
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    </div>
                                                 </div>
                                             </div>
 
-                                            {/* Action bar */}
+                                            {/* Action buttons */}
                                             <div style={{
-                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                padding: '10px 20px'
+                                                display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                                                gap: 8
                                             }}>
                                                 <button
                                                     type="button"
@@ -678,10 +727,10 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                         padding: '6px 14px', borderRadius: 5,
                                                         border: '1px solid #D5D3CE', background: '#fff',
                                                         fontSize: 13, fontWeight: 500, color: '#6B7B8D',
-                                                        cursor: 'pointer', transition: 'all 0.15s'
+                                                        cursor: 'pointer', transition: 'background 0.15s'
                                                     }}
-                                                    onMouseEnter={e => { e.currentTarget.style.background = '#F0EFEB' }}
-                                                    onMouseLeave={e => { e.currentTarget.style.background = '#fff' }}
+                                                    onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
+                                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                                                 >
                                                     {t('basecamp.cancel')}
                                                 </button>
@@ -690,8 +739,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                     style={{
                                                         padding: '7px 18px', borderRadius: 5, border: 'none',
                                                         background: '#4BAE4F', fontSize: 13, fontWeight: 700,
-                                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s',
-                                                        letterSpacing: '0.2px'
+                                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s'
                                                     }}
                                                     onMouseEnter={e => (e.currentTarget.style.background = '#3D9440')}
                                                     onMouseLeave={e => (e.currentTarget.style.background = '#4BAE4F')}
@@ -705,23 +753,14 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     <button
                                         onClick={() => setAddingTaskId(list.id)}
                                         style={{
-                                            display: 'flex', alignItems: 'center', gap: 6,
-                                            width: '100%', textAlign: 'left',
-                                            padding: '12px 20px', border: 'none',
-                                            borderTop: '1px solid #F0EFEB', background: 'transparent',
+                                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                                            padding: '8px 0', border: 'none', background: 'transparent',
                                             fontSize: 14, fontWeight: 500, color: '#1D7DB5',
-                                            cursor: 'pointer', transition: 'background 0.1s, color 0.1s'
+                                            cursor: 'pointer', transition: 'color 0.1s'
                                         }}
-                                        onMouseEnter={e => {
-                                            e.currentTarget.style.background = '#F7F5F2'
-                                            e.currentTarget.style.color = '#155D8A'
-                                        }}
-                                        onMouseLeave={e => {
-                                            e.currentTarget.style.background = ''
-                                            e.currentTarget.style.color = '#1D7DB5'
-                                        }}
+                                        onMouseEnter={e => (e.currentTarget.style.color = '#155D8A')}
+                                        onMouseLeave={e => (e.currentTarget.style.color = '#1D7DB5')}
                                     >
-                                        <Plus size={16} />
                                         {t('basecamp.add_task')}
                                     </button>
                                 )}
@@ -730,6 +769,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                     })}
                 </div>
             ) : (
+                /* ── Empty state ── */
                 <div style={{ textAlign: 'center', padding: '48px 0' }}>
                     <ClipboardList size={48} style={{ color: '#C4C4C4', margin: '0 auto 12px' }} />
                     <p style={{ fontSize: 15, color: '#6B7B8D', fontStyle: 'italic' }}>
@@ -739,7 +779,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
             )}
 
             {/* ══════════════════════════════════════════════════════════════════
-                Modal — Add List (Basecamp style centered dialog)
+                Modal — Add New List (Basecamp style centered dialog)
                ══════════════════════════════════════════════════════════════════ */}
             {showAddList && (
                 <div
@@ -753,7 +793,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                     <div style={{
                         background: '#fff', borderRadius: 10, maxWidth: 520, width: '100%',
                         boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
-                        overflow: 'hidden', animation: 'fadeInScale 0.2s ease-out'
+                        overflow: 'hidden'
                     }}>
                         {/* Header */}
                         <div style={{
@@ -863,28 +903,12 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
             )}
 
             {/* ══════════════════════════════════════════════════════════════════
-                Modal — Task Detail Page (Basecamp 3/4 classic style)
-                Full-page-like overlay with breadcrumb, title, assignee pills,
-                description, and threaded comment section with avatar initials
+                Modal — Task Detail (Full-page overlay — Basecamp 3/4 style)
+                Breadcrumb, large title, avatar pills, description, comments
                ══════════════════════════════════════════════════════════════════ */}
             {selectedTask && (() => {
-                // Find the list name for breadcrumb
                 const parentList = lists.find(l => l.id === selectedTaskListId)
                 const listName = parentList?.list_name || 'To-dos'
-
-                // Generate avatar color from name
-                const getAvatarColor = (name: string) => {
-                    const colors = ['#3498DB', '#E74C3C', '#27AE60', '#F39C12', '#8E44AD', '#1ABC9C', '#D35400', '#2980B9']
-                    let hash = 0
-                    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-                    return colors[Math.abs(hash) % colors.length]
-                }
-                const getInitials = (name: string) => {
-                    const parts = name.trim().split(/\s+/)
-                    return parts.length >= 2
-                        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-                        : name.slice(0, 2).toUpperCase()
-                }
 
                 return (
                     <div
@@ -892,14 +916,14 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                         style={{
                             position: 'fixed', inset: 0, zIndex: 50,
                             display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                            paddingTop: 40, background: 'rgba(0,0,0,0.35)',
+                            paddingTop: 40, background: 'rgba(0,0,0,0.4)',
                             overflowY: 'auto'
                         }}
                     >
                         <div style={{
-                            background: '#fff', borderRadius: 10, maxWidth: 680, width: '100%',
-                            boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
-                            marginBottom: 40, animation: 'fadeInScale 0.2s ease-out'
+                            background: '#fff', borderRadius: 10, maxWidth: 720, width: '100%',
+                            boxShadow: '0 16px 48px rgba(0,0,0,0.18)',
+                            marginBottom: 40
                         }}>
                             {/* ── Breadcrumb bar ── */}
                             <div style={{
@@ -907,21 +931,16 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                 background: '#FAFAF8', borderRadius: '10px 10px 0 0'
                             }}>
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 8,
-                                    fontSize: 13, color: '#6B7B8D'
-                                }}>
-                                    <button
-                                        onClick={() => setSelectedTask(null)}
-                                        style={{
-                                            border: 'none', background: 'transparent',
-                                            color: '#1D7DB5', cursor: 'pointer', fontSize: 13,
-                                            fontWeight: 500, padding: 0
-                                        }}
-                                    >
-                                        ← {listName}
-                                    </button>
-                                </div>
+                                <button
+                                    onClick={() => setSelectedTask(null)}
+                                    style={{
+                                        border: 'none', background: 'transparent',
+                                        color: '#1D7DB5', cursor: 'pointer', fontSize: 13,
+                                        fontWeight: 500, padding: 0
+                                    }}
+                                >
+                                    ← {listName}
+                                </button>
                                 <button
                                     onClick={() => setSelectedTask(null)}
                                     style={{
@@ -929,18 +948,18 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                         border: '1px solid #D5D3CE', background: '#fff',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         cursor: 'pointer', color: '#6B7B8D', fontSize: 14,
-                                        transition: 'all 0.15s'
+                                        transition: 'background 0.15s'
                                     }}
-                                    onMouseEnter={e => { e.currentTarget.style.background = '#F0EFEB' }}
-                                    onMouseLeave={e => { e.currentTarget.style.background = '#fff' }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                                 >
                                     ✕
                                 </button>
                             </div>
 
-                            {/* ── Task Title Section (like Basecamp h1) ── */}
+                            {/* ── Title section ── */}
                             <div style={{ padding: '28px 28px 0' }}>
-                                {/* Completion status pill */}
+                                {/* Status pill */}
                                 <div style={{ marginBottom: 12 }}>
                                     {selectedTask.is_completed ? (
                                         <span style={{
@@ -963,20 +982,19 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     )}
                                 </div>
 
-                                {/* Task name as large title */}
+                                {/* Large title */}
                                 <h2 style={{
-                                    fontSize: 24, fontWeight: 700, color: '#1D2D35',
+                                    fontSize: 26, fontWeight: 700, color: '#1D2D35',
                                     margin: '0 0 16px', lineHeight: 1.35
                                 }}>
                                     {selectedTask.task_name}
                                 </h2>
 
-                                {/* ── Assignees & Due Date row ── */}
+                                {/* ── Assignees & Due Date ── */}
                                 <div style={{
                                     display: 'flex', alignItems: 'center', flexWrap: 'wrap',
                                     gap: 16, paddingBottom: 20, borderBottom: '1px solid #E8E6E1'
                                 }}>
-                                    {/* Assignee pills */}
                                     {selectedTask.assigneeList && selectedTask.assigneeList.length > 0 ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                             <span style={{ fontSize: 12, color: '#6B7B8D', fontWeight: 600 }}>
@@ -1014,7 +1032,6 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                         </div>
                                     )}
 
-                                    {/* Due date */}
                                     <div style={{
                                         display: 'flex', alignItems: 'center', gap: 6,
                                         fontSize: 13, color: selectedTask.due_date ? '#1D2D35' : '#A0A0A0',
@@ -1028,28 +1045,23 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
 
                             {/* ── Description / Notes ── */}
                             {selectedTask.description && (() => {
-                                // Parse the HTML to extract image filenames and clean text
                                 const desc = selectedTask.description as string
-                                // Extract image filenames from <img> tags or plain text references
                                 const imgRegex = /<img[^>]+(?:src|alt)=["']([^"']*?)["'][^>]*>/gi
                                 const attachments: string[] = []
                                 let match
                                 while ((match = imgRegex.exec(desc)) !== null) {
-                                    // Extract filename from URL or alt text
                                     const val = match[1]
                                     const filename = val.includes('/') ? val.split('/').pop() || val : val
                                     if (filename && !attachments.includes(filename)) {
                                         attachments.push(filename)
                                     }
                                 }
-                                // Strip img tags and get clean text
                                 const cleanHtml = desc
-                                    .replace(/<img[^>]*>/gi, '')  // Remove img tags
-                                    .replace(/<br\s*\/?>/gi, '\n') // br to newline
-                                    .replace(/<[^>]+>/g, '')       // Strip remaining HTML
+                                    .replace(/<img[^>]*>/gi, '')
+                                    .replace(/<br\s*\/?>/gi, '\n')
+                                    .replace(/<[^>]+>/g, '')
                                     .trim()
 
-                                // Don't render section if nothing meaningful remains
                                 if (!cleanHtml && attachments.length === 0) return null
 
                                 return (
@@ -1062,7 +1074,6 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                             Notes
                                         </h4>
 
-                                        {/* Clean text content */}
                                         {cleanHtml && (
                                             <p style={{
                                                 fontSize: 15, color: '#4A5568', lineHeight: 1.6,
@@ -1072,7 +1083,6 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                             </p>
                                         )}
 
-                                        {/* Attachments (images from Basecamp) */}
                                         {attachments.length > 0 && (
                                             <div style={{ marginTop: cleanHtml ? 12 : 0 }}>
                                                 <div style={{
@@ -1116,11 +1126,10 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     {t('basecamp.comments_title')} ({selectedTask.comments?.length || 0})
                                 </h4>
 
-                                {/* Comments list */}
                                 {selectedTask.comments && selectedTask.comments.length > 0 ? (
                                     <div style={{
-                                        display: 'flex', flexDirection: 'column', gap: 0,
-                                        maxHeight: 340, overflow: 'auto', marginBottom: 20
+                                        display: 'flex', flexDirection: 'column',
+                                        maxHeight: 400, overflow: 'auto', marginBottom: 20
                                     }}>
                                         {selectedTask.comments.map((c: any, idx: number) => (
                                             <div key={idx} style={{
@@ -1128,9 +1137,9 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 borderBottom: idx < selectedTask.comments.length - 1
                                                     ? '1px solid #F0EFEB' : 'none'
                                             }}>
-                                                {/* Avatar */}
+                                                {/* Comment avatar */}
                                                 <div style={{
-                                                    width: 32, height: 32, borderRadius: '50%',
+                                                    width: 34, height: 34, borderRadius: '50%',
                                                     background: getAvatarColor(c.author),
                                                     color: '#fff', fontSize: 12, fontWeight: 700,
                                                     display: 'flex', alignItems: 'center',
@@ -1138,7 +1147,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 }}>
                                                     {getInitials(c.author)}
                                                 </div>
-                                                {/* Content */}
+                                                {/* Comment content */}
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{
                                                         display: 'flex', alignItems: 'baseline', gap: 8,
@@ -1181,13 +1190,12 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     </div>
                                 )}
 
-                                {/* ── Comment form (Basecamp-style with avatar) ── */}
+                                {/* ── Comment form with current user avatar ── */}
                                 <form onSubmit={handleAddComment} style={{
                                     display: 'flex', gap: 12, alignItems: 'flex-start'
                                 }}>
-                                    {/* Current user avatar */}
                                     <div style={{
-                                        width: 32, height: 32, borderRadius: '50%',
+                                        width: 34, height: 34, borderRadius: '50%',
                                         background: getAvatarColor(currentUserName || 'U'),
                                         color: '#fff', fontSize: 12, fontWeight: 700,
                                         display: 'flex', alignItems: 'center',
@@ -1244,3 +1252,4 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
         </div>
     )
 }
+
