@@ -17,6 +17,9 @@ function SSOHandler() {
                 localStorage.setItem('teg_token', token)
                 localStorage.setItem('teg_user', userStr)
 
+                // Guardar token en cookie para soporte de autenticación en SSR/Callbacks (e.g., Basecamp)
+                document.cookie = `teg_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`
+
                 // Decode user to check role
                 const user = JSON.parse(userStr)
                 const role = (user.role || '').toLowerCase()

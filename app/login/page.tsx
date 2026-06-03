@@ -45,6 +45,10 @@ export default function LoginPage() {
       localStorage.setItem('teg_token', data.token)
       localStorage.setItem('teg_user', JSON.stringify(data.user))
 
+      // Guardar token en cookie para soporte de autenticación en SSR/Callbacks (e.g., Basecamp)
+      const maxAge = data.user.user_type === 'employee' ? 15 * 60 : 7 * 24 * 60 * 60
+      document.cookie = `teg_token=${data.token}; path=/; max-age=${maxAge}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`
+
       // Determinar redirección
       const userRole = data.user.role?.toLowerCase()
       const userType = data.user.user_type

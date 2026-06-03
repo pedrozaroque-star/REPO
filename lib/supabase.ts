@@ -81,3 +81,30 @@ export const formatStoreName = (name: string | null | undefined): string => {
   if (!name) return ''
   return name.replace(/^Tacos Gavilan\s+/i, '').trim()
 }
+
+// ============================================================================
+// AUTHENTICATED CLIENT (para componentes client-side que necesitan rol 'authenticated')
+// ============================================================================
+// Este helper crea un cliente Supabase con el token JWT del usuario (teg_token).
+// El token JWT generado en /api/login tiene role: 'authenticated', lo que le permite
+// pasar las políticas RLS de las tablas bc_* sin necesidad del service_role key.
+// ⚠️ Solo funciona en el lado del cliente (browser) donde existe localStorage.
+export function getSupabaseWithAuth() {
+  if (typeof window === 'undefined') return supabase // Fallback en SSR
+
+  const token = localStorage.getItem('teg_token')
+  if (!token) return supabase // Sin token, retorna el cliente anon
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    }
+  })
+}

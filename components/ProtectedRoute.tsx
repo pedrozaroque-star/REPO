@@ -70,6 +70,14 @@ export default function ProtectedRoute({ children, allowedRoles, allowEmployee =
         return
       }
 
+      // Sincronizar la cookie 'teg_token' desde localStorage si no existe
+      const hasCookie = document.cookie.split('; ').some(row => row.trim().startsWith('teg_token='))
+      if (!hasCookie) {
+        const maxAge = userData.user_type === 'employee' ? 15 * 60 : 7 * 24 * 60 * 60
+        document.cookie = `teg_token=${token}; path=/; max-age=${maxAge}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`
+        console.log('✅ [ProtectedRoute] Cookie teg_token sincronizada desde localStorage')
+      }
+
       // Handle EMPLOYEE user type - can only access /mis-horarios
       if (userData.user_type === 'employee') {
         // If this route allows employees, proceed
@@ -134,7 +142,18 @@ export function useAuth() {
       }
 
       if (userStr) {
-        setUser(JSON.parse(userStr))
+        const userData = JSON.parse(userStr)
+        setUser(userData)
+
+        // Sincronizar la cookie 'teg_token' desde localStorage si no existe
+        if (token) {
+          const hasCookie = document.cookie.split('; ').some(row => row.trim().startsWith('teg_token='))
+          if (!hasCookie) {
+            const maxAge = userData.user_type === 'employee' ? 15 * 60 : 7 * 24 * 60 * 60
+            document.cookie = `teg_token=${token}; path=/; max-age=${maxAge}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`
+            console.log('✅ [useAuth] Cookie ' + 'teg_token' + ' sincronizada desde localStorage')
+          }
+        }
       }
       setLoading(false)
     } catch (err) {

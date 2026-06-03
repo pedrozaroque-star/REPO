@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -140,6 +140,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.schedules'), plainName: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.procedures'), plainName: 'Procedimientos', path: '/procedimientos', icon: <CheckSquare size={20} />, roles: [] },
                 { name: t('items.dashboard'), plainName: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.basecamp'), plainName: 'Basecamp', path: '/basecamp', icon: <Folder size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
             ]
         },
         {

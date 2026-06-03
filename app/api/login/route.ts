@@ -20,10 +20,10 @@ export async function POST(request: Request) {
     const normalizedEmail = email.trim().toLowerCase()
 
     // Get JWT secret ready
-    const rawSecret = JWT_SECRET.trim().replace(/^"(.*)"$/, '$1')
-    const secret = rawSecret.length === 88 || rawSecret.includes('+') || rawSecret.includes('/')
-      ? Buffer.from(rawSecret, 'base64')
-      : rawSecret
+    // IMPORTANT: Supabase PostgREST uses the SUPABASE_JWT_SECRET as a RAW STRING
+    // to verify JWTs, NOT decoded from base64. Using the raw string ensures our
+    // custom tokens pass Supabase RLS policies for 'authenticated' role.
+    const secret = JWT_SECRET.trim().replace(/^"(.*)"$/, '$1')
 
     // ============================================
     // STEP 1: Check USERS table (admins/managers)
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
         }
       )
 
-      return NextResponse.json({
+      const response = NextResponse.json({
         success: true,
         user: {
           id: user.id,
@@ -118,6 +118,17 @@ export async function POST(request: Request) {
         },
         token
       })
+
+      // Set cookie for server-side auth support (e.g. Basecamp OAuth)
+      response.cookies.set('teg_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60 // 7 days
+      })
+
+      return response
     }
 
     // ============================================
@@ -293,7 +304,7 @@ export async function POST(request: Request) {
         }
       )
 
-      return NextResponse.json({
+      const response = NextResponse.json({
         success: true,
         user: {
           id: employee.id,
@@ -308,6 +319,17 @@ export async function POST(request: Request) {
         token,
         redirect: '/mis-horarios'
       })
+
+      // Set cookie for server-side auth support (expires in 15 minutes)
+      response.cookies.set('teg_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 15 * 60 // 15 minutes
+      })
+
+      return response
     }
 
     // ============================================
