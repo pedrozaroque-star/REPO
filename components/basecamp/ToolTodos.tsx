@@ -29,7 +29,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText } from 'lucide-react'
+import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 
 interface ToolTodosProps {
@@ -163,6 +163,69 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [selectedTaskListId, setSelectedTaskListId] = useState<string | null>(null)
     const [newComment, setNewComment] = useState('')
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+    const insertFormat = (tagOpen: string, tagClose: string) => {
+        const textarea = document.getElementById('new-task-notes-textarea') as HTMLTextAreaElement
+        if (!textarea) return
+        const start = textarea.selectionStart
+        const end = textarea.selectionEnd
+        const text = textarea.value
+        const selected = text.substring(start, end)
+        const replacement = tagOpen + selected + tagClose
+        setNewTaskNotes(text.substring(0, start) + replacement + text.substring(end))
+        setTimeout(() => {
+            textarea.focus()
+            textarea.setSelectionRange(start + tagOpen.length, start + tagOpen.length + selected.length)
+        }, 0)
+    }
+
+    const insertLink = () => {
+        const url = prompt('Enter the link URL:', 'https://')
+        if (url) {
+            insertFormat(`<a href="${url}" target="_blank">`, '</a>')
+        }
+    }
+
+    const insertImage = () => {
+        const url = prompt('Enter the image URL:', 'https://')
+        if (url) {
+            const textarea = document.getElementById('new-task-notes-textarea') as HTMLTextAreaElement
+            if (!textarea) return
+            const start = textarea.selectionStart
+            const end = textarea.selectionEnd
+            const text = textarea.value
+            const replacement = `<img src="${url}" alt="image" style="max-width: 100%; height: auto;" />`
+            setNewTaskNotes(text.substring(0, start) + replacement + text.substring(end))
+        }
+    }
+
+    const insertAttachment = () => {
+        const url = prompt('Enter the attachment file URL:', 'https://')
+        if (url) {
+            const name = prompt('Enter file display name:', 'Attachment') || 'File'
+            insertFormat(`<a href="${url}" download="${name}">📎 ${name}`, '</a>')
+        }
+    }
+
+    const toolbarBtnStyle: React.CSSProperties = {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 28,
+        height: 28,
+        borderRadius: 4,
+        border: 'none',
+        background: 'transparent',
+        cursor: 'pointer',
+        transition: 'background 0.1s'
+    }
+
+    const dividerStyle: React.CSSProperties = {
+        width: 1,
+        height: 16,
+        background: '#E8E6E1',
+        margin: '0 4px'
+    }
 
     const closeTaskDetail = () => {
         setSelectedTask(null)
@@ -994,33 +1057,126 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 </div>
 
                                                 {/* Notes */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
+                                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
                                                         {t('basecamp.notes_label')}
                                                     </span>
-                                                    <input
-                                                        type="text"
-                                                        value={newTaskNotes}
-                                                        onChange={(e) => setNewTaskNotes(e.target.value)}
-                                                        placeholder={t('basecamp.notes_placeholder')}
-                                                        className="w-full"
-                                                        style={{
-                                                            border: '1px solid #E8E6E1', borderRadius: 4,
-                                                            padding: '4px 8px', fontSize: 13, color: '#1D2D35',
-                                                            background: '#fff', outline: 'none',
-                                                            maxWidth: 400
-                                                        }}
-                                                    />
-                                                </div>
-
-                                                {/* Subtasks */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
-                                                        {t('basecamp.subtasks_label')}
-                                                    </span>
-                                                    <span style={{ fontSize: 13, color: '#A0A0A0' }}>
-                                                        {t('basecamp.add_subtasks_placeholder')}
-                                                    </span>
+                                                    <div className="w-full" style={{ maxWidth: 500 }}>
+                                                        {/* Toolbar */}
+                                                        <div style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            flexWrap: 'wrap',
+                                                            gap: 2,
+                                                            padding: '4px 6px',
+                                                            background: '#FAFAF9',
+                                                            border: '1px solid #D5D3CE',
+                                                            borderBottom: 'none',
+                                                            borderTopLeftRadius: 6,
+                                                            borderTopRightRadius: 6
+                                                        }}>
+                                                            <button type="button" onClick={insertImage} title="Insert Image" style={toolbarBtnStyle}>
+                                                                <Image size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={insertAttachment} title="Attach File" style={toolbarBtnStyle}>
+                                                                <Paperclip size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            
+                                                            <div style={dividerStyle} />
+                                                            
+                                                            <button type="button" onClick={() => insertFormat('<strong>', '</strong>')} title="Bold" style={toolbarBtnStyle}>
+                                                                <Bold size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={() => insertFormat('<em>', '</em>')} title="Italic" style={toolbarBtnStyle}>
+                                                                <Italic size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={() => insertFormat('<s>', '</s>')} title="Strikethrough" style={toolbarBtnStyle}>
+                                                                <Strikethrough size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={() => {
+                                                                const text = newTaskNotes.replace(/<\/?[^>]+(>|$)/g, "")
+                                                                setNewTaskNotes(text)
+                                                            }} title="Clear Formatting" style={toolbarBtnStyle}>
+                                                                <Type size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            
+                                                            <div style={dividerStyle} />
+                                                            
+                                                            <button type="button" onClick={() => insertFormat('<mark style="background-color: #f1c40f;">', '</mark>')} title="Highlight" style={toolbarBtnStyle}>
+                                                                <Highlighter size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={insertLink} title="Link" style={toolbarBtnStyle}>
+                                                                <Link size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            
+                                                            <div style={dividerStyle} />
+                                                            
+                                                            <button type="button" onClick={() => insertFormat('<blockquote style="border-left: 3px solid #ccc; padding-left: 10px; margin-left: 0; color: #666;">', '</blockquote>')} title="Quote" style={toolbarBtnStyle}>
+                                                                <Quote size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={() => insertFormat('<pre style="background: #f4f4f4; padding: 5px; border-radius: 4px;"><code>', '</code></pre>')} title="Code" style={toolbarBtnStyle}>
+                                                                <Code size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            
+                                                            <div style={dividerStyle} />
+                                                            
+                                                            <button type="button" onClick={() => insertFormat('<ul><li>', '</li></ul>')} title="Bullet List" style={toolbarBtnStyle}>
+                                                                <List size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={() => insertFormat('<ol><li>', '</li></ol>')} title="Numbered List" style={toolbarBtnStyle}>
+                                                                <ListOrdered size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            
+                                                            <div style={dividerStyle} />
+                                                            
+                                                            <button type="button" onClick={() => insertFormat('<table style="border-collapse: collapse; width: 100%;"><tr><td style="border: 1px solid #ccc; padding: 8px;">', '</td></tr></table>')} title="Table" style={toolbarBtnStyle}>
+                                                                <Table size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={() => insertFormat('<div style="text-align: center;">', '</div>')} title="Center Align" style={toolbarBtnStyle}>
+                                                                <AlignLeft size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            
+                                                            <div style={dividerStyle} />
+                                                            
+                                                            <button type="button" onClick={() => {
+                                                                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                                                                    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+                                                                    const recognition = new SpeechRecognition()
+                                                                    recognition.lang = 'es-ES'
+                                                                    recognition.start()
+                                                                    recognition.onresult = (event: any) => {
+                                                                        const resultText = event.results[0][0].transcript
+                                                                        setNewTaskNotes(prev => prev + ' ' + resultText)
+                                                                    }
+                                                                } else {
+                                                                    alert('Speech recognition is not supported in this browser.')
+                                                                }
+                                                            }} title="Speech to Text" style={toolbarBtnStyle}>
+                                                                <Mic size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        {/* Textarea */}
+                                                        <textarea
+                                                            id="new-task-notes-textarea"
+                                                            value={newTaskNotes}
+                                                            onChange={(e) => setNewTaskNotes(e.target.value)}
+                                                            placeholder={t('basecamp.notes_placeholder') || 'Add extra details or attach a file...'}
+                                                            className="w-full"
+                                                            style={{
+                                                                border: '1px solid #D5D3CE',
+                                                                borderBottomLeftRadius: 6,
+                                                                borderBottomRightRadius: 6,
+                                                                padding: '10px 12px',
+                                                                fontSize: 14,
+                                                                color: '#1D2D35',
+                                                                background: '#fff',
+                                                                outline: 'none',
+                                                                minHeight: 120,
+                                                                resize: 'vertical'
+                                                            }}
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
 
