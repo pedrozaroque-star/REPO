@@ -211,14 +211,14 @@ export default function ToolCampfire({ project, currentUserName }: ToolCampfireP
                                 </div>
                                 
                                 {/* Detalle */}
-                                <div className={`flex flex-col max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}>
+                                <div className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}>
                                     <div className="flex items-baseline gap-2">
                                         <span className="text-[10px] font-black text-slate-800 dark:text-slate-200">{authorName}</span>
                                         <span className="text-[8px] text-slate-400 dark:text-slate-500 font-medium">
                                             {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
-                                    <div className={`p-3 rounded-2xl text-xs mt-1 leading-relaxed whitespace-pre-wrap border ${
+                                    <div className={`p-2.5 sm:p-3 rounded-2xl text-xs mt-1 leading-relaxed whitespace-pre-wrap border ${
                                         isMe 
                                             ? 'bg-orange-500 text-white border-orange-600 rounded-tr-none' 
                                             : 'bg-slate-55/70 dark:bg-slate-800/80 text-slate-800 dark:text-slate-250 border-slate-200/40 dark:border-slate-800 rounded-tl-none'

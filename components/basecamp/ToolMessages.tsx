@@ -474,7 +474,7 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
 
             {/* ── 1. FORMULARIO DE CREACIÓN ── */}
             {showCreateForm && (
-                <div className="bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 p-6 rounded-2xl shadow-sm">
+                <div className="bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 p-4 sm:p-6 rounded-2xl shadow-sm">
                     <div className="flex items-center gap-2 mb-4">
                         <button
                             type="button"
@@ -551,7 +551,7 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
             {selectedMessage && (
                 <div className="flex-1 flex flex-col gap-6">
                     {/* Header: Breadcrumbs & Actions */}
-                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                         <div className="text-xs font-bold text-slate-450 flex items-center gap-1.5">
                             <span
                                 onClick={() => setSelectedMessage(null)}
@@ -583,7 +583,7 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                     <div className="w-full flex flex-col gap-6">
                         {/* Title and Subtitle */}
                         <div className="border-b border-slate-100 dark:border-slate-800 pb-4">
-                            <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-slate-50 font-sans tracking-tight leading-tight mb-2">
+                            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-slate-50 font-sans tracking-tight leading-tight mb-2">
                                 {selectedMessage.title}
                             </h2>
                             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-bold">
@@ -592,10 +592,10 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                         </div>
 
                         {/* Flex container for Message content (Avatar on Left, Content on Right) */}
-                        <div className="flex gap-4 items-start w-full">
+                        <div className="flex gap-3 sm:gap-4 items-start w-full">
                             {/* Left Side: Large avatar */}
                             <div
-                                className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-black text-white flex-shrink-0 shadow-sm"
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-xs sm:text-sm font-black text-white flex-shrink-0 shadow-sm"
                                 style={{ backgroundColor: getAvatarColor(selectedMessage.author?.name || '') }}
                             >
                                 {getInitials(selectedMessage.author?.name || '')}
@@ -783,10 +783,10 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                                 </div>
                             ) : selectedMessageComments.length > 0 ? (
                                 selectedMessageComments.map((c: any, idx: number) => (
-                                    <div key={idx} className="flex gap-4 items-start text-xs border-b border-slate-100 dark:border-slate-800/40 pb-5 last:border-0 last:pb-0">
+                                    <div key={idx} className="flex gap-3 sm:gap-4 items-start text-xs border-b border-slate-100 dark:border-slate-800/40 pb-5 last:border-0 last:pb-0">
                                         {/* Comment avatar */}
                                         <div
-                                            className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 uppercase shadow-sm"
+                                            className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 uppercase shadow-sm"
                                             style={{ backgroundColor: getAvatarColor(c.author?.name || '') }}
                                         >
                                             {getInitials(c.author?.name || '')}
@@ -859,11 +859,11 @@ export default function ToolMessages({ project, currentUserName }: ToolMessagesP
                                 <div
                                     key={m.id}
                                     onClick={() => setSelectedMessage(m)}
-                                    className="border-b border-slate-100 dark:border-slate-850 py-5 flex items-start gap-4 hover:bg-slate-50/40 dark:hover:bg-slate-900/10 transition-colors cursor-pointer"
+                                    className="border-b border-slate-100 dark:border-slate-850 py-5 flex items-start gap-3 sm:gap-4 hover:bg-slate-50/40 dark:hover:bg-slate-900/10 transition-colors cursor-pointer"
                                 >
                                     {/* Left side: Avatar */}
                                     <div
-                                        className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 shadow-sm"
+                                        className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 shadow-sm"
                                         style={{ backgroundColor: getAvatarColor(authorName) }}
                                     >
                                         {getInitials(authorName)}

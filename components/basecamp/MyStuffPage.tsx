@@ -145,9 +145,9 @@ export default function MyStuffPage({ navigateTo, currentUserName }: MyStuffPage
     }
 
     return (
-        <div className="flex-1 max-w-4xl mx-auto w-full flex flex-col gap-8 text-left">
+        <div className="flex-1 max-w-4xl mx-auto w-full flex flex-col gap-6 sm:gap-8 px-4 sm:px-0 text-left">
             {/* Cabecera de Mi Espacio */}
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center justify-between">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h2 className="text-xl font-black text-slate-855 dark:text-slate-100 flex items-center gap-2">
                         {t('basecamp.my_stuff')}

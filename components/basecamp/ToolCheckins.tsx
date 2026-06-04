@@ -178,7 +178,7 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
     return (
         <div className="flex-1 max-w-3xl mx-auto w-full flex flex-col gap-6">
             {/* Cabecera */}
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-amber-700/10 text-amber-700 flex items-center justify-center border border-amber-600/20">
                         <HelpCircle size={20} />
@@ -226,14 +226,14 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
                         {selectedQuestion && (
                             <>
                                 {/* Active Question Header */}
-                                <div className="bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200/65 dark:border-slate-800 p-5 rounded-2xl shadow-inner text-left">
+                                <div className="bg-[#fcfaf6] dark:bg-slate-800/40 border border-slate-200/65 dark:border-slate-800 p-4 sm:p-5 rounded-2xl shadow-inner text-left">
                                     <h4 className="text-[9px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-widest mb-1.5">
                                         Check-in
                                     </h4>
                                     <p className="text-sm font-extrabold text-slate-800 dark:text-slate-150">
                                         {language === 'en' && selectedQuestion.title.split(' / ')[1] ? selectedQuestion.title.split(' / ')[1] : selectedQuestion.title.split(' / ')[0]}
                                     </p>
-                                    <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-semibold">
+                                    <p className="text-[10px] text-slate-440 mt-1 uppercase tracking-wider font-semibold">
                                         {selectedQuestion.schedule_text
                                             ? selectedQuestion.schedule_text.replace('Todos los días', t('basecamp.every_day')).replace('a las', 'at')
                                             : t('basecamp.every_day')}
@@ -255,7 +255,7 @@ export default function ToolCheckins({ project, currentUserName }: ToolCheckinsP
                                             answers.map((ans) => (
                                                 <div
                                                     key={ans.id}
-                                                    className="flex gap-4 p-4 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl shadow-sm items-start text-left"
+                                                    className="flex gap-3 sm:gap-4 p-3 sm:p-4 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-2xl shadow-sm items-start text-left"
                                                 >
                                                     <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 uppercase">
                                                         {ans.author?.name ? ans.author.name[0] : (t('basecamp.anonymous_user')[0] || 'U')}

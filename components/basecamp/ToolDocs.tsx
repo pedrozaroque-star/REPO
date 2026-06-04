@@ -493,7 +493,7 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, maxWidth: '780px', margin: '0 auto', width: '100%', gap: '20px' }}>
             
             {/* 1. CABECERA CON BREADCRUMBS Y ACCIONES */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E8E6E1', paddingBottom: '12px' }}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ borderBottom: '1px solid #E8E6E1', paddingBottom: '12px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
                         {pathHistory.map((step, idx) => (
@@ -527,7 +527,7 @@ export default function ToolDocs({ project, currentUserName }: ToolDocsProps) {
 
                 {/* Acciones solo si no estamos en la vista de detalle y estamos dentro de un vault */}
                 {!showCreateForm && !showCreateFolderForm && !selectedDoc && currentVaultId !== null && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div className="flex flex-wrap items-center gap-2">
                         {/* Subir archivo */}
                         <label style={{
                             display: 'flex',

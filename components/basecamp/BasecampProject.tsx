@@ -659,7 +659,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 {/* ─────── Card 1: TO-DOS (tall card with checkboxes) ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'todos' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
                 >
                     <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
                         <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
@@ -703,7 +703,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 {/* ─────── Card 2: MESSAGE BOARD (with avatar + preview) ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'messages' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
                 >
                     <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
                         <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
@@ -747,7 +747,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 {/* ─────── Card 3: DOCS & FILES (with file type icons) ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'docs' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
                 >
                     <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
                         <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
@@ -791,7 +791,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 {/* ─────── Card 4: CAMPFIRE (with avatar bubbles) ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'campfire' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
                 >
                     <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
                         <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
@@ -835,7 +835,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 {/* ─────── Card 5: SCHEDULE (with mini calendar) ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'schedule' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
                 >
                     <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
                         <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
@@ -869,7 +869,7 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                 {/* ─────── Card 6: AUTOMATIC CHECK-INS ─────── */}
                 <div
                     onClick={() => navigateTo({ project: project.id, tool: 'checkins' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
+                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
                 >
                     <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
                         <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">

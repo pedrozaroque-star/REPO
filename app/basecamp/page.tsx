@@ -392,36 +392,36 @@ function BasecampWorkspace() {
 
     const renderBasecampHeader = () => {
         return (
-            <header className="w-full bg-[#fcfaf6] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-3 px-4 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-t-2xl shadow-sm">
-                <div className="flex items-center gap-3">
+            <header className="w-full bg-[#fcfaf6] dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 py-2.5 px-3 sm:px-6 flex items-center justify-between gap-3 rounded-t-2xl shadow-sm">
+                <div className="flex items-center gap-2 shrink-0">
                     <button
                         onClick={() => navigateTo({})}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-sm font-semibold text-slate-700 dark:text-slate-200"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-xs font-semibold text-slate-700 dark:text-slate-200"
                     >
-                        <Home size={16} />
+                        <Home size={14} />
                         <span className="hidden sm:inline">{t('basecamp.home')}</span>
                     </button>
                     {projectId && (
                         <button
                             onClick={() => navigateTo({ project: projectId })}
-                            className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+                            className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
                         >
-                            <ArrowLeft size={14} />
-                            <span className="truncate max-w-[120px] sm:max-w-xs font-semibold">{currentProject?.name}</span>
+                            <ArrowLeft size={12} />
+                            <span className="truncate max-w-[80px] sm:max-w-xs font-semibold">{currentProject?.name}</span>
                         </button>
                     )}
                 </div>
 
-                <div className="flex items-center justify-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar py-1">
+                <div className="flex items-center justify-end gap-1 overflow-x-auto no-scrollbar py-0.5 flex-1">
                     <button
                         onClick={() => navigateTo({ section: 'hey' })}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all relative ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all relative shrink-0 ${
                             section === 'hey'
                                 ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
                                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                     >
-                        <Bell size={14} />
+                        <Bell size={13} />
                         <span>{t('basecamp.hey')}</span>
                         {unreadHeyCount > 0 && (
                             <span className="absolute -top-1 -right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center">
@@ -432,48 +432,48 @@ function BasecampWorkspace() {
 
                     <button
                         onClick={() => navigateTo({ section: 'pings' })}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
                             section === 'pings' || pingUser
                                 ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
                                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                     >
-                        <MessageSquare size={14} />
+                        <MessageSquare size={13} />
                         <span>{t('basecamp.pings')}</span>
                     </button>
 
                     <button
                         onClick={() => navigateTo({ section: 'mystuff' })}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
                             section === 'mystuff'
                                 ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
                                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
                     >
-                        <User size={14} />
+                        <User size={13} />
                         <span>{t('basecamp.my_stuff')}</span>
                     </button>
 
                     <button
                         onClick={() => setShowSearchModal(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shrink-0"
                     >
-                        <Search size={14} />
+                        <Search size={13} />
                         <span>{t('basecamp.find')}</span>
                     </button>
 
                     <button
                         onClick={handleSync}
                         disabled={syncing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all border border-dashed border-blue-300 dark:border-slate-700"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all border border-dashed border-blue-300 dark:border-slate-700 shrink-0"
                         title={t('basecamp.sync_btn')}
                     >
-                        <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+                        <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
                         <span>{t('basecamp.sync_btn')}</span>
                     </button>
                 </div>
 
-                <div className="hidden md:flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-2 shrink-0">
                     <div className="w-8 h-8 rounded-full bg-[#1D7DB5] text-white font-bold flex items-center justify-center text-xs shadow-inner">
                         {currentUserName[0]}
                     </div>
@@ -566,7 +566,7 @@ function BasecampWorkspace() {
     const isHome = !projectId && !toolId && !section && !pingUser
 
     return (
-        <div className="relative w-full min-h-[85vh] bg-[#f4f1ea] dark:bg-slate-950 p-2 sm:p-4 md:p-6 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-2xl flex flex-col font-sans pb-20">
+        <div className="relative w-full min-h-[85vh] bg-[#f4f1ea] dark:bg-slate-950 p-2 sm:p-4 md:p-6 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 shadow-2xl flex flex-col font-sans pb-24">
             {!isHome && renderBasecampHeader()}
             
             <main className={`flex-1 bg-[#fffdf9] dark:bg-slate-900 rounded-2xl p-4 sm:p-6 md:p-8 min-h-[60vh] flex flex-col ${!isHome ? 'border-x border-b border-slate-200 dark:border-slate-800 rounded-t-none' : 'border border-slate-200/60 dark:border-slate-800'}`}>
@@ -579,7 +579,7 @@ function BasecampWorkspace() {
                 <div className="flex flex-col items-center gap-1 pointer-events-auto">
                     <button 
                         onClick={() => window.open('mailto:soporte@tacosgavilan.com', '_blank')} 
-                        className="text-[9px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 font-bold flex items-center gap-0.5"
+                        className="text-[9px] text-slate-400 dark:text-slate-500 hover:text-slate-655 dark:hover:text-slate-300 font-bold hidden sm:flex items-center gap-0.5"
                         title={t('basecamp.support_contact')}
                     >
                         <HelpCircle size={10} />
@@ -591,32 +591,32 @@ function BasecampWorkspace() {
                 </div>
 
                 {/* Bottom Center: Pills Menu Dock */}
-                <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200/80 dark:border-slate-800/80 rounded-full py-2 px-6 shadow-xl flex items-center gap-5 pointer-events-auto">
+                <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200/80 dark:border-slate-800/80 rounded-full py-2 px-4 sm:px-6 shadow-xl flex items-center gap-3 sm:gap-5 pointer-events-auto">
                     <button 
                         onClick={() => navigateTo({ section: 'mystuff' })}
-                        className={`text-xs font-bold transition-colors ${section === 'mystuff' ? 'text-[#1D7DB5] dark:text-blue-400' : 'text-slate-655 dark:text-slate-300 hover:text-[#1D7DB5]'}`}
+                        className={`text-xs font-bold transition-colors ${section === 'mystuff' ? 'text-[#1D7DB5] dark:text-blue-400' : 'text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5]'}`}
                     >
                         {t('language') === 'es' ? 'Mis Tareas' : 'My Tasks'}
                     </button>
                     <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                     <button 
                         onClick={() => navigateTo({ section: 'mystuff' })}
-                        className="text-xs font-bold text-slate-655 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
+                        className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
                     >
                         {t('language') === 'es' ? 'Mi Agenda' : 'My Events'}
                     </button>
-                    <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                    <span className="hidden md:inline w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                     <button 
                         onClick={() => navigateTo({ section: 'mystuff' })}
-                        className="text-xs font-bold text-slate-655 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
+                        className="hidden md:inline text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
                         title={t('basecamp.bookmarks_soon')}
                     >
                         {t('language') === 'es' ? 'Marcadores' : 'My Bookmarks'}
                     </button>
-                    <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                    <span className="hidden md:inline w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                     <button 
                         onClick={() => navigateTo({ section: 'mystuff' })}
-                        className="text-xs font-bold text-slate-655 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
+                        className="hidden md:inline text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
                         title={t('basecamp.notes_soon')}
                     >
                         {t('language') === 'es' ? 'Mis Notas' : 'My Notes'}
@@ -626,9 +626,10 @@ function BasecampWorkspace() {
                 {/* Bottom Right: New for you Badge */}
                 <button 
                     onClick={() => setHeyDrawerOpen(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#ffe8e0] dark:bg-[#472215]/40 hover:bg-[#ffd5c7] dark:hover:bg-[#472215]/60 text-[#a03e1a] dark:text-[#f27441] border border-[#ffcdbd] dark:border-[#5c2a1a] transition-all shadow-md focus:outline-none pointer-events-auto"
+                    className="flex items-center gap-1 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full bg-[#ffe8e0] dark:bg-[#472215]/40 hover:bg-[#ffd5c7] dark:hover:bg-[#472215]/60 text-[#a03e1a] dark:text-[#f27441] border border-[#ffcdbd] dark:border-[#5c2a1a] transition-all shadow-md focus:outline-none pointer-events-auto"
                 >
-                    <span className="text-[10px] font-black uppercase tracking-wider">{t('language') === 'es' ? 'Novedades' : 'New for you'}</span>
+                    <span className="text-[10px] font-black uppercase tracking-wider hidden sm:inline">{t('language') === 'es' ? 'Novedades' : 'New for you'}</span>
+                    <span className="text-[10px] font-black uppercase tracking-wider inline sm:hidden">Hey</span>
                     {unreadHeyCount > 0 ? (
                         <span className="w-2 h-2 rounded-full bg-[#f27441] animate-pulse" />
                     ) : (

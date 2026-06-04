@@ -708,7 +708,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 <div style={{
                                                     display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0
                                                 }}>
-                                                    {task.assigneeList.map((a: any) => (
+                                                    {task.assigneeList.slice(0, 3).map((a: any) => (
                                                         <span
                                                             key={a.id}
                                                             title={a.name}
@@ -724,6 +724,21 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             {getInitials(a.name)}
                                                         </span>
                                                     ))}
+                                                    {task.assigneeList.length > 3 && (
+                                                        <span
+                                                            title={task.assigneeList.slice(3).map((x: any) => x.name).join(', ')}
+                                                            style={{
+                                                                width: 18, height: 18, borderRadius: '50%',
+                                                                background: '#E2E8F0',
+                                                                color: '#475569', fontSize: 8, fontWeight: 700,
+                                                                display: 'inline-flex', alignItems: 'center',
+                                                                justifyContent: 'center', flexShrink: 0,
+                                                                lineHeight: 1, border: '1px solid #CBD5E1'
+                                                            }}
+                                                        >
+                                                            +{task.assigneeList.length - 3}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -843,7 +858,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                 display: 'flex', alignItems: 'center', gap: 2,
                                                                 flexShrink: 0, opacity: 0.5
                                                             }}>
-                                                                {task.assigneeList.map((a: any) => (
+                                                                {task.assigneeList.slice(0, 3).map((a: any) => (
                                                                     <span
                                                                         key={a.id}
                                                                         title={a.name}
@@ -859,6 +874,21 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                         {getInitials(a.name)}
                                                                     </span>
                                                                 ))}
+                                                                {task.assigneeList.length > 3 && (
+                                                                    <span
+                                                                        title={task.assigneeList.slice(3).map((x: any) => x.name).join(', ')}
+                                                                        style={{
+                                                                            width: 18, height: 18, borderRadius: '50%',
+                                                                            background: '#E2E8F0',
+                                                                            color: '#475569', fontSize: 8, fontWeight: 700,
+                                                                            display: 'inline-flex', alignItems: 'center',
+                                                                            justifyContent: 'center', flexShrink: 0,
+                                                                            lineHeight: 1, border: '1px solid #CBD5E1'
+                                                                        }}
+                                                                    >
+                                                                        +{task.assigneeList.length - 3}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         )}
 
@@ -1094,7 +1124,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     style={{
                         position: 'fixed', inset: 0, zIndex: 50,
                         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                        paddingTop: 80, background: 'rgba(0,0,0,0.35)'
+                        padding: '40px 16px', background: 'rgba(0,0,0,0.35)',
+                        overflowY: 'auto'
                     }}
                 >
                     <div style={{
@@ -1223,7 +1254,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                         style={{
                             position: 'fixed', inset: 0, zIndex: 50,
                             display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                            paddingTop: 40, background: 'rgba(0,0,0,0.4)',
+                            padding: '20px 12px', background: 'rgba(0,0,0,0.4)',
                             overflowY: 'auto'
                         }}
                     >
@@ -1328,15 +1359,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                 </div>
 
                                 {/* ── Structured fields like real Basecamp ── */}
-                                <div style={{
-                                    display: 'grid', gridTemplateColumns: 'auto 1fr',
-                                    gap: '10px 16px', alignItems: 'center',
+                                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] gap-x-4 gap-y-2 sm:gap-y-3 items-start sm:items-center" style={{
                                     paddingBottom: 20, borderBottom: '1px solid #E8E6E1'
                                 }}>
                                     {/* Assigned to */}
-                                    <span style={{
+                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
                                         fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        justifySelf: 'end', whiteSpace: 'nowrap'
+                                        whiteSpace: 'nowrap'
                                     }}>
                                         {t('basecamp.assign_to')}
                                     </span>
@@ -1368,9 +1397,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     </div>
 
                                     {/* When done */}
-                                    <span style={{
+                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
                                         fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        justifySelf: 'end', whiteSpace: 'nowrap'
+                                        whiteSpace: 'nowrap'
                                     }}>
                                         {t('basecamp.when_done')}
                                     </span>
@@ -1379,9 +1408,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     </span>
 
                                     {/* Due on */}
-                                    <span style={{
+                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
                                         fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        justifySelf: 'end', whiteSpace: 'nowrap'
+                                        whiteSpace: 'nowrap'
                                     }}>
                                         {t('basecamp.due_on')}
                                     </span>
@@ -1400,9 +1429,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                     </span>
 
                                     {/* Notes label */}
-                                    <span style={{
+                                    <span className="justify-self-start sm:justify-self-end text-left sm:text-right" style={{
                                         fontSize: 13, fontWeight: 700, color: '#1D2D35',
-                                        justifySelf: 'end', whiteSpace: 'nowrap',
+                                        whiteSpace: 'nowrap',
                                         alignSelf: 'flex-start', paddingTop: 2
                                     }}>
                                         {t('basecamp.notes_label')}

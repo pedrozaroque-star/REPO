@@ -249,22 +249,22 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
         ]
 
         return (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-2xl p-2 sm:p-4 shadow-sm">
                 {/* Month navigation */}
-                <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center justify-between mb-3 border-b border-slate-100 dark:border-slate-800 pb-2">
                     <h4 className="text-sm font-black text-slate-800 dark:text-slate-200 capitalize">
                         {monthName}
                     </h4>
                     <div className="flex items-center gap-1">
                         <button
                             onClick={handlePrevMonth}
-                            className="p-1.5 rounded-lg border border-slate-250 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                            className="p-1 rounded-lg border border-slate-250 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
                         >
                             <ChevronLeft size={16} />
                         </button>
                         <button
                             onClick={handleNextMonth}
-                            className="p-1.5 rounded-lg border border-slate-250 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                            className="p-1 rounded-lg border border-slate-250 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
                         >
                             <ChevronRight size={16} />
                         </button>
@@ -272,16 +272,16 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
                 </div>
 
                 {/* Weekdays */}
-                <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                <div className="grid grid-cols-7 gap-0.5 sm:gap-1 text-center mb-1">
                     {weekdayLabels.map((lbl, idx) => (
-                        <div key={idx} className="text-[10px] font-black text-slate-400 dark:text-slate-500 py-1">
+                        <div key={idx} className="text-[9px] sm:text-[10px] font-black text-slate-400 dark:text-slate-500 py-1">
                             {lbl}
                         </div>
                     ))}
                 </div>
 
                 {/* Calendar Days */}
-                <div className="grid grid-cols-7 gap-1 bg-slate-100/50 dark:bg-slate-850 p-1 rounded-xl">
+                <div className="grid grid-cols-7 gap-0.5 sm:gap-1 bg-slate-100/50 dark:bg-slate-850 p-0.5 sm:p-1 rounded-xl">
                     {gridCells.map((cell, idx) => {
                         const cellDateStr = cell.date.toISOString().split('T')[0]
                         const dayEvents = events.filter(e => {
@@ -301,13 +301,13 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
                                         setShowAddForm(true)
                                     }
                                 }}
-                                className={`min-h-[70px] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/40 p-1.5 rounded-lg flex flex-col justify-between transition-colors ${
+                                className={`min-h-[50px] sm:min-h-[70px] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/40 p-1 sm:p-1.5 rounded-md sm:rounded-lg flex flex-col justify-between transition-colors ${
                                     cell.isCurrentMonth 
                                         ? 'cursor-pointer hover:bg-slate-50/50 dark:hover:bg-slate-850' 
                                         : 'opacity-40 pointer-events-none'
                                 } ${isToday ? 'ring-2 ring-purple-500 ring-inset' : ''}`}
                             >
-                                <span className={`text-[10px] font-black ${
+                                <span className={`text-[9px] sm:text-[10px] font-black ${
                                     cell.isCurrentMonth 
                                         ? 'text-slate-800 dark:text-slate-200' 
                                         : 'text-slate-400'
@@ -315,12 +315,12 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
                                     {cell.day}
                                 </span>
 
-                                <div className="space-y-1 mt-1 max-h-[48px] overflow-y-auto no-scrollbar">
+                                <div className="space-y-0.5 sm:space-y-1 mt-0.5 sm:mt-1 max-h-[30px] sm:max-h-[48px] overflow-y-auto no-scrollbar">
                                     {dayEvents.map((ev, eidx) => (
                                         <div
                                             key={eidx}
                                             title={ev.title}
-                                            className="text-[9px] font-extrabold truncate px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200/30 line-clamp-1"
+                                            className="text-[7px] sm:text-[9px] font-extrabold truncate px-0.5 sm:px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200/30 line-clamp-1"
                                         >
                                             {ev.title}
                                         </div>
@@ -337,7 +337,7 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
     return (
         <div className="flex-1 max-w-3xl mx-auto w-full flex flex-col gap-6">
             {/* Cabecera */}
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-purple-500/10 text-purple-600 flex items-center justify-center border border-purple-200/30">
                         <CalendarIcon size={20} />
@@ -353,7 +353,7 @@ export default function ToolSchedule({ project, currentUserName }: ToolScheduleP
                 </div>
 
                 {!showAddForm && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
                         {/* Toggle de vistas */}
                         <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/30 dark:border-slate-700">
                             <button

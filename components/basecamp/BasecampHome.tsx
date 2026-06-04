@@ -168,7 +168,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 layoutId={`project-${p.id}`}
                 key={p.id}
                 onClick={() => navigateTo({ project: p.id })}
-                className={`relative flex flex-col justify-between p-6 rounded-2xl border-2 ${colorStyles.border} ${colorStyles.bg} ${colorStyles.hover} shadow-sm hover:shadow-md cursor-pointer transition-all duration-200 min-h-[160px] group`}
+                className={`relative flex flex-col justify-between p-4 sm:p-6 rounded-2xl border-2 ${colorStyles.border} ${colorStyles.bg} ${colorStyles.hover} shadow-sm hover:shadow-md cursor-pointer transition-all duration-200 min-h-[160px] group`}
             >
                 <div className="flex-1">
                     <div className="flex items-start justify-between gap-3 mb-2">
@@ -251,7 +251,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                             </div>
                         )}
                     </div>
-                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-550">
                         {p.peopleCount || 1} {p.peopleCount === 1 ? t('basecamp.project_person') : t('basecamp.project_people')}
                     </span>
                 </div>
@@ -262,7 +262,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
     return (
         <div className="flex-1 flex flex-col items-center w-full max-w-5xl mx-auto py-4">
             {/* Header: Center top selector */}
-            <div className="flex items-center gap-1 text-slate-650 dark:text-slate-300 font-extrabold text-sm mb-4 cursor-pointer hover:opacity-85">
+            <div className="flex items-center gap-1 text-slate-655 dark:text-slate-350 font-extrabold text-sm mb-4 cursor-pointer hover:opacity-85">
                 <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block mr-0.5" />
                 <span>Basecamp</span>
                 <ChevronDown size={14} className="mt-0.5 text-slate-400" />
@@ -273,7 +273,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 <img 
                     src="/logo.png" 
                     alt="Tacos Gavilan Logo" 
-                    className="h-28 object-contain mb-2"
+                    className="h-20 sm:h-28 object-contain mb-2"
                 />
             </div>
 
@@ -293,7 +293,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
             <div className="flex flex-wrap justify-center gap-2 mb-10 w-full max-w-2xl px-4">
                 <button
                     onClick={() => setShowCreateModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-55 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
                 >
                     <Plus size={15} className="text-blue-500" />
                     <span>{t('basecamp.make_new_project')}</span>
@@ -302,7 +302,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 <button
                     title={t('basecamp.folder_soon')}
                     onClick={() => {}}
-                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-300"
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-55 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-300"
                 >
                     <FolderPlus size={14} className="text-blue-500" />
                     <span>{t('basecamp.add_folder')}</span>
@@ -311,7 +311,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 <button
                     title={t('basecamp.invite_soon')}
                     onClick={() => {}}
-                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-400"
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-55 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-400"
                 >
                     <UserPlus size={14} className="text-blue-500" />
                     <span>{t('basecamp.invite_people')}</span>
@@ -320,7 +320,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 <button
                     title={t('basecamp.adminland_soon')}
                     onClick={() => {}}
-                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-500"
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-55 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-500"
                 >
                     <ShieldAlert size={14} className="text-blue-500" />
                     <span>{t('basecamp.adminland')}</span>
@@ -332,7 +332,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                     className={`flex items-center gap-2 px-4 py-2 border rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-600 ${
                         isSyncing
                             ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-300 cursor-wait'
-                            : 'bg-white dark:bg-slate-850 hover:bg-blue-50 dark:hover:bg-blue-950/20 border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                            : 'bg-white dark:bg-slate-855 hover:bg-blue-50 dark:hover:bg-blue-950/20 border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200'
                     }`}
                 >
                     {isSyncing ? (
@@ -361,11 +361,11 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
             {/* Pinned Projects Section */}
             {pinnedProjects.length > 0 && (
                 <div className="w-full mb-10 px-4">
-                    <h2 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest text-left mb-4 flex items-center gap-1.5">
+                    <h2 className="text-sm font-black text-slate-400 dark:text-slate-550 uppercase tracking-widest text-left mb-4 flex items-center gap-1.5">
                         <Star size={14} className="text-amber-500" fill="currentColor" />
                         {t('basecamp.pinned_projects')}
                     </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                         {pinnedProjects.map(p => renderProjectCard(p))}
                     </div>
                 </div>
@@ -373,10 +373,10 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
 
             {/* All Projects Section */}
             <div className="w-full px-4 mb-12">
-                <h2 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest text-left mb-4">
+                <h2 className="text-sm font-black text-slate-400 dark:text-slate-550 uppercase tracking-widest text-left mb-4">
                     {t('basecamp.all_projects')}
                 </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                     {otherProjects.map(p => renderProjectCard(p))}
                 </div>
             </div>
