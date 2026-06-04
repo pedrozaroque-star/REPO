@@ -940,30 +940,22 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             </div>
 
                                             {/* Labeled form fields — exact Basecamp layout */}
-                                            <div style={{
-                                                padding: '12px 0 12px 28px',
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                gap: 10,
-                                                borderTop: '1px solid #E8E6E1',
-                                                marginTop: 10
-                                            }}>
+                                            <div
+                                                className="flex flex-col gap-2.5 mt-2.5 pt-3 pb-3 pl-0 sm:pl-7 border-t border-[#E8E6E1]"
+                                            >
                                                 {/* Assigned to */}
-                                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                    <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 600,
-                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
-                                                        flexShrink: 0
-                                                    }}>
+                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
                                                         {t('basecamp.assign_to')}
                                                     </span>
                                                     <select
                                                         value={newTaskAssignee}
                                                         onChange={(e) => setNewTaskAssignee(e.target.value)}
+                                                        className="w-full sm:w-auto min-w-[200px]"
                                                         style={{
                                                             border: '1px solid #E8E6E1', borderRadius: 4,
                                                             padding: '4px 8px', fontSize: 13, color: '#1D2D35',
-                                                            background: '#fff', outline: 'none', minWidth: 200
+                                                            background: '#fff', outline: 'none'
                                                         }}
                                                     >
                                                         <option value="">{t('basecamp.type_names_placeholder')}</option>
@@ -974,12 +966,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 </div>
 
                                                 {/* When done */}
-                                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                    <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 600,
-                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
-                                                        flexShrink: 0
-                                                    }}>
+                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
                                                         {t('basecamp.when_done')}
                                                     </span>
                                                     <span style={{ fontSize: 13, color: '#A0A0A0' }}>
@@ -988,18 +976,15 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 </div>
 
                                                 {/* Due on */}
-                                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                    <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 600,
-                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
-                                                        flexShrink: 0
-                                                    }}>
+                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
                                                         {t('basecamp.due_on') || t('basecamp.due_date')}
                                                     </span>
                                                     <input
                                                         type="date"
                                                         value={newTaskDueDate}
                                                         onChange={(e) => setNewTaskDueDate(e.target.value)}
+                                                        className="w-full sm:w-auto"
                                                         style={{
                                                             border: '1px solid #E8E6E1', borderRadius: 4,
                                                             padding: '3px 8px', fontSize: 13, color: '#1D2D35',
@@ -1009,12 +994,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 </div>
 
                                                 {/* Notes */}
-                                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                    <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 600,
-                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
-                                                        flexShrink: 0
-                                                    }}>
+                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
                                                         {t('basecamp.notes_label')}
                                                     </span>
                                                     <input
@@ -1022,22 +1003,19 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                         value={newTaskNotes}
                                                         onChange={(e) => setNewTaskNotes(e.target.value)}
                                                         placeholder={t('basecamp.notes_placeholder')}
+                                                        className="w-full"
                                                         style={{
                                                             border: '1px solid #E8E6E1', borderRadius: 4,
                                                             padding: '4px 8px', fontSize: 13, color: '#1D2D35',
-                                                            background: '#fff', outline: 'none', width: '100%',
+                                                            background: '#fff', outline: 'none',
                                                             maxWidth: 400
                                                         }}
                                                     />
                                                 </div>
 
                                                 {/* Subtasks */}
-                                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                    <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 600,
-                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
-                                                        flexShrink: 0
-                                                    }}>
+                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
                                                         {t('basecamp.subtasks_label')}
                                                     </span>
                                                     <span style={{ fontSize: 13, color: '#A0A0A0' }}>
@@ -1047,16 +1025,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                             </div>
 
                                             {/* Action buttons — blue "Add this to-do" + Cancel link button */}
-                                            <div style={{
-                                                display: 'flex', alignItems: 'center', gap: 10,
-                                                padding: '4px 0 12px 144px'
-                                            }}>
+                                            <div className="flex items-center gap-2.5 pt-1 pb-3 pl-0 sm:pl-[144px]">
                                                 <button
                                                     type="submit"
                                                     style={{
                                                         padding: '7px 16px', borderRadius: 4, border: 'none',
                                                         background: '#1D7DB5', fontSize: 13, fontWeight: 600,
-                                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s'
+                                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s',
+                                                        whiteSpace: 'nowrap'
                                                     }}
                                                     onMouseEnter={e => (e.currentTarget.style.background = '#155D8A')}
                                                     onMouseLeave={e => (e.currentTarget.style.background = '#1D7DB5')}
@@ -1076,12 +1052,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                         padding: '6px 14px', borderRadius: 4,
                                                         border: '1px solid #D5D3CE', background: '#fff',
                                                         fontSize: 13, fontWeight: 600, color: '#1D7DB5',
-                                                        cursor: 'pointer', transition: 'background 0.15s'
+                                                        cursor: 'pointer', transition: 'background 0.15s',
+                                                        whiteSpace: 'nowrap'
                                                     }}
                                                     onMouseEnter={e => (e.currentTarget.style.background = '#F7F5F2')}
                                                     onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                                                 >
-                                                    {t('basecamp.cancel_btn_label')}
+                                                    {t('basecamp.cancel')}
                                                 </button>
                                             </div>
                                         </form>
