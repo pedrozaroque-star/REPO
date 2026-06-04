@@ -59,6 +59,70 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
     const [selectedTaskListId, setSelectedTaskListId] = useState<string | null>(null)
     const [newComment, setNewComment] = useState('')
 
+    // Fetch fresh todo details and comments dynamically from Basecamp when a task is opened
+    useEffect(() => {
+        if (!selectedTask || !project.id) return
+
+        let active = true
+
+        const loadFreshDetails = async () => {
+            try {
+                const res = await fetch(`/api/basecamp/todo-detail?projectId=${project.id}&todoId=${selectedTask.bc_id}`)
+                if (!res.ok) throw new Error('Failed to load fresh details')
+                const data = await res.json()
+                if (data.success && active) {
+                    setSelectedTask((prev: any) => {
+                        if (!prev || prev.bc_id !== selectedTask.bc_id) return prev
+                        return {
+                            ...prev,
+                            description: data.description,
+                            comments: data.comments
+                        }
+                    })
+                }
+            } catch (err) {
+                console.error('Failed to load fresh Basecamp details:', err)
+            }
+        }
+
+        loadFreshDetails()
+
+        return () => {
+            active = false
+        }
+    }, [selectedTask?.bc_id, project.id])
+
+    // Intercept clicks on HTML links to handle Basecamp-to-Basecamp routing locally
+    const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement
+        const anchor = target.closest('a')
+        if (anchor && anchor.href) {
+            const href = anchor.href
+            const todoMatch = href.match(/\/buckets\/(\d+)\/todos\/(\d+)/)
+            if (todoMatch) {
+                e.preventDefault()
+                const todoBcId = Number(todoMatch[2])
+                
+                let foundTodo = null
+                let foundListId = null
+                for (const list of lists) {
+                    const t = list.tasks.find((task: any) => Number(task.bc_id) === todoBcId)
+                    if (t) {
+                        foundTodo = t
+                        foundListId = list.id
+                        break
+                    }
+                }
+                if (foundTodo) {
+                    setSelectedTask(foundTodo)
+                    setSelectedTaskListId(foundListId)
+                } else {
+                    window.open(href, '_blank')
+                }
+            }
+        }
+    }
+
     // Estado para secciones colapsadas de tareas completadas (por lista)
     const [expandedCompleted, setExpandedCompleted] = useState<Record<string, boolean>>({})
 
@@ -336,6 +400,14 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
         const parts = name.trim().split(/\s+/)
         return parts.length >= 2 ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase() : name.slice(0, 2).toUpperCase()
     }
+    const getShortName = (fullName: string) => {
+        if (!fullName) return ''
+        const parts = fullName.trim().split(/\s+/)
+        if (parts.length >= 2) {
+            return `${parts[0]} ${parts[parts.length - 1][0]}.`
+        }
+        return parts[0]
+    }
 
     // List dot colors — each list gets a consistent colored dot
     const LIST_DOT_COLORS = ['#27AE60', '#E67E22', '#3498DB', '#E74C3C', '#8E44AD', '#1ABC9C', '#F39C12', '#2980B9', '#D35400', '#16A085']
@@ -472,25 +544,38 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 </span>
                                             )}
 
-                                            {/* Inline avatar circles (20px each) */}
+                                            {/* Inline avatar circles and names (Basecamp style) */}
                                             {task.assigneeList && task.assigneeList.length > 0 && (
                                                 <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0
+                                                    display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0
                                                 }}>
                                                     {task.assigneeList.map((a: any) => (
                                                         <span
                                                             key={a.id}
                                                             title={a.name}
                                                             style={{
-                                                                width: 20, height: 20, borderRadius: '50%',
-                                                                background: getAvatarColor(a.name),
-                                                                color: '#fff', fontSize: 9, fontWeight: 700,
-                                                                display: 'inline-flex', alignItems: 'center',
-                                                                justifyContent: 'center', flexShrink: 0,
-                                                                lineHeight: 1
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: 4,
+                                                                fontSize: 12,
+                                                                color: '#6B7B8D'
                                                             }}
                                                         >
-                                                            {getInitials(a.name)}
+                                                            <span
+                                                                style={{
+                                                                    width: 18, height: 18, borderRadius: '50%',
+                                                                    background: getAvatarColor(a.name),
+                                                                    color: '#fff', fontSize: 8, fontWeight: 700,
+                                                                    display: 'inline-flex', alignItems: 'center',
+                                                                    justifyContent: 'center', flexShrink: 0,
+                                                                    lineHeight: 1
+                                                                }}
+                                                            >
+                                                                {getInitials(a.name)}
+                                                            </span>
+                                                            <span style={{ fontSize: 13, color: '#555' }}>
+                                                                {getShortName(a.name)}
+                                                            </span>
                                                         </span>
                                                     ))}
                                                 </div>
@@ -602,10 +687,10 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                             {task.task_name}
                                                         </span>
 
-                                                        {/* Inline avatar circles for completed tasks too */}
+                                                        {/* Inline avatar circles and names for completed tasks too (Basecamp style) */}
                                                         {task.assigneeList && task.assigneeList.length > 0 && (
                                                             <div style={{
-                                                                display: 'flex', alignItems: 'center', gap: 3,
+                                                                display: 'flex', alignItems: 'center', gap: 8,
                                                                 flexShrink: 0, opacity: 0.5
                                                             }}>
                                                                 {task.assigneeList.map((a: any) => (
@@ -613,15 +698,26 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                                         key={a.id}
                                                                         title={a.name}
                                                                         style={{
-                                                                            width: 18, height: 18, borderRadius: '50%',
-                                                                            background: getAvatarColor(a.name),
-                                                                            color: '#fff', fontSize: 8, fontWeight: 700,
-                                                                            display: 'inline-flex', alignItems: 'center',
-                                                                            justifyContent: 'center', flexShrink: 0,
-                                                                            lineHeight: 1
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            gap: 4,
+                                                                            fontSize: 12,
+                                                                            color: '#6B7B8D'
                                                                         }}
                                                                     >
-                                                                        {getInitials(a.name)}
+                                                                        <span
+                                                                            style={{
+                                                                                width: 18, height: 18, borderRadius: '50%',
+                                                                                background: getAvatarColor(a.name),
+                                                                                color: '#fff', fontSize: 8, fontWeight: 700,
+                                                                                display: 'inline-flex', alignItems: 'center',
+                                                                                justifyContent: 'center', flexShrink: 0,
+                                                                                lineHeight: 1
+                                                                            }}
+                                                                        >
+                                                                            {getInitials(a.name)}
+                                                                        </span>
+                                                                        <span>{getShortName(a.name)}</span>
                                                                     </span>
                                                                 ))}
                                                             </div>
@@ -663,7 +759,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                     required
                                                     value={newTaskName}
                                                     onChange={(e) => setNewTaskName(e.target.value)}
-                                                    placeholder={t('basecamp.task_placeholder')}
+                                                    placeholder={t('basecamp.task_placeholder') || 'Describe this to-do...'}
                                                     autoFocus
                                                     style={{
                                                         flex: 1, padding: 0, border: 'none',
@@ -675,28 +771,33 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                             </div>
 
                                             {/* Labeled form fields — exact Basecamp layout */}
-                                            <div style={{ padding: '12px 0 8px 28px' }}>
+                                            <div style={{
+                                                padding: '12px 0 12px 28px',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: 10,
+                                                borderTop: '1px solid #E8E6E1',
+                                                marginTop: 10
+                                            }}>
                                                 {/* Assigned to */}
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 0,
-                                                    marginBottom: 8
-                                                }}>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
                                                     <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 700,
-                                                        color: '#1D2D35', flexShrink: 0
+                                                        width: 100, fontSize: 13, fontWeight: 600,
+                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
+                                                        flexShrink: 0
                                                     }}>
-                                                        Assigned to
+                                                        {t('basecamp.assign_to')}
                                                     </span>
                                                     <select
                                                         value={newTaskAssignee}
                                                         onChange={(e) => setNewTaskAssignee(e.target.value)}
                                                         style={{
-                                                            flex: 1, border: 'none', background: 'transparent',
-                                                            fontSize: 14, color: newTaskAssignee ? '#1D2D35' : '#999',
-                                                            cursor: 'pointer', outline: 'none', padding: '4px 0'
+                                                            border: '1px solid #E8E6E1', borderRadius: 4,
+                                                            padding: '4px 8px', fontSize: 13, color: '#1D2D35',
+                                                            background: '#fff', outline: 'none', minWidth: 200
                                                         }}
                                                     >
-                                                        <option value="">Type names to assign...</option>
+                                                        <option value="">{t('basecamp.type_names_placeholder')}</option>
                                                         {(project.people || []).map((p: any) => (
                                                             <option key={p.id} value={p.id}>{p.name}</option>
                                                         ))}
@@ -704,101 +805,94 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 </div>
 
                                                 {/* When done */}
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 0,
-                                                    marginBottom: 8
-                                                }}>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
                                                     <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 700,
-                                                        color: '#1D2D35', flexShrink: 0
+                                                        width: 100, fontSize: 13, fontWeight: 600,
+                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
+                                                        flexShrink: 0
                                                     }}>
-                                                        When done
+                                                        {t('basecamp.when_done')}
                                                     </span>
-                                                    <span style={{ fontSize: 14, color: '#999' }}>
-                                                        Notify these people...
+                                                    <span style={{ fontSize: 13, color: '#A0A0A0' }}>
+                                                        {t('basecamp.notify_people_placeholder')}
                                                     </span>
                                                 </div>
 
                                                 {/* Due on */}
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 0,
-                                                    marginBottom: 8
-                                                }}>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
                                                     <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 700,
-                                                        color: '#1D2D35', flexShrink: 0
+                                                        width: 100, fontSize: 13, fontWeight: 600,
+                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
+                                                        flexShrink: 0
                                                     }}>
-                                                        Due on
+                                                        {t('basecamp.due_on') || t('basecamp.due_date')}
                                                     </span>
                                                     <input
                                                         type="date"
                                                         value={newTaskDueDate}
                                                         onChange={(e) => setNewTaskDueDate(e.target.value)}
                                                         style={{
-                                                            flex: 1, border: 'none', background: 'transparent',
-                                                            fontSize: 14, color: newTaskDueDate ? '#1D2D35' : '#999',
-                                                            cursor: 'pointer', outline: 'none', padding: '4px 0'
+                                                            border: '1px solid #E8E6E1', borderRadius: 4,
+                                                            padding: '3px 8px', fontSize: 13, color: '#1D2D35',
+                                                            background: '#fff', outline: 'none'
                                                         }}
                                                     />
                                                 </div>
 
                                                 {/* Notes */}
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'flex-start', gap: 0,
-                                                    marginBottom: 8
-                                                }}>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
                                                     <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 700,
-                                                        color: '#1D2D35', flexShrink: 0, paddingTop: 4
+                                                        width: 100, fontSize: 13, fontWeight: 600,
+                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
+                                                        flexShrink: 0
                                                     }}>
-                                                        Notes
+                                                        {t('basecamp.notes_label')}
                                                     </span>
                                                     <input
                                                         type="text"
                                                         value={newTaskNotes}
                                                         onChange={(e) => setNewTaskNotes(e.target.value)}
-                                                        placeholder="Add extra details or attach a file..."
+                                                        placeholder={t('basecamp.notes_placeholder')}
                                                         style={{
-                                                            flex: 1, border: 'none', background: 'transparent',
-                                                            fontSize: 14, color: newTaskNotes ? '#1D2D35' : '#999',
-                                                            outline: 'none', padding: '4px 0'
+                                                            border: '1px solid #E8E6E1', borderRadius: 4,
+                                                            padding: '4px 8px', fontSize: 13, color: '#1D2D35',
+                                                            background: '#fff', outline: 'none', width: '100%',
+                                                            maxWidth: 400
                                                         }}
                                                     />
                                                 </div>
 
                                                 {/* Subtasks */}
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 0,
-                                                    marginBottom: 12
-                                                }}>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
                                                     <span style={{
-                                                        width: 100, fontSize: 13, fontWeight: 700,
-                                                        color: '#1D2D35', flexShrink: 0
+                                                        width: 100, fontSize: 13, fontWeight: 600,
+                                                        color: '#6B7B8D', textAlign: 'right', marginRight: 16,
+                                                        flexShrink: 0
                                                     }}>
-                                                        Subtasks
+                                                        {t('basecamp.subtasks_label')}
                                                     </span>
-                                                    <span style={{ fontSize: 14, color: '#999' }}>
-                                                        Add subtasks
+                                                    <span style={{ fontSize: 13, color: '#A0A0A0' }}>
+                                                        {t('basecamp.add_subtasks_placeholder')}
                                                     </span>
                                                 </div>
                                             </div>
 
-                                            {/* Action buttons — green "Add this to-do" + Cancel link */}
+                                            {/* Action buttons — blue "Add this to-do" + Cancel link button */}
                                             <div style={{
-                                                display: 'flex', alignItems: 'center', gap: 12,
-                                                padding: '0 0 12px 28px'
+                                                display: 'flex', alignItems: 'center', gap: 10,
+                                                padding: '4px 0 12px 144px'
                                             }}>
                                                 <button
                                                     type="submit"
                                                     style={{
-                                                        padding: '8px 20px', borderRadius: 5, border: 'none',
-                                                        background: '#4BAE4F', fontSize: 14, fontWeight: 700,
+                                                        padding: '7px 16px', borderRadius: 4, border: 'none',
+                                                        background: '#1D7DB5', fontSize: 13, fontWeight: 600,
                                                         color: '#fff', cursor: 'pointer', transition: 'background 0.15s'
                                                     }}
-                                                    onMouseEnter={e => (e.currentTarget.style.background = '#3D9440')}
-                                                    onMouseLeave={e => (e.currentTarget.style.background = '#4BAE4F')}
+                                                    onMouseEnter={e => (e.currentTarget.style.background = '#155D8A')}
+                                                    onMouseLeave={e => (e.currentTarget.style.background = '#1D7DB5')}
                                                 >
-                                                    Add this to-do
+                                                    {t('basecamp.add_todo_btn_label')}
                                                 </button>
                                                 <button
                                                     type="button"
@@ -810,12 +904,15 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                         setNewTaskNotes('')
                                                     }}
                                                     style={{
-                                                        padding: '4px 8px', border: 'none', background: 'transparent',
-                                                        fontSize: 14, fontWeight: 500, color: '#6B7B8D',
-                                                        cursor: 'pointer', textDecoration: 'none'
+                                                        padding: '6px 14px', borderRadius: 4,
+                                                        border: '1px solid #D5D3CE', background: '#fff',
+                                                        fontSize: 13, fontWeight: 600, color: '#1D7DB5',
+                                                        cursor: 'pointer', transition: 'background 0.15s'
                                                     }}
+                                                    onMouseEnter={e => (e.currentTarget.style.background = '#F7F5F2')}
+                                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                                                 >
-                                                    Cancel
+                                                    {t('basecamp.cancel_btn_label')}
                                                 </button>
                                             </div>
                                         </form>
@@ -1117,26 +1214,140 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                             {/* ── Description / Notes ── */}
                             {selectedTask.description && (() => {
                                 const desc = selectedTask.description as string
-                                const imgRegex = /<img[^>]+(?:src|alt)=["']([^"']*?)["'][^>]*>/gi
-                                const attachments: string[] = []
-                                let match
-                                while ((match = imgRegex.exec(desc)) !== null) {
-                                    const val = match[1]
-                                    const filename = val.includes('/') ? val.split('/').pop() || val : val
-                                    if (filename && !attachments.includes(filename)) {
-                                        attachments.push(filename)
+                                
+                                // Extract images from HTML
+                                const imgMatches = Array.from(desc.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi))
+                                const attachments = imgMatches.map(match => {
+                                    const src = match[1]
+                                    let filename = 'Attachment'
+                                    const altMatch = match[0].match(/alt=["']([^"']+)["']/i)
+                                    if (altMatch) {
+                                        filename = altMatch[1]
+                                    } else {
+                                        filename = src.split('/').pop()?.split('?')[0] || 'attachment.png'
                                     }
-                                }
-                                const cleanHtml = desc
-                                    .replace(/<img[^>]*>/gi, '')
-                                    .replace(/<br\s*\/?>/gi, '\n')
-                                    .replace(/<[^>]+>/g, '')
-                                    .trim()
+                                    return { src, filename }
+                                })
+
+                                // Remove images but keep all other HTML formatting
+                                const cleanHtml = desc.replace(/<img[^>]*>/gi, '').trim()
 
                                 if (!cleanHtml && attachments.length === 0) return null
 
                                 return (
                                     <div style={{ padding: '20px 28px', borderBottom: '1px solid #E8E6E1' }}>
+                                        <style dangerouslySetInnerHTML={{ __html: `
+                                            .bc-rich-text a {
+                                                color: #1D7DB5;
+                                                text-decoration: none;
+                                                font-weight: 500;
+                                            }
+                                            .bc-rich-text a:hover {
+                                                text-decoration: underline;
+                                            }
+                                            .bc-rich-text p {
+                                                margin: 0 0 12px 0;
+                                                line-height: 1.6;
+                                            }
+                                            .bc-rich-text p:last-child {
+                                                margin-bottom: 0;
+                                            }
+                                            .bc-rich-text ul {
+                                                margin: 0 0 12px 0;
+                                                padding-left: 20px;
+                                                list-style-type: disc;
+                                            }
+                                            .bc-rich-text ol {
+                                                margin: 0 0 12px 0;
+                                                padding-left: 20px;
+                                                list-style-type: decimal;
+                                            }
+                                            .bc-rich-text blockquote {
+                                                border-left: 3px solid #E8E6E1;
+                                                padding-left: 12px;
+                                                margin: 0 0 12px 0;
+                                                color: #6B7B8D;
+                                            }
+                                        ` }} />
+
+                                        {attachments.length > 0 && (
+                                            <div style={{ marginBottom: 16 }}>
+                                                <div style={{
+                                                    fontSize: 12, fontWeight: 700, color: '#6B7B8D',
+                                                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                                                    marginBottom: 8
+                                                }}>
+                                                    📎 {attachments.length} {attachments.length === 1 ? 'Attachment' : 'Attachments'}
+                                                </div>
+                                                <div style={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                                                    gap: 12
+                                                }}>
+                                                    {attachments.map((file, i) => (
+                                                        <a
+                                                            key={i}
+                                                            href={file.src}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            style={{
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                background: '#FAFAF8',
+                                                                border: '1px solid #E8E6E1',
+                                                                borderRadius: 6,
+                                                                overflow: 'hidden',
+                                                                cursor: 'pointer',
+                                                                textDecoration: 'none'
+                                                            }}
+                                                        >
+                                                            <div style={{
+                                                                height: 90,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                background: '#F0EFEB',
+                                                                overflow: 'hidden'
+                                                            }}>
+                                                                <img
+                                                                    src={file.src}
+                                                                    alt={file.filename}
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        objectFit: 'cover'
+                                                                    }}
+                                                                    onError={(e) => {
+                                                                        e.currentTarget.style.display = 'none'
+                                                                        const span = e.currentTarget.parentElement?.querySelector('.fallback-icon')
+                                                                        if (span) (span as HTMLElement).style.display = 'block'
+                                                                    }}
+                                                                />
+                                                                <span
+                                                                    className="fallback-icon"
+                                                                    style={{ display: 'none', fontSize: 24 }}
+                                                                >
+                                                                    📄
+                                                                </span>
+                                                            </div>
+                                                            <div style={{ padding: 6, borderTop: '1px solid #E8E6E1' }}>
+                                                                <div style={{
+                                                                    fontSize: 11,
+                                                                    fontWeight: 600,
+                                                                    color: '#1D7DB5',
+                                                                    overflow: 'hidden',
+                                                                    textOverflow: 'ellipsis',
+                                                                    whiteSpace: 'nowrap'
+                                                                }}>
+                                                                    {decodeURIComponent(file.filename)}
+                                                                </div>
+                                                            </div>
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <h4 style={{
                                             fontSize: 12, fontWeight: 700, color: '#6B7B8D',
                                             textTransform: 'uppercase', letterSpacing: '0.5px',
@@ -1146,41 +1357,17 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                         </h4>
 
                                         {cleanHtml && (
-                                            <p style={{
-                                                fontSize: 15, color: '#4A5568', lineHeight: 1.6,
-                                                margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word'
-                                            }}>
-                                                {cleanHtml}
-                                            </p>
-                                        )}
-
-                                        {attachments.length > 0 && (
-                                            <div style={{ marginTop: cleanHtml ? 12 : 0 }}>
-                                                <div style={{
-                                                    fontSize: 11, fontWeight: 600, color: '#6B7B8D',
-                                                    textTransform: 'uppercase', marginBottom: 6
-                                                }}>
-                                                    📎 {attachments.length} {attachments.length === 1 ? 'Attachment' : 'Attachments'}
-                                                </div>
-                                                <div style={{
-                                                    display: 'flex', flexDirection: 'column', gap: 4
-                                                }}>
-                                                    {attachments.map((file, i) => (
-                                                        <div key={i} style={{
-                                                            display: 'flex', alignItems: 'center', gap: 8,
-                                                            padding: '6px 10px', background: '#F7F5F2',
-                                                            borderRadius: 5, fontSize: 13, color: '#1D2D35'
-                                                        }}>
-                                                            <span style={{ fontSize: 16 }}>
-                                                                {/\.(jpg|jpeg|png|gif|webp|heic|svg)$/i.test(file) ? '🖼️' : '📄'}
-                                                            </span>
-                                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                {decodeURIComponent(file)}
-                                                            </span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
+                                            <div
+                                                className="bc-rich-text"
+                                                onClick={handleHtmlClick}
+                                                style={{
+                                                    fontSize: 15,
+                                                    color: '#1D2D35',
+                                                    lineHeight: 1.6,
+                                                    wordBreak: 'break-word'
+                                                }}
+                                                dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                                            />
                                         )}
                                     </div>
                                 )
@@ -1239,12 +1426,18 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                             })}
                                                         </span>
                                                     </div>
-                                                    <p style={{
-                                                        fontSize: 14, color: '#4A5568', margin: 0,
-                                                        lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word'
-                                                    }}>
-                                                        {c.text}
-                                                    </p>
+                                                     <div
+                                                         className="bc-rich-text"
+                                                         onClick={handleHtmlClick}
+                                                         style={{
+                                                             fontSize: 14,
+                                                             color: '#1D2D35',
+                                                             lineHeight: 1.55,
+                                                             whiteSpace: 'pre-wrap',
+                                                             wordBreak: 'break-word'
+                                                         }}
+                                                         dangerouslySetInnerHTML={{ __html: c.text }}
+                                                     />
                                                 </div>
                                             </div>
                                         ))}
