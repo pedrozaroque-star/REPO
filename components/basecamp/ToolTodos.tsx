@@ -27,7 +27,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
+import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 
 interface ToolTodosProps {
@@ -52,6 +52,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
     const [newTaskName, setNewTaskName] = useState('')
     const [newTaskAssignee, setNewTaskAssignee] = useState('')
     const [newTaskDueDate, setNewTaskDueDate] = useState('')
+    const [newTaskNotes, setNewTaskNotes] = useState('')
 
     // Estados de detalle de tarea
     const [selectedTask, setSelectedTask] = useState<any | null>(null)
@@ -455,7 +456,23 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 {task.task_name}
                                             </span>
 
-                                            {/* Inline avatar circles (18px each) */}
+                                            {/* Comment count badge — colored circle with number (Basecamp style) */}
+                                            {task.comments && task.comments.length > 0 && (
+                                                <span
+                                                    title={`${task.comments.length} comments`}
+                                                    style={{
+                                                        width: 20, height: 20, borderRadius: '50%',
+                                                        background: task.comments.length > 5 ? '#E74C3C' : task.comments.length > 2 ? '#F39C12' : '#3498DB',
+                                                        color: '#fff', fontSize: 10, fontWeight: 700,
+                                                        display: 'inline-flex', alignItems: 'center',
+                                                        justifyContent: 'center', flexShrink: 0, lineHeight: 1
+                                                    }}
+                                                >
+                                                    {task.comments.length}
+                                                </span>
+                                            )}
+
+                                            {/* Inline avatar circles (20px each) */}
                                             {task.assigneeList && task.assigneeList.length > 0 && (
                                                 <div style={{
                                                     display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0
@@ -479,24 +496,16 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 </div>
                                             )}
 
-                                            {/* Due date icon */}
-                                            {task.due_date && (
-                                                <span style={{
-                                                    display: 'inline-flex', alignItems: 'center', gap: 3,
-                                                    fontSize: 12, color: '#6B7B8D', flexShrink: 0
-                                                }}>
-                                                    <Calendar size={13} />
-                                                </span>
-                                            )}
-
-                                            {/* Comment count icon */}
-                                            {task.comments && task.comments.length > 0 && (
-                                                <span style={{
-                                                    display: 'inline-flex', alignItems: 'center', gap: 2,
-                                                    fontSize: 12, color: '#6B7B8D', flexShrink: 0
-                                                }}>
-                                                    <MessageSquare size={13} />
-                                                    {task.comments.length}
+                                            {/* Notes/attachment indicator icon */}
+                                            {task.description && task.description.trim() && (
+                                                <span
+                                                    title="Has notes/attachments"
+                                                    style={{
+                                                        display: 'inline-flex', alignItems: 'center',
+                                                        color: '#A0A0A0', flexShrink: 0
+                                                    }}
+                                                >
+                                                    <FileText size={14} />
                                                 </span>
                                             )}
 
@@ -637,16 +646,13 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
 
                                 {/* ── "Add a to-do" — blue text link (Basecamp style) ── */}
                                 {addingTaskId === list.id ? (
-                                    <div style={{
-                                        marginTop: 8, padding: '12px 16px',
-                                        background: '#FAFAF8', border: '1px solid #E8E6E1',
-                                        borderRadius: 6
-                                    }}>
+                                    <div style={{ marginTop: 4, borderTop: '1px solid #E8E6E1' }}>
                                         <form onSubmit={(e) => handleAddTask(list.id, list.bc_id, e)}>
-                                            {/* Task name input row */}
+                                            {/* Task name input row — checkbox + text like a real todo being typed */}
                                             <div style={{
                                                 display: 'flex', alignItems: 'center', gap: 10,
-                                                marginBottom: 10
+                                                padding: '10px 0',
+                                                borderBottom: '1px solid #F0EFEB'
                                             }}>
                                                 <div style={{
                                                     width: 18, height: 18, border: '2px solid #D5D3CE',
@@ -660,61 +666,140 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                     placeholder={t('basecamp.task_placeholder')}
                                                     autoFocus
                                                     style={{
-                                                        flex: 1, padding: '6px 0', border: 'none',
+                                                        flex: 1, padding: 0, border: 'none',
                                                         fontSize: 15, fontWeight: 500, color: '#1D2D35',
                                                         outline: 'none', background: 'transparent',
-                                                        lineHeight: '24px',
-                                                        borderBottom: '2px solid #1D7DB5'
+                                                        lineHeight: '20px'
                                                     }}
                                                 />
                                             </div>
-                                            {/* Controls row: assign + due date */}
-                                            <div style={{
-                                                display: 'flex', alignItems: 'center', gap: 16,
-                                                marginBottom: 12, paddingLeft: 28
-                                            }}>
+
+                                            {/* Labeled form fields — exact Basecamp layout */}
+                                            <div style={{ padding: '12px 0 8px 28px' }}>
+                                                {/* Assigned to */}
                                                 <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 6
+                                                    display: 'flex', alignItems: 'center', gap: 0,
+                                                    marginBottom: 8
                                                 }}>
-                                                    <User size={14} style={{ color: '#6B7B8D' }} />
+                                                    <span style={{
+                                                        width: 100, fontSize: 13, fontWeight: 700,
+                                                        color: '#1D2D35', flexShrink: 0
+                                                    }}>
+                                                        Assigned to
+                                                    </span>
                                                     <select
                                                         value={newTaskAssignee}
                                                         onChange={(e) => setNewTaskAssignee(e.target.value)}
                                                         style={{
-                                                            border: 'none', background: 'transparent',
-                                                            fontSize: 13, color: newTaskAssignee ? '#1D2D35' : '#6B7B8D',
-                                                            cursor: 'pointer', outline: 'none',
-                                                            padding: '2px 0', fontWeight: newTaskAssignee ? 500 : 400
+                                                            flex: 1, border: 'none', background: 'transparent',
+                                                            fontSize: 14, color: newTaskAssignee ? '#1D2D35' : '#999',
+                                                            cursor: 'pointer', outline: 'none', padding: '4px 0'
                                                         }}
                                                     >
-                                                        <option value="">{t('basecamp.assignee_label')}</option>
+                                                        <option value="">Type names to assign...</option>
                                                         {(project.people || []).map((p: any) => (
                                                             <option key={p.id} value={p.id}>{p.name}</option>
                                                         ))}
                                                     </select>
                                                 </div>
+
+                                                {/* When done */}
                                                 <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 6
+                                                    display: 'flex', alignItems: 'center', gap: 0,
+                                                    marginBottom: 8
                                                 }}>
-                                                    <Calendar size={14} style={{ color: '#6B7B8D' }} />
+                                                    <span style={{
+                                                        width: 100, fontSize: 13, fontWeight: 700,
+                                                        color: '#1D2D35', flexShrink: 0
+                                                    }}>
+                                                        When done
+                                                    </span>
+                                                    <span style={{ fontSize: 14, color: '#999' }}>
+                                                        Notify these people...
+                                                    </span>
+                                                </div>
+
+                                                {/* Due on */}
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 0,
+                                                    marginBottom: 8
+                                                }}>
+                                                    <span style={{
+                                                        width: 100, fontSize: 13, fontWeight: 700,
+                                                        color: '#1D2D35', flexShrink: 0
+                                                    }}>
+                                                        Due on
+                                                    </span>
                                                     <input
                                                         type="date"
                                                         value={newTaskDueDate}
                                                         onChange={(e) => setNewTaskDueDate(e.target.value)}
                                                         style={{
-                                                            border: 'none', background: 'transparent',
-                                                            fontSize: 13, color: newTaskDueDate ? '#1D2D35' : '#6B7B8D',
-                                                            cursor: 'pointer', outline: 'none', padding: '2px 0'
+                                                            flex: 1, border: 'none', background: 'transparent',
+                                                            fontSize: 14, color: newTaskDueDate ? '#1D2D35' : '#999',
+                                                            cursor: 'pointer', outline: 'none', padding: '4px 0'
                                                         }}
                                                     />
                                                 </div>
+
+                                                {/* Notes */}
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'flex-start', gap: 0,
+                                                    marginBottom: 8
+                                                }}>
+                                                    <span style={{
+                                                        width: 100, fontSize: 13, fontWeight: 700,
+                                                        color: '#1D2D35', flexShrink: 0, paddingTop: 4
+                                                    }}>
+                                                        Notes
+                                                    </span>
+                                                    <input
+                                                        type="text"
+                                                        value={newTaskNotes}
+                                                        onChange={(e) => setNewTaskNotes(e.target.value)}
+                                                        placeholder="Add extra details or attach a file..."
+                                                        style={{
+                                                            flex: 1, border: 'none', background: 'transparent',
+                                                            fontSize: 14, color: newTaskNotes ? '#1D2D35' : '#999',
+                                                            outline: 'none', padding: '4px 0'
+                                                        }}
+                                                    />
+                                                </div>
+
+                                                {/* Subtasks */}
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: 0,
+                                                    marginBottom: 12
+                                                }}>
+                                                    <span style={{
+                                                        width: 100, fontSize: 13, fontWeight: 700,
+                                                        color: '#1D2D35', flexShrink: 0
+                                                    }}>
+                                                        Subtasks
+                                                    </span>
+                                                    <span style={{ fontSize: 14, color: '#999' }}>
+                                                        Add subtasks
+                                                    </span>
+                                                </div>
                                             </div>
 
-                                            {/* Action buttons */}
+                                            {/* Action buttons — green "Add this to-do" + Cancel link */}
                                             <div style={{
-                                                display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                                                gap: 8
+                                                display: 'flex', alignItems: 'center', gap: 12,
+                                                padding: '0 0 12px 28px'
                                             }}>
+                                                <button
+                                                    type="submit"
+                                                    style={{
+                                                        padding: '8px 20px', borderRadius: 5, border: 'none',
+                                                        background: '#4BAE4F', fontSize: 14, fontWeight: 700,
+                                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s'
+                                                    }}
+                                                    onMouseEnter={e => (e.currentTarget.style.background = '#3D9440')}
+                                                    onMouseLeave={e => (e.currentTarget.style.background = '#4BAE4F')}
+                                                >
+                                                    Add this to-do
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -722,29 +807,15 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                         setNewTaskName('')
                                                         setNewTaskAssignee('')
                                                         setNewTaskDueDate('')
+                                                        setNewTaskNotes('')
                                                     }}
                                                     style={{
-                                                        padding: '6px 14px', borderRadius: 5,
-                                                        border: '1px solid #D5D3CE', background: '#fff',
-                                                        fontSize: 13, fontWeight: 500, color: '#6B7B8D',
-                                                        cursor: 'pointer', transition: 'background 0.15s'
+                                                        padding: '4px 8px', border: 'none', background: 'transparent',
+                                                        fontSize: 14, fontWeight: 500, color: '#6B7B8D',
+                                                        cursor: 'pointer', textDecoration: 'none'
                                                     }}
-                                                    onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
-                                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                                                 >
-                                                    {t('basecamp.cancel')}
-                                                </button>
-                                                <button
-                                                    type="submit"
-                                                    style={{
-                                                        padding: '7px 18px', borderRadius: 5, border: 'none',
-                                                        background: '#4BAE4F', fontSize: 13, fontWeight: 700,
-                                                        color: '#fff', cursor: 'pointer', transition: 'background 0.15s'
-                                                    }}
-                                                    onMouseEnter={e => (e.currentTarget.style.background = '#3D9440')}
-                                                    onMouseLeave={e => (e.currentTarget.style.background = '#4BAE4F')}
-                                                >
-                                                    {t('basecamp.save_task')}
+                                                    Cancel
                                                 </button>
                                             </div>
                                         </form>
