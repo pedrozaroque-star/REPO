@@ -154,7 +154,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     // Estados para crear tarea
     const [addingTaskId, setAddingTaskId] = useState<string | null>(null)
     const [newTaskName, setNewTaskName] = useState('')
-    const [newTaskAssignee, setNewTaskAssignee] = useState('')
+    const [newTaskAssignees, setNewTaskAssignees] = useState<any[]>([])
+    const [assigneeSearchQuery, setAssigneeSearchQuery] = useState('')
+    const [showAssigneeSuggestions, setShowAssigneeSuggestions] = useState(false)
     const [newTaskDueDate, setNewTaskDueDate] = useState('')
     const [newTaskNotes, setNewTaskNotes] = useState('')
 
@@ -528,14 +530,15 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     title: newTaskName.trim(),
                     description: '',
                     due_date: newTaskDueDate || null,
-                    assigneeUuids: newTaskAssignee ? [newTaskAssignee] : []
+                    assigneeUuids: newTaskAssignees.map((a: any) => a.id)
                 })
             })
 
             if (!res.ok) throw new Error(await res.text())
 
             setNewTaskName('')
-            setNewTaskAssignee('')
+            setNewTaskAssignees([])
+            setAssigneeSearchQuery('')
             setNewTaskDueDate('')
             setAddingTaskId(null)
             await fetchLists()
@@ -629,6 +632,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
     // List dot colors — each list gets a consistent colored dot
     const LIST_DOT_COLORS = ['#27AE60', '#E67E22', '#3498DB', '#E74C3C', '#8E44AD', '#1ABC9C', '#F39C12', '#2980B9', '#D35400', '#16A085']
+
+    // Filter suggestions based on what the user types
+    const filteredSuggestions = (project.people || []).filter((p: any) => {
+        const isAlreadySelected = newTaskAssignees.some((a) => a.id === p.id)
+        const matchesQuery = p.name.toLowerCase().includes(assigneeSearchQuery.toLowerCase())
+        return !isAlreadySelected && matchesQuery
+    })
 
     return (
         <div style={{ maxWidth: 780, margin: '0 auto', padding: '0 16px' }}>
@@ -1007,25 +1017,159 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 className="flex flex-col gap-2.5 mt-2.5 pt-3 pb-3 pl-0 sm:pl-7 border-t border-[#E8E6E1]"
                                             >
                                                 {/* Assigned to */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
+                                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
                                                         {t('basecamp.assign_to')}
                                                     </span>
-                                                    <select
-                                                        value={newTaskAssignee}
-                                                        onChange={(e) => setNewTaskAssignee(e.target.value)}
-                                                        className="w-full sm:w-auto min-w-[200px]"
-                                                        style={{
-                                                            border: '1px solid #E8E6E1', borderRadius: 4,
-                                                            padding: '4px 8px', fontSize: 13, color: '#1D2D35',
-                                                            background: '#fff', outline: 'none'
-                                                        }}
-                                                    >
-                                                        <option value="">{t('basecamp.type_names_placeholder')}</option>
-                                                        {(project.people || []).map((p: any) => (
-                                                            <option key={p.id} value={p.id}>{p.name}</option>
-                                                        ))}
-                                                    </select>
+                                                    <div style={{ position: 'relative', width: '100%', maxWidth: 400 }}>
+                                                        {/* Selected Assignees Row */}
+                                                        {newTaskAssignees.length > 0 && (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                                                                {newTaskAssignees.map((person) => (
+                                                                    <div key={person.id} style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 6,
+                                                                        padding: '2px 8px 2px 4px',
+                                                                        borderRadius: 14,
+                                                                        background: '#FAFAF8',
+                                                                        border: '1px solid #D5D3CE',
+                                                                        fontSize: 12,
+                                                                        fontWeight: 505,
+                                                                        color: '#1D2D35'
+                                                                    }}>
+                                                                        <span style={{
+                                                                            width: 18,
+                                                                            height: 18,
+                                                                            borderRadius: '50%',
+                                                                            background: getAvatarColor(person.name),
+                                                                            color: '#fff',
+                                                                            fontSize: 9,
+                                                                            fontWeight: 700,
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            flexShrink: 0
+                                                                        }}>
+                                                                            {getInitials(person.name)}
+                                                                        </span>
+                                                                        <span>{person.name}</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setNewTaskAssignees(prev => prev.filter(p => p.id !== person.id))}
+                                                                            style={{
+                                                                                border: 'none',
+                                                                                background: 'transparent',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: 11,
+                                                                                color: '#e74c3c',
+                                                                                padding: '0 2px',
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                fontWeight: 'bold'
+                                                                            }}
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Search Input */}
+                                                        <input
+                                                            type="text"
+                                                            placeholder={newTaskAssignees.length === 0 ? t('basecamp.type_names_placeholder') || 'Type names to assign...' : t('basecamp.type_names_placeholder') || 'Type names to assign...'}
+                                                            value={assigneeSearchQuery}
+                                                            onChange={(e) => {
+                                                                setAssigneeSearchQuery(e.target.value)
+                                                                setShowAssigneeSuggestions(true)
+                                                            }}
+                                                            onFocus={() => setShowAssigneeSuggestions(true)}
+                                                            onBlur={() => {
+                                                                setTimeout(() => {
+                                                                    setShowAssigneeSuggestions(false)
+                                                                }, 200)
+                                                            }}
+                                                            className="w-full"
+                                                            style={{
+                                                                border: '1px solid #E8E6E1',
+                                                                borderRadius: 4,
+                                                                padding: '6px 8px',
+                                                                fontSize: 13,
+                                                                color: '#1D2D35',
+                                                                background: '#fff',
+                                                                outline: 'none'
+                                                            }}
+                                                        />
+
+                                                        {/* Suggestions Dropdown */}
+                                                        {showAssigneeSuggestions && assigneeSearchQuery.trim().length > 0 && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                top: '100%',
+                                                                left: 0,
+                                                                right: 0,
+                                                                background: '#fff',
+                                                                border: '1px solid #D5D3CE',
+                                                                borderRadius: 4,
+                                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                                                zIndex: 100,
+                                                                maxHeight: 150,
+                                                                overflowY: 'auto',
+                                                                marginTop: 4
+                                                            }}>
+                                                                {filteredSuggestions.length > 0 ? (
+                                                                    filteredSuggestions.map((person: any) => (
+                                                                        <div
+                                                                            key={person.id}
+                                                                            onClick={() => {
+                                                                                setNewTaskAssignees(prev => [...prev, person])
+                                                                                setAssigneeSearchQuery('')
+                                                                                setShowAssigneeSuggestions(false)
+                                                                            }}
+                                                                            style={{
+                                                                                padding: '8px 12px',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: 13,
+                                                                                color: '#1D2D35',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: 8,
+                                                                                transition: 'background 0.1s'
+                                                                            }}
+                                                                            onMouseDown={(e) => {
+                                                                                // Prevents blur from hiding options before click registers
+                                                                                e.preventDefault()
+                                                                            }}
+                                                                        >
+                                                                            <span style={{
+                                                                                width: 20,
+                                                                                height: 20,
+                                                                                borderRadius: '50%',
+                                                                                background: getAvatarColor(person.name),
+                                                                                color: '#fff',
+                                                                                fontSize: 9,
+                                                                                fontWeight: 700,
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                flexShrink: 0
+                                                                            }}>
+                                                                                {getInitials(person.name)}
+                                                                            </span>
+                                                                            <span>{person.name}</span>
+                                                                        </div>
+                                                                    ))
+                                                                ) : (
+                                                                    <div style={{ padding: '8px 12px', fontSize: 13, color: '#999', fontStyle: 'italic' }}>
+                                                                        No results found
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
 
                                                 {/* When done */}
@@ -1200,7 +1344,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     onClick={() => {
                                                         setAddingTaskId(null)
                                                         setNewTaskName('')
-                                                        setNewTaskAssignee('')
+                                                        setNewTaskAssignees([])
+                                                        setAssigneeSearchQuery('')
                                                         setNewTaskDueDate('')
                                                         setNewTaskNotes('')
                                                     }}
