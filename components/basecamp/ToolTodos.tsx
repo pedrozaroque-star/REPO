@@ -172,6 +172,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [showTableControls, setShowTableControls] = useState(false)
     const [tableRows, setTableRows] = useState(3)
     const [tableCols, setTableCols] = useState(3)
+    // Toolbar dropdown menus
+    const [showTextSizeMenu, setShowTextSizeMenu] = useState(false)
+    const [showColorMenu, setShowColorMenu] = useState(false)
 
     // Estados de detalle de tarea
     const [selectedTask, setSelectedTask] = useState<any | null>(null)
@@ -1635,15 +1638,101 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             <button type="button" onClick={() => execCmd('italic')} title="Italic" style={toolbarBtnStyle}>
                                                                 <Italic size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
+                                                            {/* Strikethrough */}
                                                             <button type="button" onClick={() => execCmd('strikeThrough')} title="Strikethrough" style={toolbarBtnStyle}>
                                                                 <Strikethrough size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => execCmd('removeFormat')} title="Clear Formatting" style={toolbarBtnStyle}>
-                                                                <Type size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
-                                                            <button type="button" onClick={() => execCmd('hiliteColor', '#f1c40f')} title="Highlight" style={toolbarBtnStyle}>
-                                                                <Highlighter size={14} style={{ color: '#4F5E68' }} />
-                                                            </button>
+                                                            
+                                                            {/* Text Size dropdown (Tᵥ) — Heading 1, Heading 2, Normal */}
+                                                            <div style={{ position: 'relative' }}>
+                                                                <button type="button" onClick={() => { setShowTextSizeMenu(!showTextSizeMenu); setShowColorMenu(false) }} title="Text Size" style={{
+                                                                    ...toolbarBtnStyle,
+                                                                    width: 36,
+                                                                    gap: 1,
+                                                                    background: showTextSizeMenu ? '#E8E6E1' : 'transparent'
+                                                                }}>
+                                                                    <Type size={14} style={{ color: '#4F5E68' }} />
+                                                                    <ChevronDown size={10} style={{ color: '#4F5E68' }} />
+                                                                </button>
+                                                                {showTextSizeMenu && (
+                                                                    <div style={{
+                                                                        position: 'absolute',
+                                                                        top: '100%',
+                                                                        left: 0,
+                                                                        zIndex: 50,
+                                                                        background: '#fff',
+                                                                        border: '1px solid #D5D3CE',
+                                                                        borderRadius: 6,
+                                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                                        minWidth: 150,
+                                                                        padding: '4px 0',
+                                                                        marginTop: 2
+                                                                    }}>
+                                                                        <button type="button" onClick={() => { focusEditor(); document.execCommand('formatBlock', false, 'h1'); setShowTextSizeMenu(false) }}
+                                                                            style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 18, fontWeight: 700, color: '#1D2D35' }}>Heading 1</button>
+                                                                        <button type="button" onClick={() => { focusEditor(); document.execCommand('formatBlock', false, 'h2'); setShowTextSizeMenu(false) }}
+                                                                            style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 15, fontWeight: 600, color: '#1D2D35' }}>Heading 2</button>
+                                                                        <button type="button" onClick={() => { focusEditor(); document.execCommand('formatBlock', false, 'p'); setShowTextSizeMenu(false) }}
+                                                                            style={{ display: 'block', width: '100%', padding: '6px 14px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: 13, color: '#1D2D35' }}>Normal text</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            
+                                                            {/* Color/Highlight dropdown (🖊ᵥ) — color palette */}
+                                                            <div style={{ position: 'relative' }}>
+                                                                <button type="button" onClick={() => { setShowColorMenu(!showColorMenu); setShowTextSizeMenu(false) }} title="Highlight Color" style={{
+                                                                    ...toolbarBtnStyle,
+                                                                    width: 36,
+                                                                    gap: 1,
+                                                                    background: showColorMenu ? '#E8E6E1' : 'transparent'
+                                                                }}>
+                                                                    <Highlighter size={14} style={{ color: '#4F5E68' }} />
+                                                                    <ChevronDown size={10} style={{ color: '#4F5E68' }} />
+                                                                </button>
+                                                                {showColorMenu && (
+                                                                    <div style={{
+                                                                        position: 'absolute',
+                                                                        top: '100%',
+                                                                        left: 0,
+                                                                        zIndex: 50,
+                                                                        background: '#fff',
+                                                                        border: '1px solid #D5D3CE',
+                                                                        borderRadius: 6,
+                                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                                        padding: '8px',
+                                                                        marginTop: 2,
+                                                                        display: 'flex',
+                                                                        gap: 4,
+                                                                        flexWrap: 'wrap',
+                                                                        width: 160
+                                                                    }}>
+                                                                        {[
+                                                                            { color: '#f1c40f', label: 'Yellow' },
+                                                                            { color: '#a8f0c6', label: 'Green' },
+                                                                            { color: '#7dd3fc', label: 'Blue' },
+                                                                            { color: '#fda4af', label: 'Pink' },
+                                                                            { color: '#fdba74', label: 'Orange' },
+                                                                            { color: '#d8b4fe', label: 'Purple' },
+                                                                        ].map((c) => (
+                                                                            <button
+                                                                                key={c.color}
+                                                                                type="button"
+                                                                                title={c.label}
+                                                                                onClick={() => { focusEditor(); document.execCommand('hiliteColor', false, c.color); setShowColorMenu(false) }}
+                                                                                style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid #ddd', background: c.color, cursor: 'pointer' }}
+                                                                            />
+                                                                        ))}
+                                                                        <button
+                                                                            type="button"
+                                                                            title="Clear highlight"
+                                                                            onClick={() => { focusEditor(); document.execCommand('removeFormat'); setShowColorMenu(false) }}
+                                                                            style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}
+                                                                        >✕</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            
+                                                            {/* Link */}
                                                             <button type="button" onClick={editorToggleLinkBar} title="Link" style={{
                                                                 ...toolbarBtnStyle,
                                                                 background: showLinkBar ? '#4B9ED6' : 'transparent',
