@@ -1,5 +1,19 @@
+/**
+ * @module chat-tools
+ * @description Operational tools executor for TEG Assistant AI. It acts as the interface between Google Gemini's function calling loops and Tacos El Gavilan's backend database and analytical engines.
+ * @businessRules
+ * - Incorporates rules from the 6 AM PST business day boundary.
+ * - Adheres to California compliance guidelines by wrapping the AI breaks scheduler.
+ * - Performs theoretical cost analysis matching QuickBooks purchase prices.
+ * @dataFlow
+ * - Gemini Tool Calls -> executeTool() -> Database Select/Upsert / Local Forecasting Engine / AI Breaks Engine -> Formatted Markdown String Response.
+ * @notes Combines multi-year lookups and weather APIs dynamically to generate instant predictive insights inside the support chat.
+ */
+
 import { supabaseAdmin } from '@/lib/supabase'
 import { calculateIngredientCost, type InventoryCostData } from '@/lib/inventory/recipe-calculations'
+import { generateSmartForecast } from '@/lib/intelligence'
+import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
 
 const clean = (name: string) => (name || '').replace(/^Tacos Gavilan\s+/i, '').trim()
 const fmt$ = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -177,6 +191,54 @@ export const TOOL_DECLARATIONS = [
       },
       required: ['start_date', 'end_date']
     }
+  },
+  {
+    name: 'query_forecast',
+    description: 'Generate a highly detailed hourly sales and labor projection (cooks and cashiers required per hour) for any store and date using the 4-layer smart-hybrid AI forecasting model.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Store name filter (e.g. Lynwood, Huntington Park, El Monte)' },
+        target_date: { type: 'STRING', description: 'Date YYYY-MM-DD' }
+      },
+      required: ['store_name', 'target_date']
+    }
+  },
+  {
+    name: 'calculate_breaks',
+    description: 'Simulate and calculate California-compliant meal and rest breaks for all shifts of a store on a specific date, ensuring lunch and rests are outside peak hours and correctly spaced.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Store name filter' },
+        target_date: { type: 'STRING', description: 'Date YYYY-MM-DD' }
+      },
+      required: ['store_name', 'target_date']
+    }
+  },
+  {
+    name: 'analyze_performance',
+    description: 'Perform a deep operational real-time audit comparing actual vs target KPIs (Food Cost%, Labor Cost%, under/overstaffing deviations, punch violations) for a store and date range.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Store name filter' },
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' }
+      },
+      required: ['store_name', 'start_date', 'end_date']
+    }
+  },
+  {
+    name: 'execute_custom_sql',
+    description: 'Run unrestricted custom PostgreSQL queries (SELECT, joins, aggregates, schema lookups) against any database table for dynamic insights and analysis.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query_text: { type: 'STRING', description: 'The complete PostgreSQL raw query string to execute (e.g. SELECT * FROM stores LIMIT 5;)' }
+      },
+      required: ['query_text']
+    }
   }
 ]
 
@@ -198,6 +260,10 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_checklists': return await queryChecklists(args)
       case 'query_violations_budgets': return await queryViolationsBudgets(args)
       case 'query_product_mix': return await queryProductMix(args)
+      case 'query_forecast': return await queryForecast(args)
+      case 'calculate_breaks': return await calculateBreaks(args)
+      case 'analyze_performance': return await analyzePerformance(args)
+      case 'execute_custom_sql': return await executeCustomSql(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -886,4 +952,340 @@ async function queryProductMix(args: any): Promise<string> {
   }
 
   return parts.length ? parts.join('\n\n') : `No product mix or meat data for ${args.start_date} to ${args.end_date}.`
+}
+
+// ── 15. Forecast ──
+async function queryForecast(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  const storeNameInput = (args.store_name || '').toLowerCase().trim()
+  
+  const matchedStoreEntry = Object.entries(idToName).find(([, name]) => name.toLowerCase().includes(storeNameInput))
+  if (!matchedStoreEntry) {
+    return `Store matching "${args.store_name}" not found. Available stores: ${Object.values(idToName).join(', ')}`
+  }
+  
+  const [storeId, storeName] = matchedStoreEntry
+  const targetDate = args.target_date
+  
+  try {
+    const forecast = await generateSmartForecast(storeId, targetDate)
+    
+    const lines = [
+      `🔮 **Smart Forecast Projection for ${storeName} on ${targetDate}**`,
+      `================================================================`,
+      `*   **Base Historical Sales:** ${fmt$(forecast.base_sales || 0)}`,
+      `*   **Growth Factor Applied:** ${((forecast.growth_factor_applied || 1.0) * 100).toFixed(1)}%`,
+      `*   **Weather Adjustment:** ${forecast.weather_adjustment ? '⚠️ Severe Weather Penalty Applied (-5%)' : '✅ None'}`,
+      `*   **Projected Net Sales:** **${fmt$(forecast.total_sales || 0)}**`,
+      ``,
+      `| Hour | Projected Sales | Projected Tickets | Required Cooks | Required Cashiers | Reasoning |`,
+      `| :--- | :-------------- | :---------------- | :------------- | :---------------- | :-------- |`
+    ]
+    
+    const sortedHours = [...(forecast.hours || [])].sort((a, b) => a.hour - b.hour)
+    const maxSales = forecast.hours?.reduce((m, hr) => hr.projected_sales > m ? hr.projected_sales : m, 0) || 1
+    
+    sortedHours.forEach(h => {
+      const displayHour = h.hour >= 24 ? `${h.hour - 24}:00 (Next Day)` : `${h.hour}:00`
+      const isPeak = h.projected_sales > 0 && h.projected_sales >= (maxSales * 0.85)
+      
+      const salesText = isPeak ? `🔥 **${fmt$(h.projected_sales)}**` : fmt$(h.projected_sales)
+      
+      lines.push(
+        `| ${displayHour} | ${salesText} | ${h.projected_tickets.toFixed(0)} | ${h.required_kitchen} | ${h.required_foh} | ${h.reasoning} |`
+      )
+    })
+    
+    return lines.join('\n')
+  } catch (error: any) {
+    return `Error generating forecast: ${error.message}`
+  }
+}
+
+// ── 16. Calculate Breaks ──
+async function calculateBreaks(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  const storeNameInput = (args.store_name || '').toLowerCase().trim()
+  
+  const matchedStoreEntry = Object.entries(idToName).find(([, name]) => name.toLowerCase().includes(storeNameInput))
+  if (!matchedStoreEntry) {
+    return `Store matching "${args.store_name}" not found. Available stores: ${Object.values(idToName).join(', ')}`
+  }
+  
+  const [storeId, storeName] = matchedStoreEntry
+  const targetDate = args.target_date
+  
+  try {
+    const { data: dbShifts, error: shiftErr } = await supabaseAdmin
+      .from('shifts')
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('shift_date', targetDate)
+      
+    if (shiftErr) return `Database error fetching shifts: ${shiftErr.message}`
+    if (!dbShifts?.length) return `No scheduled shifts found for ${storeName} on ${targetDate}. Breaks can only be calculated for scheduled days.`
+    
+    const { data: employees } = await supabaseAdmin.from('toast_employees').select('*')
+    const { data: jobs } = await supabaseAdmin.from('toast_jobs').select('*')
+    
+    const forecast = await generateSmartForecast(storeId, targetDate)
+    const hours = forecast.hours || []
+    
+    const presentShifts = dbShifts.filter(s => s.employee_id !== null && s.is_callback !== true)
+    
+    const shiftsForAi = presentShifts.map(s => {
+      const emp = (employees || []).find(e => e.id === s.employee_id || e.toast_guid === s.employee_toast_guid)
+      let extTitle = ''
+      if (emp && emp.job_references && emp.job_references.length > 0) {
+        const jobRef = emp.job_references[0]
+        if (jobRef.title) extTitle = jobRef.title
+        else {
+          const job = (jobs || []).find(j => j.guid === jobRef.guid || String(j.id) === jobRef.guid)
+          if (job) extTitle = job.title
+        }
+      }
+      if (!extTitle) {
+        const shiftJob = (jobs || []).find(j => j.guid === s.job_id || String(j.id) === String(s.job_id))
+        if (shiftJob) extTitle = shiftJob.title
+      }
+      if (!extTitle && emp) extTitle = 'cook'
+      
+      const titleLowerCase = extTitle.toLowerCase()
+      const employeeName = emp ? `${emp.first_name} ${emp.last_name}` : 'Unknown Staff'
+      const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.toLowerCase().includes('manager')
+      
+      return {
+        ...s,
+        is_leader: isLeader,
+        job_title: extTitle,
+        employee_name: employeeName
+      }
+    })
+    
+    const { data: prefData } = await supabaseAdmin
+      .from('break_manual_overrides')
+      .select('*')
+      .eq('store_id', storeId)
+      
+    const learnedPrefs = prefData || []
+    
+    const calculatedShifts = scheduleBreaksWithDemand(shiftsForAi as any, hours, learnedPrefs)
+    
+    const lines = [
+      `📅 **California-Compliant AI Breaks Schedule for ${storeName} on ${targetDate}**`,
+      `========================================================================`,
+      `🤖 *Processed by TEG AI Breaks Engine V25 (Strict spacing & Peak-aware)*`,
+      ``,
+      `| Employee | Position | Shift Hours | Scheduled Lunches & Breaks |`,
+      `| :--- | :--- | :--- | :--- |`
+    ]
+    
+    calculatedShifts.forEach((s: any) => {
+      const formatTime = (iso: string) => {
+        try {
+          const d = new Date(iso)
+          return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' })
+        } catch {
+          return iso
+        }
+      }
+      
+      const startDisplay = formatTime(s.start_time)
+      const endDisplay = formatTime(s.end_time)
+      
+      const breakTextList = (s.breaks_schedule || []).map((b: any) => {
+        const typeLabel = b.type === 'meal_30' ? '🍔 Meal (30m)' : '☕ Break (10m)'
+        return `**${typeLabel}:** ${formatTime(b.start_time)} - ${formatTime(b.end_time)}`
+      })
+      
+      const breakSummary = breakTextList.length > 0 ? breakTextList.join('<br>') : '*None required (Short shift)*'
+      
+      lines.push(
+        `| **${s.employee_name}** | ${s.job_title} | ${startDisplay} - ${endDisplay} | ${breakSummary} |`
+      )
+    })
+    
+    return lines.join('\n')
+  } catch (error: any) {
+    return `Error simulating breaks schedule: ${error.message}`
+  }
+}
+
+// ── 17. Analyze Performance ──
+async function analyzePerformance(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  const storeNameInput = (args.store_name || '').toLowerCase().trim()
+  
+  const matchedStoreEntry = Object.entries(idToName).find(([, name]) => name.toLowerCase().includes(storeNameInput))
+  if (!matchedStoreEntry) {
+    return `Store matching "${args.store_name}" not found. Available stores: ${Object.values(idToName).join(', ')}`
+  }
+  
+  const [storeId, storeName] = matchedStoreEntry
+  const { start_date, end_date } = args
+  
+  try {
+    const { data: salesData } = await supabaseAdmin
+      .from('sales_daily_cache')
+      .select('business_date, net_sales, labor_cost, order_count, total_tickets')
+      .eq('store_id', storeId)
+      .gte('business_date', start_date)
+      .lte('business_date', end_date)
+      .order('business_date', { ascending: true })
+      
+    const { data: foodData } = await supabaseAdmin
+      .from('food_cost_daily_cache')
+      .select('business_date, total_cost, cost_percentage')
+      .eq('store_id', storeId)
+      .gte('business_date', start_date)
+      .lte('business_date', end_date)
+      
+    const { data: violations } = await supabaseAdmin
+      .from('punch_violations')
+      .select('violation_type, business_date')
+      .eq('store_id', storeId)
+      .gte('business_date', start_date)
+      .lte('business_date', end_date)
+      
+    if (!salesData?.length) {
+      return `No actual sales data found for ${storeName} from ${start_date} to ${end_date} to perform audit.`
+    }
+    
+    let totalSales = 0
+    let totalLabor = 0
+    let totalOrders = 0
+    let daysWithSales = salesData.length
+    
+    salesData.forEach(d => {
+      totalSales += Number(d.net_sales) || 0
+      totalLabor += Number(d.labor_cost) || 0
+      totalOrders += Number(d.order_count || d.total_tickets) || 0
+    })
+    
+    let totalFoodCost = 0
+    foodData?.forEach(f => {
+      if (Number(f.total_cost) > 0) {
+        totalFoodCost += Number(f.total_cost)
+      }
+    })
+    
+    const actualLaborPct = totalSales > 0 ? (totalLabor / totalSales) * 100 : 0
+    const actualFoodPct = totalSales > 0 && totalFoodCost > 0 ? (totalFoodCost / totalSales) * 100 : 0
+    const primeCostPct = actualLaborPct + actualFoodPct
+    
+    const laborTarget = 21.5
+    const foodTarget = 32.0
+    const primeTarget = 53.5
+    
+    const laborStatus = actualLaborPct <= laborTarget ? '🟢 HEALTHY (Cumple Meta)' : actualLaborPct <= 23.5 ? '🟡 WARNING (Elevado)' : '🔴 CRITICAL (Sobrepresupuesto)'
+    const foodStatus = actualFoodPct > 0 ? (actualFoodPct <= foodTarget ? '🟢 HEALTHY (Cumple Meta)' : actualFoodPct <= 35.0 ? '🟡 WARNING (Elevado)' : '🔴 CRITICAL (Alto Desperdicio/Precios)') : '⚪ N/A (Sin datos de recetas)'
+    const primeStatus = primeCostPct > 0 ? (primeCostPct <= primeTarget ? '🟢 HEALTHY' : '🔴 CRITICAL (Fuera de Meta Global)') : '⚪ N/A'
+    
+    const lines = [
+      `📊 **Operational Performance Deep Audit for ${storeName}**`,
+      `📅 **Period:** ${start_date} to ${end_date} (${daysWithSales} days)`,
+      `========================================================================`,
+      `### 💰 Financial KPI scorecard`,
+      `*   **Net Sales Total:** **${fmt$(totalSales)}** (Avg: ${fmt$(totalSales / daysWithSales)}/day)`,
+      `*   **Total Orders:** **${totalOrders}** (ATV: ${fmt$(totalSales / (totalOrders || 1))})`,
+      `*   **Labor Cost:** **${fmt$(totalLabor)}** | **${actualLaborPct.toFixed(1)}%** (Meta: <21.5%) -> **${laborStatus}**`,
+      `*   **Food Cost (Theoretical):** ${totalFoodCost > 0 ? `**${fmt$(totalFoodCost)}** | **${actualFoodPct.toFixed(1)}%**` : '*N/A*'} (Meta: <32.0%) -> **${foodStatus}**`,
+      `*   **Prime Cost (Labor + Food):** ${primeCostPct > 0 ? `**${primeCostPct.toFixed(1)}%**` : '*N/A*'} (Meta: <53.5%) -> **${primeStatus}**`,
+      ``,
+      `### ⚖️ Labor Compliance & Violations`,
+      `*   **Total Punch Violations:** **${violations?.length || 0}** cases detected.`
+    ]
+    
+    if (violations?.length) {
+      const byType: Record<string, number> = {}
+      violations.forEach(v => {
+        byType[v.violation_type] = (byType[v.violation_type] || 0) + 1
+      })
+      Object.entries(byType).forEach(([type, count]) => {
+        lines.push(`    *   ⚠️ **${type}:** ${count} cases`)
+      })
+    } else {
+      lines.push(`    *   ✅ No California labor compliance violations detected during this period. Excellent shift discipline!`)
+    }
+    
+    lines.push(
+      ``,
+      `### 🧠 Actionable Recommendations & Operations Intelligence`,
+      `1.  **Labor Cost Optimization:**`
+    )
+    
+    if (actualLaborPct > laborTarget) {
+      const excessLaborAmt = totalLabor - (totalSales * (laborTarget / 100))
+      lines.push(
+        `    *   ⚠️ **Deviation:** Labor is **${(actualLaborPct - laborTarget).toFixed(1)}%** over target, representing an excess expenditure of **${fmt$(excessLaborAmt)}**.`
+        + `\n    *   💡 **Action:** Review scheduled shifts against the smart hourly forecast using ` + '`query_forecast`.'
+        + ` Consider dynamic mid-day cuts if actual sales do not track the forecast by 2 PM.`
+      )
+    } else {
+      lines.push(`    *   ✅ **Excellent Roster Efficiency!** Labor is tracking at **${actualLaborPct.toFixed(1)}%**, which is below our 21.5% target ceiling. Maintain this scheduling pattern.`)
+    }
+    
+    lines.push(`2.  **Food Cost and Margins:**`)
+    if (actualFoodPct > foodTarget) {
+      lines.push(
+        `    *   ⚠️ **Theoretical Food Cost is ${actualFoodPct.toFixed(1)}%** (Meta: 32%).`
+        + `\n    *   💡 **Action:** Check recipe margins and yield percentages of high-volume items (Combos, Tacos de Asada) using ` + '`query_menu_recipes`.'
+        + ` Ensure prep amounts are strictly controlled using the production Prep tool to avoid organic waste.`
+      )
+    } else if (actualFoodPct > 0) {
+      lines.push(`    *   ✅ **Food Cost under control:** Theoretical usage is at **${actualFoodPct.toFixed(1)}%**, showing perfect portion control and recipe accuracy.`)
+    } else {
+      lines.push(`    *   ℹ️ No recipe cost logs were parsed for this date range in Supabase cache. Run monthly sync.`)
+    }
+    
+    return lines.join('\n')
+  } catch (error: any) {
+    return `Error running performance audit: ${error.message}`
+  }
+}
+
+// ── 18. Execute Custom SQL ──
+async function executeCustomSql(args: any): Promise<string> {
+  const { query_text } = args
+  if (!query_text) return 'Error: query_text parameter is required.'
+
+  // Trim trailing semicolon to prevent PostgreSQL subquery syntax errors inside '(' || query_text || ')'
+  let sqlQuery = query_text.trim()
+  if (sqlQuery.endsWith(';')) {
+    sqlQuery = sqlQuery.slice(0, -1).trim()
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin.rpc('execute_sql', { query_text: sqlQuery })
+    if (error) {
+      return `SQL Execution Error: ${error.message}\nDetail: ${error.details || ''}\nHint: ${error.hint || ''}`
+    }
+
+    if (!data) return 'No result returned.'
+    if (data.error) {
+      return `SQL Engine Error: ${data.error}`
+    }
+
+    if (Array.isArray(data)) {
+      if (data.length === 0) return 'Query executed successfully. 0 rows returned.'
+      
+      // Convert JSON array to Markdown table
+      const headers = Object.keys(data[0])
+      const headerRow = `| ${headers.join(' | ')} |`
+      const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`
+      const dataRows = data.map(row => {
+        return `| ${headers.map(h => {
+          const val = row[h]
+          if (val === null || val === undefined) return 'NULL'
+          if (typeof val === 'object') return JSON.stringify(val)
+          return String(val)
+        }).join(' | ')} |`
+      })
+      return `${headerRow}\n${separatorRow}\n${dataRows.join('\n')}\n\n*Total rows: ${data.length}*`
+    }
+
+    return JSON.stringify(data, null, 2)
+  } catch (e: any) {
+    return `Exception running SQL: ${e.message}`
+  }
 }

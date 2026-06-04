@@ -1,5 +1,17 @@
 'use client'
 
+/**
+ * @module components/SupportChatWidget
+ * @description Interactive floating chat widget that provides internal tech support and operations assistance to TEG managers, using custom Tailwind glassmorphic gradients and Framer Motion animations.
+ * @businessRules
+ * - Offers interactive exploratory tabs (Sales, Operations, Team, Quality, Learn).
+ * - Enforces dynamic i18n localization (English/Spanish) for headers, placeholders, and tool responses.
+ * - Fits with the custom role mappings of Tacos El Gavilan (Admin, Manager, Supervisor).
+ * @dataFlow
+ * - User Input/Suggested Prompt Click -> Send request -> POST /api/support-chat -> ReactMarkdown render with RemarkGfm support.
+ * @notes Features a visual expandable panel mimicking premium conversational AI assistants (e.g. Meta AI or Toast IQ).
+ */
+
 import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -25,11 +37,11 @@ const PROMPTS = {
     ],
     prompts: [
       // Ventas
-      ['Genera el reporte de rendimiento de ayer', 'Identifica las 10 tiendas con más variación en ventas', 'Proyecta las ventas netas de hoy', 'Compara las ventas de esta semana vs la semana pasada', 'Desglosa las ventas por canal (Uber, DoorDash, EBT)', 'Muestra el ticket promedio por tienda hoy', 'Ranking de las 15 tiendas por ventas netas'],
+      ['Genera el reporte de rendimiento de ayer', 'Proyecta las ventas netas y personal para Lynwood mañana', 'Proyecta las ventas netas de hoy', 'Compara las ventas de esta semana vs la semana pasada', 'Desglosa las ventas por canal (Uber, DoorDash, EBT)', 'Muestra el ticket promedio por tienda hoy', 'Ranking de las 15 tiendas por ventas netas'],
       // Operaciones
-      ['¿Cómo asigno estaciones en el Tablero de Roles?', '¿Cómo activo el Modo Inmersivo para un monitor?', '¿Cómo funciona la regla de las 6 AM en ventas?', '¿Cómo configuro los horarios de apertura y cierre?', '¿Cómo uso el Preparador de producción?', '¿Qué es el motor de Descansos AI?'],
+      ['¿Cómo asigno estaciones en el Tablero de Roles?', 'Calcula los descansos (breaks) de hoy para Lynwood', '¿Cómo activo el Modo Inmersivo para un monitor?', '¿Cómo funciona la regla de las 6 AM en ventas?', '¿Cómo configuro los horarios de apertura y cierre?', '¿Cómo uso el Preparador de producción?', '¿Qué es el motor de Descansos AI?'],
       // Equipo
-      ['¿Cuáles son las leyes de breaks en California?', '¿Cómo creo un horario semanal para una tienda?', '¿Cómo funciona el Smart-Hybrid forecasting?', '¿Cómo registro un nuevo empleado en el sistema?', '¿Qué roles de usuario existen (Admin, Manager, etc)?', '¿Cómo funciona la Auto-Programación de empleados?'],
+      ['¿Cuáles son las leyes de breaks en California?', 'Audita el desempeño y costo de labor de Lynwood de la semana pasada', '¿Cómo creo un horario semanal para una tienda?', '¿Cómo funciona el Smart-Hybrid forecasting?', '¿Cómo registro un nuevo empleado en el sistema?', '¿Qué roles de usuario existen (Admin, Manager, etc)?', '¿Cómo funciona la Auto-Programación de empleados?'],
       // Calidad
       ['¿Cómo inicio una nueva inspección de supervisor?', '¿Cuántos checklists hay disponibles?', '¿Cómo funciona el Daily Checklist de 34 puntos?', '¿Cómo registro temperaturas correctamente?', '¿Qué es el Radar de Anomalías de descuentos?', '¿Cómo reviso y apruebo una inspección?'],
       // Aprender
@@ -49,10 +61,15 @@ const PROMPTS = {
       { tag: 'OPS', text: 'How do I assign roles on the board?', color: 'from-purple-500 to-indigo-500' },
     ],
     prompts: [
-      ["Generate yesterday's performance report", 'Identify top 10 stores with largest sales fluctuations', "Project today's net sales", 'Compare this week vs last week sales', 'Break down sales by channel (Uber, DoorDash, EBT)', 'Show average ticket by store today', 'Rank all 15 stores by net sales'],
-      ['How do I assign stations on the Roles Board?', 'How do I activate Immersive Mode for a monitor?', 'How does the 6 AM Rule work for sales?', 'How do I set store open/close hours?', 'How do I use the Prep production tool?', 'What is the AI Breaks engine?'],
-      ['What are the California break laws?', 'How do I create a weekly schedule?', 'How does Smart-Hybrid forecasting work?', 'How do I register a new employee?', 'What user roles exist (Admin, Manager, etc)?', 'How does employee Self-Scheduling work?'],
+      // Sales
+      ["Generate yesterday's performance report", 'Project sales and staff needed for Lynwood tomorrow', "Project today's net sales", 'Compare this week vs last week sales', 'Break down sales by channel (Uber, DoorDash, EBT)', 'Show average ticket by store today', 'Rank all 15 stores by net sales'],
+      // Operations
+      ['How do I assign stations on the Roles Board?', 'Calculate compliance breaks for Lynwood today', 'How do I activate Immersive Mode for a monitor?', 'How does the 6 AM Rule work for sales?', 'How do I set store open/close hours?', 'How do I use the Prep production tool?', 'What is the AI Breaks engine?'],
+      // Team
+      ['What are the California break laws?', 'Audit performance and labor cost for Lynwood last week', 'How do I create a weekly schedule?', 'How does Smart-Hybrid forecasting work?', 'How do I register a new employee?', 'What user roles exist (Admin, Manager, etc)?', 'How does employee Self-Scheduling work?'],
+      // Quality
       ['How do I start a new supervisor inspection?', 'How many checklist types are available?', 'How does the 34-point Daily Checklist work?', 'How do I record temperatures correctly?', 'What is the Discount Anomaly Radar?', 'How do I review and approve an inspection?'],
+      // Learn
       ['Explain the platform architecture', 'What is Food Cost and how is it calculated?', 'How does the Toast POS integration work?', 'What is NPS and how is it measured?', 'How do I export PDF or CSV reports?', 'How do I change my password or preferences?'],
     ]
   }
