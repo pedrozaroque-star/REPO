@@ -157,6 +157,11 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [newTaskAssignees, setNewTaskAssignees] = useState<any[]>([])
     const [assigneeSearchQuery, setAssigneeSearchQuery] = useState('')
     const [showAssigneeSuggestions, setShowAssigneeSuggestions] = useState(false)
+    const [highlightedAssigneeIdx, setHighlightedAssigneeIdx] = useState(0)
+    const [newTaskNotifyees, setNewTaskNotifyees] = useState<any[]>([])
+    const [notifySearchQuery, setNotifySearchQuery] = useState('')
+    const [showNotifySuggestions, setShowNotifySuggestions] = useState(false)
+    const [highlightedNotifyIdx, setHighlightedNotifyIdx] = useState(0)
     const [newTaskDueDate, setNewTaskDueDate] = useState('')
     const [newTaskNotes, setNewTaskNotes] = useState('')
 
@@ -539,7 +544,10 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             setNewTaskName('')
             setNewTaskAssignees([])
             setAssigneeSearchQuery('')
+            setNewTaskNotifyees([])
+            setNotifySearchQuery('')
             setNewTaskDueDate('')
+            setNewTaskNotes('')
             setAddingTaskId(null)
             await fetchLists()
         } catch (err: any) {
@@ -634,11 +642,31 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const LIST_DOT_COLORS = ['#27AE60', '#E67E22', '#3498DB', '#E74C3C', '#8E44AD', '#1ABC9C', '#F39C12', '#2980B9', '#D35400', '#16A085']
 
     // Filter suggestions based on what the user types
-    const filteredSuggestions = (project.people || []).filter((p: any) => {
-        const isAlreadySelected = newTaskAssignees.some((a) => a.id === p.id)
-        const matchesQuery = p.name.toLowerCase().includes(assigneeSearchQuery.toLowerCase())
-        return !isAlreadySelected && matchesQuery
-    })
+    const filteredSuggestions = (() => {
+        const q = assigneeSearchQuery.toLowerCase().trim()
+        const available = (project.people || []).filter((p: any) => {
+            const isAlreadySelected = newTaskAssignees.some((a) => a.id === p.id)
+            return !isAlreadySelected && p.name.toLowerCase().includes(q)
+        })
+        // Sort: names that START with the query come first, then alphabetical within each group
+        if (!q) return available
+        const startsWithQ = available.filter((p: any) => p.name.toLowerCase().startsWith(q))
+        const containsQ = available.filter((p: any) => !p.name.toLowerCase().startsWith(q))
+        return [...startsWithQ, ...containsQ]
+    })()
+
+    // Filter suggestions for "When done" notify people — same logic as assignees
+    const filteredNotifySuggestions = (() => {
+        const q = notifySearchQuery.toLowerCase().trim()
+        const available = (project.people || []).filter((p: any) => {
+            const isAlreadySelected = newTaskNotifyees.some((a) => a.id === p.id)
+            return !isAlreadySelected && p.name.toLowerCase().includes(q)
+        })
+        if (!q) return available
+        const startsWithQ = available.filter((p: any) => p.name.toLowerCase().startsWith(q))
+        const containsQ = available.filter((p: any) => !p.name.toLowerCase().startsWith(q))
+        return [...startsWithQ, ...containsQ]
+    })()
 
     return (
         <div style={{ maxWidth: 780, margin: '0 auto', padding: '0 16px' }}>
@@ -1077,20 +1105,43 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             </div>
                                                         )}
 
-                                                        {/* Search Input */}
+                                                        {/* Search Input — with keyboard navigation (Enter to select, arrows to navigate) */}
                                                         <input
                                                             type="text"
-                                                            placeholder={newTaskAssignees.length === 0 ? t('basecamp.type_names_placeholder') || 'Type names to assign...' : t('basecamp.type_names_placeholder') || 'Type names to assign...'}
+                                                            placeholder={t('basecamp.type_names_placeholder') || 'Type names to assign...'}
                                                             value={assigneeSearchQuery}
                                                             onChange={(e) => {
                                                                 setAssigneeSearchQuery(e.target.value)
                                                                 setShowAssigneeSuggestions(true)
+                                                                setHighlightedAssigneeIdx(0) // Reset to first suggestion on every keystroke
                                                             }}
                                                             onFocus={() => setShowAssigneeSuggestions(true)}
                                                             onBlur={() => {
                                                                 setTimeout(() => {
                                                                     setShowAssigneeSuggestions(false)
                                                                 }, 200)
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (!showAssigneeSuggestions || filteredSuggestions.length === 0) return
+                                                                if (e.key === 'ArrowDown') {
+                                                                    e.preventDefault()
+                                                                    setHighlightedAssigneeIdx(prev => Math.min(prev + 1, filteredSuggestions.length - 1))
+                                                                } else if (e.key === 'ArrowUp') {
+                                                                    e.preventDefault()
+                                                                    setHighlightedAssigneeIdx(prev => Math.max(prev - 1, 0))
+                                                                } else if (e.key === 'Enter') {
+                                                                    e.preventDefault()
+                                                                    e.stopPropagation() // Prevent form submit
+                                                                    const person = filteredSuggestions[highlightedAssigneeIdx]
+                                                                    if (person) {
+                                                                        setNewTaskAssignees(prev => [...prev, person])
+                                                                        setAssigneeSearchQuery('')
+                                                                        setShowAssigneeSuggestions(false)
+                                                                        setHighlightedAssigneeIdx(0)
+                                                                    }
+                                                                } else if (e.key === 'Escape') {
+                                                                    setShowAssigneeSuggestions(false)
+                                                                }
                                                             }}
                                                             className="w-full"
                                                             style={{
@@ -1121,23 +1172,27 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                 marginTop: 4
                                                             }}>
                                                                 {filteredSuggestions.length > 0 ? (
-                                                                    filteredSuggestions.map((person: any) => (
+                                                                    filteredSuggestions.map((person: any, idx: number) => (
                                                                         <div
                                                                             key={person.id}
                                                                             onClick={() => {
                                                                                 setNewTaskAssignees(prev => [...prev, person])
                                                                                 setAssigneeSearchQuery('')
                                                                                 setShowAssigneeSuggestions(false)
+                                                                                setHighlightedAssigneeIdx(0)
                                                                             }}
+                                                                            onMouseEnter={() => setHighlightedAssigneeIdx(idx)}
                                                                             style={{
                                                                                 padding: '8px 12px',
                                                                                 cursor: 'pointer',
                                                                                 fontSize: 13,
-                                                                                color: '#1D2D35',
+                                                                                color: idx === highlightedAssigneeIdx ? '#fff' : '#1D2D35',
+                                                                                background: idx === highlightedAssigneeIdx ? '#4B9ED6' : 'transparent',
                                                                                 display: 'flex',
                                                                                 alignItems: 'center',
                                                                                 gap: 8,
-                                                                                transition: 'background 0.1s'
+                                                                                transition: 'background 0.08s, color 0.08s',
+                                                                                borderRadius: 4
                                                                             }}
                                                                             onMouseDown={(e) => {
                                                                                 // Prevents blur from hiding options before click registers
@@ -1159,7 +1214,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                             }}>
                                                                                 {getInitials(person.name)}
                                                                             </span>
-                                                                            <span>{person.name}</span>
+                                                                            <span style={{ fontWeight: idx === highlightedAssigneeIdx ? 600 : 400 }}>{person.name}</span>
                                                                         </div>
                                                                     ))
                                                                 ) : (
@@ -1172,14 +1227,186 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     </div>
                                                 </div>
 
-                                                {/* When done */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
+                                                {/* When done — same people-search widget as Assigned to */}
+                                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
                                                         {t('basecamp.when_done')}
                                                     </span>
-                                                    <span style={{ fontSize: 13, color: '#A0A0A0' }}>
-                                                        {t('basecamp.notify_people_placeholder')}
-                                                    </span>
+                                                    <div style={{ position: 'relative', width: '100%', maxWidth: 400 }}>
+                                                        {/* Selected Notifyees Row */}
+                                                        {newTaskNotifyees.length > 0 && (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                                                                {newTaskNotifyees.map((person) => (
+                                                                    <div key={person.id} style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 6,
+                                                                        padding: '2px 8px 2px 4px',
+                                                                        borderRadius: 14,
+                                                                        background: '#FAFAF8',
+                                                                        border: '1px solid #D5D3CE',
+                                                                        fontSize: 12,
+                                                                        fontWeight: 505,
+                                                                        color: '#1D2D35'
+                                                                    }}>
+                                                                        <span style={{
+                                                                            width: 18,
+                                                                            height: 18,
+                                                                            borderRadius: '50%',
+                                                                            background: getAvatarColor(person.name),
+                                                                            color: '#fff',
+                                                                            fontSize: 9,
+                                                                            fontWeight: 700,
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            flexShrink: 0
+                                                                        }}>
+                                                                            {getInitials(person.name)}
+                                                                        </span>
+                                                                        <span>{person.name}</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setNewTaskNotifyees(prev => prev.filter(p => p.id !== person.id))}
+                                                                            style={{
+                                                                                border: 'none',
+                                                                                background: 'transparent',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: 11,
+                                                                                color: '#e74c3c',
+                                                                                padding: '0 2px',
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                fontWeight: 'bold'
+                                                                            }}
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Notify Search Input */}
+                                                        <input
+                                                            type="text"
+                                                            placeholder={t('basecamp.notify_people_placeholder') || 'Notify these people...'}
+                                                            value={notifySearchQuery}
+                                                            onChange={(e) => {
+                                                                setNotifySearchQuery(e.target.value)
+                                                                setShowNotifySuggestions(true)
+                                                                setHighlightedNotifyIdx(0)
+                                                            }}
+                                                            onFocus={() => setShowNotifySuggestions(true)}
+                                                            onBlur={() => {
+                                                                setTimeout(() => {
+                                                                    setShowNotifySuggestions(false)
+                                                                }, 200)
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (!showNotifySuggestions || filteredNotifySuggestions.length === 0) return
+                                                                if (e.key === 'ArrowDown') {
+                                                                    e.preventDefault()
+                                                                    setHighlightedNotifyIdx(prev => Math.min(prev + 1, filteredNotifySuggestions.length - 1))
+                                                                } else if (e.key === 'ArrowUp') {
+                                                                    e.preventDefault()
+                                                                    setHighlightedNotifyIdx(prev => Math.max(prev - 1, 0))
+                                                                } else if (e.key === 'Enter') {
+                                                                    e.preventDefault()
+                                                                    e.stopPropagation()
+                                                                    const person = filteredNotifySuggestions[highlightedNotifyIdx]
+                                                                    if (person) {
+                                                                        setNewTaskNotifyees(prev => [...prev, person])
+                                                                        setNotifySearchQuery('')
+                                                                        setShowNotifySuggestions(false)
+                                                                        setHighlightedNotifyIdx(0)
+                                                                    }
+                                                                } else if (e.key === 'Escape') {
+                                                                    setShowNotifySuggestions(false)
+                                                                }
+                                                            }}
+                                                            className="w-full"
+                                                            style={{
+                                                                border: '1px solid #E8E6E1',
+                                                                borderRadius: 4,
+                                                                padding: '6px 8px',
+                                                                fontSize: 13,
+                                                                color: '#1D2D35',
+                                                                background: '#fff',
+                                                                outline: 'none'
+                                                            }}
+                                                        />
+
+                                                        {/* Notify Suggestions Dropdown */}
+                                                        {showNotifySuggestions && notifySearchQuery.trim().length > 0 && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                top: '100%',
+                                                                left: 0,
+                                                                right: 0,
+                                                                background: '#fff',
+                                                                border: '1px solid #D5D3CE',
+                                                                borderRadius: 4,
+                                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                                                zIndex: 100,
+                                                                maxHeight: 150,
+                                                                overflowY: 'auto',
+                                                                marginTop: 4
+                                                            }}>
+                                                                {filteredNotifySuggestions.length > 0 ? (
+                                                                    filteredNotifySuggestions.map((person: any, idx: number) => (
+                                                                        <div
+                                                                            key={person.id}
+                                                                            onClick={() => {
+                                                                                setNewTaskNotifyees(prev => [...prev, person])
+                                                                                setNotifySearchQuery('')
+                                                                                setShowNotifySuggestions(false)
+                                                                                setHighlightedNotifyIdx(0)
+                                                                            }}
+                                                                            onMouseEnter={() => setHighlightedNotifyIdx(idx)}
+                                                                            style={{
+                                                                                padding: '8px 12px',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: 13,
+                                                                                color: idx === highlightedNotifyIdx ? '#fff' : '#1D2D35',
+                                                                                background: idx === highlightedNotifyIdx ? '#4B9ED6' : 'transparent',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: 8,
+                                                                                transition: 'background 0.08s, color 0.08s',
+                                                                                borderRadius: 4
+                                                                            }}
+                                                                            onMouseDown={(e) => {
+                                                                                e.preventDefault()
+                                                                            }}
+                                                                        >
+                                                                            <span style={{
+                                                                                width: 20,
+                                                                                height: 20,
+                                                                                borderRadius: '50%',
+                                                                                background: getAvatarColor(person.name),
+                                                                                color: '#fff',
+                                                                                fontSize: 9,
+                                                                                fontWeight: 700,
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                flexShrink: 0
+                                                                            }}>
+                                                                                {getInitials(person.name)}
+                                                                            </span>
+                                                                            <span style={{ fontWeight: idx === highlightedNotifyIdx ? 600 : 400 }}>{person.name}</span>
+                                                                        </div>
+                                                                    ))
+                                                                ) : (
+                                                                    <div style={{ padding: '8px 12px', fontSize: 13, color: '#999', fontStyle: 'italic' }}>
+                                                                        No results found
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
 
                                                 {/* Due on */}
@@ -1362,6 +1589,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                         setAssigneeSearchQuery('')
                                                         setNewTaskDueDate('')
                                                         setNewTaskNotes('')
+                                                        setNewTaskNotifyees([])
+                                                        setNotifySearchQuery('')
                                                     }}
                                                     style={{
                                                         padding: '4px 2px',
