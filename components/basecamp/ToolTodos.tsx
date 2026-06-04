@@ -27,9 +27,9 @@
 
 'use client'
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type } from 'lucide-react'
+import { ClipboardList, Plus, Trash2, Calendar, User, MessageSquare, CheckSquare, Loader2, ChevronDown, ChevronRight, FileText, Paperclip, Bold, Italic, Strikethrough, Highlighter, Link, Quote, Code, List, ListOrdered, Table, AlignLeft, Mic, Image, Type, Undo2, Redo2 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 
 interface ToolTodosProps {
@@ -157,10 +157,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [newTaskAssignees, setNewTaskAssignees] = useState<any[]>([])
     const [assigneeSearchQuery, setAssigneeSearchQuery] = useState('')
     const [showAssigneeSuggestions, setShowAssigneeSuggestions] = useState(false)
-    const [isSearchingAssignee, setIsSearchingAssignee] = useState(false)
     const [newTaskDueDate, setNewTaskDueDate] = useState('')
     const [newTaskNotes, setNewTaskNotes] = useState('')
-    const dateInputRef = useRef<HTMLInputElement>(null)
 
     // Estados de detalle de tarea
     const [selectedTask, setSelectedTask] = useState<any | null>(null)
@@ -637,7 +635,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
 
     // Filter suggestions based on what the user types
     const filteredSuggestions = (project.people || []).filter((p: any) => {
-        return p.name.toLowerCase().includes(assigneeSearchQuery.toLowerCase())
+        const isAlreadySelected = newTaskAssignees.some((a) => a.id === p.id)
+        const matchesQuery = p.name.toLowerCase().includes(assigneeSearchQuery.toLowerCase())
+        return !isAlreadySelected && matchesQuery
     })
 
     return (
@@ -1017,34 +1017,84 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                 className="flex flex-col gap-2.5 mt-2.5 pt-3 pb-3 pl-0 sm:pl-7 border-t border-[#E8E6E1]"
                                             >
                                                 {/* Assigned to */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
+                                                <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
                                                         {t('basecamp.assign_to')}
                                                     </span>
                                                     <div style={{ position: 'relative', width: '100%', maxWidth: 400 }}>
-                                                        {/* Search/Display Input */}
+                                                        {/* Selected Assignees Row */}
+                                                        {newTaskAssignees.length > 0 && (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                                                                {newTaskAssignees.map((person) => (
+                                                                    <div key={person.id} style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: 6,
+                                                                        padding: '2px 8px 2px 4px',
+                                                                        borderRadius: 14,
+                                                                        background: '#FAFAF8',
+                                                                        border: '1px solid #D5D3CE',
+                                                                        fontSize: 12,
+                                                                        fontWeight: 505,
+                                                                        color: '#1D2D35'
+                                                                    }}>
+                                                                        <span style={{
+                                                                            width: 18,
+                                                                            height: 18,
+                                                                            borderRadius: '50%',
+                                                                            background: getAvatarColor(person.name),
+                                                                            color: '#fff',
+                                                                            fontSize: 9,
+                                                                            fontWeight: 700,
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            flexShrink: 0
+                                                                        }}>
+                                                                            {getInitials(person.name)}
+                                                                        </span>
+                                                                        <span>{person.name}</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setNewTaskAssignees(prev => prev.filter(p => p.id !== person.id))}
+                                                                            style={{
+                                                                                border: 'none',
+                                                                                background: 'transparent',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: 11,
+                                                                                color: '#e74c3c',
+                                                                                padding: '0 2px',
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                fontWeight: 'bold'
+                                                                            }}
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Search Input */}
                                                         <input
                                                             type="text"
-                                                            placeholder={t('basecamp.type_names_placeholder') || 'Type names to assign...'}
-                                                            value={isSearchingAssignee ? assigneeSearchQuery : newTaskAssignees.map(a => a.name).join(', ')}
+                                                            placeholder={newTaskAssignees.length === 0 ? t('basecamp.type_names_placeholder') || 'Type names to assign...' : t('basecamp.type_names_placeholder') || 'Type names to assign...'}
+                                                            value={assigneeSearchQuery}
                                                             onChange={(e) => {
                                                                 setAssigneeSearchQuery(e.target.value)
                                                                 setShowAssigneeSuggestions(true)
                                                             }}
-                                                            onFocus={() => {
-                                                                setIsSearchingAssignee(true)
-                                                                setAssigneeSearchQuery('')
-                                                                setShowAssigneeSuggestions(true)
-                                                            }}
+                                                            onFocus={() => setShowAssigneeSuggestions(true)}
                                                             onBlur={() => {
                                                                 setTimeout(() => {
-                                                                    setIsSearchingAssignee(false)
                                                                     setShowAssigneeSuggestions(false)
                                                                 }, 200)
                                                             }}
                                                             className="w-full"
                                                             style={{
-                                                                border: '1px solid #D5D3CE',
+                                                                border: '1px solid #E8E6E1',
                                                                 borderRadius: 4,
                                                                 padding: '6px 8px',
                                                                 fontSize: 13,
@@ -1054,8 +1104,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             }}
                                                         />
 
-                                                        {/* Suggestions Dropdown with Checkboxes */}
-                                                        {showAssigneeSuggestions && (
+                                                        {/* Suggestions Dropdown */}
+                                                        {showAssigneeSuggestions && assigneeSearchQuery.trim().length > 0 && (
                                                             <div style={{
                                                                 position: 'absolute',
                                                                 top: '100%',
@@ -1066,66 +1116,52 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                 borderRadius: 4,
                                                                 boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                                                                 zIndex: 100,
-                                                                maxHeight: 200,
+                                                                maxHeight: 150,
                                                                 overflowY: 'auto',
                                                                 marginTop: 4
                                                             }}>
                                                                 {filteredSuggestions.length > 0 ? (
-                                                                    filteredSuggestions.map((person: any) => {
-                                                                        const isChecked = newTaskAssignees.some(a => a.id === person.id)
-                                                                        return (
-                                                                            <div
-                                                                                key={person.id}
-                                                                                onMouseDown={(e) => {
-                                                                                    e.preventDefault()
-                                                                                }}
-                                                                                onClick={() => {
-                                                                                    if (isChecked) {
-                                                                                        setNewTaskAssignees(prev => prev.filter(a => a.id !== person.id))
-                                                                                    } else {
-                                                                                        setNewTaskAssignees(prev => [...prev, person])
-                                                                                    }
-                                                                                    setAssigneeSearchQuery('')
-                                                                                }}
-                                                                                style={{
-                                                                                    padding: '8px 12px',
-                                                                                    cursor: 'pointer',
-                                                                                    fontSize: 13,
-                                                                                    color: '#1D2D35',
-                                                                                    display: 'flex',
-                                                                                    alignItems: 'center',
-                                                                                    gap: 10,
-                                                                                    background: 'transparent',
-                                                                                    transition: 'background 0.1s'
-                                                                                }}
-                                                                                onMouseEnter={(e) => e.currentTarget.style.background = '#F5F5F3'}
-                                                                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                                                            >
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={isChecked}
-                                                                                    readOnly
-                                                                                    style={{ cursor: 'pointer', width: 14, height: 14 }}
-                                                                                />
-                                                                                <span style={{
-                                                                                    width: 20,
-                                                                                    height: 20,
-                                                                                    borderRadius: '50%',
-                                                                                    background: getAvatarColor(person.name),
-                                                                                    color: '#fff',
-                                                                                    fontSize: 9,
-                                                                                    fontWeight: 700,
-                                                                                    display: 'inline-flex',
-                                                                                    alignItems: 'center',
-                                                                                    justifyContent: 'center',
-                                                                                    flexShrink: 0
-                                                                                }}>
-                                                                                    {getInitials(person.name)}
-                                                                                </span>
-                                                                                <span>{person.name}</span>
-                                                                            </div>
-                                                                        )
-                                                                    })
+                                                                    filteredSuggestions.map((person: any) => (
+                                                                        <div
+                                                                            key={person.id}
+                                                                            onClick={() => {
+                                                                                setNewTaskAssignees(prev => [...prev, person])
+                                                                                setAssigneeSearchQuery('')
+                                                                                setShowAssigneeSuggestions(false)
+                                                                            }}
+                                                                            style={{
+                                                                                padding: '8px 12px',
+                                                                                cursor: 'pointer',
+                                                                                fontSize: 13,
+                                                                                color: '#1D2D35',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: 8,
+                                                                                transition: 'background 0.1s'
+                                                                            }}
+                                                                            onMouseDown={(e) => {
+                                                                                // Prevents blur from hiding options before click registers
+                                                                                e.preventDefault()
+                                                                            }}
+                                                                        >
+                                                                            <span style={{
+                                                                                width: 20,
+                                                                                height: 20,
+                                                                                borderRadius: '50%',
+                                                                                background: getAvatarColor(person.name),
+                                                                                color: '#fff',
+                                                                                fontSize: 9,
+                                                                                fontWeight: 700,
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                justifyContent: 'center',
+                                                                                flexShrink: 0
+                                                                            }}>
+                                                                                {getInitials(person.name)}
+                                                                            </span>
+                                                                            <span>{person.name}</span>
+                                                                        </div>
+                                                                    ))
                                                                 ) : (
                                                                     <div style={{ padding: '8px 12px', fontSize: 13, color: '#999', fontStyle: 'italic' }}>
                                                                         No results found
@@ -1151,46 +1187,17 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
                                                         {t('basecamp.due_on') || t('basecamp.due_date')}
                                                     </span>
-                                                    <div style={{ position: 'relative' }}>
-                                                        <span
-                                                            onClick={() => {
-                                                                if (dateInputRef.current) {
-                                                                    if (typeof dateInputRef.current.showPicker === 'function') {
-                                                                        dateInputRef.current.showPicker()
-                                                                    } else {
-                                                                        dateInputRef.current.focus()
-                                                                    }
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                fontSize: 13,
-                                                                color: newTaskDueDate ? '#1D2D35' : '#A0A0A0',
-                                                                cursor: 'pointer',
-                                                                padding: '4px 0',
-                                                                display: 'inline-block'
-                                                            }}
-                                                        >
-                                                            {newTaskDueDate
-                                                                ? new Date(newTaskDueDate + 'T00:00:00').toLocaleDateString(undefined, {
-                                                                    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-                                                                })
-                                                                : 'Select a due date...'
-                                                            }
-                                                        </span>
-                                                        <input
-                                                            ref={dateInputRef}
-                                                            type="date"
-                                                            value={newTaskDueDate}
-                                                            onChange={(e) => setNewTaskDueDate(e.target.value)}
-                                                            style={{
-                                                                position: 'absolute',
-                                                                opacity: 0,
-                                                                width: 0,
-                                                                height: 0,
-                                                                pointerEvents: 'none'
-                                                            }}
-                                                        />
-                                                    </div>
+                                                    <input
+                                                        type="date"
+                                                        value={newTaskDueDate}
+                                                        onChange={(e) => setNewTaskDueDate(e.target.value)}
+                                                        className="w-full sm:w-auto"
+                                                        style={{
+                                                            border: '1px solid #E8E6E1', borderRadius: 4,
+                                                            padding: '3px 8px', fontSize: 13, color: '#1D2D35',
+                                                            background: '#fff', outline: 'none'
+                                                        }}
+                                                    />
                                                 </div>
 
                                                 {/* Notes */}
@@ -1198,23 +1205,21 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D] sm:pt-1.5">
                                                         {t('basecamp.notes_label')}
                                                     </span>
-                                                    <div className="w-full" style={{
-                                                        maxWidth: 650,
-                                                        border: '1px solid #D5D3CE',
-                                                        borderRadius: 8,
-                                                        overflow: 'hidden',
-                                                        background: '#fff'
-                                                    }}>
-                                                        {/* Toolbar */}
+                                                    <div className="w-full" style={{ maxWidth: 500 }}>
+                                                        {/* Toolbar — matches real Basecamp Trix editor bar */}
                                                         <div style={{
                                                             display: 'flex',
                                                             alignItems: 'center',
                                                             flexWrap: 'wrap',
                                                             gap: 2,
-                                                            padding: '6px 10px',
+                                                            padding: '4px 6px',
                                                             background: '#FAFAF9',
-                                                            borderBottom: '1px solid #E8E6E1'
+                                                            border: '1px solid #D5D3CE',
+                                                            borderBottom: 'none',
+                                                            borderTopLeftRadius: 6,
+                                                            borderTopRightRadius: 6
                                                         }}>
+                                                            {/* Group 1: Media — Image, Attachment */}
                                                             <button type="button" onClick={insertImage} title="Insert Image" style={toolbarBtnStyle}>
                                                                 <Image size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
@@ -1224,6 +1229,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             
                                                             <div style={dividerStyle} />
                                                             
+                                                            {/* Group 2: Text formatting — Bold, Italic, Strikethrough, Type/Clear, Highlight, Link */}
                                                             <button type="button" onClick={() => insertFormat('<strong>', '</strong>')} title="Bold" style={toolbarBtnStyle}>
                                                                 <Bold size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
@@ -1239,9 +1245,6 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             }} title="Clear Formatting" style={toolbarBtnStyle}>
                                                                 <Type size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            
-                                                            <div style={dividerStyle} />
-                                                            
                                                             <button type="button" onClick={() => insertFormat('<mark style="background-color: #f1c40f;">', '</mark>')} title="Highlight" style={toolbarBtnStyle}>
                                                                 <Highlighter size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
@@ -1251,6 +1254,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             
                                                             <div style={dividerStyle} />
                                                             
+                                                            {/* Group 3: Block — Quote, Code */}
                                                             <button type="button" onClick={() => insertFormat('<blockquote style="border-left: 3px solid #ccc; padding-left: 10px; margin-left: 0; color: #666;">', '</blockquote>')} title="Quote" style={toolbarBtnStyle}>
                                                                 <Quote size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
@@ -1260,6 +1264,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             
                                                             <div style={dividerStyle} />
                                                             
+                                                            {/* Group 4: Lists — Bullet, Numbered */}
                                                             <button type="button" onClick={() => insertFormat('<ul><li>', '</li></ul>')} title="Bullet List" style={toolbarBtnStyle}>
                                                                 <List size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
@@ -1269,15 +1274,13 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             
                                                             <div style={dividerStyle} />
                                                             
+                                                            {/* Group 5: Structure — Table, Align, Mic */}
                                                             <button type="button" onClick={() => insertFormat('<table style="border-collapse: collapse; width: 100%;"><tr><td style="border: 1px solid #ccc; padding: 8px;">', '</td></tr></table>')} title="Table" style={toolbarBtnStyle}>
                                                                 <Table size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                             <button type="button" onClick={() => insertFormat('<div style="text-align: center;">', '</div>')} title="Center Align" style={toolbarBtnStyle}>
                                                                 <AlignLeft size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            
-                                                            <div style={dividerStyle} />
-                                                            
                                                             <button type="button" onClick={() => {
                                                                 if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
                                                                     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
@@ -1294,6 +1297,21 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             }} title="Speech to Text" style={toolbarBtnStyle}>
                                                                 <Mic size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
+                                                            
+                                                            {/* Spacer pushes undo/redo to far right */}
+                                                            <div style={{ flex: 1 }} />
+                                                            
+                                                            {/* Group 6: History — Undo, Redo (far right, like real Basecamp) */}
+                                                            <button type="button" onClick={() => {
+                                                                document.execCommand('undo')
+                                                            }} title="Undo" style={toolbarBtnStyle}>
+                                                                <Undo2 size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
+                                                            <button type="button" onClick={() => {
+                                                                document.execCommand('redo')
+                                                            }} title="Redo" style={toolbarBtnStyle}>
+                                                                <Redo2 size={14} style={{ color: '#4F5E68' }} />
+                                                            </button>
                                                         </div>
                                                         
                                                         {/* Textarea */}
@@ -1302,45 +1320,36 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             value={newTaskNotes}
                                                             onChange={(e) => setNewTaskNotes(e.target.value)}
                                                             placeholder={t('basecamp.notes_placeholder') || 'Add extra details or attach a file...'}
-                                                            className="w-full font-sans"
+                                                            className="w-full"
                                                             style={{
-                                                                border: 'none',
-                                                                padding: '12px',
+                                                                border: '1px solid #D5D3CE',
+                                                                borderBottomLeftRadius: 6,
+                                                                borderBottomRightRadius: 6,
+                                                                padding: '10px 12px',
                                                                 fontSize: 14,
                                                                 color: '#1D2D35',
                                                                 background: '#fff',
                                                                 outline: 'none',
-                                                                minHeight: 140,
-                                                                resize: 'vertical',
-                                                                display: 'block'
+                                                                minHeight: 120,
+                                                                resize: 'vertical'
                                                             }}
                                                         />
                                                     </div>
                                                 </div>
-
-                                                {/* Subtasks */}
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                                                    <span className="w-auto sm:w-[100px] text-left sm:text-right mr-0 sm:mr-4 shrink-0 font-semibold text-[13px] text-[#6B7B8D]">
-                                                        {t('basecamp.subtasks_label') || 'Subtasks'}
-                                                    </span>
-                                                    <span style={{ fontSize: 13, color: '#A0A0A0', cursor: 'pointer' }}>
-                                                        {t('basecamp.add_subtasks_placeholder') || 'Add subtasks'}
-                                                    </span>
-                                                </div>
                                             </div>
 
-                                            {/* Action buttons — blue "Add this to-do" + Cancel link button */}
-                                            <div className="flex items-center gap-2.5 pt-1 pb-3 pl-0 sm:pl-[144px]">
+                                            {/* Action buttons — GREEN "Add this to-do" + plain Cancel text link (matches real Basecamp) */}
+                                            <div className="flex items-center gap-3 pt-1 pb-3 pl-0 sm:pl-[144px]">
                                                 <button
                                                     type="submit"
                                                     style={{
-                                                        padding: '7px 16px', borderRadius: 4, border: 'none',
-                                                        background: '#1D7DB5', fontSize: 13, fontWeight: 600,
+                                                        padding: '8px 18px', borderRadius: 6, border: 'none',
+                                                        background: '#1DAB45', fontSize: 14, fontWeight: 600,
                                                         color: '#fff', cursor: 'pointer', transition: 'background 0.15s',
                                                         whiteSpace: 'nowrap'
                                                     }}
-                                                    onMouseEnter={e => (e.currentTarget.style.background = '#155D8A')}
-                                                    onMouseLeave={e => (e.currentTarget.style.background = '#1D7DB5')}
+                                                    onMouseEnter={e => (e.currentTarget.style.background = '#168A37')}
+                                                    onMouseLeave={e => (e.currentTarget.style.background = '#1DAB45')}
                                                 >
                                                     {t('basecamp.add_todo_btn_label')}
                                                 </button>
@@ -1355,14 +1364,15 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                         setNewTaskNotes('')
                                                     }}
                                                     style={{
-                                                        padding: '6px 14px', borderRadius: 4,
-                                                        border: '1px solid #D5D3CE', background: '#fff',
-                                                        fontSize: 13, fontWeight: 600, color: '#1D7DB5',
-                                                        cursor: 'pointer', transition: 'background 0.15s',
-                                                        whiteSpace: 'nowrap'
+                                                        padding: '4px 2px',
+                                                        border: 'none', background: 'transparent',
+                                                        fontSize: 14, fontWeight: 400, color: '#6B7B8D',
+                                                        cursor: 'pointer', transition: 'color 0.15s',
+                                                        whiteSpace: 'nowrap',
+                                                        textDecoration: 'none'
                                                     }}
-                                                    onMouseEnter={e => (e.currentTarget.style.background = '#F7F5F2')}
-                                                    onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                                                    onMouseEnter={e => (e.currentTarget.style.color = '#1D2D35')}
+                                                    onMouseLeave={e => (e.currentTarget.style.color = '#6B7B8D')}
                                                 >
                                                     {t('basecamp.cancel')}
                                                 </button>
