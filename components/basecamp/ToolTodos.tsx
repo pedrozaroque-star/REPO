@@ -234,8 +234,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         if (!project.db_id) return
         setLoading(true)
         try {
-            // Run all three queries in PARALLEL for speed
-            const [listsResult, todosResult, commentsResult] = await Promise.all([
+            // Run parallel queries including an explicit selected todo query to bypass database pagination limits
+            const [listsResult, todosResult, commentsResult, selectedTodoResult] = await Promise.all([
                 // Query 1: Todolists
                 supabase
                     .from('bc_todolists')
@@ -262,16 +262,39 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     .select('id, bc_id, parent_id, content, created_at, author:bc_people(name)')
                     .eq('project_id', project.db_id)
                     .eq('parent_type', 'todo')
-                    .order('created_at', { ascending: true })
+                    .order('created_at', { ascending: true }),
+
+                // Query 4: Explicit selected todo to bypass pagination limit
+                selectedTodoId
+                    ? supabase
+                        .from('bc_todos')
+                        .select(`
+                            id, bc_id, todolist_id, title, is_completed, completed_at, due_date, position,
+                            created_by_person_id, description,
+                            bc_todo_assignees(
+                                person:bc_people(id, name, email, avatar_url)
+                            )
+                        `)
+                        .eq('id', selectedTodoId)
+                        .maybeSingle()
+                    : Promise.resolve({ data: null, error: null } as any)
             ])
 
             if (listsResult.error) throw listsResult.error
             if (todosResult.error) throw todosResult.error
             if (commentsResult.error) throw commentsResult.error
+            if (selectedTodoResult && selectedTodoResult.error) throw selectedTodoResult.error
 
             const dbLists = listsResult.data || []
-            const dbTodos = todosResult.data || []
+            let dbTodos = todosResult.data || []
             const dbComments = commentsResult.data || []
+            const selectedTodo = selectedTodoResult?.data
+
+            // Append selected todo if it's not already in the paginated 1,000 tasks list
+            if (selectedTodo && !dbTodos.some(t => t.id === selectedTodo.id)) {
+                console.log("➕ [ToolTodos] Appending selected todo to dbTodos list to bypass limit:", selectedTodo.title)
+                dbTodos = [...dbTodos, selectedTodo]
+            }
 
             // Map and combine lists with todos and comments
             const mappedLists = dbLists.map(list => {
@@ -333,7 +356,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         } finally {
             setLoading(false)
         }
-    }, [project.db_id, project.id])
+    }, [project.db_id, project.id, selectedTodoId])
 
     useEffect(() => {
         fetchLists()
