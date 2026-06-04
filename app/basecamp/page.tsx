@@ -474,6 +474,13 @@ function BasecampWorkspace() {
     }
 
     const renderWorkspaceContent = () => {
+        console.log("🖥️ [BasecampPage] renderWorkspaceContent called:", {
+            projectId,
+            currentProjectName: currentProject?.name,
+            toolId,
+            todoIdParam: searchParams.get('todoId'),
+            section
+        })
         if (section === 'hey') {
             return <HeyMenu navigateTo={navigateTo} clearCount={() => setUnreadHeyCount(0)} />
         }

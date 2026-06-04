@@ -312,6 +312,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
             })
 
             setLists(mappedLists)
+            console.log("📦 [ToolTodos] Lists loaded:", mappedLists.length, "Total tasks:", mappedLists.flatMap(l => l.tasks).length)
 
             // Update active selected task details if modal is open
             if (selectedTask) {
@@ -334,23 +335,33 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     }, [fetchLists])
 
     useEffect(() => {
+        console.log("🔍 [ToolTodos] selectedTodoId useEffect fired:", {
+            selectedTodoId,
+            listsCount: lists.length,
+            currentSelectedTaskId: selectedTask?.id
+        })
         if (selectedTodoId && lists.length > 0) {
             if (selectedTask?.id !== selectedTodoId) {
                 let found = false
                 for (const list of lists) {
                     const task = list.tasks.find((t: any) => t.id === selectedTodoId)
                     if (task) {
+                        console.log("🎯 [ToolTodos] Found task matching selectedTodoId:", task.task_name)
                         setSelectedTask(task)
                         setSelectedTaskListId(list.id)
                         found = true
                         break
                     }
                 }
+                if (!found) {
+                    console.warn("⚠️ [ToolTodos] Task not found in lists for selectedTodoId:", selectedTodoId)
+                }
                 if (!found && selectedTask) {
                     setSelectedTask(null)
                 }
             }
         } else if (!selectedTodoId && selectedTask) {
+            console.log("🧹 [ToolTodos] Clearing selected task because selectedTodoId is empty")
             setSelectedTask(null)
         }
     }, [selectedTodoId, lists, selectedTask])
