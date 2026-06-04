@@ -107,16 +107,15 @@ export default function HeyMenu({ navigateTo, clearCount }: HeyMenuProps) {
     }
 
     const getToolName = (recordingType: string | null) => {
-        switch (recordingType) {
-            case 'todo': return 'todos'
-            case 'message': return 'messages'
-            case 'campfire': return 'campfire'
-            case 'document': return 'docs'
-            case 'schedule': return 'schedule'
-            case 'question':
-            case 'answer': return 'checkins'
-            default: return undefined
-        }
+        if (!recordingType) return undefined
+        const t = recordingType.toLowerCase()
+        if (t.includes('todo') || t.includes('list')) return 'todos'
+        if (t.includes('message') || t.includes('board')) return 'messages'
+        if (t.includes('chat') || t.includes('campfire')) return 'campfire'
+        if (t.includes('document') || t.includes('doc') || t.includes('file') || t.includes('upload')) return 'docs'
+        if (t.includes('schedule') || t.includes('event') || t.includes('calendar')) return 'schedule'
+        if (t.includes('checkin') || t.includes('question') || t.includes('answer')) return 'checkins'
+        return undefined
     }
 
     return (

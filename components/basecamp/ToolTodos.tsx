@@ -21,6 +21,8 @@
  *     evitando exceder el límite de longitud de URL del Gateway Kong de Supabase cuando hay más de ~200 tareas.
  *   - Diseño visual clonado del Basecamp 3/4 clásico: containers blancos con bordes #E8E6E1, header #FAFAF8,
  *     items con dividers sutiles, checkboxes con accent verde, metadata en gris #6B7B8D.
+ *   - Norwalk accident todo image duplication fix: Added regex checking for blob UUIDs (`/blobs/[a-f0-9-]+`) in `parseAttachments`
+ *     to properly match inner `<img>` tags to their parent `<bc-attachment>` tags.
  */
 
 'use client'
@@ -33,6 +35,105 @@ import { getSupabaseWithAuth } from '@/lib/supabase'
 interface ToolTodosProps {
     project: any
     currentUserName: string
+}
+
+const getBlobUuid = (url: string) => {
+    const match = url.match(/\/blobs\/([a-f0-9-]+)/i)
+    return match ? match[1] : null
+}
+
+const parseAttachments = (html: string) => {
+    const attachments: any[] = []
+    if (!html) return attachments
+
+    const bcAttachmentRegex = /<bc-attachment\s+([^>]+)>([\s\S]*?)<\/bc-attachment>/gi
+    let match
+    while ((match = bcAttachmentRegex.exec(html)) !== null) {
+        const attrsStr = match[1]
+        
+        const getAttr = (name: string) => {
+            const m = attrsStr.match(new RegExp(`${name}=["']([^"']+)["']`, 'i'))
+            return m ? m[1] : null
+        }
+        
+        const contentType = getAttr('content-type') || ''
+        const filename = getAttr('filename') || 'attachment'
+        const href = getAttr('href') || ''
+        const url = getAttr('url') || href || ''
+        
+        attachments.push({
+            contentType,
+            filename,
+            href,
+            url
+        })
+    }
+    
+    const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi
+    let imgMatch
+    while ((imgMatch = imgRegex.exec(html)) !== null) {
+        const src = imgMatch[1]
+        const isAlreadyCaptured = attachments.some(a => {
+            const srcUuid = getBlobUuid(src)
+            const aUrlUuid = getBlobUuid(a.url)
+            const aHrefUuid = getBlobUuid(a.href)
+            
+            if (srcUuid && (srcUuid === aUrlUuid || srcUuid === aHrefUuid)) {
+                return true
+            }
+            
+            const srcKey = src.split('/').pop()?.split('?')[0]
+            const aUrlKey = a.url.split('/').pop()?.split('?')[0]
+            const aHrefKey = a.href.split('/').pop()?.split('?')[0]
+            return srcKey && (srcKey === aUrlKey || srcKey === aHrefKey)
+        })
+        if (isAlreadyCaptured) continue
+        
+        let filename = 'Image'
+        const altMatch = imgMatch[0].match(/alt=["']([^"']+)["']/i)
+        if (altMatch) {
+            filename = altMatch[1]
+        } else {
+            const lastPart = src.split('/').pop()?.split('?')[0] || 'image.png'
+            filename = lastPart === 'full' ? 'Image' : lastPart
+        }
+        
+        attachments.push({
+            contentType: 'image/png',
+            filename,
+            href: src,
+            url: src
+        })
+    }
+    
+    return attachments
+}
+
+const rewriteHtmlUrls = (html: string) => {
+    if (!html) return ''
+    
+    // Step 1: Remove srcset attributes entirely — browsers prefer srcset over src,
+    // which bypasses our URL rewriting. By stripping srcset, the browser falls back to src.
+    let rewritten = html.replace(/\s+srcset="[^"]*"/gi, '')
+    rewritten = rewritten.replace(/\s+srcset='[^']*'/gi, '')
+    
+    // Step 2: Rewrite Basecamp image src URLs to our proxy
+    rewritten = rewritten.replace(
+        /(<img[^>]+src=["'])(https:\/\/(?:preview\.app\.basecamp\.com|storage\.app\.basecamp\.com|3\.basecampapi\.com)[^"']+)((?:["'])[^\/>]*\/?>)/gi,
+        (match, p1, p2, p3) => {
+            return `${p1}/api/basecamp/attachment?url=${encodeURIComponent(p2)}${p3}`
+        }
+    )
+    
+    // Step 3: Rewrite Basecamp link href URLs to our proxy
+    rewritten = rewritten.replace(
+        /(<a[^>]+href=["'])(https:\/\/(?:preview\.app\.basecamp\.com|storage\.app\.basecamp\.com|3\.basecampapi\.com)[^"']+)((?:["'])[^\/>]*\/?>)/gi,
+        (match, p1, p2, p3) => {
+            return `${p1}/api/basecamp/attachment?url=${encodeURIComponent(p2)}${p3}`
+        }
+    )
+    
+    return rewritten
 }
 
 export default function ToolTodos({ project, currentUserName }: ToolTodosProps) {
@@ -58,39 +159,25 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
     const [selectedTask, setSelectedTask] = useState<any | null>(null)
     const [selectedTaskListId, setSelectedTaskListId] = useState<string | null>(null)
     const [newComment, setNewComment] = useState('')
+    const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
-    // Fetch fresh todo details and comments dynamically from Basecamp when a task is opened
+    // NOTE: Previously fetched fresh todo details from Basecamp API here.
+    // Removed: Our module is 100% LOCAL — all data comes from Supabase.
+    // Sync is ONE-WAY: Basecamp original → Supabase (via cron). We never call Basecamp API from UI.
+
+
+    // Close lightbox on Escape key
     useEffect(() => {
-        if (!selectedTask || !project.id) return
-
-        let active = true
-
-        const loadFreshDetails = async () => {
-            try {
-                const res = await fetch(`/api/basecamp/todo-detail?projectId=${project.id}&todoId=${selectedTask.bc_id}`)
-                if (!res.ok) throw new Error('Failed to load fresh details')
-                const data = await res.json()
-                if (data.success && active) {
-                    setSelectedTask((prev: any) => {
-                        if (!prev || prev.bc_id !== selectedTask.bc_id) return prev
-                        return {
-                            ...prev,
-                            description: data.description,
-                            comments: data.comments
-                        }
-                    })
-                }
-            } catch (err) {
-                console.error('Failed to load fresh Basecamp details:', err)
+        if (!lightboxUrl) return
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault()
+                setLightboxUrl(null)
             }
         }
-
-        loadFreshDetails()
-
-        return () => {
-            active = false
-        }
-    }, [selectedTask?.bc_id, project.id])
+        window.addEventListener('keydown', handleEsc)
+        return () => window.removeEventListener('keydown', handleEsc)
+    }, [lightboxUrl])
 
     // Intercept clicks on HTML links to handle Basecamp-to-Basecamp routing locally
     const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -969,7 +1056,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     display: 'block', fontSize: 13, fontWeight: 600,
                                     color: '#1D2D35', marginBottom: 8
                                 }}>
-                                    Name
+                                    {t('basecamp.name_label')}
                                 </label>
                                 <input
                                     type="text"
@@ -1101,114 +1188,185 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                 </button>
                             </div>
 
-                            {/* ── Title section ── */}
+                            {/* ── Title section — matches Basecamp original layout ── */}
                             <div style={{ padding: '28px 28px 0' }}>
-                                {/* Status pill */}
-                                <div style={{ marginBottom: 12 }}>
-                                    {selectedTask.is_completed ? (
-                                        <span style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                                            padding: '4px 12px', borderRadius: 20,
-                                            background: '#E8F5E9', color: '#2E7D32',
-                                            fontSize: 12, fontWeight: 600
-                                        }}>
-                                            <CheckSquare size={13} /> {t('basecamp.completed_label')}
-                                        </span>
-                                    ) : (
-                                        <span style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                                            padding: '4px 12px', borderRadius: 20,
-                                            background: '#FFF8E1', color: '#F57F17',
-                                            fontSize: 12, fontWeight: 600
-                                        }}>
-                                            ○ {t('basecamp.open_label') || 'Open'}
-                                        </span>
-                                    )}
-                                </div>
-
                                 {/* Large title */}
                                 <h2 style={{
-                                    fontSize: 26, fontWeight: 700, color: '#1D2D35',
-                                    margin: '0 0 16px', lineHeight: 1.35
+                                    fontSize: 28, fontWeight: 800, color: '#1D2D35',
+                                    margin: '0 0 14px', lineHeight: 1.3
                                 }}>
                                     {selectedTask.task_name}
                                 </h2>
 
-                                {/* ── Assignees & Due Date ── */}
+                                {/* Mark as complete + Added by */}
                                 <div style={{
-                                    display: 'flex', alignItems: 'center', flexWrap: 'wrap',
-                                    gap: 16, paddingBottom: 20, borderBottom: '1px solid #E8E6E1'
+                                    display: 'flex', alignItems: 'center', gap: 12,
+                                    marginBottom: 20, flexWrap: 'wrap'
                                 }}>
-                                    {selectedTask.assigneeList && selectedTask.assigneeList.length > 0 ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <span style={{ fontSize: 12, color: '#6B7B8D', fontWeight: 600 }}>
-                                                {t('basecamp.assign_to')}:
+                                    <button
+                                        onClick={() => handleToggleTask(selectedTaskListId || '', selectedTask)}
+                                        style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                                            padding: '6px 14px', borderRadius: 4,
+                                            border: '1px solid #D5D3CE', background: '#fff',
+                                            fontSize: 13, fontWeight: 600, color: '#1D2D35',
+                                            cursor: 'pointer', transition: 'background 0.15s'
+                                        }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = '#F0EFEB')}
+                                        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                                    >
+                                        {selectedTask.is_completed ? (
+                                            <><CheckSquare size={14} style={{ color: '#4BAE4F' }} /> {t('basecamp.completed_label')}</>
+                                        ) : (
+                                            <><span style={{
+                                                width: 14, height: 14, border: '2px solid #A0A0A0',
+                                                borderRadius: 2, display: 'inline-block'
+                                            }} /> {t('basecamp.mark_complete')}</>
+                                        )}
+                                    </button>
+                                    {selectedTask.creator_name && (
+                                        <span style={{ fontSize: 13, color: '#6B7B8D' }}>
+                                            {t('basecamp.added_by')}{' '}
+                                            <span style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                verticalAlign: 'middle'
+                                            }}>
+                                                <span style={{
+                                                    width: 20, height: 20, borderRadius: '50%',
+                                                    background: getAvatarColor(selectedTask.creator_name),
+                                                    color: '#fff', fontSize: 9, fontWeight: 700,
+                                                    display: 'inline-flex', alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }}>
+                                                    {getInitials(selectedTask.creator_name)}
+                                                </span>
+                                                <strong style={{ color: '#1D2D35' }}>{selectedTask.creator_name}</strong>
                                             </span>
-                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                                {selectedTask.assigneeList.map((a: any) => (
-                                                    <span key={a.id} style={{
-                                                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                                                        padding: '3px 10px 3px 3px', borderRadius: 20,
-                                                        background: '#F0EFEB', fontSize: 13, fontWeight: 500,
-                                                        color: '#1D2D35'
-                                                    }}>
-                                                        <span style={{
-                                                            width: 22, height: 22, borderRadius: '50%',
-                                                            background: getAvatarColor(a.name),
-                                                            color: '#fff', fontSize: 10, fontWeight: 700,
-                                                            display: 'flex', alignItems: 'center',
-                                                            justifyContent: 'center', flexShrink: 0
-                                                        }}>
-                                                            {getInitials(a.name)}
-                                                        </span>
-                                                        {a.name}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div style={{
-                                            display: 'flex', alignItems: 'center', gap: 6,
-                                            fontSize: 13, color: '#A0A0A0'
-                                        }}>
-                                            <User size={14} />
-                                            <span>{t('basecamp.no_assigned')}</span>
-                                        </div>
+                                            {selectedTask.created_at && (
+                                                <> {t('basecamp.on_date')} {new Date(selectedTask.created_at).toLocaleDateString(undefined, {
+                                                    month: 'short', day: 'numeric'
+                                                })}</>
+                                            )}
+                                        </span>
                                     )}
+                                </div>
 
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', gap: 6,
-                                        fontSize: 13, color: selectedTask.due_date ? '#1D2D35' : '#A0A0A0',
+                                {/* ── Structured fields like real Basecamp ── */}
+                                <div style={{
+                                    display: 'grid', gridTemplateColumns: 'auto 1fr',
+                                    gap: '10px 16px', alignItems: 'center',
+                                    paddingBottom: 20, borderBottom: '1px solid #E8E6E1'
+                                }}>
+                                    {/* Assigned to */}
+                                    <span style={{
+                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
+                                        justifySelf: 'end', whiteSpace: 'nowrap'
+                                    }}>
+                                        {t('basecamp.assign_to')}
+                                    </span>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {selectedTask.assigneeList && selectedTask.assigneeList.length > 0 ? (
+                                            selectedTask.assigneeList.map((a: any) => (
+                                                <span key={a.id} style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                    fontSize: 14, color: '#1D2D35', fontWeight: 500
+                                                }}>
+                                                    <span style={{
+                                                        width: 22, height: 22, borderRadius: '50%',
+                                                        background: getAvatarColor(a.name),
+                                                        color: '#fff', fontSize: 10, fontWeight: 700,
+                                                        display: 'inline-flex', alignItems: 'center',
+                                                        justifyContent: 'center', flexShrink: 0
+                                                    }}>
+                                                        {getInitials(a.name)}
+                                                    </span>
+                                                    {a.name}
+                                                    {selectedTask.assigneeList.indexOf(a) < selectedTask.assigneeList.length - 1 && ','}
+                                                </span>
+                                            ))
+                                        ) : (
+                                            <span style={{ fontSize: 14, color: '#A0A0A0', fontStyle: 'italic' }}>
+                                                {t('basecamp.no_assigned')}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* When done */}
+                                    <span style={{
+                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
+                                        justifySelf: 'end', whiteSpace: 'nowrap'
+                                    }}>
+                                        {t('basecamp.when_done')}
+                                    </span>
+                                    <span style={{ fontSize: 14, color: '#A0A0A0', fontStyle: 'italic' }}>
+                                        {t('basecamp.notify_people')}
+                                    </span>
+
+                                    {/* Due on */}
+                                    <span style={{
+                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
+                                        justifySelf: 'end', whiteSpace: 'nowrap'
+                                    }}>
+                                        {t('basecamp.due_on')}
+                                    </span>
+                                    <span style={{
+                                        fontSize: 14,
+                                        color: selectedTask.due_date ? '#1D2D35' : '#A0A0A0',
+                                        fontStyle: selectedTask.due_date ? 'normal' : 'italic',
                                         fontWeight: selectedTask.due_date ? 500 : 400
                                     }}>
-                                        <Calendar size={14} style={{ color: '#6B7B8D' }} />
-                                        <span>{selectedTask.due_date || t('basecamp.no_due_date')}</span>
-                                    </div>
+                                        {selectedTask.due_date
+                                            ? new Date(selectedTask.due_date).toLocaleDateString(undefined, {
+                                                weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+                                            })
+                                            : t('basecamp.select_due_date')
+                                        }
+                                    </span>
+
+                                    {/* Notes label */}
+                                    <span style={{
+                                        fontSize: 13, fontWeight: 700, color: '#1D2D35',
+                                        justifySelf: 'end', whiteSpace: 'nowrap',
+                                        alignSelf: 'flex-start', paddingTop: 2
+                                    }}>
+                                        {t('basecamp.notes_label')}
+                                    </span>
+                                    <span style={{ fontSize: 14, color: '#A0A0A0', fontStyle: 'italic' }}>
+                                        {selectedTask.description ? '' : t('basecamp.add_details')}
+                                    </span>
                                 </div>
                             </div>
+
 
                             {/* ── Description / Notes ── */}
                             {selectedTask.description && (() => {
                                 const desc = selectedTask.description as string
-                                
-                                // Extract images from HTML
-                                const imgMatches = Array.from(desc.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi))
-                                const attachments = imgMatches.map(match => {
-                                    const src = match[1]
-                                    let filename = 'Attachment'
-                                    const altMatch = match[0].match(/alt=["']([^"']+)["']/i)
-                                    if (altMatch) {
-                                        filename = altMatch[1]
-                                    } else {
-                                        filename = src.split('/').pop()?.split('?')[0] || 'attachment.png'
-                                    }
-                                    return { src, filename }
+
+                                // Extract attachments for non-image files (PDFs, videos, etc.)
+                                const allAttachments = parseAttachments(desc)
+                                const nonImageAttachments = allAttachments.filter(a => {
+                                    const ct = (a.contentType || '').toLowerCase()
+                                    const fn = (a.filename || '').toLowerCase()
+                                    return !ct.startsWith('image/') && !fn.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i)
                                 })
 
-                                // Remove images but keep all other HTML formatting
-                                const cleanHtml = desc.replace(/<img[^>]*>/gi, '').trim()
+                                // Keep images IN the HTML for inline display (like real Basecamp)
+                                // Only strip <bc-attachment> wrapper tags but preserve the inner <img> tags
+                                let richHtml = desc
+                                    .replace(/<bc-attachment[^>]*>([\s\S]*?)<\/bc-attachment>/gi, (match, inner) => {
+                                        // If the bc-attachment contains an image, keep the image visible
+                                        if (/<img[^>]+>/i.test(inner)) {
+                                            return inner
+                                        }
+                                        // For non-image attachments (files), remove from flow (they show as cards below)
+                                        return ''
+                                    })
+                                    .trim()
 
-                                if (!cleanHtml && attachments.length === 0) return null
+                                // Rewrite Basecamp URLs to our proxy
+                                richHtml = rewriteHtmlUrls(richHtml)
+
+                                if (!richHtml && nonImageAttachments.length === 0) return null
 
                                 return (
                                     <div style={{ padding: '20px 28px', borderBottom: '1px solid #E8E6E1' }}>
@@ -1244,106 +1402,93 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 margin: 0 0 12px 0;
                                                 color: #6B7B8D;
                                             }
+                                            .bc-rich-text img {
+                                                max-width: 100%;
+                                                height: auto;
+                                                border-radius: 6px;
+                                                margin: 8px 0;
+                                                cursor: pointer;
+                                                transition: opacity 0.15s;
+                                                display: block;
+                                            }
+                                            .bc-rich-text img:hover {
+                                                opacity: 0.9;
+                                            }
+                                            .bc-rich-text figure {
+                                                margin: 12px 0;
+                                            }
+                                            .bc-rich-text figcaption {
+                                                font-size: 12px;
+                                                color: #6B7B8D;
+                                                text-align: center;
+                                                margin-top: 4px;
+                                            }
                                         ` }} />
 
-                                        {attachments.length > 0 && (
-                                            <div style={{ marginBottom: 16 }}>
-                                                <div style={{
-                                                    fontSize: 12, fontWeight: 700, color: '#6B7B8D',
-                                                    textTransform: 'uppercase', letterSpacing: '0.5px',
-                                                    marginBottom: 8
-                                                }}>
-                                                    📎 {attachments.length} {attachments.length === 1 ? 'Attachment' : 'Attachments'}
-                                                </div>
-                                                <div style={{
-                                                    display: 'grid',
-                                                    gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
-                                                    gap: 12
-                                                }}>
-                                                    {attachments.map((file, i) => (
-                                                        <a
-                                                            key={i}
-                                                            href={file.src}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            style={{
-                                                                display: 'flex',
-                                                                flexDirection: 'column',
-                                                                background: '#FAFAF8',
-                                                                border: '1px solid #E8E6E1',
-                                                                borderRadius: 6,
-                                                                overflow: 'hidden',
-                                                                cursor: 'pointer',
-                                                                textDecoration: 'none'
-                                                            }}
-                                                        >
-                                                            <div style={{
-                                                                height: 90,
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                background: '#F0EFEB',
-                                                                overflow: 'hidden'
-                                                            }}>
-                                                                <img
-                                                                    src={file.src}
-                                                                    alt={file.filename}
-                                                                    style={{
-                                                                        width: '100%',
-                                                                        height: '100%',
-                                                                        objectFit: 'cover'
-                                                                    }}
-                                                                    onError={(e) => {
-                                                                        e.currentTarget.style.display = 'none'
-                                                                        const span = e.currentTarget.parentElement?.querySelector('.fallback-icon')
-                                                                        if (span) (span as HTMLElement).style.display = 'block'
-                                                                    }}
-                                                                />
-                                                                <span
-                                                                    className="fallback-icon"
-                                                                    style={{ display: 'none', fontSize: 24 }}
-                                                                >
-                                                                    📄
-                                                                </span>
-                                                            </div>
-                                                            <div style={{ padding: 6, borderTop: '1px solid #E8E6E1' }}>
-                                                                <div style={{
-                                                                    fontSize: 11,
-                                                                    fontWeight: 600,
-                                                                    color: '#1D7DB5',
-                                                                    overflow: 'hidden',
-                                                                    textOverflow: 'ellipsis',
-                                                                    whiteSpace: 'nowrap'
-                                                                }}>
-                                                                    {decodeURIComponent(file.filename)}
-                                                                </div>
-                                                            </div>
-                                                        </a>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <h4 style={{
-                                            fontSize: 12, fontWeight: 700, color: '#6B7B8D',
-                                            textTransform: 'uppercase', letterSpacing: '0.5px',
-                                            margin: '0 0 10px'
-                                        }}>
-                                            Notes
-                                        </h4>
-
-                                        {cleanHtml && (
+                                        {/* Rich text with images displayed INLINE and LARGE, like real Basecamp */}
+                                        {richHtml && (
                                             <div
                                                 className="bc-rich-text"
-                                                onClick={handleHtmlClick}
+                                                onClick={(e) => {
+                                                    // Handle image clicks: open lightbox instead of navigating
+                                                    const target = e.target as HTMLElement
+                                                    if (target.tagName === 'IMG') {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        const imgSrc = (target as HTMLImageElement).src
+                                                        setLightboxUrl(imgSrc)
+                                                        return
+                                                    }
+                                                    // Handle link clicks normally
+                                                    handleHtmlClick(e as any)
+                                                }}
                                                 style={{
                                                     fontSize: 15,
                                                     color: '#1D2D35',
                                                     lineHeight: 1.6,
                                                     wordBreak: 'break-word'
                                                 }}
-                                                dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                                                dangerouslySetInnerHTML={{ __html: richHtml }}
                                             />
+                                        )}
+
+                                        {/* Non-image attachments (PDFs, videos, etc.) as download cards */}
+                                        {nonImageAttachments.length > 0 && (
+                                            <div style={{ marginTop: 16 }}>
+                                                <div style={{
+                                                    fontSize: 12, fontWeight: 700, color: '#6B7B8D',
+                                                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                                                    marginBottom: 8
+                                                }}>
+                                                    📎 {nonImageAttachments.length} {nonImageAttachments.length === 1 ? t('basecamp.file_count') : t('basecamp.files_count')}
+                                                </div>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                                                    {nonImageAttachments.map((file, i) => (
+                                                        <a
+                                                            key={i}
+                                                            href={file.url.startsWith('http') ? `/api/basecamp/attachment?url=${encodeURIComponent(file.url)}` : file.url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            style={{
+                                                                display: 'inline-flex', alignItems: 'center', gap: 8,
+                                                                padding: '8px 14px',
+                                                                background: '#FAFAF8', border: '1px solid #E8E6E1',
+                                                                borderRadius: 6, textDecoration: 'none',
+                                                                fontSize: 13, fontWeight: 500, color: '#1D7DB5',
+                                                                transition: 'background 0.15s'
+                                                            }}
+                                                        >
+                                                            <FileText size={14} style={{ color: '#6B7B8D', flexShrink: 0 }} />
+                                                            <span style={{
+                                                                maxWidth: 200, overflow: 'hidden',
+                                                                textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                                            }}>
+                                                                {decodeURIComponent(file.filename)}
+                                                            </span>
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
                                 )
@@ -1412,7 +1557,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                              whiteSpace: 'pre-wrap',
                                                              wordBreak: 'break-word'
                                                          }}
-                                                         dangerouslySetInnerHTML={{ __html: c.text }}
+                                                         dangerouslySetInnerHTML={{ __html: rewriteHtmlUrls(c.text) }}
                                                      />
                                                 </div>
                                             </div>
@@ -1489,6 +1634,66 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                     </div>
                 )
             })()}
+
+            {/* ── Fullscreen Image Lightbox ── */}
+            {lightboxUrl && (
+                <div
+                    onClick={() => setLightboxUrl(null)}
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 100,
+                        background: 'rgba(0,0,0,0.85)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'zoom-out', padding: 20
+                    }}
+                >
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setLightboxUrl(null) }}
+                        style={{
+                            position: 'absolute', top: 20, right: 20,
+                            width: 40, height: 40, borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 20, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'background 0.15s'
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.3)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                    >
+                        ✕
+                    </button>
+                    <img
+                        src={lightboxUrl}
+                        alt="Fullscreen view"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxWidth: '90vw', maxHeight: '90vh',
+                            objectFit: 'contain',
+                            borderRadius: 8,
+                            boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                            cursor: 'default'
+                        }}
+                    />
+                    {/* Download button */}
+                    <a
+                        href={lightboxUrl}
+                        download
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            position: 'absolute', bottom: 20,
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '8px 18px', borderRadius: 20,
+                            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+                            color: '#fff', fontSize: 13, fontWeight: 600,
+                            textDecoration: 'none', cursor: 'pointer',
+                            transition: 'background 0.15s'
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.3)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                    >
+                        {t('basecamp.download_btn')}
+                    </a>
+                </div>
+            )}
         </div>
     )
 }

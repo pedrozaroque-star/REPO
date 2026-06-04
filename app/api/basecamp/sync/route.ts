@@ -40,12 +40,14 @@ import {
   fetchCampfireLines,
   fetchDocuments,
   fetchUploads,
+  fetchSubVaults,
   fetchScheduleEntries,
   fetchQuestions,
   fetchAnswers,
   fetchComments,
   findDock,
   extractDockId,
+  getValidToken,
   type BasecampProject,
 } from '@/lib/basecamp-api'
 
@@ -116,6 +118,209 @@ function getSyncClient() {
   )
 }
 
+// ============================================================================
+// HELPER FUNCTIONS FOR FILE SYNCING & HTML PROCESSING
+// ============================================================================
+
+async function downloadAndUploadAttachment(
+  token: string,
+  basecampUrl: string,
+  filename: string,
+  contentType: string,
+  targetFolder: string,
+  id: number | string,
+  supabase: any
+): Promise<string | null> {
+  try {
+    let targetUrl = basecampUrl.replace('preview.app.basecamp.com', '3.basecampapi.com')
+    targetUrl = targetUrl.replace('storage.app.basecamp.com', '3.basecampapi.com')
+
+    const res = await fetch(targetUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': process.env.BASECAMP_USER_AGENT || 'SM-TEG-Sync (carlos@tacosgavilan.com)',
+      },
+      redirect: 'manual',
+    })
+
+    const downloadUrl = res.headers.get('location')
+    let fileBuffer: Buffer
+    let finalContentType = contentType || 'application/octet-stream'
+
+    if (downloadUrl) {
+      const s3Res = await fetch(downloadUrl)
+      if (!s3Res.ok) throw new Error(`Failed to download from S3: ${s3Res.status}`)
+      fileBuffer = Buffer.from(await s3Res.arrayBuffer())
+      finalContentType = s3Res.headers.get('Content-Type') || finalContentType
+    } else if (res.ok) {
+      fileBuffer = Buffer.from(await res.arrayBuffer())
+      finalContentType = res.headers.get('Content-Type') || finalContentType
+    } else {
+      throw new Error(`Failed to fetch from Basecamp API: ${res.status}`)
+    }
+
+    const safeFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_')
+    const filePath = `basecamp-attachments/${targetFolder}/${id}/${Date.now()}-${safeFilename}`
+
+    const { error: uploadErr } = await supabase.storage
+      .from('checklist-photos')
+      .upload(filePath, fileBuffer, {
+        contentType: finalContentType,
+        cacheControl: '3600',
+        upsert: true,
+      })
+
+    if (uploadErr) throw uploadErr
+
+    const { data: publicUrlData } = supabase.storage.from('checklist-photos').getPublicUrl(filePath)
+    return publicUrlData.publicUrl
+  } catch (err: any) {
+    console.error(`  ⚠️ Failed to migrate attachment: ${filename}. Error: ${err.message}`)
+    return null
+  }
+}
+
+interface HtmlAttachment {
+  contentType: string
+  filename: string
+  url: string
+  rawMatch: string
+  isTag: boolean
+}
+
+function parseHtmlAttachments(html: string): HtmlAttachment[] {
+  const attachments: HtmlAttachment[] = []
+  if (!html) return attachments
+
+  // 1. bc-attachment tags
+  const bcAttachmentRegex = /<bc-attachment\s+([^>]+)>([\s\S]*?)<\/bc-attachment>/gi
+  let match: RegExpExecArray | null
+  while ((match = bcAttachmentRegex.exec(html)) !== null) {
+    const attrsStr = match[1]
+    const getAttr = (name: string) => {
+      const m = attrsStr.match(new RegExp(`${name}=["']([^"']+)["']`, 'i'))
+      return m ? m[1] : null
+    }
+    const contentType = getAttr('content-type') || ''
+    const filename = getAttr('filename') || 'attachment'
+    const href = getAttr('href') || ''
+    const url = getAttr('url') || href || ''
+    if (url && (url.includes('basecamp') || url.includes('blobs'))) {
+      attachments.push({ contentType, filename, url, rawMatch: match[0], isTag: true })
+    }
+  }
+
+  // 2. img tags
+  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi
+  let imgMatch: RegExpExecArray | null
+  while ((imgMatch = imgRegex.exec(html)) !== null) {
+    const src = imgMatch[1]
+    if (src && (src.includes('basecamp') || src.includes('blobs'))) {
+      const isAlreadyCaptured = attachments.some((a) => a.url === src)
+      if (!isAlreadyCaptured) {
+        let filename = 'image.png'
+        const altMatch = imgMatch[0].match(/alt=["']([^"']+)["']/i)
+        if (altMatch) filename = altMatch[1]
+        attachments.push({
+          contentType: 'image/png',
+          filename,
+          url: src,
+          rawMatch: imgMatch[0],
+          isTag: false,
+        })
+      }
+    }
+  }
+
+  return attachments
+}
+
+async function processHtmlContent(
+  html: string,
+  token: string,
+  targetFolder: string,
+  parentId: number | string,
+  supabase: any,
+  urlCache: Map<string, string>
+): Promise<string> {
+  if (!html || (!html.includes('basecamp') && !html.includes('blobs'))) {
+    return html
+  }
+
+  const attachments = parseHtmlAttachments(html)
+  if (attachments.length === 0) return html
+
+  let updatedHtml = html
+  for (const att of attachments) {
+    let localUrl = urlCache.get(att.url)
+    if (!localUrl) {
+      console.log(`📥 HTML attachment found: ${att.filename}. Downloading...`)
+      const uploadedUrl = await downloadAndUploadAttachment(token, att.url, att.filename, att.contentType, targetFolder, parentId, supabase)
+      if (uploadedUrl) {
+        localUrl = uploadedUrl
+        urlCache.set(att.url, localUrl)
+      }
+    }
+    if (localUrl) {
+      updatedHtml = updatedHtml.replaceAll(att.url, localUrl)
+    }
+  }
+
+  return updatedHtml
+}
+
+async function resolveOrCreatePerson(
+  creator: any,
+  supabase: any,
+  peopleMap: Record<number, string>
+): Promise<string | null> {
+  if (!creator || !creator.id) return null
+  const creatorId = Number(creator.id)
+  
+  if (peopleMap[creatorId]) {
+    return peopleMap[creatorId]
+  }
+  
+  const { data: dbPerson } = await supabase
+    .from('bc_people')
+    .select('id')
+    .eq('bc_id', creatorId)
+    .maybeSingle()
+    
+  if (dbPerson) {
+    peopleMap[creatorId] = dbPerson.id
+    return dbPerson.id
+  }
+  
+  console.log(`👤 [Basecamp Sync] Dynamically inserting missing person: ${creator.name || 'Unknown'} (bc_id: ${creatorId})`)
+  try {
+    const { data: newPerson, error: pErr } = await supabase
+      .from('bc_people')
+      .insert({
+        bc_id: creatorId,
+        name: creator.name || 'Unknown',
+        email: creator.email_address || '',
+        avatar_url: creator.avatar_url || '',
+        role: creator.employee ? 'employee' : creator.client ? 'client' : 'user',
+        title: creator.title || '',
+        is_active: true
+      })
+      .select('id')
+      .maybeSingle()
+      
+    if (!pErr && newPerson) {
+      peopleMap[creatorId] = newPerson.id
+      return newPerson.id
+    } else if (pErr) {
+      console.warn(`      ⚠️ Failed to insert missing person ${creator.name}:`, pErr.message)
+    }
+  } catch (err: any) {
+    console.warn(`      ⚠️ Exception inserting missing person ${creator.name}:`, err.message)
+  }
+  
+  return null
+}
+
 export async function POST(request: Request) {
   const supabase = getSyncClient()
   const counters = createCounters()
@@ -135,6 +340,9 @@ export async function POST(request: Request) {
   const syncLogId = logEntry?.id
 
   try {
+    const token = await getValidToken()
+    const urlCache = new Map<string, string>()
+
     console.log('🔄 [Basecamp Sync] Starting full synchronization to bc_* tables...')
 
     // Maps to resolve Basecamp Numeric IDs to local Supabase UUIDs
@@ -248,7 +456,172 @@ export async function POST(request: Request) {
     // ================================================================
     // STEP 3: SYNC PER-PROJECT RESOURCES
     // ================================================================
-    console.log('🔧 [Basecamp Sync] Step 3: Syncing per-project resources...')
+    // Helper function to recursively sync vault contents (for sub-folders)
+    async function syncVaultContents(
+      projectId: number,
+      projectUuid: string,
+      vaultId: number,
+      vaultUuid: string
+    ) {
+      // 1. Sync documents inside this vault
+      try {
+        const docs = await fetchDocuments(projectId, vaultId)
+        for (const d of docs) {
+          const authorUuid = await resolveOrCreatePerson(d.creator, supabase, peopleMap)
+          const processedContent = await processHtmlContent(d.content || '', token, 'documents', d.id, supabase, urlCache)
+
+          const { data: dbDoc, error: docErr } = await supabase
+            .from('bc_documents')
+            .upsert({
+              bc_id: d.id,
+              project_id: projectUuid,
+              vault_id: vaultUuid,
+              title: d.title,
+              content: processedContent,
+              author_person_id: authorUuid,
+              created_at: d.created_at || new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'bc_id' })
+            .select('id')
+            .single()
+
+          if (docErr) {
+            counters.errors.push(`Document ${d.id}: ${docErr.message}`)
+            continue
+          }
+
+          const docUuid = dbDoc.id
+          documentsMap[d.id] = docUuid
+          counters.documents++
+
+          // Sync comments on document
+          if (d.comments_count > 0) {
+            try {
+              const comments = await fetchComments(projectId, d.id)
+              const commentRows = []
+              for (const c of comments) {
+                const processedCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
+                commentRows.push({
+                  bc_id: c.id,
+                  project_id: projectUuid,
+                  parent_type: 'document',
+                  parent_id: docUuid,
+                  content: processedCommentContent,
+                  author_person_id: await resolveOrCreatePerson(c.creator, supabase, peopleMap),
+                  created_at: c.created_at || new Date().toISOString(),
+                })
+              }
+
+              await supabase.from('bc_comments').upsert(commentRows, { onConflict: 'bc_id' })
+              counters.comments += comments.length
+            } catch (comFetchErr: any) {
+              console.warn(`      ⚠️ comments fetch error for doc ${d.id}:`, comFetchErr.message)
+            }
+          }
+        }
+      } catch (docErr: any) {
+        counters.errors.push(`Documents for vault ${vaultId}: ${docErr.message}`)
+      }
+
+      // 2. Sync uploads inside this vault
+      try {
+        const uploads = await fetchUploads(projectId, vaultId)
+        if (uploads.length > 0) {
+          const bcIds = uploads.map((u) => u.id)
+          const { data: existingUploads } = await supabase
+            .from('bc_uploads')
+            .select('bc_id, download_url')
+            .in('bc_id', bcIds)
+
+          const existingMap = new Map<number, string>()
+          if (existingUploads) {
+            existingUploads.forEach((eu: any) => {
+              const url = eu.download_url || ''
+              if (url.includes('supabase.co') || url.includes('checklist-photos')) {
+                existingMap.set(Number(eu.bc_id), url)
+              }
+            })
+          }
+
+          const uploadRows = []
+          for (const u of uploads) {
+            let finalUrl = existingMap.get(u.id)
+            if (!finalUrl && u.download_url) {
+              const isBasecampUrl = (u.download_url.includes('basecamp') || u.download_url.includes('blobs')) &&
+                !u.download_url.includes('google.com')
+
+              if (isBasecampUrl) {
+                console.log(`📥 Syncing new upload file to Supabase Storage: ${u.filename} (bc_id: ${u.id})...`)
+                const localUrl = await downloadAndUploadAttachment(
+                  token,
+                  u.download_url,
+                  u.filename || u.title || 'file',
+                  u.content_type || 'application/octet-stream',
+                  'uploads',
+                  u.id,
+                  supabase
+                )
+                if (localUrl) {
+                  finalUrl = localUrl
+                }
+              }
+            }
+
+            uploadRows.push({
+              bc_id: u.id,
+              project_id: projectUuid,
+              vault_id: vaultUuid,
+              filename: u.filename || u.title,
+              content_type: u.content_type || '',
+              byte_size: u.byte_size || 0,
+              download_url: finalUrl || u.download_url || '',
+              author_person_id: await resolveOrCreatePerson(u.creator, supabase, peopleMap),
+              created_at: u.created_at || new Date().toISOString(),
+            })
+          }
+
+          const { error: upErr } = await supabase.from('bc_uploads').upsert(uploadRows, { onConflict: 'bc_id' })
+          if (upErr) {
+            counters.errors.push(`Uploads for vault ${vaultId}: ${upErr.message}`)
+          } else {
+            counters.uploads += uploads.length
+          }
+        }
+      } catch (upErr: any) {
+        counters.errors.push(`Uploads for vault ${vaultId}: ${upErr.message}`)
+      }
+
+      // 3. Sync sub-vaults (nested folders) recursively!
+      try {
+        const subvaults = await fetchSubVaults(projectId, vaultId)
+        for (const sv of subvaults) {
+          const { data: dbSubVault, error: svErr } = await supabase
+            .from('bc_vaults')
+            .upsert({
+              bc_id: sv.id,
+              project_id: projectUuid,
+              name: sv.title || sv.name || 'Folder',
+              parent_vault_id: vaultUuid
+            }, { onConflict: 'bc_id' })
+            .select('id')
+            .single()
+
+          if (svErr) {
+            counters.errors.push(`Sub-vault ${sv.id}: ${svErr.message}`)
+            continue
+          }
+
+          const subVaultUuid = dbSubVault.id
+          vaultsMap[sv.id] = subVaultUuid
+          counters.vaults++
+
+          // Recurse into this sub-vault!
+          await syncVaultContents(projectId, projectUuid, sv.id, subVaultUuid)
+        }
+      } catch (svErr: any) {
+        counters.errors.push(`Subvaults for vault ${vaultId}: ${svErr.message}`)
+      }
+    }
 
     for (const project of projects) {
       const projectUuid = projectsMap[project.id]
@@ -326,6 +699,7 @@ export async function POST(request: Request) {
 
           for (const list of todolists) {
             // Upsert the todolist
+            const processedListDesc = await processHtmlContent(list.description || '', token, 'todolists', list.id, supabase, urlCache)
             const { data: dbList, error: listErr } = await supabase
               .from('bc_todolists')
               .upsert(
@@ -334,10 +708,11 @@ export async function POST(request: Request) {
                   project_id: projectUuid,
                   todoset_id: todosetUuid,
                   name: list.title || list.name,
-                  description: list.description || '',
+                  description: processedListDesc,
                   position: list.position,
                   completed_count: parseInt(list.completed_ratio?.split('/')[0] || '0', 10),
                   total_count: parseInt(list.completed_ratio?.split('/')[1] || '0', 10),
+                  created_at: list.created_at || new Date().toISOString(),
                   updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'bc_id' }
@@ -359,7 +734,8 @@ export async function POST(request: Request) {
               const todos = await fetchAllTodos(project.id, list.id)
 
               for (const t of todos) {
-                const authorUuid = peopleMap[t.creator?.id] || null
+                const authorUuid = await resolveOrCreatePerson(t.creator, supabase, peopleMap)
+                const processedTodoDesc = await processHtmlContent(t.description || '', token, 'todos', t.id, supabase, urlCache)
                 const { data: dbTodo, error: todoErr } = await supabase
                   .from('bc_todos')
                   .upsert({
@@ -367,12 +743,13 @@ export async function POST(request: Request) {
                     project_id: projectUuid,
                     todolist_id: todolistUuid,
                     title: t.content || t.title,
-                    description: t.description || '',
+                    description: processedTodoDesc,
                     is_completed: t.completed || false,
                     completed_at: t.completed ? (t.updated_at || new Date().toISOString()) : null,
                     due_date: t.due_on || null,
                     position: t.position,
                     created_by_person_id: authorUuid,
+                    created_at: t.created_at || new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                   }, { onConflict: 'bc_id' })
                   .select('id')
@@ -417,15 +794,19 @@ export async function POST(request: Request) {
                 if (t.comments_count > 0) {
                   try {
                     const comments = await fetchComments(project.id, t.id)
-                    const commentRows = comments.map((c) => ({
-                      bc_id: c.id,
-                      project_id: projectUuid,
-                      parent_type: 'todo',
-                      parent_id: todoUuid,
-                      content: c.content || '',
-                      author_person_id: peopleMap[c.creator?.id] || null,
-                      created_at: c.created_at || new Date().toISOString(),
-                    }))
+                    const commentRows = []
+                    for (const c of comments) {
+                      const processedCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
+                      commentRows.push({
+                        bc_id: c.id,
+                        project_id: projectUuid,
+                        parent_type: 'todo',
+                        parent_id: todoUuid,
+                        content: processedCommentContent,
+                        author_person_id: await resolveOrCreatePerson(c.creator, supabase, peopleMap),
+                        created_at: c.created_at || new Date().toISOString(),
+                      })
+                    }
 
                     const { error: comErr } = await supabase
                       .from('bc_comments')
@@ -478,7 +859,8 @@ export async function POST(request: Request) {
           console.log(`   📬 Found ${messages.length} messages`)
 
           for (const m of messages) {
-            const authorUuid = peopleMap[m.creator?.id] || null
+            const authorUuid = await resolveOrCreatePerson(m.creator, supabase, peopleMap)
+            const processedMsgContent = await processHtmlContent(m.content || '', token, 'messages', m.id, supabase, urlCache)
             const { data: dbMsg, error: msgErr } = await supabase
               .from('bc_messages')
               .upsert({
@@ -486,10 +868,11 @@ export async function POST(request: Request) {
                 project_id: projectUuid,
                 board_id: boardUuid,
                 title: m.subject || m.title,
-                content: m.content || '',
+                content: processedMsgContent,
                 category: m.category?.name || 'General',
                 author_person_id: authorUuid,
                 comments_count: m.comments_count || 0,
+                created_at: m.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               }, { onConflict: 'bc_id' })
               .select('id')
@@ -508,15 +891,19 @@ export async function POST(request: Request) {
             if (m.comments_count > 0) {
               try {
                 const comments = await fetchComments(project.id, m.id)
-                const commentRows = comments.map((c) => ({
-                  bc_id: c.id,
-                  project_id: projectUuid,
-                  parent_type: 'message',
-                  parent_id: messageUuid,
-                  content: c.content || '',
-                  author_person_id: peopleMap[c.creator?.id] || null,
-                  created_at: c.created_at || new Date().toISOString(),
-                }))
+                const commentRows = []
+                for (const c of comments) {
+                  const processedCommentContent = await processHtmlContent(c.content || '', token, 'comments', c.id, supabase, urlCache)
+                  commentRows.push({
+                    bc_id: c.id,
+                    project_id: projectUuid,
+                    parent_type: 'message',
+                    parent_id: messageUuid,
+                    content: processedCommentContent,
+                    author_person_id: await resolveOrCreatePerson(c.creator, supabase, peopleMap),
+                    created_at: c.created_at || new Date().toISOString(),
+                  })
+                }
 
                 const { error: comErr } = await supabase
                   .from('bc_comments')
@@ -565,14 +952,18 @@ export async function POST(request: Request) {
           console.log(`   🔥 Found ${lines.length} campfire lines`)
 
           if (lines.length > 0) {
-            const lineRows = lines.map((l) => ({
-              bc_id: l.id,
-              project_id: projectUuid,
-              campfire_id: campfireUuid,
-              content: l.content || '',
-              author_person_id: peopleMap[l.creator?.id] || null,
-              created_at: l.created_at || new Date().toISOString(),
-            }))
+            const lineRows = []
+            for (const l of lines) {
+              const processedLineContent = await processHtmlContent(l.content || '', token, 'campfire', l.id, supabase, urlCache)
+              lineRows.push({
+                bc_id: l.id,
+                project_id: projectUuid,
+                campfire_id: campfireUuid,
+                content: processedLineContent,
+                author_person_id: await resolveOrCreatePerson(l.creator, supabase, peopleMap),
+                created_at: l.created_at || new Date().toISOString(),
+              })
+            }
 
             const { error: lineErr } = await supabase
               .from('bc_campfire_lines')
@@ -589,18 +980,23 @@ export async function POST(request: Request) {
         }
       }
 
-      // ---- VAULT (DOCS & FILES) → DOCUMENTS + UPLOADS ----
-      const vaultDock = findDock(project, 'vault')
-      if (vaultDock) {
+      // ---- VAULT (DOCS & FILES / REPORTES) → DOCUMENTS + UPLOADS (RECURSIVAMENTE) ----
+      const vaultDocks = project.dock?.filter((d) => d.name === 'vault' && d.enabled) || []
+      console.log(`   📂 Found ${vaultDocks.length} root vault(s) in dock`)
+
+      for (const vaultDock of vaultDocks) {
         try {
           const vaultId = extractDockId(vaultDock.url)
+          console.log(`   📁 Syncing root vault: "${vaultDock.title || vaultDock.name}" (bc_id: ${vaultId})`)
           
-          // Upsert the vault container
+          // Upsert the root vault container
           const { data: dbVault, error: vaultErr } = await supabase
             .from('bc_vaults')
             .upsert({
               bc_id: vaultId,
               project_id: projectUuid,
+              name: vaultDock.title || vaultDock.name || 'Docs & Files',
+              parent_vault_id: null
             }, { onConflict: 'bc_id' })
             .select('id')
             .single()
@@ -613,101 +1009,10 @@ export async function POST(request: Request) {
           vaultsMap[vaultId] = vaultUuid
           counters.vaults++
 
-          // Documents
-          try {
-            const docs = await fetchDocuments(project.id, vaultId)
-            console.log(`   📄 Found ${docs.length} documents`)
-
-            for (const d of docs) {
-              const authorUuid = peopleMap[d.creator?.id] || null
-              const { data: dbDoc, error: docErr } = await supabase
-                .from('bc_documents')
-                .upsert({
-                  bc_id: d.id,
-                  project_id: projectUuid,
-                  vault_id: vaultUuid,
-                  title: d.title,
-                  content: d.content || '',
-                  author_person_id: authorUuid,
-                  updated_at: new Date().toISOString(),
-                }, { onConflict: 'bc_id' })
-                .select('id')
-                .single()
-
-              if (docErr) {
-                counters.errors.push(`Document ${d.id}: ${docErr.message}`)
-                continue
-              }
-
-              const docUuid = dbDoc.id
-              documentsMap[d.id] = docUuid
-              counters.documents++
-
-              // Sync comments on document
-              if (d.comments_count > 0) {
-                try {
-                  const comments = await fetchComments(project.id, d.id)
-                  const commentRows = comments.map((c) => ({
-                    bc_id: c.id,
-                    project_id: projectUuid,
-                    parent_type: 'document',
-                    parent_id: docUuid,
-                    content: c.content || '',
-                    author_person_id: peopleMap[c.creator?.id] || null,
-                    created_at: c.created_at || new Date().toISOString(),
-                  }))
-
-                  const { error: comErr } = await supabase
-                    .from('bc_comments')
-                    .upsert(commentRows, { onConflict: 'bc_id' })
-
-                  if (comErr) {
-                    console.error(`      ❌ comments error for doc ${d.id}:`, comErr.message)
-                  } else {
-                    counters.comments += comments.length
-                  }
-                } catch (comFetchErr: any) {
-                  console.warn(`      ⚠️ comments fetch error for doc ${d.id}:`, comFetchErr.message)
-                }
-              }
-            }
-          } catch (docErr: any) {
-            counters.errors.push(`Documents for project ${project.id}: ${docErr.message}`)
-          }
-
-          // Uploads
-          try {
-            const uploads = await fetchUploads(project.id, vaultId)
-            console.log(`   📎 Found ${uploads.length} uploads`)
-
-            if (uploads.length > 0) {
-              const uploadRows = uploads.map((u) => ({
-                bc_id: u.id,
-                project_id: projectUuid,
-                vault_id: vaultUuid,
-                filename: u.filename || u.title,
-                content_type: u.content_type || '',
-                byte_size: u.byte_size || 0,
-                download_url: u.download_url || '',
-                author_person_id: peopleMap[u.creator?.id] || null,
-                created_at: u.created_at || new Date().toISOString(),
-              }))
-
-              const { error: upErr } = await supabase
-                .from('bc_uploads')
-                .upsert(uploadRows, { onConflict: 'bc_id' })
-
-              if (upErr) {
-                counters.errors.push(`Uploads for project ${project.id}: ${upErr.message}`)
-              } else {
-                counters.uploads += uploads.length
-              }
-            }
-          } catch (upErr: any) {
-            counters.errors.push(`Uploads for project ${project.id}: ${upErr.message}`)
-          }
+          // Sync recursively!
+          await syncVaultContents(project.id, projectUuid, vaultId, vaultUuid)
         } catch (err: any) {
-          counters.errors.push(`Vault for project ${project.id}: ${err.message}`)
+          counters.errors.push(`Vault ${vaultDock.title || vaultDock.name} for project ${project.id}: ${err.message}`)
         }
       }
 
@@ -739,18 +1044,22 @@ export async function POST(request: Request) {
           console.log(`   📅 Found ${entries.length} schedule entries`)
 
           if (entries.length > 0) {
-            const eventRows = entries.map((e) => ({
-              bc_id: e.id,
-              project_id: projectUuid,
-              schedule_id: scheduleUuid,
-              title: e.summary || e.title,
-              description: e.description || '',
-              starts_at: e.starts_at || null,
-              ends_at: e.ends_at || null,
-              all_day: e.all_day || false,
-              author_person_id: peopleMap[e.creator?.id] || null,
-              updated_at: new Date().toISOString(),
-            }))
+            const eventRows = []
+            for (const e of entries) {
+              const processedEventDesc = await processHtmlContent(e.description || '', token, 'schedules', e.id, supabase, urlCache)
+              eventRows.push({
+                bc_id: e.id,
+                project_id: projectUuid,
+                schedule_id: scheduleUuid,
+                title: e.summary || e.title,
+                description: processedEventDesc,
+                starts_at: e.starts_at || null,
+                ends_at: e.ends_at || null,
+                all_day: e.all_day || false,
+                author_person_id: await resolveOrCreatePerson(e.creator, supabase, peopleMap),
+                updated_at: new Date().toISOString(),
+              })
+            }
 
             const { error: evtErr } = await supabase
               .from('bc_schedule_entries')
@@ -825,14 +1134,18 @@ export async function POST(request: Request) {
               const answers = await fetchAnswers(project.id, q.id)
 
               if (answers.length > 0) {
-                const answerRows = answers.map((a) => ({
-                  bc_id: a.id,
-                  project_id: projectUuid,
-                  question_id: questionUuid,
-                  content: a.content || '',
-                  author_person_id: peopleMap[a.creator?.id] || null,
-                  created_at: a.created_at || new Date().toISOString(),
-                }))
+                const answerRows = []
+                for (const a of answers) {
+                  const processedAnswerContent = await processHtmlContent(a.content || '', token, 'answers', a.id, supabase, urlCache)
+                  answerRows.push({
+                    bc_id: a.id,
+                    project_id: projectUuid,
+                    question_id: questionUuid,
+                    content: processedAnswerContent,
+                    author_person_id: await resolveOrCreatePerson(a.creator, supabase, peopleMap),
+                    created_at: a.created_at || new Date().toISOString(),
+                  })
+                }
 
                 const { error: ansErr } = await supabase
                   .from('bc_answers')

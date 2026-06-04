@@ -1,39 +1,43 @@
 /**
  * @module BasecampHome
  * @description Panel de inicio principal del emulador de Basecamp.
- *              Incluye saludo dinámico, The Lineup (línea de tiempo), cuadrícula de proyectos con estrellas y cambio de color, y actividad reciente.
+ *              Rediseñado para replicar el aspecto limpio del Basecamp moderno, centrado en el logo del negocio,
+ *              con botones de acción alineados y cuadrícula de proyectos en colores pastel elegantes.
  * @businessRules
- *   - Agrupar proyectos en destacados (pinned) y normales.
- *   - Permitir cambiar el color de cada proyecto (guardado en LocalStorage).
- *   - Mostrar el listado de personas activas.
+ *   - Mostrar los proyectos en una cuadrícula con estrellas para destacar y selector de color.
+ *   - Utilizar el logo de Tacos Gavilan (/logo.png) centrado en el inicio.
+ *   - Permitir la creación de nuevos proyectos a través del formulario modal.
+ * @notes
+ *   - Se removió la sección lateral de actividad reciente y The Lineup para delegarlos al dock inferior y al cajón derecho.
+ *   - Los colores de las tarjetas ahora usan un esquema pastel premium alineado con Basecamp 4.
  * @dataFlow
- *   - Recibe listado de proyectos y callback para actualizarlos.
- *   - Usa navigateTo para navegar entre secciones.
+ *   - Proyectos y callback para actualizarlos vienen vía Props.
+ *   - Navegación controlada a través del callback `navigateTo`.
  */
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useLanguage } from '@/lib/i18n'
 import { motion } from 'framer-motion'
 import {
-    Plus, FolderPlus, UserPlus, ShieldAlert, Star, Settings, Paintbrush,
-    Calendar, CheckSquare, MessageSquare, PlusCircle, Flame, MessageCircle, FileText
+    Plus, FolderPlus, UserPlus, ShieldAlert, Star, Paintbrush,
+    Calendar, CheckSquare, MessageSquare, ChevronDown, RefreshCw, Loader2
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
 
-// Mapa de colores HSL con variables seguras compatibles con Tailwind
-const COLOR_CLASSES: Record<string, { border: string; bg: string; text: string; dot: string }> = {
-    white: { border: 'border-slate-200 dark:border-slate-700', bg: 'bg-[#fffdfa] dark:bg-slate-900', text: 'text-slate-800 dark:text-slate-200', dot: 'bg-slate-400' },
-    yellow: { border: 'border-yellow-300 dark:border-yellow-700', bg: 'bg-yellow-50/50 dark:bg-yellow-950/20', text: 'text-yellow-900 dark:text-yellow-100', dot: 'bg-yellow-500' },
-    orange: { border: 'border-orange-300 dark:border-orange-700', bg: 'bg-orange-50/50 dark:bg-orange-950/20', text: 'text-orange-900 dark:text-orange-100', dot: 'bg-orange-500' },
-    red: { border: 'border-red-300 dark:border-red-700', bg: 'bg-red-50/50 dark:bg-red-950/20', text: 'text-red-900 dark:text-red-100', dot: 'bg-red-500' },
-    pink: { border: 'border-pink-300 dark:border-pink-700', bg: 'bg-pink-50/50 dark:bg-pink-950/20', text: 'text-pink-900 dark:text-pink-100', dot: 'bg-pink-500' },
-    purple: { border: 'border-purple-300 dark:border-purple-700', bg: 'bg-purple-50/50 dark:bg-purple-950/20', text: 'text-purple-900 dark:text-purple-100', dot: 'bg-purple-500' },
-    blue: { border: 'border-blue-300 dark:border-blue-700', bg: 'bg-blue-50/50 dark:bg-blue-950/20', text: 'text-blue-900 dark:text-blue-100', dot: 'bg-blue-500' },
-    green: { border: 'border-green-300 dark:border-green-700', bg: 'bg-green-50/50 dark:bg-green-950/20', text: 'text-green-900 dark:text-green-100', dot: 'bg-green-500' },
-    brown: { border: 'border-amber-600/30 dark:border-amber-700/50', bg: 'bg-amber-50/30 dark:bg-amber-950/10', text: 'text-amber-900 dark:text-amber-100', dot: 'bg-amber-600' },
-    gray: { border: 'border-gray-300 dark:border-gray-700', bg: 'bg-gray-50 dark:bg-gray-800/40', text: 'text-gray-800 dark:text-gray-200', dot: 'bg-gray-500' }
+// Mapa de colores HSL pastel idénticos a los del screenshot de Basecamp
+const COLOR_CLASSES: Record<string, { border: string; bg: string; text: string; dot: string; hover: string }> = {
+    white: { border: 'border-slate-200/80 dark:border-slate-800', bg: 'bg-[#ffffff] dark:bg-slate-900', text: 'text-slate-800 dark:text-slate-200', dot: 'bg-slate-400', hover: 'hover:border-slate-350' },
+    blue: { border: 'border-[#cce5ff] dark:border-blue-900/60', bg: 'bg-[#e2f0ff] dark:bg-blue-950/20', text: 'text-[#004085] dark:text-blue-200', dot: 'bg-blue-500', hover: 'hover:border-[#99cbff]' },
+    pink: { border: 'border-[#ffdae0] dark:border-pink-900/60', bg: 'bg-[#ffeef2] dark:bg-pink-950/20', text: 'text-[#721c24] dark:text-pink-200', dot: 'bg-pink-500', hover: 'hover:border-[#ffb3c1]' },
+    yellow: { border: 'border-[#ffeeba] dark:border-yellow-900/60', bg: 'bg-[#fffdec] dark:bg-yellow-950/20', text: 'text-[#856404] dark:text-yellow-250', dot: 'bg-yellow-500', hover: 'hover:border-[#ffd966]' },
+    orange: { border: 'border-[#ffe2cf] dark:border-orange-900/60', bg: 'bg-[#fff3eb] dark:bg-orange-950/20', text: 'text-[#b25b00] dark:text-orange-200', dot: 'bg-orange-500', hover: 'hover:border-[#ffc49e]' },
+    red: { border: 'border-[#f8d7da] dark:border-red-900/60', bg: 'bg-[#fdf2f2] dark:bg-red-950/20', text: 'text-[#721c24] dark:text-red-200', dot: 'bg-red-500', hover: 'hover:border-[#f5c6cb]' },
+    purple: { border: 'border-[#ebdbff] dark:border-purple-900/60', bg: 'bg-[#f8f0ff] dark:bg-purple-950/20', text: 'text-[#592b9b] dark:text-purple-200', dot: 'bg-purple-500', hover: 'hover:border-[#d6b3ff]' },
+    green: { border: 'border-[#c3e6cb] dark:border-green-900/60', bg: 'bg-[#ebfbf0] dark:bg-green-950/20', text: 'text-[#155724] dark:text-green-200', dot: 'bg-green-500', hover: 'hover:border-[#a1dbb2]' },
+    brown: { border: 'border-[#eeddcc] dark:border-amber-900/40', bg: 'bg-[#faf6f0] dark:bg-amber-950/10', text: 'text-[#5a3825] dark:text-amber-200', dot: 'bg-[#8d5b4c]', hover: 'hover:border-[#ddbb99]' },
+    gray: { border: 'border-slate-300 dark:border-slate-700', bg: 'bg-slate-50 dark:bg-slate-800/40', text: 'text-slate-800 dark:text-slate-200', dot: 'bg-gray-500', hover: 'hover:border-slate-400' }
 }
 
 interface BasecampHomeProps {
@@ -41,172 +45,11 @@ interface BasecampHomeProps {
     saveProjects: (projects: any[]) => void
     navigateTo: (params: { project?: string; tool?: string; section?: string }) => void
     userName: string
+    onOpenSearch?: () => void
 }
 
-export default function BasecampHome({ projects, saveProjects, navigateTo, userName }: BasecampHomeProps) {
-    const supabase = getSupabaseWithAuth()
+export default function BasecampHome({ projects, saveProjects, navigateTo, userName, onOpenSearch }: BasecampHomeProps) {
     const { t } = useLanguage()
-
-    const [activityFeed, setActivityFeed] = useState<any[]>([])
-    const [loadingActivity, setLoadingActivity] = useState(true)
-
-    const loadActivity = async () => {
-        setLoadingActivity(true)
-        try {
-            const [commentsRes, messagesRes, todosRes, campfireRes, answersRes] = await Promise.all([
-                supabase
-                    .from('bc_comments')
-                    .select('id, created_at, content, parent_type, parent_id, project:bc_projects(bc_id, name), author:bc_people(name)')
-                    .order('created_at', { ascending: false })
-                    .limit(10),
-                supabase
-                    .from('bc_messages')
-                    .select('id, created_at, title, project:bc_projects(bc_id, name), author:bc_people(name)')
-                    .order('created_at', { ascending: false })
-                    .limit(10),
-                supabase
-                    .from('bc_todos')
-                    .select('id, updated_at, title, is_completed, completed_at, project:bc_projects(bc_id, name), creator:bc_people(name)')
-                    .order('updated_at', { ascending: false })
-                    .limit(10),
-                supabase
-                    .from('bc_campfire_lines')
-                    .select('id, created_at, content, project:bc_projects(bc_id, name), author:bc_people(name)')
-                    .order('created_at', { ascending: false })
-                    .limit(10),
-                supabase
-                    .from('bc_answers')
-                    .select('id, created_at, content, project:bc_projects(bc_id, name), author:bc_people(name), question:bc_questions(title)')
-                    .order('created_at', { ascending: false })
-                    .limit(10)
-            ])
-
-            const items: any[] = []
-
-            if (commentsRes.data) {
-                commentsRes.data.forEach((c: any) => {
-                    items.push({
-                        id: `comment-${c.id}`,
-                        timestamp: new Date(c.created_at),
-                        dateStr: c.created_at,
-                        userName: c.author?.name || 'Unknown',
-                        type: 'comment',
-                        text: c.parent_type === 'todo' ? 'basecamp.activity_comment_todo' : c.parent_type === 'message' ? 'basecamp.activity_comment_message' : 'basecamp.activity_comment_document',
-                        detail: c.content?.replace(/<[^>]*>/g, '').substring(0, 60) + (c.content?.length > 60 ? '...' : ''),
-                        projectBcId: c.project?.bc_id,
-                        projectName: c.project?.name,
-                        tool: c.parent_type === 'todo' ? 'todos' : c.parent_type === 'message' ? 'messages' : 'docs'
-                    })
-                })
-            }
-
-            if (messagesRes.data) {
-                messagesRes.data.forEach((m: any) => {
-                    items.push({
-                        id: `message-${m.id}`,
-                        timestamp: new Date(m.created_at),
-                        dateStr: m.created_at,
-                        userName: m.author?.name || 'Unknown',
-                        type: 'message',
-                        text: 'basecamp.activity_create_message',
-                        detail: `"${m.title}"`,
-                        projectBcId: m.project?.bc_id,
-                        projectName: m.project?.name,
-                        tool: 'messages'
-                    })
-                })
-            }
-
-            if (todosRes.data) {
-                todosRes.data.forEach((t: any) => {
-                    items.push({
-                        id: `todo-${t.id}`,
-                        timestamp: new Date(t.updated_at),
-                        dateStr: t.updated_at,
-                        userName: t.creator?.name || 'Unknown',
-                        type: 'todo',
-                        text: t.is_completed ? 'basecamp.activity_complete_todo' : 'basecamp.activity_create_todo',
-                        detail: `"${t.title}"`,
-                        projectBcId: t.project?.bc_id,
-                        projectName: t.project?.name,
-                        tool: 'todos'
-                    })
-                })
-            }
-
-            if (campfireRes.data) {
-                campfireRes.data.forEach((cf: any) => {
-                    items.push({
-                        id: `campfire-${cf.id}`,
-                        timestamp: new Date(cf.created_at),
-                        dateStr: cf.created_at,
-                        userName: cf.author?.name || 'Unknown',
-                        type: 'campfire',
-                        text: 'basecamp.activity_campfire_chat',
-                        detail: `"${cf.content?.replace(/<[^>]*>/g, '').substring(0, 60)}${cf.content?.length > 60 ? '...' : ''}"`,
-                        projectBcId: cf.project?.bc_id,
-                        projectName: cf.project?.name,
-                        tool: 'campfire'
-                    })
-                })
-            }
-
-            if (answersRes.data) {
-                answersRes.data.forEach((a: any) => {
-                    items.push({
-                        id: `answer-${a.id}`,
-                        timestamp: new Date(a.created_at),
-                        dateStr: a.created_at,
-                        userName: a.author?.name || 'Unknown',
-                        type: 'answer',
-                        text: 'basecamp.activity_answer_checkin',
-                        detail: `"${a.content?.replace(/<[^>]*>/g, '').substring(0, 60)}${a.content?.length > 60 ? '...' : ''}"`,
-                        projectBcId: a.project?.bc_id,
-                        projectName: a.project?.name,
-                        tool: 'checkins'
-                    })
-                })
-            }
-
-            // Sort descending
-            items.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-            setActivityFeed(items.slice(0, 15))
-        } catch (err: any) {
-            console.error('Error combining activity feed:', err.message)
-        } finally {
-            setLoadingActivity(false)
-        }
-    }
-
-    useEffect(() => {
-        loadActivity()
-    }, [projects])
-
-    const formatActivityTime = (dateStr: string) => {
-        const d = new Date(dateStr)
-        const now = new Date()
-        const diffMs = now.getTime() - d.getTime()
-        const diffMin = Math.floor(diffMs / 60000)
-        const diffHours = Math.floor(diffMin / 60)
-        
-        if (diffMin < 1) return t('basecamp.activity_time_just_now')
-        if (diffMin < 60) return t('basecamp.activity_time_mins').replace('{n}', String(diffMin))
-        if (diffHours < 24) return t('basecamp.activity_time_hrs').replace('{n}', String(diffHours))
-        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    }
-
-    // Control del saludo según la hora local
-    const getGreeting = () => {
-        const hour = new Date().getHours()
-        const shortName = userName.split(' ')[0]
-        if (hour >= 6 && hour < 12) {
-            return t('basecamp.greeting_morning').replace('{name}', shortName)
-        } else if (hour >= 12 && hour < 18) {
-            return t('basecamp.greeting_afternoon').replace('{name}', shortName)
-        } else {
-            return t('basecamp.greeting_evening').replace('{name}', shortName)
-        }
-    }
 
     // Estado del modal de crear proyecto
     const [showCreateModal, setShowCreateModal] = useState(false)
@@ -217,14 +60,39 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
     // Estado del popover de color activo por proyecto
     const [activeColorPickerId, setActiveColorPickerId] = useState<string | null>(null)
 
-    const handleCreateProject = (e: React.FormEvent) => {
+    // Estado de sincronización con Basecamp
+    const [isSyncing, setIsSyncing] = useState(false)
+    const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+    const handleCreateProject = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!newProjectName.trim()) return
 
+        // INSERT into Supabase bc_projects
+        const supabase = getSupabaseWithAuth()
+        const { data: inserted, error } = await supabase
+            .from('bc_projects')
+            .insert({
+                name: newProjectName.trim(),
+                description: newProjectDesc.trim() || '',
+                bc_id: Date.now(), // unique fake bc_id
+                color: newProjectColor,
+                is_pinned: false,
+                status: 'active',
+            })
+            .select('id, bc_id')
+            .single()
+
+        if (error || !inserted) {
+            console.error('Failed to create project:', error)
+            return
+        }
+
         const newProj = {
-            id: String(Date.now()),
+            id: String(inserted.bc_id),
+            db_id: inserted.id,
             name: newProjectName.trim(),
-            description: newProjectDesc.trim() || 'Proyecto creado sin descripción.',
+            description: newProjectDesc.trim(),
             color: newProjectColor,
             is_pinned: false,
             peopleCount: 1,
@@ -236,6 +104,44 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
         setNewProjectDesc('')
         setNewProjectColor('white')
         setShowCreateModal(false)
+    }
+
+    // Sincronizar desde Basecamp original → Supabase (ONE-WAY, lectura solamente)
+    const handleSyncBasecamp = async () => {
+        if (isSyncing) return
+        setIsSyncing(true)
+        setSyncStatus(null)
+        try {
+            const res = await fetch('/api/basecamp/sync', { method: 'POST' })
+            const data = await res.json()
+            if (res.ok && data.status !== 'failed') {
+                const count = data.records_synced || 0
+                setSyncStatus({
+                    type: 'success',
+                    message: t('language') === 'es'
+                        ? `✅ Sincronización completa — ${count} registros actualizados`
+                        : `✅ Sync complete — ${count} records updated`
+                })
+                // Reload page after 2 seconds to show fresh data
+                setTimeout(() => window.location.reload(), 2000)
+            } else {
+                setSyncStatus({
+                    type: 'error',
+                    message: t('language') === 'es'
+                        ? `❌ Error: ${data.error || 'Falló la sincronización'}`
+                        : `❌ Error: ${data.error || 'Sync failed'}`
+                })
+            }
+        } catch (err: any) {
+            setSyncStatus({
+                type: 'error',
+                message: t('language') === 'es'
+                    ? `❌ Error de conexión: ${err.message}`
+                    : `❌ Connection error: ${err.message}`
+            })
+        } finally {
+            setIsSyncing(false)
+        }
     }
 
     const togglePin = (id: string, e: React.MouseEvent) => {
@@ -262,14 +168,14 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 layoutId={`project-${p.id}`}
                 key={p.id}
                 onClick={() => navigateTo({ project: p.id })}
-                className={`relative flex flex-col justify-between p-5 rounded-2xl border-2 ${colorStyles.border} ${colorStyles.bg} shadow-md hover:shadow-xl cursor-pointer transition-all duration-200 min-h-[170px] group`}
+                className={`relative flex flex-col justify-between p-6 rounded-2xl border-2 ${colorStyles.border} ${colorStyles.bg} ${colorStyles.hover} shadow-sm hover:shadow-md cursor-pointer transition-all duration-200 min-h-[160px] group`}
             >
                 <div className="flex-1">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                        <h3 className={`text-base font-extrabold tracking-tight ${colorStyles.text} group-hover:underline`}>
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                        <h3 className={`text-base font-extrabold tracking-tight ${colorStyles.text} group-hover:underline text-left`}>
                             {p.name}
                         </h3>
-                        <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {/* Selector de color */}
                             <div className="relative">
                                 <button
@@ -280,7 +186,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                                     className="p-1 rounded-md hover:bg-black/5 dark:hover:bg-white/10 text-slate-500"
                                     title={t('basecamp.project_color')}
                                 >
-                                    <Paintbrush size={14} />
+                                    <Paintbrush size={13} />
                                 </button>
                                 {activeColorPickerId === p.id && (
                                     <div className="absolute right-0 top-6 z-30 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2 shadow-2xl flex gap-1 flex-wrap w-[150px]">
@@ -292,7 +198,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                                                     changeProjectColor(p.id, cName)
                                                 }}
                                                 className={`w-6 h-6 rounded-full border border-black/10`}
-                                                style={{ backgroundColor: cName === 'white' ? '#fffdfa' : cName === 'brown' ? '#d97706' : cName }}
+                                                style={{ backgroundColor: cName === 'white' ? '#ffffff' : cName === 'brown' ? '#8d5b4c' : cName }}
                                                 title={cName}
                                             />
                                         ))}
@@ -308,34 +214,44 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                                 }`}
                                 title={p.is_pinned ? t('basecamp.unstar_project') : t('basecamp.star_project')}
                             >
-                                <Star size={14} fill={p.is_pinned ? 'currentColor' : 'none'} />
+                                <Star size={13} fill={p.is_pinned ? 'currentColor' : 'none'} />
                             </button>
                         </div>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-3">
-                        {p.description || t('basecamp.no_description')}
-                    </p>
+                    {/* Star always visible if pinned */}
+                    {p.is_pinned && (
+                        <div className="absolute top-6 right-6 text-amber-500 group-hover:hidden">
+                            <Star size={14} fill="currentColor" />
+                        </div>
+                    )}
                 </div>
 
                 {/* Colaboradores / Miembros */}
-                <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-3 mt-4">
+                <div className="flex items-center justify-between pt-3 border-t border-black/5 dark:border-white/5">
                     <div className="flex -space-x-1.5 overflow-hidden">
-                        {(p.people || []).slice(0, 4).map((person: any, idx: number) => (
-                            <div
-                                key={idx}
-                                className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 border-2 border-[#fffdf9] dark:border-slate-900 flex items-center justify-center text-[9px] font-black text-slate-600 dark:text-slate-200 uppercase"
-                                title={`${person.name} (${person.role})`}
-                            >
-                                {person.name[0]}
-                            </div>
-                        ))}
-                        {p.people && p.people.length > 4 && (
-                            <div className="w-6 h-6 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[8px] font-bold text-slate-500">
-                                +{p.people.length - 4}
+                        {(p.people || []).slice(0, 5).map((person: any, idx: number) => {
+                            const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c']
+                            const charCode = (person.name || 'P').charCodeAt(0)
+                            const avatarBg = colors[charCode % colors.length]
+
+                            return (
+                                <div
+                                    key={idx}
+                                    className="w-6 h-6 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[9px] font-black text-white uppercase shadow-sm"
+                                    style={{ backgroundColor: avatarBg }}
+                                    title={`${person.name} (${person.role})`}
+                                >
+                                    {person.name[0]}
+                                </div>
+                            )
+                        })}
+                        {p.people && p.people.length > 5 && (
+                            <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-white dark:border-slate-900 flex items-center justify-center text-[8px] font-bold text-slate-500">
+                                +{p.people.length - 5}
                             </div>
                         )}
                     </div>
-                    <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
                         {p.peopleCount || 1} {p.peopleCount === 1 ? t('basecamp.project_person') : t('basecamp.project_people')}
                     </span>
                 </div>
@@ -344,171 +260,131 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
     }
 
     return (
-        <div className="flex-1 flex flex-col md:flex-row gap-8">
-            {/* Sección Izquierda: Saludo, Lineup y Proyectos */}
-            <div className="flex-1 flex flex-col gap-8">
-                {/* Saludo */}
-                <div>
-                    <h1 className="text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight leading-none mb-1">
-                        {getGreeting()}
-                    </h1>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                    </p>
-                </div>
+        <div className="flex-1 flex flex-col items-center w-full max-w-5xl mx-auto py-4">
+            {/* Header: Center top selector */}
+            <div className="flex items-center gap-1 text-slate-650 dark:text-slate-300 font-extrabold text-sm mb-4 cursor-pointer hover:opacity-85">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block mr-0.5" />
+                <span>Basecamp</span>
+                <ChevronDown size={14} className="mt-0.5 text-slate-400" />
+            </div>
 
-                {/* THE LINEUP (Classic timeline visualization) */}
-                <div className="bg-[#F7F5F2] dark:bg-slate-800/50 border border-[#E8E6E1] dark:border-slate-800 p-5 rounded-2xl shadow-inner">
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4">
-                        {t('basecamp.lineup')}
-                    </h3>
-                    <div className="relative border-l-2 border-[#1D7DB5]/30 pl-4 py-2 space-y-4">
-                        <div className="absolute top-0 -left-[5px] w-2 h-2 rounded-full bg-[#1D7DB5]" />
-                        
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-[#1D7DB5] dark:text-blue-400">{t('basecamp.current_week')}</span>
-                            <span className="text-[10px] text-slate-400">Mayo - Junio 2026</span>
-                        </div>
+            {/* Centered Tacos Gavilan Logo */}
+            <div className="flex flex-col items-center mb-6">
+                <img 
+                    src="/logo.png" 
+                    alt="Tacos Gavilan Logo" 
+                    className="h-28 object-contain mb-2"
+                />
+            </div>
 
-                        {/* Líneas de proyectos simuladas en la línea temporal */}
-                        <div className="space-y-2">
-                            {projects.map((p, idx) => {
-                                const colorStyles = COLOR_CLASSES[p.color] || COLOR_CLASSES.white
-                                return (
-                                    <div
-                                        key={p.id}
-                                        onClick={() => navigateTo({ project: p.id })}
-                                        className="w-full flex items-center gap-3 p-2 rounded-xl bg-white dark:bg-slate-900 border border-[#E8E6E1] dark:border-slate-800 hover:border-[#1D7DB5]/60 cursor-pointer shadow-sm transition-all duration-200 hover:scale-[1.005]"
-                                    >
-                                        <div className={`w-3 h-3 rounded-full ${colorStyles.dot}`} />
-                                        <span className="text-xs font-extrabold text-slate-700 dark:text-slate-200 flex-1 truncate">{p.name}</span>
-                                        <span className="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:inline">Hito: {idx === 0 ? t('dashboard.audits_month') : idx === 1 ? t('basecamp.activity_label_todo') : t('schedule.visit')}</span>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Proyectos Destacados (Pinned) */}
-                {pinnedProjects.length > 0 && (
-                    <div>
-                        <h2 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-4">
-                            <Star size={18} className="text-amber-500" fill="currentColor" />
-                            {t('basecamp.pinned_projects')}
-                        </h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {pinnedProjects.map(p => renderProjectCard(p))}
-                        </div>
-                    </div>
+            {/* Jump Hint */}
+            <div 
+                onClick={onOpenSearch}
+                className="border border-slate-200/60 dark:border-slate-850 bg-[#fffdf9] dark:bg-slate-900 px-4 py-1.5 rounded-lg text-xs font-semibold text-slate-455 dark:text-slate-400 mb-8 shadow-inner cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-850 transition-all"
+            >
+                {t('language') === 'es' ? (
+                    <span>Presione <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">J</kbd> en cualquier momento para buscar o saltar</span>
+                ) : (
+                    <span>Press <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-850 px-1 py-0.5 rounded border text-[10px] mx-0.5 font-bold">J</kbd> anytime to search or jump</span>
                 )}
+            </div>
 
-                {/* Todos los Proyectos y Equipos */}
-                <div>
-                    <h2 className="text-lg font-extrabold text-slate-800 dark:text-slate-100 mb-4">
-                        {t('basecamp.all_projects')}
+            {/* Action Buttons Row */}
+            <div className="flex flex-wrap justify-center gap-2 mb-10 w-full max-w-2xl px-4">
+                <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
+                >
+                    <Plus size={15} className="text-blue-500" />
+                    <span>{t('basecamp.make_new_project')}</span>
+                </button>
+                
+                <button
+                    title={t('basecamp.folder_soon')}
+                    onClick={() => {}}
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-300"
+                >
+                    <FolderPlus size={14} className="text-blue-500" />
+                    <span>{t('basecamp.add_folder')}</span>
+                </button>
+
+                <button
+                    title={t('basecamp.invite_soon')}
+                    onClick={() => {}}
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-400"
+                >
+                    <UserPlus size={14} className="text-blue-500" />
+                    <span>{t('basecamp.invite_people')}</span>
+                </button>
+
+                <button
+                    title={t('basecamp.adminland_soon')}
+                    onClick={() => {}}
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-500"
+                >
+                    <ShieldAlert size={14} className="text-blue-500" />
+                    <span>{t('basecamp.adminland')}</span>
+                </button>
+
+                <button
+                    onClick={handleSyncBasecamp}
+                    disabled={isSyncing}
+                    className={`flex items-center gap-2 px-4 py-2 border rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-600 ${
+                        isSyncing
+                            ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-300 cursor-wait'
+                            : 'bg-white dark:bg-slate-850 hover:bg-blue-50 dark:hover:bg-blue-950/20 border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                >
+                    {isSyncing ? (
+                        <Loader2 size={14} className="text-blue-500 animate-spin" />
+                    ) : (
+                        <RefreshCw size={14} className="text-blue-500" />
+                    )}
+                    <span>{isSyncing
+                        ? (t('language') === 'es' ? 'Sincronizando...' : 'Syncing...')
+                        : (t('language') === 'es' ? 'Sincronizar con Basecamp' : 'Sync with Basecamp')
+                    }</span>
+                </button>
+            </div>
+
+            {/* Sync Status Banner */}
+            {syncStatus && (
+                <div className={`w-full max-w-2xl mx-auto mb-6 px-4 py-3 rounded-xl text-sm font-semibold text-center transition-all animate-in fade-in slide-in-from-top-2 duration-300 ${
+                    syncStatus.type === 'success'
+                        ? 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800'
+                        : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
+                }`}>
+                    {syncStatus.message}
+                </div>
+            )}
+
+            {/* Pinned Projects Section */}
+            {pinnedProjects.length > 0 && (
+                <div className="w-full mb-10 px-4">
+                    <h2 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest text-left mb-4 flex items-center gap-1.5">
+                        <Star size={14} className="text-amber-500" fill="currentColor" />
+                        {t('basecamp.pinned_projects')}
                     </h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {otherProjects.map(p => renderProjectCard(p))}
+                        {pinnedProjects.map(p => renderProjectCard(p))}
                     </div>
+                </div>
+            )}
+
+            {/* All Projects Section */}
+            <div className="w-full px-4 mb-12">
+                <h2 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest text-left mb-4">
+                    {t('basecamp.all_projects')}
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {otherProjects.map(p => renderProjectCard(p))}
                 </div>
             </div>
 
-            {/* Sección Derecha: Sidebar de Acciones Rápidas y Actividad Reciente */}
-            <aside className="w-full md:w-[280px] flex flex-col gap-8 md:border-l md:border-slate-100 md:dark:border-slate-800/80 md:pl-8">
-                {/* Botones de acción rápida */}
-                <div className="space-y-3">
-                    <button
-                        onClick={() => setShowCreateModal(true)}
-                        className="w-full flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl bg-[#1D7DB5] hover:bg-[#155D8A] text-white font-extrabold text-xs shadow-md hover:shadow-lg transition-all"
-                    >
-                        <Plus size={16} />
-                        <span>{t('basecamp.make_new_project')}</span>
-                    </button>
-                    
-                    <button
-                        onClick={() => alert('Folder added (simulation)')}
-                        className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-sm transition-all"
-                    >
-                        <FolderPlus size={15} />
-                        <span>{t('basecamp.add_folder')}</span>
-                    </button>
-
-                    <button
-                        onClick={() => alert('Invite members (simulation)')}
-                        className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-sm transition-all"
-                    >
-                        <UserPlus size={15} />
-                        <span>{t('basecamp.invite_people')}</span>
-                    </button>
-
-                    <button
-                        onClick={() => alert('Adminland Settings (simulation)')}
-                        className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-sm transition-all"
-                    >
-                        <ShieldAlert size={15} />
-                        <span>{t('basecamp.adminland')}</span>
-                    </button>
-                </div>
-
-                {/* Actividad Reciente */}
-                <div className="bg-white dark:bg-slate-900 border border-[#E8E6E1] dark:border-slate-800 p-4 rounded-2xl shadow-sm flex-1 flex flex-col min-h-[300px]">
-                    <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4">
-                        {t('basecamp.recent_activity')}
-                    </h3>
-                    {loadingActivity ? (
-                        <div className="flex-grow flex items-center justify-center py-8">
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#1D7DB5]"></div>
-                        </div>
-                    ) : activityFeed.length === 0 ? (
-                        <p className="text-xs text-slate-400 text-center py-8">{t('basecamp.activity_no_recent')}</p>
-                    ) : (
-                        <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1 no-scrollbar text-xs">
-                            {activityFeed.map((act) => {
-                                const dotColors: Record<string, string> = {
-                                    comment: 'bg-blue-500',
-                                    message: 'bg-purple-500',
-                                    todo: 'bg-green-500',
-                                    campfire: 'bg-orange-500',
-                                    answer: 'bg-yellow-500'
-                                }
-                                return (
-                                    <div key={act.id} className="border-l border-slate-200 dark:border-slate-700 pl-3 relative space-y-1">
-                                        <div className={`absolute top-1 -left-[4px] w-2 h-2 rounded-full ${dotColors[act.type] || 'bg-slate-400'}`} />
-                                        <p className="text-slate-400 text-[10px]">{formatActivityTime(act.dateStr)}</p>
-                                        <p className="text-slate-700 dark:text-slate-300 font-bold">{act.userName}</p>
-                                        <p className="text-slate-500">
-                                            {t(act.text)}{' '}
-                                            <span 
-                                                className="underline cursor-pointer font-medium text-slate-700 dark:text-slate-300 hover:text-[#1D7DB5] dark:hover:text-blue-400" 
-                                                onClick={() => navigateTo({ project: String(act.projectBcId), tool: act.tool })}
-                                            >
-                                                {act.detail}
-                                            </span>
-                                            {act.projectName && (
-                                                <span className="text-[10px] text-slate-400 block mt-0.5">
-                                                    {t('basecamp.activity_in_project').replace('{project}', act.projectName)}
-                                                </span>
-                                            )}
-                                        </p>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    )}
-                    <button
-                        onClick={() => navigateTo({ section: 'activity' })}
-                        className="w-full text-center text-xs font-bold text-[#1D7DB5] dark:text-blue-400 hover:underline mt-4 block pt-2 border-t border-[#E8E6E1] dark:border-slate-800"
-                    >
-                        {t('basecamp.view_all_activity')}
-                    </button>
-                </div>
-            </aside>
-
-            {/* Modal para Crear Proyecto */}
+            {/* Create Project Modal */}
             {showCreateModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
                         <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4">
                             {t('basecamp.make_new_project')}
                         </h3>
@@ -544,7 +420,7 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                                             className={`w-7 h-7 rounded-full border-2 ${
                                                 newProjectColor === cName ? 'border-[#1D7DB5] scale-110' : 'border-transparent'
                                             }`}
-                                            style={{ backgroundColor: cName === 'white' ? '#fffdfa' : cName === 'brown' ? '#d97706' : cName }}
+                                            style={{ backgroundColor: cName === 'white' ? '#ffffff' : cName === 'brown' ? '#8d5b4c' : cName }}
                                             title={cName}
                                         />
                                     ))}

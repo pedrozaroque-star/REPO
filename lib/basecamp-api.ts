@@ -789,6 +789,11 @@ export async function fetchUploads(projectId: number, vaultId: number): Promise<
   return basecampFetch<BasecampUpload[]>(`/buckets/${projectId}/vaults/${vaultId}/uploads.json`)
 }
 
+/** Obtiene los sub-vaults (carpetas) de un vault */
+export async function fetchSubVaults(projectId: number, vaultId: number): Promise<any[]> {
+  return basecampFetch<any[]>(`/buckets/${projectId}/vaults/${vaultId}/vaults.json`)
+}
+
 /** Obtiene las entradas del schedule (calendario) */
 export async function fetchScheduleEntries(projectId: number, scheduleId: number): Promise<BasecampScheduleEntry[]> {
   return basecampFetch<BasecampScheduleEntry[]>(
