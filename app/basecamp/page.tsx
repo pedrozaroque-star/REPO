@@ -60,6 +60,11 @@ function BasecampWorkspace() {
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const [unreadHeyCount, setUnreadHeyCount] = useState(0)
     const [heyDrawerOpen, setHeyDrawerOpen] = useState(false)
+    const [currentTodoId, setCurrentTodoId] = useState<string | null>(searchParams.get('todoId'))
+
+    useEffect(() => {
+        setCurrentTodoId(searchParams.get('todoId'))
+    }, [searchParams])
 
     const currentUserName = user?.name || 'Carlos Roque'
 
@@ -187,7 +192,12 @@ function BasecampWorkspace() {
         if (params.section) query.set('section', params.section)
         if (params.ping) query.set('ping', params.ping)
         if (params.tab) query.set('tab', params.tab)
-        if (params.todoId) query.set('todoId', params.todoId)
+        if (params.todoId) {
+            query.set('todoId', params.todoId)
+            setCurrentTodoId(params.todoId)
+        } else {
+            setCurrentTodoId(null)
+        }
         router.push(`/basecamp?${query.toString()}`)
     }
 
@@ -507,12 +517,14 @@ function BasecampWorkspace() {
                             <ToolTodos
                                 project={currentProject}
                                 currentUserName={currentUserName}
-                                selectedTodoId={searchParams.get('todoId') || undefined}
+                                selectedTodoId={currentTodoId || undefined}
                                 onCloseDetail={() => {
+                                    setCurrentTodoId(null)
                                     const query = new URLSearchParams(window.location.search)
                                     query.delete('todoId')
                                     router.push(`/basecamp?${query.toString()}`)
                                 }}
+                                navigateTo={navigateTo}
                             />
                         )
                     case 'messages':

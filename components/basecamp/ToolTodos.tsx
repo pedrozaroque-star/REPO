@@ -37,6 +37,7 @@ interface ToolTodosProps {
     currentUserName: string
     selectedTodoId?: string
     onCloseDetail?: () => void
+    navigateTo?: (params: any) => void
 }
 
 const getBlobUuid = (url: string) => {
@@ -138,7 +139,7 @@ const rewriteHtmlUrls = (html: string) => {
     return rewritten
 }
 
-export default function ToolTodos({ project, currentUserName, selectedTodoId, onCloseDetail }: ToolTodosProps) {
+export default function ToolTodos({ project, currentUserName, selectedTodoId, onCloseDetail, navigateTo }: ToolTodosProps) {
     const supabase = getSupabaseWithAuth()
     const { t } = useLanguage()
     const [lists, setLists] = useState<any[]>([])
@@ -208,8 +209,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     }
                 }
                 if (foundTodo) {
-                    setSelectedTask(foundTodo)
-                    setSelectedTaskListId(foundListId)
+                    if (navigateTo) {
+                        navigateTo({ project: project.id, tool: 'todos', todoId: foundTodo.id })
+                    } else {
+                        setSelectedTask(foundTodo)
+                        setSelectedTaskListId(foundListId)
+                    }
                 } else {
                     window.open(href, '_blank')
                 }
@@ -614,8 +619,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                         <div
                                             key={task.id}
                                             onClick={() => {
-                                                setSelectedTask(task)
-                                                setSelectedTaskListId(list.id)
+                                                if (navigateTo) {
+                                                    navigateTo({ project: project.id, tool: 'todos', todoId: task.id })
+                                                } else {
+                                                    setSelectedTask(task)
+                                                    setSelectedTaskListId(list.id)
+                                                }
                                             }}
                                             className="group"
                                             style={{
@@ -759,8 +768,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                     <div
                                                         key={task.id}
                                                         onClick={() => {
-                                                            setSelectedTask(task)
-                                                            setSelectedTaskListId(list.id)
+                                                            if (navigateTo) {
+                                                                navigateTo({ project: project.id, tool: 'todos', todoId: task.id })
+                                                            } else {
+                                                                setSelectedTask(task)
+                                                                setSelectedTaskListId(list.id)
+                                                            }
                                                         }}
                                                         style={{
                                                             display: 'flex', alignItems: 'center', gap: 10,
