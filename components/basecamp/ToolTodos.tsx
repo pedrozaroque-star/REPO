@@ -35,6 +35,8 @@ import { getSupabaseWithAuth } from '@/lib/supabase'
 interface ToolTodosProps {
     project: any
     currentUserName: string
+    selectedTodoId?: string
+    onCloseDetail?: () => void
 }
 
 const getBlobUuid = (url: string) => {
@@ -136,7 +138,7 @@ const rewriteHtmlUrls = (html: string) => {
     return rewritten
 }
 
-export default function ToolTodos({ project, currentUserName }: ToolTodosProps) {
+export default function ToolTodos({ project, currentUserName, selectedTodoId, onCloseDetail }: ToolTodosProps) {
     const supabase = getSupabaseWithAuth()
     const { t } = useLanguage()
     const [lists, setLists] = useState<any[]>([])
@@ -160,6 +162,11 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
     const [selectedTaskListId, setSelectedTaskListId] = useState<string | null>(null)
     const [newComment, setNewComment] = useState('')
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+
+    const closeTaskDetail = () => {
+        setSelectedTask(null)
+        if (onCloseDetail) onCloseDetail()
+    }
 
     // NOTE: Previously fetched fresh todo details from Basecamp API here.
     // Removed: Our module is 100% LOCAL — all data comes from Supabase.
@@ -326,6 +333,28 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
         fetchLists()
     }, [fetchLists])
 
+    useEffect(() => {
+        if (selectedTodoId && lists.length > 0) {
+            if (selectedTask?.id !== selectedTodoId) {
+                let found = false
+                for (const list of lists) {
+                    const task = list.tasks.find((t: any) => t.id === selectedTodoId)
+                    if (task) {
+                        setSelectedTask(task)
+                        setSelectedTaskListId(list.id)
+                        found = true
+                        break
+                    }
+                }
+                if (!found && selectedTask) {
+                    setSelectedTask(null)
+                }
+            }
+        } else if (!selectedTodoId && selectedTask) {
+            setSelectedTask(null)
+        }
+    }, [selectedTodoId, lists, selectedTask])
+
     // Toggle completed status
     const handleToggleTask = async (listId: string, task: any) => {
         const actionType = task.is_completed ? 'uncomplete_todo' : 'complete_todo'
@@ -434,7 +463,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
 
             if (!res.ok) throw new Error(await res.text())
             if (selectedTask?.id === task.id) {
-                setSelectedTask(null)
+                closeTaskDetail()
             }
             await fetchLists()
         } catch (err: any) {
@@ -1143,7 +1172,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
 
                 return (
                     <div
-                        onClick={(e) => { if (e.target === e.currentTarget) setSelectedTask(null) }}
+                        onClick={(e) => { if (e.target === e.currentTarget) closeTaskDetail() }}
                         style={{
                             position: 'fixed', inset: 0, zIndex: 50,
                             display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
@@ -1163,7 +1192,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                 background: '#FAFAF8', borderRadius: '10px 10px 0 0'
                             }}>
                                 <button
-                                    onClick={() => setSelectedTask(null)}
+                                    onClick={() => closeTaskDetail()}
                                     style={{
                                         border: 'none', background: 'transparent',
                                         color: '#1D7DB5', cursor: 'pointer', fontSize: 13,
@@ -1173,7 +1202,7 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                     ← {listName}
                                 </button>
                                 <button
-                                    onClick={() => setSelectedTask(null)}
+                                    onClick={() => closeTaskDetail()}
                                     style={{
                                         width: 28, height: 28, borderRadius: '50%',
                                         border: '1px solid #D5D3CE', background: '#fff',

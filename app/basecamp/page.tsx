@@ -180,13 +180,14 @@ function BasecampWorkspace() {
         }
     }
 
-    const navigateTo = (params: { project?: string; tool?: string; section?: string; ping?: string; tab?: string }) => {
+    const navigateTo = (params: { project?: string; tool?: string; section?: string; ping?: string; tab?: string; todoId?: string }) => {
         const query = new URLSearchParams()
         if (params.project) query.set('project', params.project)
         if (params.tool) query.set('tool', params.tool)
         if (params.section) query.set('section', params.section)
         if (params.ping) query.set('ping', params.ping)
         if (params.tab) query.set('tab', params.tab)
+        if (params.todoId) query.set('todoId', params.todoId)
         router.push(`/basecamp?${query.toString()}`)
     }
 
@@ -495,7 +496,18 @@ function BasecampWorkspace() {
                     case 'todo':
                     case 'todolist':
                     case 'todolists':
-                        return <ToolTodos project={currentProject} currentUserName={currentUserName} />
+                        return (
+                            <ToolTodos
+                                project={currentProject}
+                                currentUserName={currentUserName}
+                                selectedTodoId={searchParams.get('todoId') || undefined}
+                                onCloseDetail={() => {
+                                    const query = new URLSearchParams(window.location.search)
+                                    query.delete('todoId')
+                                    router.push(`/basecamp?${query.toString()}`)
+                                }}
+                            />
+                        )
                     case 'messages':
                     case 'message':
                     case 'message_board':
@@ -700,7 +712,7 @@ function BasecampWorkspace() {
                                                 {searchResults.filter(r => r.type === 'todo').map(r => (
                                                     <button
                                                         key={`todo-${r.id}`}
-                                                        onClick={() => { navigateTo({ project: r.projectId, tool: 'todos' }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
+                                                        onClick={() => { navigateTo({ project: r.projectId, tool: 'todos', todoId: r.id }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
                                                         className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-left transition-colors"
                                                         style={{ border: '1px solid transparent' }}
                                                     >
