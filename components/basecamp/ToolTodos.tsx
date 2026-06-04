@@ -164,6 +164,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [highlightedNotifyIdx, setHighlightedNotifyIdx] = useState(0)
     const [newTaskDueDate, setNewTaskDueDate] = useState('')
     const [newTaskNotes, setNewTaskNotes] = useState('')
+    // Inline Link bar states
+    const [showLinkBar, setShowLinkBar] = useState(false)
+    const [linkUrl, setLinkUrl] = useState('')
+    const savedSelectionRef = React.useRef<Range | null>(null)
+    // Inline Table controls states
+    const [showTableControls, setShowTableControls] = useState(false)
+    const [tableRows, setTableRows] = useState(3)
+    const [tableCols, setTableCols] = useState(3)
 
     // Estados de detalle de tarea
     const [selectedTask, setSelectedTask] = useState<any | null>(null)
@@ -231,76 +239,94 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         document.execCommand(command, false, value || '')
     }
 
-    const editorInsertLink = () => {
+    // ── Link: inline bar (no browser prompt) ──
+    const editorToggleLinkBar = () => {
+        if (showLinkBar) {
+            setShowLinkBar(false)
+            setLinkUrl('')
+            return
+        }
+        // Save the current selection so we can restore it when applying the link
+        const sel = window.getSelection()
+        if (sel && sel.rangeCount > 0) {
+            savedSelectionRef.current = sel.getRangeAt(0).cloneRange()
+        }
+        setShowLinkBar(true)
+        setLinkUrl('')
+    }
+
+    const editorApplyLink = () => {
+        if (!linkUrl.trim()) return
+        // Restore the saved selection
+        const editor = notesEditorRef.current
+        if (editor && savedSelectionRef.current) {
+            editor.focus()
+            const sel = window.getSelection()
+            sel?.removeAllRanges()
+            sel?.addRange(savedSelectionRef.current)
+        }
+        document.execCommand('createLink', false, linkUrl.trim())
+        setShowLinkBar(false)
+        setLinkUrl('')
+        savedSelectionRef.current = null
+    }
+
+    const editorUnlink = () => {
         focusEditor()
-        const url = prompt('Enter the link URL:', 'https://')
-        if (url) {
-            document.execCommand('createLink', false, url)
-        }
+        document.execCommand('unlink')
+        setShowLinkBar(false)
+        setLinkUrl('')
     }
 
-    const editorInsertImage = () => {
-        // Trigger the hidden file input to let user pick an image
-        if (fileInputRef.current) fileInputRef.current.click()
-    }
-
-    const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        const reader = new FileReader()
-        reader.onload = (event) => {
-            const dataUrl = event.target?.result as string
-            focusEditor()
-            document.execCommand('insertImage', false, dataUrl)
-        }
-        reader.readAsDataURL(file)
-        // Reset the file input so the same file can be selected again
-        e.target.value = ''
-    }
-
-    const editorInsertAttachment = () => {
-        // Trigger the hidden file input for any file type
-        if (attachmentInputRef.current) attachmentInputRef.current.click()
-    }
-
-    const handleAttachmentFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        const reader = new FileReader()
-        reader.onload = (event) => {
-            const dataUrl = event.target?.result as string
-            focusEditor()
-            // If the attached file is an image, insert it visually
-            if (file.type.startsWith('image/')) {
-                document.execCommand('insertHTML', false,
-                    `<div style="margin: 8px 0;"><img src="${dataUrl}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 4px;" /></div>`
-                )
-            } else {
-                // For non-image files, insert a download link with icon
-                document.execCommand('insertHTML', false,
-                    `<div style="margin: 4px 0; padding: 6px 10px; background: #F7F7F5; border: 1px solid #E8E6E1; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;"><a href="${dataUrl}" download="${file.name}" style="color: #1D7DB5; text-decoration: none; font-size: 13px; font-weight: 500;">📎 ${file.name}</a> <span style="color: #999; font-size: 11px;">(${(file.size / 1024).toFixed(1)} KB)</span></div>&nbsp;`
-                )
-            }
-        }
-        reader.readAsDataURL(file)
-        e.target.value = ''
-    }
-
-    const editorInsertTable = () => {
-        focusEditor()
-        const rows = parseInt(prompt('Number of rows:', '3') || '3', 10)
-        const cols = parseInt(prompt('Number of columns:', '3') || '3', 10)
-        if (isNaN(rows) || isNaN(cols) || rows < 1 || cols < 1) return
-        let html = '<table style="border-collapse: collapse; width: 100%; margin: 8px 0;">'
+    // ── Table: inline controls (no browser prompt) ──
+    const buildTableHtml = (rows: number, cols: number) => {
+        let html = '<table data-editor-table="true" style="border-collapse: collapse; width: 100%; margin: 8px 0;">'
         for (let r = 0; r < rows; r++) {
             html += '<tr>'
             for (let c = 0; c < cols; c++) {
-                html += '<td style="border: 1px solid #ccc; padding: 6px 8px; min-width: 40px;">&nbsp;</td>'
+                const bg = r % 2 === 0 ? '#fff' : '#F7F7F5'
+                html += `<td style="border: 1px solid #ddd; padding: 6px 8px; min-width: 40px; background: ${bg};">&nbsp;</td>`
             }
             html += '</tr>'
         }
         html += '</table><br>'
-        document.execCommand('insertHTML', false, html)
+        return html
+    }
+
+    const editorInsertTable = () => {
+        if (showTableControls) {
+            // Toggle off
+            setShowTableControls(false)
+            return
+        }
+        focusEditor()
+        const rows = 3
+        const cols = 3
+        setTableRows(rows)
+        setTableCols(cols)
+        document.execCommand('insertHTML', false, buildTableHtml(rows, cols))
+        setShowTableControls(true)
+    }
+
+    const editorUpdateTable = (newRows: number, newCols: number) => {
+        const editor = notesEditorRef.current
+        if (!editor) return
+        const table = editor.querySelector('table[data-editor-table]')
+        if (table) {
+            table.outerHTML = buildTableHtml(newRows, newCols).replace('<br>', '')
+        }
+        setTableRows(newRows)
+        setTableCols(newCols)
+    }
+
+    const editorRemoveTable = () => {
+        const editor = notesEditorRef.current
+        if (!editor) return
+        const table = editor.querySelector('table[data-editor-table]')
+        if (table) table.remove()
+        setShowTableControls(false)
+        setTableRows(3)
+        setTableCols(3)
     }
 
     const editorInsertCode = () => {
@@ -315,6 +341,49 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
         const sel = window.getSelection()
         const selectedText = sel?.toString() || ''
         document.execCommand('insertHTML', false, `<blockquote style="border-left: 3px solid #ccc; padding-left: 12px; margin: 8px 0; color: #666; font-style: italic;">${selectedText || 'Quote'}</blockquote><br>`)
+    }
+
+    // ── Image & Attachment: file picker (no browser prompt) ──
+    const editorInsertImage = () => {
+        if (fileInputRef.current) fileInputRef.current.click()
+    }
+
+    const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = (event) => {
+            const dataUrl = event.target?.result as string
+            focusEditor()
+            document.execCommand('insertImage', false, dataUrl)
+        }
+        reader.readAsDataURL(file)
+        e.target.value = ''
+    }
+
+    const editorInsertAttachment = () => {
+        if (attachmentInputRef.current) attachmentInputRef.current.click()
+    }
+
+    const handleAttachmentFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = (event) => {
+            const dataUrl = event.target?.result as string
+            focusEditor()
+            if (file.type.startsWith('image/')) {
+                document.execCommand('insertHTML', false,
+                    `<div style="margin: 8px 0;"><img src="${dataUrl}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 4px;" /></div>`
+                )
+            } else {
+                document.execCommand('insertHTML', false,
+                    `<div style="margin: 4px 0; padding: 6px 10px; background: #F7F7F5; border: 1px solid #E8E6E1; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;"><a href="${dataUrl}" download="${file.name}" style="color: #1D7DB5; text-decoration: none; font-size: 13px; font-weight: 500;">📎 ${file.name}</a> <span style="color: #999; font-size: 11px;">(${(file.size / 1024).toFixed(1)} KB)</span></div>&nbsp;`
+                )
+            }
+        }
+        reader.readAsDataURL(file)
+        e.target.value = ''
     }
 
     const toolbarBtnStyle: React.CSSProperties = {
@@ -1575,8 +1644,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             <button type="button" onClick={() => execCmd('hiliteColor', '#f1c40f')} title="Highlight" style={toolbarBtnStyle}>
                                                                 <Highlighter size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={editorInsertLink} title="Link" style={toolbarBtnStyle}>
-                                                                <Link size={14} style={{ color: '#4F5E68' }} />
+                                                            <button type="button" onClick={editorToggleLinkBar} title="Link" style={{
+                                                                ...toolbarBtnStyle,
+                                                                background: showLinkBar ? '#4B9ED6' : 'transparent',
+                                                                borderRadius: 4
+                                                            }}>
+                                                                <Link size={14} style={{ color: showLinkBar ? '#fff' : '#4F5E68' }} />
                                                             </button>
                                                             
                                                             <div style={dividerStyle} />
@@ -1602,8 +1675,12 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             <div style={dividerStyle} />
                                                             
                                                             {/* Group 5: Structure — Table, Align, Mic */}
-                                                            <button type="button" onClick={editorInsertTable} title="Table" style={toolbarBtnStyle}>
-                                                                <Table size={14} style={{ color: '#4F5E68' }} />
+                                                            <button type="button" onClick={editorInsertTable} title="Table" style={{
+                                                                ...toolbarBtnStyle,
+                                                                background: showTableControls ? '#2C3E50' : 'transparent',
+                                                                borderRadius: 4
+                                                            }}>
+                                                                <Table size={14} style={{ color: showTableControls ? '#fff' : '#4F5E68' }} />
                                                             </button>
                                                             <button type="button" onClick={() => execCmd('justifyCenter')} title="Center Align" style={toolbarBtnStyle}>
                                                                 <AlignLeft size={14} style={{ color: '#4F5E68' }} />
@@ -1620,7 +1697,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                         document.execCommand('insertText', false, resultText)
                                                                     }
                                                                 } else {
-                                                                    alert('Speech recognition is not supported in this browser.')
+                                                                    console.warn('Speech recognition is not supported in this browser.')
                                                                 }
                                                             }} title="Speech to Text" style={toolbarBtnStyle}>
                                                                 <Mic size={14} style={{ color: '#4F5E68' }} />
@@ -1637,6 +1714,108 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                 <Redo2 size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                         </div>
+                                                        
+                                                        {/* Inline Link Bar — appears below toolbar like real Basecamp */}
+                                                        {showLinkBar && (
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 8,
+                                                                padding: '8px 12px',
+                                                                background: '#fff',
+                                                                border: '1px solid #D5D3CE',
+                                                                borderTop: 'none'
+                                                            }}>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="Enter a URL..."
+                                                                    value={linkUrl}
+                                                                    onChange={(e) => setLinkUrl(e.target.value)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') { e.preventDefault(); editorApplyLink() }
+                                                                        if (e.key === 'Escape') { setShowLinkBar(false); setLinkUrl('') }
+                                                                    }}
+                                                                    autoFocus
+                                                                    style={{
+                                                                        flex: 1,
+                                                                        border: '1px solid #D5D3CE',
+                                                                        borderRadius: 4,
+                                                                        padding: '5px 10px',
+                                                                        fontSize: 13,
+                                                                        color: '#1D2D35',
+                                                                        outline: 'none'
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={editorApplyLink}
+                                                                    style={{
+                                                                        padding: '5px 16px',
+                                                                        background: '#4B9ED6',
+                                                                        color: '#fff',
+                                                                        border: 'none',
+                                                                        borderRadius: 4,
+                                                                        fontSize: 13,
+                                                                        fontWeight: 600,
+                                                                        cursor: 'pointer'
+                                                                    }}
+                                                                >
+                                                                    Link
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={editorUnlink}
+                                                                    style={{
+                                                                        padding: '5px 8px',
+                                                                        background: 'transparent',
+                                                                        color: '#6B7B8D',
+                                                                        border: 'none',
+                                                                        fontSize: 13,
+                                                                        cursor: 'pointer'
+                                                                    }}
+                                                                >
+                                                                    Unlink
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Inline Table Controls — dark bar with +/- rows/columns like real Basecamp */}
+                                                        {showTableControls && (
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                gap: 8,
+                                                                padding: '6px 12px',
+                                                                background: '#2C3E50',
+                                                                border: '1px solid #2C3E50',
+                                                                borderTop: 'none'
+                                                            }}>
+                                                                {/* Rows control */}
+                                                                <button type="button" onClick={() => { if (tableRows > 1) editorUpdateTable(tableRows - 1, tableCols) }}
+                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                                                                <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, minWidth: 50, textAlign: 'center' }}>{tableRows} rows</span>
+                                                                <button type="button" onClick={() => editorUpdateTable(tableRows + 1, tableCols)}
+                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                                                                
+                                                                <div style={{ width: 8 }} />
+                                                                
+                                                                {/* Columns control */}
+                                                                <button type="button" onClick={() => { if (tableCols > 1) editorUpdateTable(tableRows, tableCols - 1) }}
+                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                                                                <span style={{ color: '#fff', fontSize: 12, fontWeight: 600, minWidth: 70, textAlign: 'center' }}>{tableCols} columns</span>
+                                                                <button type="button" onClick={() => editorUpdateTable(tableRows, tableCols + 1)}
+                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                                                                
+                                                                <div style={{ width: 8 }} />
+                                                                
+                                                                {/* Delete table */}
+                                                                <button type="button" onClick={editorRemoveTable}
+                                                                    style={{ background: '#3D5166', border: 'none', color: '#fff', width: 24, height: 24, borderRadius: 3, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                    <Trash2 size={13} />
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                         
                                                         {/* Hidden file input for image upload */}
                                                         <input
