@@ -522,8 +522,8 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                             {/* Task name */}
                                             <span style={{
                                                 fontSize: 15, fontWeight: 500, color: '#1D2D35',
-                                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                                flex: 1, minWidth: 0, lineHeight: '20px'
+                                                flex: 1, minWidth: 0, lineHeight: '20px',
+                                                wordBreak: 'break-word', whiteSpace: 'normal'
                                             }}>
                                                 {task.task_name}
                                             </span>
@@ -544,38 +544,25 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                 </span>
                                             )}
 
-                                            {/* Inline avatar circles and names (Basecamp style) */}
+                                            {/* Inline avatar circles (Basecamp style) */}
                                             {task.assigneeList && task.assigneeList.length > 0 && (
                                                 <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0
+                                                    display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0
                                                 }}>
                                                     {task.assigneeList.map((a: any) => (
                                                         <span
                                                             key={a.id}
                                                             title={a.name}
                                                             style={{
-                                                                display: 'inline-flex',
-                                                                alignItems: 'center',
-                                                                gap: 4,
-                                                                fontSize: 12,
-                                                                color: '#6B7B8D'
+                                                                width: 18, height: 18, borderRadius: '50%',
+                                                                background: getAvatarColor(a.name),
+                                                                color: '#fff', fontSize: 8, fontWeight: 700,
+                                                                display: 'inline-flex', alignItems: 'center',
+                                                                justifyContent: 'center', flexShrink: 0,
+                                                                lineHeight: 1
                                                             }}
                                                         >
-                                                            <span
-                                                                style={{
-                                                                    width: 18, height: 18, borderRadius: '50%',
-                                                                    background: getAvatarColor(a.name),
-                                                                    color: '#fff', fontSize: 8, fontWeight: 700,
-                                                                    display: 'inline-flex', alignItems: 'center',
-                                                                    justifyContent: 'center', flexShrink: 0,
-                                                                    lineHeight: 1
-                                                                }}
-                                                            >
-                                                                {getInitials(a.name)}
-                                                            </span>
-                                                            <span style={{ fontSize: 13, color: '#555' }}>
-                                                                {getShortName(a.name)}
-                                                            </span>
+                                                            {getInitials(a.name)}
                                                         </span>
                                                     ))}
                                                 </div>
@@ -681,16 +668,16 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                         <span style={{
                                                             fontSize: 15, fontWeight: 400, color: '#A0A0A0',
                                                             textDecoration: 'line-through',
-                                                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                                            flex: 1, minWidth: 0, lineHeight: '20px'
+                                                            flex: 1, minWidth: 0, lineHeight: '20px',
+                                                            wordBreak: 'break-word', whiteSpace: 'normal'
                                                         }}>
                                                             {task.task_name}
                                                         </span>
 
-                                                        {/* Inline avatar circles and names for completed tasks too (Basecamp style) */}
+                                                        {/* Inline avatar circles for completed tasks too (Basecamp style) */}
                                                         {task.assigneeList && task.assigneeList.length > 0 && (
                                                             <div style={{
-                                                                display: 'flex', alignItems: 'center', gap: 8,
+                                                                display: 'flex', alignItems: 'center', gap: 2,
                                                                 flexShrink: 0, opacity: 0.5
                                                             }}>
                                                                 {task.assigneeList.map((a: any) => (
@@ -698,26 +685,15 @@ export default function ToolTodos({ project, currentUserName }: ToolTodosProps) 
                                                                         key={a.id}
                                                                         title={a.name}
                                                                         style={{
-                                                                            display: 'inline-flex',
-                                                                            alignItems: 'center',
-                                                                            gap: 4,
-                                                                            fontSize: 12,
-                                                                            color: '#6B7B8D'
+                                                                            width: 18, height: 18, borderRadius: '50%',
+                                                                            background: getAvatarColor(a.name),
+                                                                            color: '#fff', fontSize: 8, fontWeight: 700,
+                                                                            display: 'inline-flex', alignItems: 'center',
+                                                                            justifyContent: 'center', flexShrink: 0,
+                                                                            lineHeight: 1
                                                                         }}
                                                                     >
-                                                                        <span
-                                                                            style={{
-                                                                                width: 18, height: 18, borderRadius: '50%',
-                                                                                background: getAvatarColor(a.name),
-                                                                                color: '#fff', fontSize: 8, fontWeight: 700,
-                                                                                display: 'inline-flex', alignItems: 'center',
-                                                                                justifyContent: 'center', flexShrink: 0,
-                                                                                lineHeight: 1
-                                                                            }}
-                                                                        >
-                                                                            {getInitials(a.name)}
-                                                                        </span>
-                                                                        <span>{getShortName(a.name)}</span>
+                                                                        {getInitials(a.name)}
                                                                     </span>
                                                                 ))}
                                                             </div>
