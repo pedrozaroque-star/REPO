@@ -174,6 +174,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     // ── Rich text editor helpers (contentEditable + execCommand) ──
     const notesEditorRef = React.useRef<HTMLDivElement>(null)
     const fileInputRef = React.useRef<HTMLInputElement>(null)
+    const attachmentInputRef = React.useRef<HTMLInputElement>(null)
     // Custom undo/redo history scoped ONLY to the Notes editor
     const editorHistoryRef = React.useRef<string[]>([''])
     const editorHistoryIdxRef = React.useRef<number>(0)
@@ -258,12 +259,31 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     }
 
     const editorInsertAttachment = () => {
-        const url = prompt('Enter the attachment file URL:', 'https://')
-        if (url) {
-            const name = prompt('Enter file display name:', 'Attachment') || 'File'
+        // Trigger the hidden file input for any file type
+        if (attachmentInputRef.current) attachmentInputRef.current.click()
+    }
+
+    const handleAttachmentFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = (event) => {
+            const dataUrl = event.target?.result as string
             focusEditor()
-            document.execCommand('insertHTML', false, `<a href="${url}" target="_blank">📎 ${name}</a>&nbsp;`)
+            // If the attached file is an image, insert it visually
+            if (file.type.startsWith('image/')) {
+                document.execCommand('insertHTML', false,
+                    `<div style="margin: 8px 0;"><img src="${dataUrl}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 4px;" /></div>`
+                )
+            } else {
+                // For non-image files, insert a download link with icon
+                document.execCommand('insertHTML', false,
+                    `<div style="margin: 4px 0; padding: 6px 10px; background: #F7F7F5; border: 1px solid #E8E6E1; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;"><a href="${dataUrl}" download="${file.name}" style="color: #1D7DB5; text-decoration: none; font-size: 13px; font-weight: 500;">📎 ${file.name}</a> <span style="color: #999; font-size: 11px;">(${(file.size / 1024).toFixed(1)} KB)</span></div>&nbsp;`
+                )
+            }
         }
+        reader.readAsDataURL(file)
+        e.target.value = ''
     }
 
     const editorInsertTable = () => {
@@ -1625,6 +1645,14 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             accept="image/*"
                                                             style={{ display: 'none' }}
                                                             onChange={handleImageFileSelected}
+                                                        />
+                                                        {/* Hidden file input for any attachment */}
+                                                        <input
+                                                            ref={attachmentInputRef}
+                                                            type="file"
+                                                            accept="*/*"
+                                                            style={{ display: 'none' }}
+                                                            onChange={handleAttachmentFileSelected}
                                                         />
                                                         
                                                         {/* Rich text editor — contentEditable div */}
