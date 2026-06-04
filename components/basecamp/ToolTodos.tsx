@@ -171,47 +171,130 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
     const [newComment, setNewComment] = useState('')
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
-    const insertFormat = (tagOpen: string, tagClose: string) => {
-        const textarea = document.getElementById('new-task-notes-textarea') as HTMLTextAreaElement
-        if (!textarea) return
-        const start = textarea.selectionStart
-        const end = textarea.selectionEnd
-        const text = textarea.value
-        const selected = text.substring(start, end)
-        const replacement = tagOpen + selected + tagClose
-        setNewTaskNotes(text.substring(0, start) + replacement + text.substring(end))
-        setTimeout(() => {
-            textarea.focus()
-            textarea.setSelectionRange(start + tagOpen.length, start + tagOpen.length + selected.length)
-        }, 0)
+    // ── Rich text editor helpers (contentEditable + execCommand) ──
+    const notesEditorRef = React.useRef<HTMLDivElement>(null)
+    const fileInputRef = React.useRef<HTMLInputElement>(null)
+    // Custom undo/redo history scoped ONLY to the Notes editor
+    const editorHistoryRef = React.useRef<string[]>([''])
+    const editorHistoryIdxRef = React.useRef<number>(0)
+    const editorIsUndoingRef = React.useRef<boolean>(false)
+
+    const editorSaveSnapshot = () => {
+        if (editorIsUndoingRef.current) return // Don't record while restoring
+        const html = notesEditorRef.current?.innerHTML || ''
+        const history = editorHistoryRef.current
+        const idx = editorHistoryIdxRef.current
+        // Only push if content actually changed
+        if (history[idx] === html) return
+        // Truncate any redo history beyond current index
+        editorHistoryRef.current = history.slice(0, idx + 1)
+        editorHistoryRef.current.push(html)
+        // Keep max 100 snapshots
+        if (editorHistoryRef.current.length > 100) editorHistoryRef.current.shift()
+        editorHistoryIdxRef.current = editorHistoryRef.current.length - 1
     }
 
-    const insertLink = () => {
+    const editorUndo = () => {
+        const history = editorHistoryRef.current
+        const idx = editorHistoryIdxRef.current
+        if (idx <= 0) return
+        editorIsUndoingRef.current = true
+        editorHistoryIdxRef.current = idx - 1
+        const editor = notesEditorRef.current
+        if (editor) editor.innerHTML = history[idx - 1]
+        editorIsUndoingRef.current = false
+        focusEditor()
+    }
+
+    const editorRedo = () => {
+        const history = editorHistoryRef.current
+        const idx = editorHistoryIdxRef.current
+        if (idx >= history.length - 1) return
+        editorIsUndoingRef.current = true
+        editorHistoryIdxRef.current = idx + 1
+        const editor = notesEditorRef.current
+        if (editor) editor.innerHTML = history[idx + 1]
+        editorIsUndoingRef.current = false
+        focusEditor()
+    }
+
+    // Focus the contentEditable editor before executing any command
+    const focusEditor = () => {
+        const editor = notesEditorRef.current
+        if (editor) editor.focus()
+    }
+
+    // Execute a formatting command on the contentEditable div
+    const execCmd = (command: string, value?: string) => {
+        focusEditor()
+        document.execCommand(command, false, value || '')
+    }
+
+    const editorInsertLink = () => {
+        focusEditor()
         const url = prompt('Enter the link URL:', 'https://')
         if (url) {
-            insertFormat(`<a href="${url}" target="_blank">`, '</a>')
+            document.execCommand('createLink', false, url)
         }
     }
 
-    const insertImage = () => {
-        const url = prompt('Enter the image URL:', 'https://')
-        if (url) {
-            const textarea = document.getElementById('new-task-notes-textarea') as HTMLTextAreaElement
-            if (!textarea) return
-            const start = textarea.selectionStart
-            const end = textarea.selectionEnd
-            const text = textarea.value
-            const replacement = `<img src="${url}" alt="image" style="max-width: 100%; height: auto;" />`
-            setNewTaskNotes(text.substring(0, start) + replacement + text.substring(end))
-        }
+    const editorInsertImage = () => {
+        // Trigger the hidden file input to let user pick an image
+        if (fileInputRef.current) fileInputRef.current.click()
     }
 
-    const insertAttachment = () => {
+    const handleImageFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = (event) => {
+            const dataUrl = event.target?.result as string
+            focusEditor()
+            document.execCommand('insertImage', false, dataUrl)
+        }
+        reader.readAsDataURL(file)
+        // Reset the file input so the same file can be selected again
+        e.target.value = ''
+    }
+
+    const editorInsertAttachment = () => {
         const url = prompt('Enter the attachment file URL:', 'https://')
         if (url) {
             const name = prompt('Enter file display name:', 'Attachment') || 'File'
-            insertFormat(`<a href="${url}" download="${name}">📎 ${name}`, '</a>')
+            focusEditor()
+            document.execCommand('insertHTML', false, `<a href="${url}" target="_blank">📎 ${name}</a>&nbsp;`)
         }
+    }
+
+    const editorInsertTable = () => {
+        focusEditor()
+        const rows = parseInt(prompt('Number of rows:', '3') || '3', 10)
+        const cols = parseInt(prompt('Number of columns:', '3') || '3', 10)
+        if (isNaN(rows) || isNaN(cols) || rows < 1 || cols < 1) return
+        let html = '<table style="border-collapse: collapse; width: 100%; margin: 8px 0;">'
+        for (let r = 0; r < rows; r++) {
+            html += '<tr>'
+            for (let c = 0; c < cols; c++) {
+                html += '<td style="border: 1px solid #ccc; padding: 6px 8px; min-width: 40px;">&nbsp;</td>'
+            }
+            html += '</tr>'
+        }
+        html += '</table><br>'
+        document.execCommand('insertHTML', false, html)
+    }
+
+    const editorInsertCode = () => {
+        focusEditor()
+        const sel = window.getSelection()
+        const selectedText = sel?.toString() || 'code'
+        document.execCommand('insertHTML', false, `<pre style="background: #f4f4f4; padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; overflow-x: auto;"><code>${selectedText}</code></pre><br>`)
+    }
+
+    const editorInsertQuote = () => {
+        focusEditor()
+        const sel = window.getSelection()
+        const selectedText = sel?.toString() || ''
+        document.execCommand('insertHTML', false, `<blockquote style="border-left: 3px solid #ccc; padding-left: 12px; margin: 8px 0; color: #666; font-style: italic;">${selectedText || 'Quote'}</blockquote><br>`)
     }
 
     const toolbarBtnStyle: React.CSSProperties = {
@@ -533,7 +616,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                     todolistId: listBcId,
                     todolistDbId: listId,
                     title: newTaskName.trim(),
-                    description: '',
+                    description: notesEditorRef.current?.innerHTML || '',
                     due_date: newTaskDueDate || null,
                     assigneeUuids: newTaskAssignees.map((a: any) => a.id)
                 })
@@ -1447,65 +1530,62 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             borderTopRightRadius: 6
                                                         }}>
                                                             {/* Group 1: Media — Image, Attachment */}
-                                                            <button type="button" onClick={insertImage} title="Insert Image" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={editorInsertImage} title="Insert Image" style={toolbarBtnStyle}>
                                                                 <Image size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={insertAttachment} title="Attach File" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={editorInsertAttachment} title="Attach File" style={toolbarBtnStyle}>
                                                                 <Paperclip size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                             
                                                             <div style={dividerStyle} />
                                                             
-                                                            {/* Group 2: Text formatting — Bold, Italic, Strikethrough, Type/Clear, Highlight, Link */}
-                                                            <button type="button" onClick={() => insertFormat('<strong>', '</strong>')} title="Bold" style={toolbarBtnStyle}>
+                                                            {/* Group 2: Text formatting — Bold, Italic, Strikethrough, Clear, Highlight, Link */}
+                                                            <button type="button" onClick={() => execCmd('bold')} title="Bold" style={toolbarBtnStyle}>
                                                                 <Bold size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => insertFormat('<em>', '</em>')} title="Italic" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={() => execCmd('italic')} title="Italic" style={toolbarBtnStyle}>
                                                                 <Italic size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => insertFormat('<s>', '</s>')} title="Strikethrough" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={() => execCmd('strikeThrough')} title="Strikethrough" style={toolbarBtnStyle}>
                                                                 <Strikethrough size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => {
-                                                                const text = newTaskNotes.replace(/<\/?[^>]+(>|$)/g, "")
-                                                                setNewTaskNotes(text)
-                                                            }} title="Clear Formatting" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={() => execCmd('removeFormat')} title="Clear Formatting" style={toolbarBtnStyle}>
                                                                 <Type size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => insertFormat('<mark style="background-color: #f1c40f;">', '</mark>')} title="Highlight" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={() => execCmd('hiliteColor', '#f1c40f')} title="Highlight" style={toolbarBtnStyle}>
                                                                 <Highlighter size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={insertLink} title="Link" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={editorInsertLink} title="Link" style={toolbarBtnStyle}>
                                                                 <Link size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                             
                                                             <div style={dividerStyle} />
                                                             
                                                             {/* Group 3: Block — Quote, Code */}
-                                                            <button type="button" onClick={() => insertFormat('<blockquote style="border-left: 3px solid #ccc; padding-left: 10px; margin-left: 0; color: #666;">', '</blockquote>')} title="Quote" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={editorInsertQuote} title="Quote" style={toolbarBtnStyle}>
                                                                 <Quote size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => insertFormat('<pre style="background: #f4f4f4; padding: 5px; border-radius: 4px;"><code>', '</code></pre>')} title="Code" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={editorInsertCode} title="Code" style={toolbarBtnStyle}>
                                                                 <Code size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                             
                                                             <div style={dividerStyle} />
                                                             
                                                             {/* Group 4: Lists — Bullet, Numbered */}
-                                                            <button type="button" onClick={() => insertFormat('<ul><li>', '</li></ul>')} title="Bullet List" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={() => execCmd('insertUnorderedList')} title="Bullet List" style={toolbarBtnStyle}>
                                                                 <List size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => insertFormat('<ol><li>', '</li></ol>')} title="Numbered List" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={() => execCmd('insertOrderedList')} title="Numbered List" style={toolbarBtnStyle}>
                                                                 <ListOrdered size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                             
                                                             <div style={dividerStyle} />
                                                             
                                                             {/* Group 5: Structure — Table, Align, Mic */}
-                                                            <button type="button" onClick={() => insertFormat('<table style="border-collapse: collapse; width: 100%;"><tr><td style="border: 1px solid #ccc; padding: 8px;">', '</td></tr></table>')} title="Table" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={editorInsertTable} title="Table" style={toolbarBtnStyle}>
                                                                 <Table size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => insertFormat('<div style="text-align: center;">', '</div>')} title="Center Align" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={() => execCmd('justifyCenter')} title="Center Align" style={toolbarBtnStyle}>
                                                                 <AlignLeft size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                             <button type="button" onClick={() => {
@@ -1516,7 +1596,8 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                     recognition.start()
                                                                     recognition.onresult = (event: any) => {
                                                                         const resultText = event.results[0][0].transcript
-                                                                        setNewTaskNotes(prev => prev + ' ' + resultText)
+                                                                        focusEditor()
+                                                                        document.execCommand('insertText', false, resultText)
                                                                     }
                                                                 } else {
                                                                     alert('Speech recognition is not supported in this browser.')
@@ -1528,26 +1609,40 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                             {/* Spacer pushes undo/redo to far right */}
                                                             <div style={{ flex: 1 }} />
                                                             
-                                                            {/* Group 6: History — Undo, Redo (far right, like real Basecamp) */}
-                                                            <button type="button" onClick={() => {
-                                                                document.execCommand('undo')
-                                                            }} title="Undo" style={toolbarBtnStyle}>
+                                                            {/* Group 6: History — Undo, Redo (scoped to Notes editor only) */}
+                                                            <button type="button" onClick={editorUndo} title="Undo" style={toolbarBtnStyle}>
                                                                 <Undo2 size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
-                                                            <button type="button" onClick={() => {
-                                                                document.execCommand('redo')
-                                                            }} title="Redo" style={toolbarBtnStyle}>
+                                                            <button type="button" onClick={editorRedo} title="Redo" style={toolbarBtnStyle}>
                                                                 <Redo2 size={14} style={{ color: '#4F5E68' }} />
                                                             </button>
                                                         </div>
                                                         
-                                                        {/* Textarea */}
-                                                        <textarea
-                                                            id="new-task-notes-textarea"
-                                                            value={newTaskNotes}
-                                                            onChange={(e) => setNewTaskNotes(e.target.value)}
-                                                            placeholder={t('basecamp.notes_placeholder') || 'Add extra details or attach a file...'}
+                                                        {/* Hidden file input for image upload */}
+                                                        <input
+                                                            ref={fileInputRef}
+                                                            type="file"
+                                                            accept="image/*"
+                                                            style={{ display: 'none' }}
+                                                            onChange={handleImageFileSelected}
+                                                        />
+                                                        
+                                                        {/* Rich text editor — contentEditable div */}
+                                                        <div
+                                                            ref={notesEditorRef}
+                                                            id="new-task-notes-editor"
+                                                            contentEditable
+                                                            data-placeholder={t('basecamp.notes_placeholder') || 'Add extra details or attach a file...'}
                                                             className="w-full"
+                                                            onInput={editorSaveSnapshot}
+                                                            onFocus={(e) => {
+                                                                if (e.currentTarget.textContent?.trim() === '') {
+                                                                    e.currentTarget.classList.add('editor-focused')
+                                                                }
+                                                            }}
+                                                            onBlur={(e) => {
+                                                                e.currentTarget.classList.remove('editor-focused')
+                                                            }}
                                                             style={{
                                                                 border: '1px solid #D5D3CE',
                                                                 borderBottomLeftRadius: 6,
@@ -1558,7 +1653,9 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                                                                 background: '#fff',
                                                                 outline: 'none',
                                                                 minHeight: 120,
-                                                                resize: 'vertical'
+                                                                overflowY: 'auto',
+                                                                lineHeight: 1.6,
+                                                                wordBreak: 'break-word'
                                                             }}
                                                         />
                                                     </div>
