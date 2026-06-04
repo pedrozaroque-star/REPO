@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Calendar, CalendarDays, ChevronDown, ChevronUp, DollarSign, Store, Users, Clock, RefreshCw, Filter, TrendingUp, TrendingDown, Eye, Download, WifiOff, ClipboardList, ShieldCheck, CheckCircle, ArrowUpDown, ChevronLeft, ChevronRight, Info, X, Zap } from 'lucide-react'
 import SalesSummary from '@/components/sales/SalesSummary'
@@ -1617,7 +1617,9 @@ function SalesPageContent() {
 export default function SalesPage() {
     return (
         <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager']}>
-            <SalesPageContent />
+            <Suspense fallback={<SurpriseLoader />}>
+                <SalesPageContent />
+            </Suspense>
         </ProtectedRoute>
     )
 }
