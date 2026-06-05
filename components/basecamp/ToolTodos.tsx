@@ -597,7 +597,7 @@ export default function ToolTodos({ project, currentUserName, selectedTodoId, on
                 }
             }
         } catch (err: any) {
-            console.error('❌ [ToolTodos Fetch] Error loading todo lists:', err)
+            console.error('❌ [ToolTodos Fetch] Error loading todo lists:', err?.message || err?.details || err?.code || JSON.stringify(err) || err)
         } finally {
             setLoading(false)
         }

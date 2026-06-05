@@ -126,6 +126,18 @@ async function downloadAndUploadAttachment(
   supabase: any
 ): Promise<string | null> {
   try {
+    // 1. Check database cache first to avoid duplicate downloads/uploads
+    const { data: cached } = await supabase
+      .from('bc_attachment_cache')
+      .select('supabase_url')
+      .eq('basecamp_url', basecampUrl)
+      .maybeSingle()
+
+    if (cached?.supabase_url) {
+      console.log(`      ⚡ Attachment cache hit: ${filename}`)
+      return cached.supabase_url
+    }
+
     let targetUrl = basecampUrl.replace('preview.app.basecamp.com', '3.basecampapi.com')
     targetUrl = targetUrl.replace('storage.app.basecamp.com', '3.basecampapi.com')
 
@@ -167,7 +179,19 @@ async function downloadAndUploadAttachment(
     if (uploadErr) throw uploadErr
 
     const { data: publicUrlData } = supabase.storage.from('checklist-photos').getPublicUrl(filePath)
-    return publicUrlData.publicUrl
+    const publicUrl = publicUrlData?.publicUrl || null
+
+    if (publicUrl) {
+      // 2. Save mapping to database cache for future runs
+      await supabase
+        .from('bc_attachment_cache')
+        .upsert({
+          basecamp_url: basecampUrl,
+          supabase_url: publicUrl
+        }, { onConflict: 'basecamp_url' })
+    }
+
+    return publicUrl
   } catch (err: any) {
     console.error(`  ⚠️ Failed to migrate attachment: ${filename}. Error: ${err.message}`)
     return null
@@ -248,15 +272,20 @@ async function processHtmlContent(
   for (const att of attachments) {
     let localUrl = urlCache.get(att.url)
     if (!localUrl) {
-      console.log(`📥 HTML attachment found: ${att.filename}. Downloading...`)
-      const uploadedUrl = await downloadAndUploadAttachment(token, att.url, att.filename, att.contentType, targetFolder, parentId, supabase)
-      if (uploadedUrl) {
-        localUrl = uploadedUrl
-        urlCache.set(att.url, localUrl)
+      // 1. Resolve strictly from database cache. NO blocking downloads during main sync.
+      const { data: cached } = await supabase
+        .from('bc_attachment_cache')
+        .select('supabase_url')
+        .eq('basecamp_url', att.url)
+        .maybeSingle()
+
+      if (cached?.supabase_url) {
+        localUrl = cached.supabase_url
+        urlCache.set(att.url, cached.supabase_url)
       }
     }
     if (localUrl) {
-      updatedHtml = updatedHtml.replaceAll(att.url, localUrl)
+      updatedHtml = updatedHtml.replaceAll(att.url, localUrl as string)
     }
   }
 
@@ -1296,6 +1325,11 @@ export async function POST(request: Request) {
         `Total records: ${totalRecords}. Errors: ${counters.errors.length}`
     )
 
+    // Trigger background media attachment download (non-blocking) from newest to oldest
+    triggerBackgroundAttachmentDownloader(supabase, token).catch(err => {
+      console.error('⚠️ [Basecamp Sync] Background downloader error:', err.message)
+    })
+
     return NextResponse.json({
       success: true,
       status: syncStatus,
@@ -1350,4 +1384,111 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
+}
+
+/**
+ * Background worker that processes and downloads attachments asynchronously (non-blocking)
+ * in order of newest to oldest created_at.
+ */
+async function triggerBackgroundAttachmentDownloader(supabase: any, token: string) {
+  console.log('🚀 [Basecamp Background Downloader] Started processing pending attachments...')
+
+  // 1. Process bc_comments (newest to oldest)
+  try {
+    const { data: comments } = await supabase
+      .from('bc_comments')
+      .select('id, content, created_at')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .order('created_at', { ascending: false })
+      .limit(40)
+
+    if (comments && comments.length > 0) {
+      console.log(`   [Background Downloader] Found ${comments.length} comments with pending attachments`)
+      for (const comment of comments) {
+        const updatedContent = await downloadAndUploadPendingHtmlAttachments(comment.content, token, 'comments', comment.id, supabase)
+        if (updatedContent !== comment.content) {
+          await supabase
+            .from('bc_comments')
+            .update({ content: updatedContent })
+            .eq('id', comment.id)
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('   ❌ Error processing background comments:', err.message)
+  }
+
+  // 2. Process bc_todos (newest to oldest by id/position)
+  try {
+    const { data: todos } = await supabase
+      .from('bc_todos')
+      .select('id, description, bc_id')
+      .or('description.ilike.%/blobs/%,description.ilike.%preview.app.basecamp.com%,description.ilike.%storage.app.basecamp.com%')
+      .limit(30)
+
+    if (todos && todos.length > 0) {
+      console.log(`   [Background Downloader] Found ${todos.length} todos with pending attachments`)
+      for (const todo of todos) {
+        const updatedDesc = await downloadAndUploadPendingHtmlAttachments(todo.description || '', token, 'todos', todo.id, supabase)
+        if (updatedDesc !== todo.description) {
+          await supabase
+            .from('bc_todos')
+            .update({ description: updatedDesc })
+            .eq('id', todo.id)
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('   ❌ Error processing background todos:', err.message)
+  }
+
+  // 3. Process bc_documents (newest to oldest)
+  try {
+    const { data: docs } = await supabase
+      .from('bc_documents')
+      .select('id, content, created_at')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    if (docs && docs.length > 0) {
+      console.log(`   [Background Downloader] Found ${docs.length} documents with pending attachments`)
+      for (const doc of docs) {
+        const updatedContent = await downloadAndUploadPendingHtmlAttachments(doc.content, token, 'documents', doc.id, supabase)
+        if (updatedContent !== doc.content) {
+          await supabase
+            .from('bc_documents')
+            .update({ content: updatedContent })
+            .eq('id', doc.id)
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('   ❌ Error processing background docs:', err.message)
+  }
+
+  console.log('✅ [Basecamp Background Downloader] Finished batch processing.')
+}
+
+/**
+ * Downloads and uploads pending html attachments, saving mapped URLs to cache.
+ */
+async function downloadAndUploadPendingHtmlAttachments(
+  html: string,
+  token: string,
+  targetFolder: string,
+  parentId: number | string,
+  supabase: any
+): Promise<string> {
+  const attachments = parseHtmlAttachments(html)
+  if (attachments.length === 0) return html
+
+  let updatedHtml = html
+  for (const att of attachments) {
+    const localUrl = await downloadAndUploadAttachment(token, att.url, att.filename, att.contentType, targetFolder, parentId, supabase)
+    if (localUrl) {
+      updatedHtml = updatedHtml.replaceAll(att.url, localUrl)
+    }
+  }
+  return updatedHtml
 }
