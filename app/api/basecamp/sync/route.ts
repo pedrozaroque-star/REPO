@@ -357,18 +357,18 @@ export async function POST(request: Request) {
   } catch { /* no body is fine */ }
 
   // ================================================================
-  // STEP 0a: CLEANUP — Mark stuck syncs (> 5 min in "running") as "timeout"
+  // STEP 0a: CLEANUP — Mark stuck syncs (> 15 min in "running") as "timeout"
   // ================================================================
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
   const { data: stuckSyncs } = await supabase
     .from('bc_sync_log')
     .update({
       status: 'timeout',
       completed_at: new Date().toISOString(),
-      error_message: 'Automatically marked as timeout (stuck > 5 min)',
+      error_message: 'Automatically marked as timeout (stuck > 15 min)',
     })
     .eq('status', 'running')
-    .lt('started_at', fiveMinAgo)
+    .lt('started_at', fifteenMinAgo)
     .select('id')
 
   if (stuckSyncs && stuckSyncs.length > 0) {
@@ -376,13 +376,13 @@ export async function POST(request: Request) {
   }
 
   // ================================================================
-  // STEP 0b: MUTEX — Reject if a sync is already running (< 5 min old)
+  // STEP 0b: MUTEX — Reject if a sync is already running (< 15 min old)
   // ================================================================
   const { data: activeSyncs } = await supabase
     .from('bc_sync_log')
     .select('id, started_at')
     .eq('status', 'running')
-    .gte('started_at', fiveMinAgo)
+    .gte('started_at', fifteenMinAgo)
 
   if (activeSyncs && activeSyncs.length > 0) {
     console.log(`⏳ [Basecamp Sync] Another sync is already running. Skipping.`)
