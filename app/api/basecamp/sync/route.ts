@@ -6,12 +6,15 @@
  *
  * @businessRules
  * - **Sync Incremental**: Compara `updated_at` de cada proyecto (API vs DB). Si no cambió, lo salta.
- * - **Mutex/Lock**: No permite syncs concurrentes. Si hay uno corriendo (< 5 min), retorna 409.
- * - **Cleanup automático**: Syncs atascados (> 5 min en "running") se marcan como "timeout".
+ * - **Mutex/Lock**: No permite syncs concurrentes. Si hay uno corriendo (< 15 min), retorna 409.
+ * - **Cleanup automático**: Syncs atascados (> 15 min en "running") se marcan como "timeout".
  * - **Orden de Sincronización**: People → Projects → Per-project resources (solo los cambiados).
  * - **Upsert por bc_id**: Todos los registros usan `bc_id` como clave de conflicto (idempotente).
  * - **Tolerancia a Fallos**: Si un recurso falla, se continúa con el siguiente.
  * - **Full Sync forzado**: Pasar `{"full": true}` en el body para forzar sync completo.
+ * - **Descarga de Medios Asíncrona (Asynchronous Media Download)**: Las imágenes, videos y otros archivos
+ *   adjuntos pesados se descargan en segundo plano de manera no bloqueante. Se prioriza de más reciente
+ *   a más antiguo (`created_at DESC`).
  *
  * @dataFlow
  * - POST /api/basecamp/sync → cleanup stuck → mutex check → incremental filter → upsert
@@ -20,6 +23,8 @@
  * - People y Projects SIEMPRE se sincronizan (son 1-2 API calls, rápido).
  * - Per-project resources solo se sincronizan si el proyecto cambió desde el último sync exitoso.
  * - Los dock IDs se extraen dinámicamente del proyecto.
+ * - El sync principal no bloquea en descargas de medios. Si no están en caché (`bc_attachment_cache`),
+ *   se deja la URL original de Basecamp temporalmente y se procesan en segundo plano por el worker.
  */
 
 import { NextResponse } from 'next/server'
@@ -1418,12 +1423,13 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     console.error('   ❌ Error processing background comments:', err.message)
   }
 
-  // 2. Process bc_todos (newest to oldest by id/position)
+  // 2. Process bc_todos (newest to oldest)
   try {
     const { data: todos } = await supabase
       .from('bc_todos')
-      .select('id, description, bc_id')
+      .select('id, description, bc_id, created_at')
       .or('description.ilike.%/blobs/%,description.ilike.%preview.app.basecamp.com%,description.ilike.%storage.app.basecamp.com%')
+      .order('created_at', { ascending: false })
       .limit(30)
 
     if (todos && todos.length > 0) {
@@ -1465,6 +1471,81 @@ async function triggerBackgroundAttachmentDownloader(supabase: any, token: strin
     }
   } catch (err: any) {
     console.error('   ❌ Error processing background docs:', err.message)
+  }
+
+  // 4. Process bc_messages (newest to oldest)
+  try {
+    const { data: messages } = await supabase
+      .from('bc_messages')
+      .select('id, content, created_at')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    if (messages && messages.length > 0) {
+      console.log(`   [Background Downloader] Found ${messages.length} messages with pending attachments`)
+      for (const msg of messages) {
+        const updatedContent = await downloadAndUploadPendingHtmlAttachments(msg.content || '', token, 'messages', msg.id, supabase)
+        if (updatedContent !== msg.content) {
+          await supabase
+            .from('bc_messages')
+            .update({ content: updatedContent })
+            .eq('id', msg.id)
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('   ❌ Error processing background messages:', err.message)
+  }
+
+  // 5. Process bc_answers (newest to oldest)
+  try {
+    const { data: answers } = await supabase
+      .from('bc_answers')
+      .select('id, content, created_at')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    if (answers && answers.length > 0) {
+      console.log(`   [Background Downloader] Found ${answers.length} answers with pending attachments`)
+      for (const ans of answers) {
+        const updatedContent = await downloadAndUploadPendingHtmlAttachments(ans.content || '', token, 'answers', ans.id, supabase)
+        if (updatedContent !== ans.content) {
+          await supabase
+            .from('bc_answers')
+            .update({ content: updatedContent })
+            .eq('id', ans.id)
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('   ❌ Error processing background answers:', err.message)
+  }
+
+  // 6. Process bc_campfire_lines (newest to oldest)
+  try {
+    const { data: lines } = await supabase
+      .from('bc_campfire_lines')
+      .select('id, content, created_at')
+      .or('content.ilike.%/blobs/%,content.ilike.%preview.app.basecamp.com%,content.ilike.%storage.app.basecamp.com%')
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    if (lines && lines.length > 0) {
+      console.log(`   [Background Downloader] Found ${lines.length} campfire lines with pending attachments`)
+      for (const line of lines) {
+        const updatedContent = await downloadAndUploadPendingHtmlAttachments(line.content || '', token, 'campfire', line.id, supabase)
+        if (updatedContent !== line.content) {
+          await supabase
+            .from('bc_campfire_lines')
+            .update({ content: updatedContent })
+            .eq('id', line.id)
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('   ❌ Error processing background campfire lines:', err.message)
   }
 
   console.log('✅ [Basecamp Background Downloader] Finished batch processing.')
