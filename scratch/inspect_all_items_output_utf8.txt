@@ -1,0 +1,379 @@
+Total Active Products: 258
+
+========================================
+GROUP: In Store Menu > Super PC Burritos (In Store) (9 items)
+========================================
+- "Meat Only Super Burrito Asada" | Price: $12.89 | guid: 2fa0875b-b503-42ef-b54a-f0031d4cdd1d
+- "Meat Only Super Burrito Buche" | Price: $12.89 | guid: b39efc41-079f-4b10-9433-517651602790
+- "Meat Only Super Burrito Cabeza" | Price: $12.89 | guid: ad954902-1b5b-4410-a753-8189943d1a6b
+- "Meat Only Super Burrito Carnitas" | Price: $12.89 | guid: e9fc7e2d-3a03-4893-9c1c-26d427197948
+- "Meat Only Super Burrito Chorizo" | Price: $12.89 | guid: c38f2ecb-26f5-4525-9bbf-9f5467ef7630
+- "Meat Only Super Burrito Lengua" | Price: $12.89 | guid: 97ce7494-f2af-4f3e-b409-a82e75af7a9c
+- "Meat Only Super Burrito Pastor" | Price: $12.89 | guid: 783606cf-1d1e-4db8-a650-335f172e7c22
+- "Meat Only Super Burrito Pollo" | Price: $12.89 | guid: c6146b6d-e7e4-412b-a18a-d0c716daa06d
+- "Super Burrito PC Tripa" | Price: $12.09 | guid: 9630ffb5-0c98-4984-8322-03cdca32f210
+
+========================================
+GROUP: In Store Menu > Pura Carne Burritos (In Store) (9 items)
+========================================
+- "Burrito PC Tripa" | Price: $10.49 | guid: 2a645713-c01c-4b83-97c5-85e10d2a78c5
+- "Meat Only Burrito Asada" | Price: $11.19 | guid: 0044c4e2-9736-4fc3-a7e1-f315ee76def4
+- "Meat Only Burrito Buche" | Price: $11.19 | guid: 9b5d5816-d4cf-46c3-9f10-fe90917451ac
+- "Meat Only Burrito Cabeza" | Price: $11.19 | guid: fbcf7e6a-7a28-4096-b3b6-0fb891a32f59
+- "Meat Only Burrito Carnitas" | Price: $11.19 | guid: 3acb651b-5c6b-401c-8184-6926a3c5e8ba
+- "Meat Only Burrito Chorizo" | Price: $11.19 | guid: 3724a519-a978-4e94-b15f-efc613e69810
+- "Meat Only Burrito Lengua" | Price: $11.19 | guid: c07ff218-a168-4018-b320-7fc0a95ded0d
+- "Meat Only Burrito Pastor" | Price: $11.19 | guid: 656b4a82-c240-42b7-916a-5ed277302d8b
+- "Meat Only Burrito Pollo" | Price: $11.19 | guid: 26b9f09e-975c-45ca-a1ec-37b6f21bcef4
+
+========================================
+GROUP: In Store Menu > Burritos (In Store) (13 items)
+========================================
+- "Burrito Asada" | Price: $9.19 | guid: 73072ff7-119f-48d6-bc7c-98f512543af8
+- "Burrito Beans/Cheese" | Price: $6.09 | guid: 17957b49-2c20-40fb-a3cc-a28fae7172fb
+- "Burrito Beans/Cheese/Rice" | Price: $6.59 | guid: 22dd2000-0e44-4639-bcc0-5ac10d03c290
+- "Burrito Buche" | Price: $9.19 | guid: b9446753-0370-450e-8a00-f71c08f32de0
+- "Burrito Cabeza" | Price: $9.19 | guid: c4122feb-cec7-4e81-b8e2-bf5d4fc1a82d
+- "Burrito Carnitas" | Price: $9.19 | guid: 95dbfc24-0f18-4f81-9ba4-dc18516f2d42
+- "Burrito Chorizo" | Price: $9.19 | guid: fc53f549-bb27-48b0-ad79-361aef3445e8
+- "Burrito Lengua" | Price: $9.19 | guid: 242d962e-efea-426b-a15a-7d33e59b84d0
+- "Burrito Pastor" | Price: $9.19 | guid: 18e3299c-b6b5-47ec-8d96-0fc0eef11152
+- "Burrito Pollo" | Price: $9.19 | guid: 26f02c1b-e7ad-4a9e-9650-9219ca8a928b
+- "Burrito Rice/Beans" | Price: $6.09 | guid: fc3fdaa6-3e69-4064-8403-138be109f553
+- "Burrito Tripa" | Price: $8.59 | guid: c8b773b2-443a-4499-8f7c-05ea188fb167
+- "Burrito Vegetariano" | Price: $9.19 | guid: 9dabcfaf-5cb7-413c-95c0-4a20d88155c7
+
+========================================
+GROUP: In Store Menu > Desayunos (In Store) (16 items)
+========================================
+- "Burrito Huevos con Asada" | Price: $9.19 | guid: f7d9df3e-ec18-4b64-98e0-27bbf4df96db
+- "Burrito Huevos con Chorizo" | Price: $9.19 | guid: a3a43c21-cffe-4cbe-81d4-7afda41b724d
+- "Burrito Huevos con Jamon" | Price: $9.19 | guid: 4023f4c1-479b-4a48-86ee-9ef92e738155
+- "Burrito Huevos con Queso" | Price: $9.19 | guid: 31fdbdcc-29d2-4b07-96df-b0bfba3f0ca9
+- "Burrito Huevos con Salchicha" | Price: $9.19 | guid: 4e3af17b-2b47-43f1-9e7e-83a1de64a0f4
+- "Burrito Huevos Mexicana" | Price: $9.19 | guid: e5656aba-78fb-4265-be6c-8c8ec3956148
+- "Huevos a la Mexicana" | Price: $10.59 | guid: dfd766cc-3d92-4278-914f-f6b688a99747
+- "Huevos con Asada" | Price: $10.59 | guid: ceeddb23-32d7-40b6-8e31-d89ebc388ef1
+- "Huevos con Chorizo" | Price: $10.59 | guid: 4712873a-4981-40ca-a929-33f60645bd69
+- "Huevos con Jamon" | Price: $10.59 | guid: 24641f78-3f9c-4752-a43e-8d7f7d1ff94f
+- "Huevos con Salchicha" | Price: $10.59 | guid: 2c0b6c17-593b-4dfc-b6ba-9915aae82131
+- "Huevos Rancheros" | Price: $10.59 | guid: 4546e8ab-5ce8-496e-b643-ef52f4edebd1
+- "Torta de Huevo" | Price: $9.69 | guid: 0159ee8f-8c50-4263-a253-13db2013d069
+- "Torta de Huevo/Asada" | Price: $9.69 | guid: fada64bc-7bf0-43a1-b245-3c57ff50a240
+- "Torta Huevos con Chorizo" | Price: $9.69 | guid: a0e3e9c6-eec2-40b7-b661-d775944f4e2d
+- "Torta Huevos con Jamon" | Price: $9.69 | guid: f537638e-f8b9-45d6-94e0-f47a6228a7e4
+
+========================================
+GROUP: In Store Menu > Super Burritos (In Store) (11 items)
+========================================
+- "Super Burrito Asada" | Price: $11.69 | guid: 4d6a6144-b287-42c2-9bc1-46b3e463129c
+- "Super Burrito Beans/Rice/Cheese" | Price: $9.49 | guid: 0aa2742b-6a87-4881-b305-0a71693dfa1f
+- "Super Burrito Buche" | Price: $11.69 | guid: ee9611d7-484e-4d82-abe3-533c3541de64
+- "Super Burrito Cabeza" | Price: $11.69 | guid: 7863f8e5-1001-4874-83fa-1bb9df40056e
+- "Super Burrito Carnitas" | Price: $11.69 | guid: 12fe9d32-b04b-48fe-8fb3-01c83c8b64e4
+- "Super Burrito Chorizo" | Price: $11.69 | guid: 90aee6ad-1b68-47d7-af52-128a8a6245b6
+- "Super Burrito Lengua" | Price: $11.69 | guid: 6b677dba-e30b-422e-992e-d9912ab44237
+- "Super Burrito Pastor" | Price: $11.69 | guid: 4d8edca4-1b4d-4199-b0b8-ece152c962fe
+- "Super Burrito Pollo" | Price: $11.69 | guid: 63afa0a7-6e96-45b4-988d-cf8286677846
+- "Super Burrito Tripa" | Price: $10.99 | guid: dd6834a9-10b2-4eb4-8d1d-29cc8aadf5ca
+- "Super Burrito Vegetariano" | Price: $11.69 | guid: dc914aa7-ed66-4d21-ae3f-8fac731c217a
+
+========================================
+GROUP: In Store Menu > Sopes (In Store) (15 items)
+========================================
+- "----Sope Separator 2-----" | Price: $0.00 | guid: ac2ed059-86ff-4fca-a64a-0300e4e3c825
+- "----Sope Separator 3-----" | Price: $0.00 | guid: 54854487-11df-488d-af3e-6099390cb1db
+- "----Sope Separator 4-----" | Price: $0.00 | guid: beea2fd1-8294-4970-94ba-50ef07370b28
+- "----Sope Separator-----" | Price: $0.00 | guid: eb480582-40bb-40f3-9d05-48ae24db506d
+- "Sope Asada" | Price: $4.79 | guid: a252d46d-e383-40a0-870a-3e9c39238786
+- "Sope Buche" | Price: $4.79 | guid: 72477cb1-abff-445b-93d7-90f9d09a57b6
+- "Sope Cabeza" | Price: $4.79 | guid: 94210959-8338-410e-9598-9c5ba95d206c
+- "Sope Carnitas" | Price: $4.79 | guid: 09839366-98a7-4104-a241-3bb5b2904d93
+- "Sope Chorizo" | Price: $4.79 | guid: 43060b97-bb7c-4648-96f8-285dae886c98
+- "Sope Frijol" | Price: $3.99 | guid: 499242f7-0536-4cdf-9a73-e9f2daba41f8
+- "Sope Lengua" | Price: $4.79 | guid: d5744409-97a9-4404-ad04-039b53c7590b
+- "Sope Pastor" | Price: $4.79 | guid: 30f17c92-756e-4933-9009-0beb5254bb14
+- "Sope Pollo" | Price: $4.79 | guid: eca5a477-d8e4-4156-b692-c353f72b7ab4
+- "Sope Queso" | Price: $4.79 | guid: 776901c9-f2a6-4f77-8c4b-1f8911d7ccf3
+- "Sope Tripa" | Price: $4.49 | guid: 0e4f75da-5d81-46a3-a2f7-d3cce9b0190c
+
+========================================
+GROUP: In Store Menu > Tortas (In Store) (17 items)
+========================================
+- "Pan Tostado" | Price: $2.59 | guid: b1bc610a-d6a0-4033-b2e5-b47708f34ab0
+- "Pan Tostado con Fri/Que" | Price: $3.39 | guid: d40d5c8b-fad4-4de0-afbb-f0c7c9e6a589
+- "Torta Asada" | Price: $9.69 | guid: 51ee8f16-2912-427d-8d79-834424ef841e
+- "Torta Buche" | Price: $9.69 | guid: 7bea2551-2c99-45a8-8a0a-10c9ec18a331
+- "Torta Cabeza" | Price: $9.69 | guid: 206a615f-422f-4783-a571-9ef35db0f54e
+- "Torta Carnitas" | Price: $9.69 | guid: 3dd7d3b5-97fa-41e1-ae16-e4e9608194c8
+- "Torta Chorizo" | Price: $9.69 | guid: edbfab34-21ea-4f22-8b23-d4bdc0c3ebf9
+- "Torta Cubana" | Price: $9.69 | guid: 8bac2d2c-9ef7-45a4-8223-3419be7f28f9
+- "Torta Jamon" | Price: $9.69 | guid: c67941e9-2a6b-4133-ad1e-3e51b951daab
+- "Torta Lengua" | Price: $9.69 | guid: 7c947000-df49-4bd5-be81-94dc6a93a1b4
+- "Torta Milanesa" | Price: $9.69 | guid: d00fa5ce-281d-4c14-9dd2-cc97a784478a
+- "Torta Pastor" | Price: $9.69 | guid: 8d687908-3279-4da8-aca0-c4919e62a3eb
+- "Torta Pollo" | Price: $9.69 | guid: f5e74167-8f0f-4171-824e-5fa198bb5f95
+- "Torta Queso" | Price: $9.69 | guid: b4156466-f837-4a08-9547-5c4427010dc7
+- "Torta Salchicha" | Price: $9.69 | guid: 6b60fcd4-2dd7-469f-98a3-82068dc650c7
+- "Torta Tripa" | Price: $9.09 | guid: 459ea9cc-6c0b-4253-b36a-93705b750261
+- "Torta Vegetariana" | Price: $9.69 | guid: a1e7c9fa-0718-4b6e-b0b3-076be91d12d0
+
+========================================
+GROUP: In Store Menu > Super Nachos (In Store) (10 items)
+========================================
+- "Super Nachos Asada" | Price: $9.69 | guid: c2c29494-ef57-4e99-88e1-0923366f94b9
+- "Super Nachos Buche" | Price: $9.69 | guid: 5df60269-099b-4353-b16e-764ea848327f
+- "Super Nachos Cabeza" | Price: $9.69 | guid: 86e28af9-6d6c-4f40-982c-4682c76a7995
+- "Super Nachos Carnitas" | Price: $9.69 | guid: a7cad89d-2deb-427f-a296-16e5db79f569
+- "Super Nachos Chorizo" | Price: $9.69 | guid: fc4e3ab4-edba-4cec-bd38-892a3c8806ae
+- "Super Nachos Lengua" | Price: $9.69 | guid: 7598ecc9-3ba9-42da-993a-a12557846d9f
+- "Super Nachos No Carne" | Price: $7.69 | guid: 20c7d3f5-d354-46e3-a2ef-513ef910509c
+- "Super Nachos Pastor" | Price: $9.69 | guid: 0454767e-78f2-4c94-be9d-8dd2ee08edd9
+- "Super Nachos Pollo" | Price: $9.69 | guid: 1d9b2a65-9f93-450a-a3f0-a99ec110c6c7
+- "Super Nachos Tripa" | Price: $9.09 | guid: 41627820-3832-436a-bfe8-5ef34ab85d19
+
+========================================
+GROUP: In Store Menu > Platos (In Store) (11 items)
+========================================
+- "Plato Asada" | Price: $10.59 | guid: 11e7872a-4989-458c-8ede-793535139908
+- "Plato Buche" | Price: $10.59 | guid: b4ece60e-e4ca-44ca-888f-39bd69a189f5
+- "Plato Cabeza" | Price: $10.59 | guid: 7981b16d-8213-497d-83aa-ecf6e0a18625
+- "Plato Carnitas" | Price: $10.59 | guid: 047a1e01-f69c-428f-ad8b-1d052b3067f5
+- "Plato Chorizo" | Price: $10.59 | guid: ad4872b5-6bcf-4a59-8449-99296a715a5e
+- "Plato Jamon" | Price: $10.59 | guid: 882bd70d-9356-48ec-980e-70b0b0b6f9cd
+- "Plato Lengua" | Price: $10.59 | guid: 1c143253-1389-4b7d-9122-eef1f5ffcca8
+- "Plato Milanesa" | Price: $10.59 | guid: 4354b1bf-644c-4c8d-b09c-0163f6982eee
+- "Plato Pastor" | Price: $10.59 | guid: a77c05f7-e934-4f64-b1b8-fac2deb4d725
+- "Plato Pollo" | Price: $10.59 | guid: a9af332a-47bf-4525-be0a-a0b4319a087f
+- "Plato Tripa" | Price: $9.89 | guid: 1ca189ad-2a3c-4150-a10b-92253b84e7cd
+
+========================================
+GROUP: In Store Drinks > Lg. Fountain Drinks (In Store) (12 items)
+========================================
+- "Large Coke" | Price: $4.09 | guid: 0f067ef6-8e09-49d8-aa68-bdd2619184a9
+- "Large Coke Zero" | Price: $4.09 | guid: f4f37555-c0c0-4a7e-8a3c-5d9e1ae79a0f
+- "Large Diet Coke" | Price: $4.09 | guid: bc4a75f9-6a1a-4abc-b595-14f7e73133b2
+- "Large Horchata" | Price: $4.09 | guid: 04c3493c-4f2c-4e95-b3ba-6872acaf2846
+- "Large Iced Tea" | Price: $4.09 | guid: 86e3277e-ae0b-4ca8-8974-c345e5a66c8e
+- "Large Jamaica" | Price: $4.09 | guid: 5f551da6-2ccb-4521-91c7-c324c77a5422
+- "Large Lemonade" | Price: $4.09 | guid: cec6b9a8-7a20-4599-9451-2db5cdd54d70
+- "Large Orange Fanta" | Price: $4.09 | guid: 99f1334b-9110-4f0c-abee-25932cd33171
+- "Large Piña" | Price: $4.09 | guid: 5741485b-63af-419f-bd38-9ef2cc81d4fa
+- "Large Sprite" | Price: $4.09 | guid: b59c2171-058a-4871-bb2e-4841d3ee697c
+- "Large Strawberry Fanta" | Price: $4.09 | guid: 0f60ee4a-ee95-4ffd-a679-86f5fdf1f8e4
+- "Large Tamarindo" | Price: $4.09 | guid: 633da3c8-d8b7-41f9-be0f-222b7e0863d3
+
+========================================
+GROUP: In Store Drinks > Md. Fountain Drinks (In Store) (12 items)
+========================================
+- "Medium Coke" | Price: $3.59 | guid: b9d2f1ea-9fd4-4dd8-8102-ee205715210e
+- "Medium Coke Zero" | Price: $3.59 | guid: 846a67b5-6ae5-42a4-8f76-bb56d4a2a648
+- "Medium Diet Coke" | Price: $3.59 | guid: e43f6806-a27c-4bea-a17e-cb60af738de4
+- "Medium Horchata" | Price: $3.59 | guid: 9b752302-33fb-4994-b592-92775203d772
+- "Medium Iced Tea" | Price: $3.59 | guid: ac127e5a-8848-469b-aacc-c378fe962cb5
+- "Medium Jamaica" | Price: $3.59 | guid: 4ba378bd-e285-4348-a841-b7d838872637
+- "Medium Lemonade" | Price: $3.59 | guid: 2fd3dccc-a577-4d37-ab29-c70efaa3ce77
+- "Medium Orange Fanta" | Price: $3.59 | guid: 6a387e5d-d702-47be-8f64-d18e0607c1e6
+- "Medium Piña" | Price: $3.59 | guid: 63a3c472-114a-42c4-a7db-ffde7e65415c
+- "Medium Sprite" | Price: $3.59 | guid: 72c67593-8f8d-49c4-97a7-1ab4e1d51ff9
+- "Medium Strawberry Fanta" | Price: $3.59 | guid: b8a150e5-fba9-451a-9b5c-fd141724bd2d
+- "Medium Tamarindo" | Price: $3.59 | guid: c4d16122-8738-4e63-b884-b47d73eb9b2e
+
+========================================
+GROUP: In Store Drinks > Misc. Drinks (In Store) (6 items)
+========================================
+- "Bottled Water" | Price: $1.19 | guid: 93240d2b-f00b-40ae-983d-be7ae25bb4d1
+- "Café de olla" | Price: $3.79 | guid: 4ba54156-afed-412d-a443-e5f77a9b1196
+- "Champurrado" | Price: $4.09 | guid: 8a0a076c-0efd-4954-8b38-1465e260e63d
+- "Coffee" | Price: $2.59 | guid: 9d6a4152-5c25-47aa-ba49-2d7ae2fe90c4
+- "Olla Café de olla" | Price: $25.39 | guid: b2f99c1a-b77f-4a70-87de-4518835ce914
+- "Olla Champurrado" | Price: $27.89 | guid: 80783f40-711c-4f9c-be2f-bc03fb4d1b84
+
+========================================
+GROUP: Online Drinks > Misc. Drinks (1 items)
+========================================
+- "Champurrado To-Go Box (96oz)" | Price: $27.89 | guid: 229246cd-8a4d-44d6-bfd2-7147f0a87e6c
+
+========================================
+GROUP: 3rd Party Menu > Misc. Drinks (3 items)
+========================================
+- "Bottled Water" | Price: $1.59 | guid: d9954350-e5fa-4706-aa8d-0775fb0c9456
+- "Champurrado To-Go Box (96oz)" | Price: $33.49 | guid: 2940b485-65c8-4918-908b-9d55763dfc55
+- "Gallon Agua Fresca" | Price: $17.49 | guid: 439d0ba1-cbca-4f78-a1db-122e26ee26ee
+
+========================================
+GROUP: In Store Menu > Side Orders (In Store) (15 items)
+========================================
+- "Beans" | Price: $2.49 | guid: a41acfa9-e4dc-4471-88d7-9250017c286a
+- "Chips" | Price: $3.39 | guid: 0b1b2a8e-a17d-4494-992d-92b01fb5d4cd
+- "Egg" | Price: $2.59 | guid: cc974d13-5889-4e73-8c7a-4de32abfc4c5
+- "Guacamole" | Price: $2.49 | guid: dac8f64d-e46e-4290-bdad-3222f4b6281c
+- "Jack Cheese" | Price: $2.49 | guid: 3a155cb5-9af2-42c5-936d-a3b21287bb2d
+- "Orden Harina" | Price: $1.59 | guid: c153d831-a015-4880-b67f-a2bd5b23f9bc
+- "Papelito" | Price: $2.49 | guid: 3cf570de-a043-4038-857a-9e33ffdcf1ac
+- "Rice" | Price: $2.49 | guid: 0c31b57e-7897-4d8f-a864-73488087d602
+- "Side Order Beans/Rice" | Price: $2.49 | guid: 7ec91ecd-9e8a-4062-aa4f-a62e0b845e9a
+- "Side Order Carne" | Price: $5.59 | guid: ada1f576-a22b-469f-9042-ed1d5ddea10f
+- "Side Order Cotija" | Price: $2.39 | guid: b162aea2-7573-481e-8ce1-ad7afbcb0d94
+- "Side Order Nacho Cheese" | Price: $2.39 | guid: 134cefe3-096c-45d8-b3dc-306dff335b4d
+- "Side Order Queso Fresco" | Price: $2.39 | guid: f3a10b37-d73d-4aa2-88c9-aa00a094086d
+- "Sour Cream" | Price: $2.49 | guid: c166161a-081b-4712-b5ee-133e46448177
+- "Tortilla de Maiz" | Price: $1.59 | guid: 6978aa85-0429-45b9-947a-e9b94404b77b
+
+========================================
+GROUP: Kiosk Menu (Taco Tuesday) > Sides (1 items)
+========================================
+- "Test" | Price: $0.00 | guid: 1414abfb-9e18-4da4-a253-7fac174fe438
+
+========================================
+GROUP: In Store Menu > Super Mulitas (In Store) (11 items)
+========================================
+- "Separator" | Price: $0.00 | guid: de2a6cc5-d93b-4772-8630-419611ec0b62
+- "Super Mulita Asada" | Price: $5.99 | guid: 2069b6e8-b024-4d11-9416-74a118c05c9e
+- "Super Mulita Buche" | Price: $5.99 | guid: 355d9d23-fd2e-4662-a1c7-fc20a81dd0dc
+- "Super Mulita Cabeza" | Price: $5.99 | guid: 18c1dae7-d970-46a0-9980-b2003ca0064f
+- "Super Mulita Carnitas" | Price: $5.99 | guid: ed7a74f6-7c81-4fcb-ada9-bd60054101d8
+- "Super Mulita Chorizo" | Price: $5.99 | guid: 91622fd3-30db-4197-ba40-d8e2fa21de1c
+- "Super Mulita Lengua" | Price: $5.99 | guid: 6fcc4b5f-1f8e-4ec2-b4fa-a4390a91e0b9
+- "Super Mulita Pastor" | Price: $5.99 | guid: 0e3f7872-2924-46de-a98e-07b2f29cc11b
+- "Super Mulita Pollo" | Price: $5.99 | guid: fafa527b-0dd7-4bb9-ab58-20da4877fca6
+- "Super Mulita Queso" | Price: $4.79 | guid: 392d01f9-f366-4165-adc4-79f7a400f56b
+- "Super Mulita Tripa" | Price: $5.69 | guid: f86ab6e4-ea6b-4610-890a-da584fd68b9d
+
+========================================
+GROUP: 3rd Party Menu > Sides (1 items)
+========================================
+- "Whole Beans" | Price: $2.89 | guid: c09a1208-e42f-4ee3-aa64-f1fab2668b58
+
+========================================
+GROUP: In Store Menu > Tacos (In Store) (16 items)
+========================================
+- "------- Taco Separator 2-------" | Price: $0.00 | guid: d796e842-2071-465d-8e3e-a3a1f76e7e95
+- "------- Taco Separator 3-------" | Price: $0.00 | guid: 2c0b4509-f85e-48b0-95c9-a50d164869b0
+- "------- Taco Separator 4-------" | Price: $0.00 | guid: d6fbdde4-76c4-4fc3-929f-d76d50a84d95
+- "------- Taco Separator 5-------" | Price: $0.00 | guid: 4a5c8d3c-5eda-4111-acf2-0660b80db443
+- "------- Taco Separator-------" | Price: $0.00 | guid: b2522a87-9c5c-4458-a796-2b9610bfc554
+- "Taco Asada" | Price: $2.29 | guid: 6141b8b8-8707-4632-a837-81cfccffc0e6
+- "Taco Buche" | Price: $2.29 | guid: f97a828f-18d0-48aa-ad0d-2b26d0ff59a1
+- "Taco Cabeza" | Price: $2.29 | guid: 2073726e-5ec6-417d-a6d2-ae367e663c04
+- "Taco Carnitas" | Price: $2.29 | guid: 51886888-6e37-477b-8147-9741c7145d0b
+- "Taco Chorizo" | Price: $2.29 | guid: f6c84203-de05-485b-b1db-c80ff297d211
+- "Taco Lengua" | Price: $2.29 | guid: 24d8b7d3-a261-42a3-bdbb-d44345d51548
+- "Taco Pastor" | Price: $2.29 | guid: a29735c2-48a6-4f65-86c1-e2f27614f718
+- "Taco Pollo" | Price: $2.29 | guid: 87bbf158-caf5-4d15-b747-d8af3185c802
+- "Taco Tripa" | Price: $2.29 | guid: 79bb35fb-325f-46d2-aae4-d0ebcfe64d03
+- "Taco Vegetariano" | Price: $2.29 | guid: 7b591175-fa2c-455a-83cf-2627cd11fcad
+- "Test Item" | Price: $0.01 | guid: d84f2261-d1d5-468e-9bd9-908f0c81108f
+
+========================================
+GROUP: In Store Menu > Combos (In Store) (1 items)
+========================================
+- "Taco Plate" | Price: $9.69 | guid: e5bb7d3e-2a4c-4293-86a8-6b2ccae940ad
+
+========================================
+GROUP: In Store Menu > Quesadillas (In Store) (11 items)
+========================================
+- "Quesadilla Asada" | Price: $9.19 | guid: 45e462bf-d415-446a-a71f-75416eafb577
+- "Quesadilla Buche" | Price: $9.19 | guid: d192e2ed-9104-44f6-be8d-958cd46a6aee
+- "Quesadilla Cabeza" | Price: $9.19 | guid: 5c415bd7-51ec-466a-9e13-24cab6f75c1d
+- "Quesadilla Carnitas" | Price: $9.19 | guid: 1a27a5ff-2471-4a4a-bf44-a7b61cadfeba
+- "Quesadilla Chorizo" | Price: $9.19 | guid: 0e9e6a44-98f7-40ad-8dfa-e6f682b3c14f
+- "Quesadilla Jamon" | Price: $9.19 | guid: 4c5e4d7e-e045-4cf3-af6e-b39034c77a82
+- "Quesadilla Lengua" | Price: $9.19 | guid: 439aba82-4a33-4958-8143-dc5317367d1b
+- "Quesadilla Pastor" | Price: $9.19 | guid: fb23d9e2-e687-4673-b8ea-837b03ece36b
+- "Quesadilla Pollo" | Price: $9.19 | guid: bbdde21c-f0dc-46dc-8644-882c42d9d1fe
+- "Quesadilla Queso" | Price: $5.49 | guid: 1849aecd-bf7a-49cd-bf64-7ad26d4e75a6
+- "Quesadilla Tripa" | Price: $8.59 | guid: 28cc9625-5dea-4659-9193-da805cbd236c
+
+========================================
+GROUP: In Store Menu > Super Quesadillas (In Store) (11 items)
+========================================
+- "Super Quesadilla Asada" | Price: $10.59 | guid: 9dbf18f5-7e8a-4db5-957f-ddeca2c7c4e1
+- "Super Quesadilla Buche" | Price: $10.59 | guid: f17dad67-db2b-4ac5-a93f-988a90fe888c
+- "Super Quesadilla Cabeza" | Price: $10.59 | guid: 448d294f-f3e3-472b-9be8-01b48e30cd29
+- "Super Quesadilla Carnitas" | Price: $10.59 | guid: 35f00299-7175-44f1-9f07-cd33beb063ff
+- "Super Quesadilla Chorizo" | Price: $10.59 | guid: b15262cd-a199-469c-a74c-c032b81b4d45
+- "Super Quesadilla Jamon" | Price: $10.59 | guid: b7ceca18-759f-4283-baf8-520a41d9d75e
+- "Super Quesadilla Lengua" | Price: $10.59 | guid: d484d6f3-296f-48f0-87ff-0314c6767e0c
+- "Super Quesadilla Pastor" | Price: $10.59 | guid: 80b78ed7-f97b-41ab-908c-93b767ce405d
+- "Super Quesadilla Pollo" | Price: $10.59 | guid: ae49e08e-bd11-452e-893a-93897e27a7e7
+- "Super Quesadilla Queso" | Price: $6.99 | guid: 7570a0cd-8a8e-476d-af48-bd19b3b3c25f
+- "Super Quesadilla Tripa" | Price: $9.89 | guid: 9c150c85-5b28-4d17-80df-0e7222b85bf6
+
+========================================
+GROUP: In Store Menu > Mulitas (In Store) (15 items)
+========================================
+- "-------Mulita Separator 2-------" | Price: $0.00 | guid: ae7954fd-ac97-4e9f-9eae-3cfbd924d775
+- "-------Mulita Separator 3-------" | Price: $0.00 | guid: 6d42184f-8c5e-4e0a-9a7f-677c4e4f95eb
+- "-------Mulita Separator 4-------" | Price: $0.00 | guid: 81226725-e3f4-4520-b8a7-0e89c8669e80
+- "-------Mulita Separator-------" | Price: $0.00 | guid: a9b70f10-0fe9-4c5c-b8b1-42e3fd6ef783
+- "Mulita Asada" | Price: $4.79 | guid: 8572e0a7-89d0-4bde-b3c0-7148069ea8a6
+- "Mulita Buche" | Price: $4.79 | guid: 33189e78-c734-4948-959b-52f316d4c2d4
+- "Mulita Cabeza" | Price: $4.79 | guid: 9d027bf9-c29c-4f72-b553-f08094fdd6e6
+- "Mulita Carnitas" | Price: $4.79 | guid: b792dca2-0726-4d2f-a76e-4e7841445d62
+- "Mulita Chorizo" | Price: $4.79 | guid: 725e6d4b-f6cc-4614-875b-292cfc2b96a4
+- "Mulita Jamon" | Price: $4.79 | guid: e5e06f94-33f8-49ea-adbd-dc7c58b34751
+- "Mulita Lengua" | Price: $4.79 | guid: b4785e63-0b34-42c7-b616-faa097576ae9
+- "Mulita Pastor" | Price: $4.79 | guid: b988ec4d-6e4b-4702-96d9-dc6fc391458d
+- "Mulita Pollo" | Price: $4.79 | guid: 48e902d6-e9e8-4f0b-8195-b1989724f17a
+- "Mulita Queso" | Price: $3.99 | guid: eff9e19d-9197-4b0e-a4e6-38ec63b5e42d
+- "Mulita Tripa" | Price: $4.49 | guid: 11ce4d68-3029-4b01-bc6e-5191b0c7571d
+
+========================================
+GROUP: 3rd Party Menu > Medium Drinks (1 items)
+========================================
+- "Medium Strawberry Fanta" | Price: $3.89 | guid: ca3711d8-0140-4454-bf63-5da1bf3a3393
+
+========================================
+GROUP: 3rd Party Menu > Catering (1 items)
+========================================
+- "Fiesta Platters" | Price: $240.99 | guid: eea3f69d-596f-4526-9ab4-95aa532b47ea
+
+========================================
+GROUP: In Store Menu > Catering (In Store) (18 items)
+========================================
+- "1 lb Guacamole" | Price: $11.69 | guid: d0a96bbb-ae00-4736-9175-b6430758b5ec
+- "12 lb Meat" | Price: $117.29 | guid: 43fc20b5-0252-4847-bf66-e1dcdd5ad3a1
+- "15 - 20 People" | Price: $201.99 | guid: d9f81551-b3a5-48df-b4ee-3aa9e670bf0e
+- "2 lb Meat" | Price: $25.69 | guid: ab5adddd-12bd-4871-b6a3-af1c590752b6
+- "20 - 25 People" | Price: $245.79 | guid: ae79ea50-d835-44b3-92a2-4e746e03fb10
+- "20 oz. Salsa" | Price: $6.69 | guid: 7badb46f-87aa-4db6-9fbc-1e6cb79ea312
+- "25 - 30 People" | Price: $301.69 | guid: e99e2f29-75d6-46e8-99e0-1cf072b636e5
+- "30 - 40 People" | Price: $373.89 | guid: 81e1e9f7-de80-4f50-80ef-5e3d76541ef0
+- "6 lb Meat" | Price: $63.79 | guid: 898d1dd3-a406-4bb7-a5c6-c27aa3f0f961
+- "Dz. Tortillas Harina" | Price: $6.69 | guid: 57514ded-c8de-4664-8ccc-ad6d8d8f6824
+- "Dz. Tortillas Maiz" | Price: $4.49 | guid: 410b0ccb-cec5-4a8c-bd41-0f6c4f062ccb
+- "Full Cheesecake" | Price: $27.89 | guid: ff32565b-9be6-419c-8ab2-c8fb65d015f5
+- "Full Flan" | Price: $27.89 | guid: 538f2016-dc03-49d1-9337-f69a356799e3
+- "Full Tray Beans" | Price: $40.29 | guid: c2866563-9b0a-42a3-8cae-ebcdfa7acd38
+- "Full Tray Rice" | Price: $40.29 | guid: cf7adc84-ee93-4294-9b81-4a9d0fc7c5e9
+- "Gallon Agua" | Price: $14.59 | guid: 213d3816-21f2-4297-9d79-82c9a79069d9
+- "Half Tray Beans" | Price: $26.79 | guid: 711ed6e4-5b87-407f-b804-05c9b74e6634
+- "Half Tray Rice" | Price: $26.79 | guid: 6f2893a8-2241-490f-b873-7bf69bdac572
+
+========================================
+GROUP: In Store Menu > DT Condiments (5 items)
+========================================
+- "Frijol D/L/O" | Price: $0.00 | guid: 5393e649-3cdf-4f6b-964e-050fd81d5259
+- "Limes" | Price: $0.00 | guid: 17503fa3-e5f2-43d8-b029-a6fbe53ffc1d
+- "Onions" | Price: $0.00 | guid: fdca38a5-3587-413c-be9f-f5cec8e59635
+- "Salsa Roja" | Price: $0.00 | guid: fc44ee94-8fea-4579-85d8-f26ae51cb0fd
+- "Salsa Verde" | Price: $0.00 | guid: f0482666-ec31-4293-8617-b79501d009e5
+
+========================================
+GROUP: In Store Menu > Desserts (In Store) (2 items)
+========================================
+- "Cheesecake" | Price: $4.79 | guid: 03e71aca-a566-425e-bf6a-31ae9148b7b2
+- "Flan" | Price: $4.79 | guid: 0075526b-a9dc-4f4e-a734-a4e4195fe4c7
+
+========================================
+GROUP: Desayunos (Toast) > Breakfast (2 items)
+========================================
+- "Torta Huevos con Asada" | Price: $9.69 | guid: 4e3f7e0c-ac55-44ea-a3be-4d8849ab1ff9
+- "Torta Huevos con Jamon" | Price: $9.69 | guid: 9cf92eed-446d-4b79-844a-a797c751d55c
+
+========================================
+GROUP: In Store Menu > Notifs (2 items)
+========================================
+- "Empleado" | Price: $0.00 | guid: e48435a1-ffef-46b3-9483-8bac6b67df7c
+- "Policia" | Price: $0.00 | guid: d8f4d7cc-e98c-4953-babc-cbb05e96a33d

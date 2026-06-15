@@ -1,0 +1,303 @@
+=== UNIQUE STOREFRONT PRODUCTS AND PRICES ===
+
+1. "15 - 20 People" | Price: $$201.99 | Type: StorePageCarouselItem | ID: 28572075087
+   Description: "6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!
+
+Salsas, condiments, and utensils included!"
+2. "Burrito Asada" | Price: $$9.19 | Type: StorePageCarouselItem | ID: 28572074941
+   Description: "Grilled beef - Wrapped with Rice and Beans"
+3. "Super Burrito Asada" | Price: $$11.69 | Type: StorePageCarouselItem | ID: 28572075029
+   Description: "Grilled Steak - Includes rice, beans, sour cream, cheese, and guacamole."
+4. "20 - 25 People" | Price: $$245.79 | Type: StorePageCarouselItem | ID: 28572075088
+   Description: "7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!
+
+Salsas, condiments, and utensils included!"
+5. "Taco Plate" | Price: $$9.69 | Type: StorePageCarouselItem | ID: 28572075018
+   Description: "Three Tacos Of Your Choice - Served Plain - Accompanied By Beans And Rice"
+6. "Torta Asada" | Price: $$9.69 | Type: StorePageCarouselItem | ID: 28572074963
+   Description: "Grilled Steak - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+7. "30 - 40 People" | Price: $$373.89 | Type: StorePageCarouselItem | ID: 28572075090
+   Description: "12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!
+
+Salsas, condiments, and utensils included!"
+8. "Large Horchata" | Price: $$4.09 | Type: StorePageCarouselItem | ID: 28572075123
+9. "Super Quesadilla Asada" | Price: $$10.59 | Type: StorePageCarouselItem | ID: 28572075049
+   Description: "Grilled Steak - Sour cream, guacamole, and melted cheese."
+10. "Mulita Asada" | Price: $$4.79 | Type: StorePageCarouselItem | ID: 28572074915
+   Description: "1 Grilled Beef Mulita - Meat served in-between two tortillas with melted cheese."
+11. "Super Nachos Asada" | Price: $$9.69 | Type: StorePageCarouselItem | ID: 28572075060
+   Description: "Grilled Steak - Nacho cheese, sour cream, and guacamole."
+12. "Quesadilla Asada" | Price: $$9.19 | Type: StorePageCarouselItem | ID: 28572074980
+   Description: "Grilled Steak and Cheese"
+13. "Large Piña" | Price: $$4.09 | Type: StorePageCarouselItem | ID: 28572075126
+14. "Sope Asada" | Price: $$4.79 | Type: StorePageCarouselItem | ID: 28572074930
+   Description: "1 Grilled Beef Sope - A thick tortilla topped with beans, sour cream, and cheese"
+15. "Medium Horchata" | Price: $$3.59 | Type: StorePageCarouselItem | ID: 28572075112
+16. "Plato Asada" | Price: $$10.59 | Type: StorePageCarouselItem | ID: 28572074991
+   Description: "Grilled Steak - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+17. "Burrito Pastor" | Price: $$9.19 | Type: StorePageCarouselItem | ID: 28572074942
+   Description: "Marinated Pork - Wrapped with Rice and Beans"
+18. "Champurrado" | Price: $$4.09 | Type: StorePageCarouselItem | ID: 28572075136
+19. "Super Burrito Pollo" | Price: $$11.69 | Type: StorePageCarouselItem | ID: 28572075032
+   Description: "Grilled Chicken - Includes rice, beans, sour cream, cheese, and guacamole."
+20. "Burrito Pollo" | Price: $$9.19 | Type: StorePageCarouselItem | ID: 28572074944
+   Description: "Grilled Chicken - Wrapped with Rice and Beans"
+21. "Torta Milanesa" | Price: $$9.69 | Type: StorePageCarouselItem | ID: 28572074975
+   Description: "Breaded Steak - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+22. "Torta Cubana" | Price: $$9.69 | Type: StorePageCarouselItem | ID: 28572074976
+   Description: "Breaded Steak + Ham + Wiener - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+23. "Large Jamaica" | Price: $$4.09 | Type: StorePageCarouselItem | ID: 28572075124
+24. "Flan" | Price: $$4.79 | Type: StorePageCarouselItem | ID: 28572075085
+25. "Torta Pastor" | Price: $$9.69 | Type: StorePageCarouselItem | ID: 28572074964
+   Description: "Marinated Pork - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+26. "Taco Asada" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074906
+   Description: "1 Grilled Beef Taco - Served Plain"
+27. "Taco Pastor" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074907
+   Description: "1 Marinated Pork Taco - Served Plain"
+28. "Taco Chorizo" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074908
+   Description: "1 Mexican Sausage Taco - Served Plain"
+29. "Taco Pollo" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074909
+   Description: "1 Grilled Chicken Taco - Served Plain"
+30. "Taco Cabeza" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074910
+   Description: "1 Steamed Beef Head Taco - Served Plain"
+31. "Taco Lengua" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074911
+   Description: "1 Steamed Beef Tongue Taco - Served Plain"
+32. "Taco Carnitas" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074912
+   Description: "1 Braised Pork Taco - Served Plain"
+33. "Taco Buche" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074913
+   Description: "1 Grilled Pork Maw Taco - Served Plain"
+34. "Taco Vegetariano" | Price: $$2.29 | Type: MenuPageItem | ID: 28572074914
+   Description: "Lettuce, Tomato, Cheese, Beans, Rice, Avocado"
+35. "Mulita Pastor" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074916
+   Description: "1 Marinated Pork Mulita - Meat served in-between two tortillas with melted cheese."
+36. "Mulita Chorizo" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074917
+   Description: "1 Mexican Sausage Mulita - Meat served in-between two tortillas with melted cheese."
+37. "Mulita Pollo" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074918
+   Description: "1 Grilled Chicken Mulita - Meat served in-between two tortillas with melted cheese."
+38. "Mulita Cabeza" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074919
+   Description: "1 Steamed Beef Head Mulita - Meat served in-between two tortillas with melted cheese."
+39. "Mulita Lengua" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074920
+   Description: "1 Steamed Beef Tongue Mulita - Meat served in-between two tortillas with melted cheese."
+40. "Mulita Carnitas" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074921
+   Description: "1 Braised Pork Mulita - Meat served in-between two tortillas with melted cheese."
+41. "Mulita Buche" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074922
+   Description: "1 Grilled Pork Maw Mulita - Meat served in-between two tortillas with melted cheese."
+42. "Mulita Queso" | Price: $$3.99 | Type: MenuPageItem | ID: 28572074924
+   Description: "No meat - Two fresh tortillas with melted cheese."
+43. "Sope Pastor" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074931
+   Description: "1 Marinated Pork Sope - A thick tortilla topped with beans, sour cream, and cheese"
+44. "Sope Chorizo" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074932
+   Description: "1 Mexican Sausage Sope - A thick tortilla topped with beans, sour cream, and cheese"
+45. "Sope Pollo" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074933
+   Description: "1 Grilled Chicken Sope - A thick tortilla topped with beans, sour cream, and cheese"
+46. "Sope Cabeza" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074934
+   Description: "1 Steamed Beef Head Sope - A thick tortilla topped with beans, sour cream, and cheese"
+47. "Sope Lengua" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074935
+   Description: "1 Steamed Beef Tongue Sope - A thick tortilla topped with beans, sour cream, and cheese"
+48. "Sope Carnitas" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074936
+   Description: "1 Braised Pork Sope - A thick tortilla topped with beans, sour cream, and cheese"
+49. "Sope Buche" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074937
+   Description: "1 Grilled Pork Maw Sope - A thick tortilla topped with beans, sour cream, and cheese"
+50. "Sope Queso" | Price: $$4.79 | Type: MenuPageItem | ID: 28572074938
+   Description: "No meat, extra cheese - A thick tortilla topped with beans, sour cream, and cheese"
+51. "Sope Frijol" | Price: $$3.99 | Type: MenuPageItem | ID: 28572074939
+   Description: "No meat - A thick tortilla topped with beans, sour cream, and cheese"
+52. "Burrito Chorizo" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074943
+   Description: "Mexican Sausage - Wrapped with Rice and Beans"
+53. "Burrito Cabeza" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074945
+   Description: "Steamed Beef Head - Wrapped with Rice and Beans"
+54. "Burrito Lengua" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074946
+   Description: "Steamed Beef Tongue -  Wrapped with Rice and Beans"
+55. "Burrito Carnitas" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074947
+   Description: "Braised Pork - Wrapped with Rice and Beans"
+56. "Burrito Buche" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074948
+   Description: "Grilled Pork Maw - Wrapped with 
+Rice and Beans"
+57. "Burrito Vegetariano" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074949
+   Description: "No Meat - Lettuce, Tomato, Beans, Rice, Guacamole, and Cheese"
+58. "Burrito Beans/Cheese/Rice" | Price: $$6.59 | Type: MenuPageItem | ID: 28572074952
+   Description: "No Meat - Only Beans, Rice, and Cheese"
+59. "Meat Only Burrito Asada" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074954
+   Description: "Only Grilled Steak"
+60. "Meat Only Burrito Pastor" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074955
+   Description: "Only Marinated Pork."
+61. "Meat Only Burrito Chorizo" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074956
+   Description: "Only Mexican Sausage"
+62. "Meat Only Burrito Pollo" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074957
+   Description: "Only Grilled Chicken"
+63. "Meat Only Burrito Cabeza" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074958
+   Description: "Only Steamed Beef Head"
+64. "Meat Only Burrito Lengua" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074959
+   Description: "Only Steamed Beef Tongue"
+65. "Meat Only Burrito Carnitas" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074960
+   Description: "Only Braised Pork"
+66. "Meat Only Burrito Buche" | Price: $$11.19 | Type: MenuPageItem | ID: 28572074961
+   Description: "Only Grilled Pork Maws"
+67. "Torta Chorizo" | Price: $$9.69 | Type: MenuPageItem | ID: 28572074965
+   Description: "Mexican Sausage - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+68. "Torta Pollo" | Price: $$9.69 | Type: MenuPageItem | ID: 28572074966
+   Description: "Grilled Chicken - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+69. "Torta Cabeza" | Price: $$9.69 | Type: MenuPageItem | ID: 28572074967
+   Description: "Steamed Beef Head - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+70. "Torta Lengua" | Price: $$9.69 | Type: MenuPageItem | ID: 28572074968
+   Description: "Steamed Beef Tongue - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+71. "Torta Carnitas" | Price: $$9.69 | Type: MenuPageItem | ID: 28572074969
+   Description: "Braised Pork - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+72. "Torta Buche" | Price: $$9.69 | Type: MenuPageItem | ID: 28572074970
+   Description: "Grilled Pork Maw - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese"
+73. "Torta Vegetariana" | Price: $$9.69 | Type: MenuPageItem | ID: 28572074971
+   Description: "No Meat - Lettuce, Tomato, Mayo, Guacamole, Beans, Rice and Cheese"
+74. "Quesadilla Pastor" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074981
+   Description: "Marinated Pork and Cheese"
+75. "Quesadilla Chorizo" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074982
+   Description: "Mexican Sausage and Cheese"
+76. "Quesadilla Pollo" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074983
+   Description: "Grilled Chicken and Cheese"
+77. "Quesadilla Cabeza" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074984
+   Description: "Steamed Beef Head and Cheese"
+78. "Quesadilla Lengua" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074985
+   Description: "Steamed Beef Head and Cheese"
+79. "Quesadilla Carnitas" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074986
+   Description: "Braised Pork and Cheese"
+80. "Quesadilla Buche" | Price: $$9.19 | Type: MenuPageItem | ID: 28572074987
+   Description: "Grilled Pork Maw and Cheese"
+81. "Quesadilla Queso" | Price: $$5.49 | Type: MenuPageItem | ID: 28572074988
+   Description: "No Meat, just Cheese"
+82. "Plato Pastor" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074992
+   Description: "Marinated Pork - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+83. "Plato Chorizo" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074993
+   Description: "Mexican Sausage - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+84. "Plato Pollo" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074994
+   Description: "Grilled Chicken - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+85. "Plato Cabeza" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074995
+   Description: "Steamed Beef Head - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+86. "Plato Lengua" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074996
+   Description: "Steamed Beef Tongue - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+87. "Plato Carnitas" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074997
+   Description: "Braised Pork - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+88. "Plato Buche" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074998
+   Description: "Grilled Pork Maw - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice."
+89. "Plato Milanesa" | Price: $$10.59 | Type: MenuPageItem | ID: 28572074999
+   Description: "Breaded Steak - Includes a small side salad, rice, beans, and tortillas of your choice."
+90. "Super Mulita Asada" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075019
+   Description: "1 Beef Steak Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+91. "Super Mulita Pastor" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075020
+   Description: "1 Marinated Pork Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+92. "Super Mulita Pollo" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075021
+   Description: "1 Grilled Chicken Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+93. "Super Mulita Chorizo" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075022
+   Description: "1 Mexican Sausage Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+94. "Super Mulita Cabeza" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075023
+   Description: "1 Steamed Beef Head Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+95. "Super Mulita Lengua" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075024
+   Description: "1 Steamed Beef Head Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+96. "Super Mulita Carnitas" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075025
+   Description: "1 Braised Pork Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+97. "Super Mulita Buche" | Price: $$5.99 | Type: MenuPageItem | ID: 28572075026
+   Description: "1 Grilled Pork Maw Mulita - Meat served in-between two tortillas with melted cheese, guacamole, and sour cream."
+98. "Super Mulita Queso" | Price: $$4.79 | Type: MenuPageItem | ID: 28572075027
+   Description: "1 No Meat - Melted cheese served in-between two tortillas with guacamole and sour cream."
+99. "Super Burrito Pastor" | Price: $$11.69 | Type: MenuPageItem | ID: 28572075030
+   Description: "Marinated Pork - Includes rice, beans, sour cream, cheese, and guacamole."
+100. "Super Burrito Chorizo" | Price: $$11.69 | Type: MenuPageItem | ID: 28572075031
+   Description: "Mexican Sausage - Includes rice, beans, sour cream, cheese, and guacamole."
+101. "Super Burrito Cabeza" | Price: $$11.69 | Type: MenuPageItem | ID: 28572075033
+   Description: "Steamed Beef Head - Includes rice, beans, sour cream, cheese, and guacamole."
+102. "Super Burrito Lengua" | Price: $$11.69 | Type: MenuPageItem | ID: 28572075034
+   Description: "Steamed Beef Tongue - Includes rice, beans, sour cream, cheese, and guacamole."
+103. "Super Burrito Carnitas" | Price: $$11.69 | Type: MenuPageItem | ID: 28572075035
+   Description: "Braised Pork - Includes rice, beans, sour cream, cheese, and guacamole."
+104. "Super Burrito Buche" | Price: $$11.69 | Type: MenuPageItem | ID: 28572075036
+   Description: "Grilled Pork Maw - Includes rice, beans, sour cream, cheese, and guacamole."
+105. "Super Burrito Vegetariano" | Price: $$11.69 | Type: MenuPageItem | ID: 28572075037
+   Description: "No meat  - Includes lettuce, tomato, rice, beans, sour cream, cheese, and guacamole."
+106. "Super Burrito Beans/Rice/Cheese" | Price: $$9.49 | Type: MenuPageItem | ID: 28572075038
+   Description: "No meat - Includes rice, beans, sour cream, cheese, and guacamole."
+107. "Meat Only Super Burrito Asada" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075040
+   Description: "Grilled Steak - Sour cream, cheese, and guacamole with double the meat."
+108. "Meat Only Super Burrito Pastor" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075041
+   Description: "Marinated Pork - Sour cream, cheese, and guacamole with double the meat."
+109. "Meat Only Super Burrito Chorizo" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075042
+   Description: "Mexican Sausage - Sour cream, cheese, and guacamole with double the meat."
+110. "Meat Only Super Burrito Pollo" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075043
+   Description: "Grilled Chicken - Sour cream, cheese, and guacamole with double the meat."
+111. "Meat Only Super Burrito Cabeza" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075044
+   Description: "Steamed Beef Head - Sour cream, cheese, and guacamole with double the meat."
+112. "Meat Only Super Burrito Lengua" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075045
+   Description: "Steamed Beef Tongue - Sour cream, cheese, and guacamole with double the meat."
+113. "Meat Only Super Burrito Carnitas" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075046
+   Description: "Braised Pork - Sour cream, cheese, and guacamole with double the meat."
+114. "Meat Only Super Burrito Buche" | Price: $$12.89 | Type: MenuPageItem | ID: 28572075047
+   Description: "Grilled Hog Maw - Sour cream, cheese, and guacamole with double the meat."
+115. "Super Quesadilla Pastor" | Price: $$10.59 | Type: MenuPageItem | ID: 28572075050
+   Description: "Marinated Pork - Sour cream, guacamole, and melted cheese."
+116. "Super Quesadilla Chorizo" | Price: $$10.59 | Type: MenuPageItem | ID: 28572075051
+   Description: "Mexican Sausage - Sour cream, guacamole, and melted cheese."
+117. "Super Quesadilla Pollo" | Price: $$10.59 | Type: MenuPageItem | ID: 28572075052
+   Description: "Grilled Chicken - Sour cream, guacamole, and melted cheese."
+118. "Super Quesadilla Cabeza" | Price: $$10.59 | Type: MenuPageItem | ID: 28572075053
+   Description: "Steamed Beef Head - Sour cream, guacamole, and melted cheese."
+119. "Super Quesadilla Lengua" | Price: $$10.59 | Type: MenuPageItem | ID: 28572075054
+   Description: "Steamed Beef Tongue - Sour cream, guacamole, and melted cheese."
+120. "Super Quesadilla Carnitas" | Price: $$10.59 | Type: MenuPageItem | ID: 28572075055
+   Description: "Braised Pork - Sour cream, guacamole, and melted cheese."
+121. "Super Quesadilla Buche" | Price: $$10.59 | Type: MenuPageItem | ID: 28572075056
+   Description: "Grilled Hog Maw - Sour cream, guacamole, and melted cheese."
+122. "Super Quesadilla Queso" | Price: $$6.99 | Type: MenuPageItem | ID: 28572075057
+   Description: "No Meat - Sour cream, guacamole, and melted cheese."
+123. "Super Nachos Pastor" | Price: $$9.69 | Type: MenuPageItem | ID: 28572075061
+   Description: "Marinated Pork - Nacho cheese, sour cream, and guacamole."
+124. "Super Nachos Chorizo" | Price: $$9.69 | Type: MenuPageItem | ID: 28572075062
+   Description: "Mexican Sausage - Nacho cheese, sour cream, and guacamole."
+125. "Super Nachos Pollo" | Price: $$9.69 | Type: MenuPageItem | ID: 28572075063
+   Description: "Grilled Chicken - Nacho cheese, sour cream, and guacamole."
+126. "Super Nachos Cabeza" | Price: $$9.69 | Type: MenuPageItem | ID: 28572075064
+   Description: "Steamed Beef Head - Nacho cheese, sour cream, and guacamole."
+127. "Super Nachos Lengua" | Price: $$9.69 | Type: MenuPageItem | ID: 28572075065
+   Description: "Steamed Beef Tongue - Nacho cheese, sour cream, and guacamole."
+128. "Super Nachos Carnitas" | Price: $$9.69 | Type: MenuPageItem | ID: 28572075066
+   Description: "Braised Pork - Nacho cheese, sour cream, and guacamole."
+129. "Super Nachos Buche" | Price: $$9.69 | Type: MenuPageItem | ID: 28572075067
+   Description: "Grilled Hog Maw - Nacho cheese, sour cream, and guacamole."
+130. "Super Nachos No Carne" | Price: $$7.69 | Type: MenuPageItem | ID: 28572075068
+   Description: "No Meat - Nacho cheese, sour cream, and guacamole."
+131. "Guacamole" | Price: $$2.49 | Type: MenuPageItem | ID: 28572075070
+   Description: "A side of guacamole. 4oz"
+132. "Sour Cream" | Price: $$2.49 | Type: MenuPageItem | ID: 28572075071
+   Description: "A side of fresh sour cream. 4oz"
+133. "Beans" | Price: $$2.49 | Type: MenuPageItem | ID: 28572075072
+   Description: "A side of refried beans. 8oz"
+134. "Rice" | Price: $$2.49 | Type: MenuPageItem | ID: 28572075073
+   Description: "A side of fresh rice.  8oz"
+135. "Jack Cheese" | Price: $$2.49 | Type: MenuPageItem | ID: 28572075074
+   Description: "A side of Monterrey Jack cheese. 4oz"
+136. "Side Order Nacho Cheese" | Price: $$2.39 | Type: MenuPageItem | ID: 28572075076
+137. "Chips" | Price: $$3.39 | Type: MenuPageItem | ID: 28572075078
+   Description: "A side of crispy chips."
+138. "Cheesecake" | Price: $$4.79 | Type: MenuPageItem | ID: 28572075086
+139. "25 - 30 People" | Price: $$301.69 | Type: MenuPageItem | ID: 28572075089
+   Description: "10 lbs of meat, trays of beans, rice, 5 gallons of agua fresca, and tortillas of maiz or harina, your choice!
+
+Salsas, condiments, and utensils included!"
+140. "Medium Jamaica" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075113
+141. "Medium Tamarindo" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075114
+142. "Medium Piña" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075115
+143. "Medium Coke" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075116
+144. "Medium Diet Coke" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075117
+145. "Medium Sprite" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075118
+146. "Medium Lemonade" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075119
+147. "Medium Iced Tea" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075120
+148. "Medium Orange Fanta" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075121
+149. "Medium Strawberry Fanta" | Price: $$3.59 | Type: MenuPageItem | ID: 28572075122
+150. "Large Tamarindo" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075125
+151. "Large Coke" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075127
+152. "Large Diet Coke" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075128
+153. "Large Sprite" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075129
+154. "Large Lemonade" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075130
+155. "Large Iced Tea" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075131
+156. "Large Orange Fanta" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075132
+157. "Large Strawberry Fanta" | Price: $$4.09 | Type: MenuPageItem | ID: 28572075133
+158. "Bottled Water" | Price: $$1.19 | Type: MenuPageItem | ID: 28572075134
+159. "Coffee" | Price: $$2.59 | Type: MenuPageItem | ID: 28572075135
+160. "Olla Champurrado" | Price: $$27.89 | Type: MenuPageItem | ID: 41114899378
+161. "Olla Café de olla" | Price: $$25.39 | Type: MenuPageItem | ID: 34892126481

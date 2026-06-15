@@ -1,4 +1,20 @@
 
+/**
+ * @module PublishScheduleAPI
+ * @description API endpoint to publish weekly employee schedules, send email notifications, and auto-resolve breaks and activities.
+ * @businessRules
+ * - Resolves daily tasks dynamically from the global `position_activities` configuration.
+ * - Auto-detects store model type (Regular vs DriveThru) based on weekly assignments.
+ * - Handles shifts and break calculations.
+ * @dataFlow
+ * - Reads from `shifts`, `toast_employees`, `station_assignments`, and `position_activities`.
+ * - Updates shifts in database and sends email notifications.
+ * @notes
+ * - Employs resolvePositionKey helper to dynamically map any employee and station combination to a standard position key.
+ * - Resolves roles and activities from Toast job title directly when no manual station assignment is configured.
+ * - Integrates robust store model auto-detection checking store name as a fallback for Drive-Thru.
+ */
+
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import nodemailer from 'nodemailer'
@@ -9,10 +25,83 @@ import fs from 'fs'
 import { generateSmartForecast } from '@/lib/intelligence'
 import { scheduleBreaksWithDemand } from '@/lib/breaks-engine'
 
+// Helper to translate employee job + station group to the 6 standard roles
+function resolvePositionKey(jobTitle: string, stationName?: string, stationGroup?: string): string {
+  const title = (jobTitle || '').toLowerCase();
+  
+  if (title.includes('manager') && !title.includes('asst') && !title.includes('assist') && !title.includes('asistente') && !title.includes('shift')) {
+    return 'MANAGER';
+  }
+  
+  if (title.includes('asst') || title.includes('assist') || title.includes('asistente')) {
+    return 'ASSISTANT';
+  }
+  
+  if (title.includes('shift') || title.includes('leader') || title.includes('encargado')) {
+    const group = (stationGroup || '').toLowerCase();
+    const station = (stationName || '').toLowerCase();
+    const isKitchen = group === 'kitchen' || ['burritos', 'tortillas', 'tacos', 'carnes', 'preparacion', 'cubrir descansos (cocina)'].some(s => station.includes(s));
+    return isKitchen ? 'SHIFT_LEADER_MALE' : 'SHIFT_LEADER_FEMALE';
+  }
+  
+  if (title.includes('cook') || title.includes('cocinero') || title.includes('prep') || title.includes('preparador') || title.includes('taquero') || title.includes('tortill')) {
+    return 'COOK_MALE';
+  }
+  
+  if (title.includes('cashier') || title.includes('cajera') || title.includes('cajero')) {
+    return 'CASHIER';
+  }
+  
+  const group = (stationGroup || '').toLowerCase();
+  if (group === 'kitchen') {
+    return 'COOK_MALE';
+  }
+  return 'CASHIER';
+}
+
+function normalizeText(text: string): string {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+const STATION_BACKUPS: Record<string, string[]> = {
+  // Kitchen
+  'BURRITOS': ['TACOS', 'CARNES', 'TORTAS/QUESADILLAS', 'PREPARACION'],
+  'TORTILLAS': ['TACOS', 'CARNES', 'BURRITOS', 'PREPARACION'],
+  'TORTAS/QUESADILLAS': ['TORTAS/MULITAS', 'TACOS', 'CARNES'],
+  'TORTAS/MULITAS': ['TORTAS/QUESADILLAS', 'TACOS', 'CARNES'],
+  'TACOS': ['CARNES', 'BURRITOS', 'TORTAS/QUESADILLAS', 'PREPARACION'],
+  'CARNES': ['TACOS', 'BURRITOS', 'TORTAS/QUESADILLAS', 'PREPARACION'],
+  'PREPARACION': ['CARNES', 'TACOS', 'BURRITOS'],
+  'CUBRIR DESCANSOS (COCINA)': ['TACOS', 'CARNES'],
+
+  // Drive-Thru support
+  'TORTAS/QUESADILLAS (DT)': ['TORTAS/QUESADILLAS', 'TACOS/BURRITOS (DT)'],
+  'TACOS/BURRITOS (DT)': ['TACOS', 'BURRITOS', 'TORTAS/QUESADILLAS (DT)'],
+  'CUBRIR DESCANSOS (DT)': ['CUBRIR DESCANSOS (COCINA)', 'CUBRIR DESCANSOS (SALÓN)'],
+
+  // Front / Salon
+  'Ventana 1': ['Ventana 2', 'Ventana 2 (B)', 'Caja 1 / Salón', 'ENTREGA'],
+  'Ventana 2': ['Ventana 1', 'Ventana 2 (B)', 'Caja 1 / Salón', 'ENTREGA'],
+  'Ventana 2 (B)': ['Ventana 2', 'Ventana 1', 'Caja 1 / Salón', 'ENTREGA'],
+  'Caja 1 / Salón': ['Caja 2', 'Caja 3', 'Ventana 1', 'Uber + Salsas'],
+  'Caja 2': ['Caja 1 / Salón', 'Caja 3', 'Uber + Salsas'],
+  'Caja 3': ['Caja 2', 'Caja 1 / Salón', 'Uber + Salsas'],
+  'Caja 4': ['Caja 3', 'Caja 2', 'Caja 1 / Salón'],
+  'Caja 5': ['Caja 4', 'Caja 3', 'Caja 2'],
+  'Uber + Salsas': ['Caja 1 / Salón', 'Caja 2', 'ENTREGA'],
+  'ENTREGA': ['Uber + Salsas', 'Caja 1 / Salón', 'Ventana 1'],
+  'LIMPIEZA': ['Caja 1 / Salón', 'Caja 2', 'Uber + Salsas'],
+  'CUBRIR DESCANSOS (SALÓN)': ['Caja 1 / Salón', 'Ventana 1']
+};
+
 // Initialize clients
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const supabase = createClient(supabaseUrl, supabaseKey)
+
 
 // Función para obtener transporte (ESTRICTO: Solo OAuth por Usuario)
 async function getTransporter(userId?: string) {
@@ -281,14 +370,20 @@ export async function POST(req: Request) {
                 }
             }
         }
-        // --- 5.1 ACTIVITIES TEMPLATE FETCH (Tablero Logic) ---
-        const { data: configTemplate } = await supabase
-            .from('station_templates')
-            .select('data')
-            .eq('store_id', store_id)
-            .eq('template_name', '__CONFIG_ACTIVITIES__')
-            .maybeSingle();
-        const activitiesConfig = configTemplate?.data?.station_mappings || {};
+        // --- 5.1 POSITION ACTIVITIES FETCH (New Global position-based rules) ---
+        const { data: positionActivities } = await supabase
+            .from('position_activities')
+            .select(`
+                *,
+                operating_procedures (
+                    id,
+                    activity
+                )
+            `);
+
+        const { data: allProcedures } = await supabase
+            .from('operating_procedures')
+            .select('id, activity, start_time, duration_minutes, shift_type');
 
         // 6. Send Email Notifications (VIA GMAIL API REST - NO SMTP)
         const results = { email: 0, errors: 0 }
@@ -296,6 +391,13 @@ export async function POST(req: Request) {
         // Get store info for branding
         const { data: store } = await supabase.from('stores').select('name').eq('external_id', store_id).single()
         const storeName = store?.name || 'Tu Equipo'
+
+        // --- ACTIVITIES PILOT: Solo tiendas habilitadas reciben actividades en el correo ---
+        // Para habilitar más tiendas, agregar su Toast external_id (GUID) a esta lista.
+        const ACTIVITIES_PILOT_STORES = [
+            '9625621e-1b5e-48d7-87ae-7094fab5a4fd', // Slauson
+        ];
+        const isActivitiesEnabled = ACTIVITIES_PILOT_STORES.includes(store_id);
 
         // CHUNK PROCESSING FUNCTION (Using Nodemailer Stream for Robust Attachments)
         const processChunk = async (chunk: any[]) => {
@@ -326,7 +428,57 @@ export async function POST(req: Request) {
 
                     let positionBadge = '';
                     let tasksHtml = '';
-                    if (myPosition) {
+
+                    const laDateStr = startDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+                    const jsDay = new Date(laDateStr).getDay(); // 0=Sunday, 6=Saturday
+                    const myDayIndex = jsDay === 0 ? 6 : jsDay - 1; // Mon=0, Tue=1...Sun=6
+
+                    // Helper to match frequency strings (like 'Diario', 'Domingo', 'Jueves y Domingo', '6')
+                    const isFreqMatch = (paFrequency: string, dayIdx: string | number): boolean => {
+                      if (!paFrequency) return false;
+                      const freqLower = paFrequency.toLowerCase();
+                      if (freqLower === 'diario') return true;
+                      if (paFrequency === String(dayIdx)) return true;
+                      
+                      const dayNamesMap: Record<string, string[]> = {
+                        '0': ['lunes'],
+                        '1': ['martes'],
+                        '2': ['miercoles', 'miércoles'],
+                        '3': ['jueves'],
+                        '4': ['viernes'],
+                        '5': ['sabado', 'sábado'],
+                        '6': ['domingo']
+                      };
+                      
+                      const names = dayNamesMap[String(dayIdx)];
+                      if (!names) return false;
+                      
+                      return names.some(name => freqLower.includes(name));
+                    };
+
+                    // Determine if store has Drive-Thru:
+                    // 1. Check if there's any DT station assigned this week
+                    // 2. Fallback: Check storeName against known DT store patterns
+                    let hasDT = (stationAssignments || []).some(a => {
+                        const pos = (a.sub_position || a.main_station || '').toLowerCase();
+                        return pos.includes('(dt)') || pos.includes('ventana');
+                    });
+                    if (!hasDT && storeName) {
+                        const normalizedStore = storeName.toLowerCase();
+                        hasDT = ['norwalk', 'rialto', 'santa ana', 'santaana', 'south gate', 'southgate', 'downey', 'bell', 'lynwood', 'hpark', 'huntington park'].some(sName => normalizedStore.includes(sName));
+                    }
+
+                    const job = (allJobs || []).find((j: any) => j.id === s.job_id || String(j.guid) === String(s.job_id) || String(j.id) === String(s.job_id));
+                    const jobTitle = job?.title || '';
+
+                    if (s.is_callback === true) {
+                        positionBadge = `
+                            <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #dc2626; background: #fef2f2; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #fee2e2;">
+                                AUSENTE / CALLBACK
+                            </div>
+                        `;
+                        tasksHtml = '';
+                    } else if (myPosition && isActivitiesEnabled) {
                         const shiftStation = myPosition.sub_position || myPosition.main_station;
                         positionBadge = `
                             <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
@@ -334,22 +486,409 @@ export async function POST(req: Request) {
                             </div>
                         `;
 
-                        // Replicar la lógica del Tablero (Roles): dailyTasks + specificDayTasks
-                        // IMPORTANTE: La UI usa índice Mon-based (Lun=0, Mar=1...Dom=6)
-                        // JS getDay() usa Sun-based (Dom=0, Lun=1...Sáb=6)
-                        // Debemos convertir para que coincida con lo guardado en station_mappings
-                        const laDateStr = startDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-                        const jsDay = new Date(laDateStr).getDay(); // 0=Sunday, 6=Saturday
-                        const myDayIndex = jsDay === 0 ? 6 : jsDay - 1; // Mon=0, Tue=1...Sun=6 (IGUAL QUE LA UI)
-                        const dailyTasks = activitiesConfig[shiftStation] || [];
-                        const specificDayTasks = activitiesConfig[`${shiftStation}_${myDayIndex}`] || [];
-                        
-                        let finalTasks = [...dailyTasks, ...specificDayTasks];
-                        
-                        // Si no hay mapeo en template, usar el tasks legacy de BD
-                        if (finalTasks.length === 0 && myPosition.tasks && Array.isArray(myPosition.tasks)) {
-                            finalTasks = myPosition.tasks;
+                        // Resolve shift: AM vs PM
+                        let shiftType = 'AM';
+                        if (shiftStation && shiftStation.toLowerCase().endsWith('_pm')) {
+                            shiftType = 'PM';
+                        } else if (startDate.getHours() >= 17) {
+                            shiftType = 'PM';
                         }
+
+                        const storeModel = hasDT ? 'DRIVE_THRU' : 'REGULAR';
+
+                        // Resolve role key based on job title and station name
+                        const roleKey = resolvePositionKey(jobTitle, shiftStation, myPosition.station_group);
+                        const isLeadership = roleKey && ['MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE'].includes(roleKey);
+
+                        let finalTasks: string[] = [];
+                        const customTasks = (myPosition.tasks && Array.isArray(myPosition.tasks)) ? myPosition.tasks.filter(Boolean) : [];
+
+                        if (customTasks.length > 0) {
+                            const resolved = customTasks.map((taskText: string) => {
+                                const normText = normalizeText(taskText);
+                                const matchedAct = (allProcedures || []).find((act: any) => normalizeText(act.activity) === normText);
+                                return {
+                                    text: matchedAct ? matchedAct.activity : taskText,
+                                    sort_order: matchedAct?.start_time 
+                                        ? parseInt(matchedAct.start_time.split(':')[0]) * 60 + parseInt(matchedAct.start_time.split(':')[1])
+                                        : 9999
+                                };
+                            });
+                            resolved.sort((a: any, b: any) => a.sort_order - b.sort_order);
+                            finalTasks = resolved.map((r: any) => r.text);
+                        } else {
+                            // Fetch active activities for this position
+                            // Match if:
+                            // a) The activity is mapped to the current Station Name (e.g. TACOS, CARNES)
+                            // b) The activity is mapped to the employee's Leadership Role (e.g. MANAGER, ASSISTANT)
+                            const activeMappings = (positionActivities || []).filter((item: any) => {
+                                const matchPos = (item.position_key === myPosition.main_station) || (isLeadership && item.position_key === roleKey);
+                                if (!matchPos) return false;
+
+                                const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
+                                const matchFreq = isFreqMatch(item.frequency, myDayIndex);
+                                const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
+                                return matchShift && matchFreq && matchModel;
+                            });
+
+                            let resolvedActivities = [...activeMappings];
+
+                            // Smart Fallback: If current role is Shift Leader and no Assistant is working this shift, inherit Assistant tasks
+                            const isShiftLeader = roleKey === 'SHIFT_LEADER_MALE' || roleKey === 'SHIFT_LEADER_FEMALE';
+                            if (isShiftLeader) {
+                                // Find if there is any assistant working this shift
+                                const isAssistantWorking = (stationAssignments || []).some((a: any) => {
+                                    if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
+                                    
+                                    // Find employee job title for this assignment
+                                    const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
+                                    if (!otherEmp) return false;
+                                    
+                                    // Let's find their job title
+                                    let otherJobTitle = '';
+                                    if (otherEmp.job_references?.[0]) {
+                                        const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
+                                        if (job) otherJobTitle = job.title;
+                                    }
+                                    
+                                    const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
+                                    return otherRole === 'ASSISTANT';
+                                });
+
+                                if (!isAssistantWorking) {
+                                    const assistantActs = (positionActivities || []).filter((item: any) => {
+                                        if (item.position_key !== 'ASSISTANT') return false;
+                                        const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
+                                        const matchFreq = isFreqMatch(item.frequency, myDayIndex);
+                                        const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
+                                        return matchShift && matchFreq && matchModel;
+                                    });
+                                    resolvedActivities.push(...assistantActs);
+                                }
+                            }
+
+                            // Dynamic Auto-Redistribution from Vacant Stations
+                            const activeStations = [
+                                'Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'Caja 1 / Salón',
+                                'Caja 2', 'Caja 3', 'Caja 4', 'Caja 5', 'Uber + Salsas', 'ENTREGA', 'LIMPIEZA',
+                                'CUBRIR DESCANSOS (SALÓN)',
+                                'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS',
+                                'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)',
+                                'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'
+                            ];
+
+                            const vacantStations = activeStations.filter(station => {
+                                const shiftStation = `${station}_${shiftType}`;
+                                const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
+                                if (!ass || !ass.employee_id) return true;
+
+                                const otherShift = (shifts || []).find(sh => 
+                                    sh.shift_date === dayStr && 
+                                    String(sh.employee_id) === String(ass.employee_id) &&
+                                    (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
+                                );
+                                return otherShift?.is_callback === true;
+                            });
+
+                            const isRoleWorking = (roleToCheck: string) => {
+                                return (stationAssignments || []).some(a => {
+                                    if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
+                                    const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
+                                    if (!otherEmp) return false;
+                                    
+                                    let otherJobTitle = '';
+                                    if (otherEmp.job_references?.[0]) {
+                                        const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
+                                        if (job) otherJobTitle = job.title;
+                                    }
+                                    const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
+                                    return otherRole === roleToCheck;
+                                });
+                            };
+
+                            vacantStations.forEach(V => {
+                                const activeBackups = (STATION_BACKUPS[V] || []).filter(backupStation => {
+                                    const shiftStation = `${backupStation}_${shiftType}`;
+                                    const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
+                                    if (!ass || !ass.employee_id) return false;
+                                    const otherShift = (shifts || []).find(sh => 
+                                        sh.shift_date === dayStr && 
+                                        String(sh.employee_id) === String(ass.employee_id) &&
+                                        (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
+                                    );
+                                    return otherShift?.is_callback !== true;
+                                });
+
+                                let shouldInherit = false;
+                                const isKitchenVacant = ['BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS', 'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)', 'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'].includes(V);
+
+                                if (activeBackups.length > 0) {
+                                    shouldInherit = myPosition.main_station === activeBackups[0];
+                                } else {
+                                    if (isKitchenVacant) {
+                                        if (roleKey === 'SHIFT_LEADER_MALE') {
+                                            shouldInherit = true;
+                                        } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_MALE')) {
+                                            shouldInherit = true;
+                                        } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_MALE') && !isRoleWorking('ASSISTANT')) {
+                                            shouldInherit = true;
+                                        }
+                                    } else {
+                                        if (roleKey === 'SHIFT_LEADER_FEMALE') {
+                                            shouldInherit = true;
+                                        } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_FEMALE')) {
+                                            shouldInherit = true;
+                                        } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_FEMALE') && !isRoleWorking('ASSISTANT')) {
+                                            shouldInherit = true;
+                                        }
+                                    }
+                                }
+
+                                if (shouldInherit) {
+                                    const vacantActs = (positionActivities || []).filter((pa: any) => {
+                                        if (pa.position_key !== V) return false;
+                                        if (pa.shift !== 'AMBOS' && pa.shift !== shiftType) return false;
+                                        if (pa.store_model !== 'AMBOS' && pa.store_model !== storeModel) return false;
+                                        if (!isFreqMatch(pa.frequency, myDayIndex)) return false;
+                                        return true;
+                                    });
+
+                                    const tagged = vacantActs.map((pa: any) => ({
+                                        ...pa,
+                                        inheritedFrom: V
+                                    }));
+                                    resolvedActivities.push(...tagged);
+                                }
+                            });
+
+                            // Deduplicate and sort by sort_order
+                            const seen = new Set<string>();
+                            const uniqueResolved: any[] = [];
+                            resolvedActivities.forEach((item: any) => {
+                                const key = item.activity_id || item.id;
+                                if (item.operating_procedures?.activity && !seen.has(key)) {
+                                    seen.add(key);
+                                    uniqueResolved.push(item);
+                                }
+                            });
+
+                            // Sort by sort_order
+                            uniqueResolved.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+
+                            finalTasks = uniqueResolved.map((item: any) => {
+                                if (item.inheritedFrom) {
+                                    return `${item.operating_procedures?.activity} (De Estación Vacante: ${item.inheritedFrom})`;
+                                }
+                                return item.operating_procedures?.activity;
+                            }).filter(Boolean);
+                        }
+
+                        if (finalTasks.length > 0) {
+                            const tasksList = finalTasks.map((taskStr: string) => {
+                                return `<li style="font-size: 11px; color: #4b5563; margin-bottom: 2px;">${taskStr}</li>`
+                            }).join('');
+                            
+                            tasksHtml = `
+                                <div style="margin-top: 8px; text-align: left; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                    <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 800; margin-bottom: 4px;">Actividades Asignadas:</div>
+                                    <ul style="margin: 0; padding-left: 16px; font-weight: 600; font-size: 11px;">
+                                        ${tasksList}
+                                    </ul>
+                                </div>
+                            `;
+                        }
+                    } else if (isActivitiesEnabled) {
+                        // Fallback resolution directly from Toast Job Title & Shift Hours (only for pilot stores)
+                        let shiftType = 'AM';
+                        if (startDate.getHours() >= 17) {
+                            shiftType = 'PM';
+                        }
+
+                        const storeModel = hasDT ? 'DRIVE_THRU' : 'REGULAR';
+                        const roleKey = resolvePositionKey(jobTitle, undefined, undefined);
+                        const isLeadership = roleKey && ['MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE'].includes(roleKey);
+
+                        const getFriendlyRoleName = (key: string): string => {
+                            switch (key) {
+                                case 'MANAGER': return 'Gerente / Manager';
+                                case 'ASSISTANT': return 'Asistente / Assistant';
+                                case 'SHIFT_LEADER_MALE': return 'Shift Leader - Cocina';
+                                case 'SHIFT_LEADER_FEMALE': return 'Shift Leader - Servicio';
+                                case 'COOK_MALE': return 'Cocinero / Cook';
+                                case 'CASHIER': return 'Cajera / Cashier';
+                                default: return 'Colaborador';
+                            }
+                        };
+
+                        const displayRoleName = getFriendlyRoleName(roleKey);
+                        positionBadge = `
+                            <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #0f766e; background: #f0fdfa; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #99f6e4;">
+                                <span style="font-size: 10px; color: #0d9488; text-transform: uppercase;">Rol:</span> ${displayRoleName}
+                            </div>
+                        `;
+
+                        // Fetch active activities for this position
+                        const activeMappings = (positionActivities || []).filter((item: any) => {
+                            const matchPos = item.position_key === roleKey;
+                            if (!matchPos) return false;
+
+                            const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
+                            const matchFreq = isFreqMatch(item.frequency, myDayIndex);
+                            const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
+                            return matchShift && matchFreq && matchModel;
+                        });
+
+                        let resolvedActivities = [...activeMappings];
+
+                        // Smart Fallback: If current role is Shift Leader and no Assistant is working this shift, inherit Assistant tasks
+                        const isShiftLeader = roleKey === 'SHIFT_LEADER_MALE' || roleKey === 'SHIFT_LEADER_FEMALE';
+                        if (isShiftLeader) {
+                            // Find if there is any assistant working this shift
+                            const isAssistantWorking = (stationAssignments || []).some((a: any) => {
+                                if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
+                                
+                                // Find employee job title for this assignment
+                                const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
+                                if (!otherEmp) return false;
+                                
+                                // Let's find their job title
+                                let otherJobTitle = '';
+                                if (otherEmp.job_references?.[0]) {
+                                    const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
+                                    if (job) otherJobTitle = job.title;
+                                }
+                                
+                                const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
+                                return otherRole === 'ASSISTANT';
+                            });
+
+                            if (!isAssistantWorking) {
+                                const assistantActs = (positionActivities || []).filter((item: any) => {
+                                    if (item.position_key !== 'ASSISTANT') return false;
+                                    const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
+                                    const matchFreq = isFreqMatch(item.frequency, myDayIndex);
+                                    const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
+                                    return matchShift && matchFreq && matchModel;
+                                });
+                                resolvedActivities.push(...assistantActs);
+                            }
+                        }
+
+                        // Dynamic Auto-Redistribution from Vacant Stations
+                        const activeStations = [
+                            'Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'Caja 1 / Salón',
+                            'Caja 2', 'Caja 3', 'Caja 4', 'Caja 5', 'Uber + Salsas', 'ENTREGA', 'LIMPIEZA',
+                            'CUBRIR DESCANSOS (SALÓN)',
+                            'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS',
+                            'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)',
+                            'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'
+                        ];
+
+                        const vacantStations = activeStations.filter(station => {
+                            const shiftStation = `${station}_${shiftType}`;
+                            const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
+                            if (!ass || !ass.employee_id) return true;
+
+                            const otherShift = (shifts || []).find(sh => 
+                                sh.shift_date === dayStr && 
+                                String(sh.employee_id) === String(ass.employee_id) &&
+                                (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
+                            );
+                            return otherShift?.is_callback === true;
+                        });
+
+                        const isRoleWorking = (roleToCheck: string) => {
+                            return (stationAssignments || []).some(a => {
+                                if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
+                                const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
+                                if (!otherEmp) return false;
+                                
+                                let otherJobTitle = '';
+                                if (otherEmp.job_references?.[0]) {
+                                    const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
+                                    if (job) otherJobTitle = job.title;
+                                }
+                                const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
+                                return otherRole === roleToCheck;
+                            });
+                        };
+
+                        vacantStations.forEach(V => {
+                            const activeBackups = (STATION_BACKUPS[V] || []).filter(backupStation => {
+                                const shiftStation = `${backupStation}_${shiftType}`;
+                                const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
+                                if (!ass || !ass.employee_id) return false;
+                                const otherShift = (shifts || []).find(sh => 
+                                    sh.shift_date === dayStr && 
+                                    String(sh.employee_id) === String(ass.employee_id) &&
+                                    (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
+                                );
+                                return otherShift?.is_callback !== true;
+                            });
+
+                            let shouldInherit = false;
+                            const isKitchenVacant = ['BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS', 'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)', 'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'].includes(V);
+
+                            if (activeBackups.length > 0) {
+                                // No assigned station, so cannot match backup
+                                shouldInherit = false;
+                            } else {
+                                if (isKitchenVacant) {
+                                    if (roleKey === 'SHIFT_LEADER_MALE') {
+                                        shouldInherit = true;
+                                    } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_MALE')) {
+                                        shouldInherit = true;
+                                    } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_MALE') && !isRoleWorking('ASSISTANT')) {
+                                        shouldInherit = true;
+                                    }
+                                } else {
+                                    if (roleKey === 'SHIFT_LEADER_FEMALE') {
+                                        shouldInherit = true;
+                                    } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_FEMALE')) {
+                                        shouldInherit = true;
+                                    } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_FEMALE') && !isRoleWorking('ASSISTANT')) {
+                                        shouldInherit = true;
+                                    }
+                                }
+                            }
+
+                            if (shouldInherit) {
+                                const vacantActs = (positionActivities || []).filter((pa: any) => {
+                                    if (pa.position_key !== V) return false;
+                                    if (pa.shift !== 'AMBOS' && pa.shift !== shiftType) return false;
+                                    if (pa.store_model !== 'AMBOS' && pa.store_model !== storeModel) return false;
+                                    if (!isFreqMatch(pa.frequency, myDayIndex)) return false;
+                                    return true;
+                                });
+
+                                const tagged = vacantActs.map((pa: any) => ({
+                                    ...pa,
+                                    inheritedFrom: V
+                                }));
+                                resolvedActivities.push(...tagged);
+                            }
+                        });
+
+                        // Deduplicate and sort by sort_order
+                        const seen = new Set<string>();
+                        const uniqueResolved: any[] = [];
+                        resolvedActivities.forEach((item: any) => {
+                            const key = item.activity_id || item.id;
+                            if (item.operating_procedures?.activity && !seen.has(key)) {
+                                seen.add(key);
+                                uniqueResolved.push(item);
+                            }
+                        });
+
+                        // Sort by sort_order
+                        uniqueResolved.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+
+                        const finalTasks = uniqueResolved.map((item: any) => {
+                            if (item.inheritedFrom) {
+                                return `${item.operating_procedures?.activity} (De Estación Vacante: ${item.inheritedFrom})`;
+                            }
+                            return item.operating_procedures?.activity;
+                        }).filter(Boolean);
 
                         if (finalTasks.length > 0) {
                             const tasksList = finalTasks.map((taskStr: string) => {

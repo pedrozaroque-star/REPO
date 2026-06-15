@@ -1,5 +1,20 @@
 'use client';
 
+/**
+ * @module ProceduresTimeline
+ * @description Renders a dynamic, visual timeline of operating procedures/checklists for restaurant branches.
+ * @businessRules
+ * - Filters tasks by frequency (Diario/Daily), shift type, and store models.
+ * - Restricts actions based on roles (hide certain options from non-managers).
+ * - Enforces business hour constraints (6:00 AM start to 5:59 AM next day).
+ * @dataFlow
+ * - Reads and writes operating procedures to `operating_procedures` table in Supabase.
+ * - Subscribes to real-time changes to keep timelines updated across active views.
+ * @notes
+ * - Built using framer-motion for drag-and-drop reordering.
+ * - Integrated useLanguage context for full bilingual UI translation.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { Clock, Users, Calendar, Filter, ChevronDown, ChevronRight, PlayCircle, Edit2, Save, X, Plus, Trash2, GripVertical, Info, Building2, Car, Printer } from 'lucide-react';
@@ -77,8 +92,24 @@ export default function ProceduresTimeline() {
   // Print modal state
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
+  // Position activities state
+  const [positionActivities, setPositionActivities] = useState<any[]>([]);
+
+  const fetchPositionActivities = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('position_activities')
+        .select('*');
+      if (error) throw error;
+      setPositionActivities(data || []);
+    } catch (e) {
+      console.error('Error fetching position activities:', e);
+    }
+  };
+
   useEffect(() => {
     fetchProcedures();
+    fetchPositionActivities();
   }, []);
 
   // ═══════════════════════════════════════
@@ -99,6 +130,13 @@ export default function ProceduresTimeline() {
         debounceTimer = setTimeout(() => {
           fetchProcedures();
         }, 800);
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'position_activities',
+      }, () => {
+        fetchPositionActivities();
       })
       .subscribe();
 
@@ -954,21 +992,50 @@ export default function ProceduresTimeline() {
                                   </select>
                                 )}
                                 {isEditing ? (
-                                  <input 
-                                    type="text"
-                                    placeholder={t('procedures.edit_role_placeholder')}
-                                    className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-32 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
-                                    value={editForm.role || ''}
-                                    onChange={(e) => handleChange('role', e.target.value)}
-                                  />
-                                ) : (
-                                  proc.role && (
-                                    <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-800/30">
-                                      <Users className="w-3 h-3" />
-                                      {proc.role}
-                                    </div>
-                                  )
-                                )}
+                                   <input 
+                                     type="text"
+                                     placeholder={t('procedures.edit_role_placeholder')}
+                                     className="text-xs border border-slate-300 dark:border-slate-600 rounded p-1 w-32 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                                     value={editForm.role || ''}
+                                     onChange={(e) => handleChange('role', e.target.value)}
+                                   />
+                                 ) : (
+                                   (() => {
+                                     const hasPositionMappings = positionActivities.some((pa: any) => String(pa.activity_id) === String(proc.id));
+                                     return (
+                                       <>
+                                         {proc.role && !hasPositionMappings && (
+                                           <div className="flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-800/30">
+                                             <Users className="w-3 h-3" />
+                                             {proc.role}
+                                           </div>
+                                         )}
+                                         {positionActivities.filter((pa: any) => String(pa.activity_id) === String(proc.id)).map((pa: any) => {
+                                           const keyMap: Record<string, string> = {
+                                             'MANAGER': t('roles_hub.manager'),
+                                             'ASSISTANT': t('roles_hub.assistant'),
+                                             'SHIFT_LEADER_MALE': t('roles_hub.shift_leader_male'),
+                                             'SHIFT_LEADER_FEMALE': t('roles_hub.shift_leader_female'),
+                                             'COOK_MALE': t('roles_hub.cook_male'),
+                                             'CASHIER': t('roles_hub.cashier')
+                                           };
+                                           const posName = keyMap[pa.position_key] || pa.position_key;
+                                           const shiftSuffix = pa.shift === 'AMBOS' ? '' : ` (${pa.shift})`;
+                                           const storeModelSuffix = pa.store_model === 'AMBOS' ? '' : ` [${pa.store_model === 'DRIVE_THRU' ? 'DT' : 'Reg'}]`;
+                                           return (
+                                             <div 
+                                               key={pa.id} 
+                                               className="flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2.5 py-1 rounded-full border border-indigo-100 dark:border-indigo-800/30 shadow-sm"
+                                             >
+                                               <Building2 className="w-3 h-3 text-indigo-500" />
+                                               {posName}{shiftSuffix}{storeModelSuffix}
+                                             </div>
+                                           );
+                                         })}
+                                       </>
+                                     );
+                                   })()
+                                 )}
 
                                 {isEditing ? (
                                   <input 

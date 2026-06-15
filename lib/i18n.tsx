@@ -1,6 +1,18 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+/**
+ * @module i18n
+ * @description Internationalization helper module providing translation dictionaries, LanguageContext, and useLanguage hook.
+ * @businessRules
+ * - Supports Spanish (es) and English (en) languages.
+ * - Centralizes translations for all modules, components, and pages.
+ * @dataFlow
+ * - Exposes LanguageProvider, useLanguage, and t() functions.
+ * @notes
+ * - Updated to include translations for Roles Hub custom task forms and daily lineup views.
+ */
+
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 type Language = 'es' | 'en';
 
@@ -9,7 +21,7 @@ type Dictionary = {
 };
 
 // DICCIONARIOS
-const dictionaries: Record<Language, any> = {
+const dictionaries: Record<Language, Dictionary> = {
     es: {
         // TOP NAV
         nav: {
@@ -59,6 +71,7 @@ const dictionaries: Record<Language, any> = {
             roles: 'Roles',
             procedures: 'Procedimientos',
             basecamp: 'Basecamp',
+            actividades: 'Actividades',
         },
         // LOGIN
         login: {
@@ -928,7 +941,9 @@ const dictionaries: Record<Language, any> = {
                     success_message: 'Se han eliminado {n} turnos correctamente.\nEl tablero está vacío.'
                 },
                 publish: {
-                    no_drafts: 'No hay turnos "Borrador" para publicar'
+                    no_drafts: 'No hay turnos "Borrador" para publicar',
+                    title: 'Publicar Horario',
+                    message: 'Estás a punto de publicar {n} turnos.\nSe enviarán notificaciones de horarios y descansos a los empleados.\n\n⚠️ RECORDATORIO: Asegúrate de guardar las asignaciones en la pestaña "3. Asignación Diaria" antes de publicar para que los empleados reciban sus actividades y puestos asignados.'
                 }
             },
             toasts: {
@@ -1521,6 +1536,205 @@ const dictionaries: Record<Language, any> = {
             filter_placeholder: 'Filtrar...',
             no_filtered_results: 'Ningún anuncio coincide con tu filtro.',
         },
+        roles_hub: {
+            title: 'Control de Roles y Posiciones',
+            subtitle: 'Asignación táctica de actividades por puesto',
+            position_config: 'Configuración de Posiciones',
+            position_config_desc: 'Asignar actividades del catálogo global a puestos operativos',
+            select_position: 'Selecciona una Posición',
+            position: 'Posición',
+            shift: 'Turno',
+            store_model: 'Modelo de Tienda',
+            frequency: 'Frecuencia',
+            assigned_activities: 'Actividades Asignadas',
+            available_activities: 'Actividades Disponibles',
+            save: 'Guardar Cambios',
+            cancel: 'Cancelar',
+            success_save: '¡Éxito! Configuración de la posición guardada.',
+            error_save: 'Error al guardar la configuración de la posición',
+            regular: 'Regular',
+            drivethru: 'Drive-Thru',
+            all: 'Ambos',
+            all_shifts: 'Todos',
+            all_models: 'Todos',
+            all_frequencies: 'Todas',
+            vacant: 'Vacante',
+            free: 'Libre',
+            board_title: 'Tablero Operativo',
+            board_desc: 'Despliegue táctico del personal en tiempo real',
+            copy_prev_week: 'Clonar Semana Anterior',
+            copy_success: '📅 Semana anterior clonada con éxito.\n\nAM: {am} asignaciones\nPM: {pm} asignaciones\n\n⚠️ Recuerda guardar (Save) para que se persista.',
+            save_success: '🚀 Operación Guardada con Éxito',
+            save_error: 'Error al guardar asignaciones',
+            library: 'Librería',
+            print: 'Imprimir',
+            weekly_summary: 'Resumen Operativo de Actividades',
+            weekly_summary_desc: 'Generado automáticamente según el puesto y turno',
+            no_activities: 'Sin actividades asignadas a esta posición',
+            no_store_selected: 'Error: No hay tienda seleccionada',
+            close: 'Cerrar',
+            manager: 'Manager',
+            assistant: 'Asistente',
+            shift_leader_male: 'Shift Leader Hombres',
+            shift_leader_female: 'Shift Leader Cajeras',
+            cook_male: 'Cocinero (Hombres)',
+            cashier: 'Cajera (Mujeres y Hombres)',
+            daily: 'Diario',
+            view_weekly: 'Grilla Semanal',
+            view_daily: 'Alineación Diaria',
+            roster_scheduled: 'Programados Hoy',
+            roster_available: 'Disponibles',
+            roster_absent: 'Ausentes / Faltaron',
+            mark_absent: 'Marcar Falta',
+            mark_present: 'Quitar Falta',
+            copy_tomorrow: 'Copiar a Mañana',
+            clear_today: 'Limpiar Hoy',
+            autofill_today: 'Auto-llenar Hoy',
+            autofill_week: 'Auto-llenar Semana',
+            assigned_to: 'Asignado a',
+            unassigned: 'Sin Asignar',
+            assign: 'Asignar',
+            clear: 'Vaciar',
+            autofill_confirm: 'Esto reemplazará todas las asignaciones actuales de esta semana con los turnos del horario. ¿Deseas continuar?',
+            autofill_success: '¡Auto-llenado completado! Se mapearon {count} puestos basados en el horario de Toast. Recuerda guardar (Save) para aplicar.',
+            autofill_no_shifts: 'No se encontraron turnos de Toast para esta semana en esta sucursal.',
+            auto_resolve_coverage: 'Auto-Resolver Cobertura',
+            add_activity: 'Agregar Actividad',
+            loading: 'Cargando datos...',
+            no_catalog_activities: 'La librería está vacía. Crea actividades primero.',
+            pos_config_help_title: '¿Cómo funciona?',
+            pos_config_help_1: '1. Selecciona un puesto (ej: Cocinero). El número al lado muestra cuántas tareas tiene asignadas en total.',
+            pos_config_help_2: '2. Filtra por Turno (AM o PM) y Modelo de Tienda para ver las tareas de ese horario.',
+            pos_config_help_3: '3. Para agregar una tarea, busca abajo en Disponibles y presiona el botón (+).',
+            pos_config_help_4: '4. Para quitar una tarea, presiona el botón (✓) en las tareas asignadas en azul.',
+            procedures_catalog: 'Catálogo de Procedimientos',
+            globally_synced: 'Sincronizado globalmente',
+            search_activity: 'Buscar actividad...',
+            no_catalog_activities_procedures: 'No hay actividades en el catálogo. Cárgalas desde el módulo de Procedimientos.',
+        },
+        // ═══════ MÓDULO ACTIVIDADES (FUSIÓN ROLES + PROCEDIMIENTOS) ═══════
+        actividades: {
+            title: 'Centro de Actividades',
+            subtitle: 'Gestión unificada de actividades, posiciones y asignación diaria',
+            badge_operations: 'OPERACIONES',
+            tabs: {
+                catalog: 'Catálogo',
+                catalog_desc: 'Librería maestra de actividades operativas',
+                configure_positions: 'Configurar Posiciones',
+                configure_positions_desc: 'Asignar actividades a cada puesto (una sola vez)',
+                daily_assignment: 'Asignación Diaria',
+                daily_assignment_desc: 'Asignar personas a posiciones cada día',
+            },
+            help: {
+                title: 'Guía del Centro de Actividades',
+                intro: 'Este módulo está diseñado para que los gerentes organicen el restaurante en pocos segundos. El flujo lógico de configuración y uso es:',
+                step1_title: '1. Catálogo (Librería Maestra de Tareas)',
+                step1_desc: 'Es el baúl donde viven todas las tareas disponibles de la tienda (ej: "BARRER MAPEAR EL PISO"). Aquí creas tareas nuevas, las editas o las eliminas. Solo se tocan cuando hay cambios en el menú o la operación.',
+                step2_title: '2. Configurar Posiciones (Se hace una sola vez)',
+                step2_desc: 'Aquí le enseñas al sistema qué tareas de la librería le tocan a cada puesto. Por ejemplo, decides que el puesto de "Limpieza" tiene asignada la tarea "LAVAR BAÑOS". Se configura una sola vez y queda guardado para siempre.',
+                step3_title: '3. Asignación Diaria (Uso Diario - Todas las mañanas)',
+                step3_desc: 'Es tu pantalla de todos los días. Al iniciar tu turno, haz clic en cada puesto (como Caja 1, Uber + Salsas o Limpieza) y seleccionas al empleado que trabajará ahí hoy. El sistema le asignará en automático todas las tareas del puesto. No tienes que asignar tareas a mano cada día.',
+                examples_title: 'Ejemplos con datos reales de la sucursal Slauson:',
+                example1_title: 'Ejemplo A: Configurar una Nueva Actividad para el puesto (Paso 2)',
+                example1_desc: 'Carlos (el gerente) quiere que el puesto de "Limpieza" tenga la tarea "LIMPIAR VIDRIOS DE PUERTAS DE ENTRADAS". Va a "2. Configurar Posiciones", selecciona "Limpieza" en la lista de la izquierda, busca la tarea en la sección "Actividades Disponibles" de la derecha y presiona "+". A partir de ese momento, cualquiera asignado a Limpieza tendrá esa tarea automáticamente.',
+                example2_title: 'Ejemplo B: Asignar un Empleado hoy (Paso 3)',
+                example2_desc: 'Llega Sandra Yoselyn Gonon Itzep a trabajar. En "3. Asignación Diaria", haces clic en "Uber + Salsas" y seleccionas a Sandra. Ella recibe en automático sus tareas como "BARRER MAPEAR EL PISO" y "RELLENAR SALSA BAR...". Al presionar el botón "Tablero" en la tableta, Sandra verá su nombre y sus tareas en la cocina.',
+                example3_title: 'Ejemplo C: Reasignación por descanso o cambio de puesto (Paso 3)',
+                example3_desc: 'A mitad de turno, Sandra se va a su descanso y Jennifer Lizbeth Baltazar Rojas toma el control de "Uber + Salsas". Haces clic en "Uber + Salsas", presionas "Cambiar Persona" y seleccionas a Jennifer. La tableta de la cocina se actualiza al instante con el nombre y tareas de Jennifer.',
+                close: 'Entendido, Cerrar Guía'
+            },
+            config: {
+                title: 'Configuración de Posiciones',
+                subtitle: 'Asigna actividades del catálogo a cada puesto o estación',
+                search_positions: 'Buscar posición...',
+                search_activities: 'Buscar actividad...',
+                select_position: 'Selecciona una posición',
+                select_position_desc: 'Elige un puesto o estación de la lista izquierda para ver y asignar sus actividades.',
+                assigned_activities: 'Actividades Asignadas',
+                available_activities: 'Actividades Disponibles',
+                no_assigned: 'Sin actividades asignadas',
+                no_available: 'Todas las actividades están asignadas',
+                no_results: 'Sin resultados para la búsqueda',
+                add_activity: 'Agregar',
+                remove_activity: 'Quitar',
+                filter_shift: 'Turno',
+                filter_model: 'Modelo',
+                all_shifts: 'Todos',
+                group_leadership: 'LIDERAZGO',
+                group_salon: 'SALÓN / SERVICIO',
+                group_kitchen: 'COCINA',
+                group_drive_thru: 'DRIVE-THRU',
+                activities_count: 'actividades',
+                loading: 'Cargando configuración...',
+                saved: '¡Guardado!',
+                error_save: 'Error al guardar',
+                empty_state_title: 'Selecciona una Posición',
+                empty_state_subtitle: 'Elige una posición del panel izquierdo para ver y asignar actividades',
+                shift_label: 'Turno',
+                store_model_label: 'Modelo',
+                all: 'Todos',
+                adding: 'Agregando...',
+                removing: 'Removiendo...',
+                error_add: 'Error al asignar actividad',
+                error_remove: 'Error al remover actividad',
+                error_load: 'Error al cargar datos',
+                positions: 'Posiciones',
+            },
+            daily: {
+                title: 'Asignación Diaria',
+                subtitle: 'Arrastra personas a las posiciones — las actividades se heredan automáticamente',
+                store_label: 'Tienda',
+                week_label: 'Semana',
+                shift_am: 'Turno AM (Apertura)',
+                shift_pm: 'Turno PM (Cierre)',
+                save: 'Guardar Cambios',
+                saving: 'Guardando...',
+                saved: '¡Guardado!',
+                tablero: 'Tablero',
+                tablero_title: 'Tablero Operativo',
+                close_board: 'Cerrar',
+                operational_control: 'PANEL DE CONTROL OPERATIVO',
+                mark_absent: 'Marcar como Ausente',
+                change_person: 'Cambiar Persona',
+                call_now: 'Llamar Ahora',
+                available_today: 'Disponibles Hoy',
+                absent_today: 'Ausentes',
+                assigned_to: 'Asignado a',
+                search_employee: 'Buscar empleado...',
+                vacant: 'VACANTE',
+                select_employee: 'Seleccionar empleado...',
+                station_map: 'Mapa de Estaciones',
+                activities_inherited: 'actividades heredadas',
+                no_employees: 'No hay empleados programados',
+                no_shifts: 'Sin horarios para este día',
+                loading: 'Cargando asignaciones...',
+                error_load: 'Error al cargar datos',
+                error_save: 'Error al guardar asignaciones',
+                section_salon: 'Salón / Servicio',
+                section_kitchen: 'Cocina',
+                section_leadership: 'Liderazgo',
+                section_drive_thru: 'Drive-Thru',
+                drive_thru_toggle: 'Drive-Thru',
+                auto_fill: 'Auto-llenar',
+                clear_all: 'Limpiar Todo',
+                day_mon: 'Lun',
+                day_tue: 'Mar',
+                day_wed: 'Mié',
+                day_thu: 'Jue',
+                day_fri: 'Vie',
+                day_sat: 'Sáb',
+                day_sun: 'Dom',
+                prev_week: 'Semana Anterior',
+                next_week: 'Semana Siguiente',
+                search_placeholder: 'Buscar empleado...',
+                save_error: 'Error al guardar asignaciones',
+                absent_section: 'Ausentes',
+                unassign: 'Desasignar',
+                activities_label: 'Actividades',
+                more_activities: 'más',
+                section_drivethru: 'DRIVE-THRU',
+            },
+        },
     },
     en: {
         // TOP NAV
@@ -1571,6 +1785,7 @@ const dictionaries: Record<Language, any> = {
             roles: 'Roles',
             procedures: 'Procedures',
             basecamp: 'Basecamp',
+            actividades: 'Activities',
         },
         // LOGIN
         login: {
@@ -2440,7 +2655,9 @@ const dictionaries: Record<Language, any> = {
                     success_message: '{n} shifts deleted successfully.\nThe board is empty.'
                 },
                 publish: {
-                    no_drafts: 'No "Draft" shifts to publish'
+                    no_drafts: 'No "Draft" shifts to publish',
+                    title: 'Publish Schedule',
+                    message: 'You are about to publish {n} shifts.\nSchedule and break notifications will be sent to employees.\n\n⚠️ REMINDER: Make sure to save assignments under the "3. Daily Assignment" tab before publishing so employees receive their assigned positions and activities.'
                 }
             },
             toasts: {
@@ -3033,28 +3250,227 @@ const dictionaries: Record<Language, any> = {
             filter_placeholder: 'Filter...',
             no_filtered_results: 'No posts match your filter.',
         },
+        roles_hub: {
+            title: 'Roles & Positions Control',
+            subtitle: 'Tactical assignment of activities by job position',
+            position_config: 'Position Configuration',
+            position_config_desc: 'Assign activities from global catalog to operational positions',
+            select_position: 'Select a Position',
+            position: 'Position',
+            shift: 'Shift',
+            store_model: 'Store Model',
+            frequency: 'Frequency',
+            assigned_activities: 'Assigned Activities',
+            available_activities: 'Available Activities',
+            save: 'Save Changes',
+            cancel: 'Cancel',
+            success_save: 'Success! Position configuration saved.',
+            error_save: 'Error saving position configuration',
+            regular: 'Regular',
+            drivethru: 'Drive-Thru',
+            all: 'Both',
+            all_shifts: 'All',
+            all_models: 'All',
+            all_frequencies: 'All',
+            vacant: 'Vacant',
+            free: 'Free',
+            board_title: 'Operational Board',
+            board_desc: 'Tactical deployment of staff in real-time',
+            copy_prev_week: 'Clone Last Week',
+            copy_success: '📅 Last week cloned successfully.\n\nAM: {am} assignments\nPM: {pm} assignments\n\n⚠️ Remember to Save to persist.',
+            save_success: '🚀 Operations Saved Successfully',
+            save_error: 'Error saving assignments',
+            library: 'Library',
+            print: 'Print',
+            weekly_summary: 'Operational Activities Summary',
+            weekly_summary_desc: 'Generated automatically by position and shift',
+            no_activities: 'No activities assigned to this position',
+            no_store_selected: 'Error: No store selected',
+            close: 'Close',
+            manager: 'Manager',
+            assistant: 'Assistant',
+            shift_leader_male: 'Shift Leader Male',
+            shift_leader_female: 'Shift Leader Female',
+            cook_male: 'Cook (Male)',
+            cashier: 'Cashier (FOH)',
+            daily: 'Daily',
+            view_weekly: 'Weekly Matrix',
+            view_daily: 'Daily Lineup',
+            roster_scheduled: 'Scheduled Today',
+            roster_available: 'Available',
+            roster_absent: 'Absent / Call-ins',
+            mark_absent: 'Mark Absent',
+            mark_present: 'Mark Present',
+            copy_tomorrow: 'Copy to Tomorrow',
+            clear_today: 'Clear Today',
+            autofill_today: 'Auto-fill Today',
+            autofill_week: 'Auto-fill Week',
+            assigned_to: 'Assigned to',
+            unassigned: 'Unassigned',
+            assign: 'Assign',
+            clear: 'Clear',
+            autofill_confirm: 'This will replace all current assignments for this week with schedule shifts. Do you want to proceed?',
+            autofill_success: 'Auto-fill completed! Mapped {count} stations based on Toast shifts. Remember to Save to apply.',
+            autofill_no_shifts: 'No Toast shifts found for this week at this store.',
+            auto_resolve_coverage: 'Auto-Resolve Coverage',
+            add_activity: 'Add Activity',
+            loading: 'Loading data...',
+            no_catalog_activities: 'The library is empty. Create activities first.',
+            pos_config_help_title: 'How does it work?',
+            pos_config_help_1: '1. Select a job position (e.g., Cook). The number next to it shows how many total tasks it has.',
+            pos_config_help_2: '2. Filter by Shift (AM/PM) and Store Model to see the tasks scheduled for that time.',
+            pos_config_help_3: '3. To add a task, find it under Available below and click the (+) button.',
+            pos_config_help_4: '4. To remove a task, click the (✓) button on the blue assigned tasks.',
+            procedures_catalog: 'Procedures Catalog',
+            globally_synced: 'Globally synced',
+            search_activity: 'Search activity...',
+            no_catalog_activities_procedures: 'No activities in the catalog. Load them from the Procedures module.',
+        },
+        // ═══════ ACTIVITIES MODULE (ROLES + PROCEDURES FUSION) ═══════
+        actividades: {
+            title: 'Activity Center',
+            subtitle: 'Unified management of activities, positions and daily assignments',
+            badge_operations: 'OPERATIONS',
+            tabs: {
+                catalog: 'Catalog',
+                catalog_desc: 'Master library of operating activities',
+                configure_positions: 'Configure Positions',
+                configure_positions_desc: 'Assign activities to each position (one-time setup)',
+                daily_assignment: 'Daily Assignment',
+                daily_assignment_desc: 'Assign people to positions each day',
+            },
+            help: {
+                title: 'Activities Center Guide',
+                intro: 'This module is designed for managers to organize the restaurant in a few seconds. The logical workflow of setup and use is:',
+                step1_title: '1. Catalog (Master Task Library)',
+                step1_desc: 'This is the vault where all the store\'s available tasks live (e.g., "BARRER MAPEAR EL PISO"). Here you create new tasks, edit, or delete them. They are only touched when there are operational changes.',
+                step2_title: '2. Configure Positions (One-time setup)',
+                step2_desc: 'Here you teach the system which tasks from the library belong to each position. For example, you decide that "Limpieza" is assigned the task "LAVAR BAÑOS". It is configured only once and saved forever.',
+                step3_title: '3. Daily Assignment (Daily Use - Every morning)',
+                step3_desc: 'This is your everyday screen. At the start of your shift, click on each station (like Caja 1, Uber + Salsas, or Limpieza) and select the employee who will work there today. The system automatically assigns all the station tasks to them. You do not need to assign tasks manually every day.',
+                examples_title: 'Practical examples using real Slauson branch data:',
+                example1_title: 'Example A: Configuring a New Activity for a station (Step 2)',
+                example1_desc: 'Carlos (the manager) wants the "Limpieza" position to have the task "LIMPIAR VIDRIOS DE PUERTAS DE ENTRADAS". He goes to "2. Configure Positions", selects "Limpieza" from the left list, finds the task in the "Available Activities" section on the right, and clicks "+". From that moment on, anyone assigned to Limpieza will automatically have that task.',
+                example2_title: 'Example B: Assigning an Employee today (Step 3)',
+                example2_desc: 'Sandra Yoselyn Gonon Itzep arrives to work. In "3. Daily Assignment", you click on "Uber + Salsas" and select Sandra. She automatically receives her tasks like "BARRER MAPEAR EL PISO" and "RELLENAR SALSA BAR...". By clicking the "Tablero" button on the tablet, Sandra will see her name and tasks in the kitchen.',
+                example3_title: 'Example C: Reassignment due to breaks or shift changes (Step 3)',
+                example3_desc: 'Mid-shift, Sandra goes on break and Jennifer Lizbeth Baltazar Rojas takes over "Uber + Salsas". You click on "Uber + Salsas", press "Change Person", and select Jennifer. The kitchen tablet updates instantly with Jennifer\'s name and tasks.',
+                close: 'Got it, Close Guide'
+            },
+            config: {
+                title: 'Position Configuration',
+                subtitle: 'Assign catalog activities to each position or station',
+                search_positions: 'Search position...',
+                search_activities: 'Search activity...',
+                select_position: 'Select a position',
+                select_position_desc: 'Choose a position or station from the left list to view and assign its activities.',
+                assigned_activities: 'Assigned Activities',
+                available_activities: 'Available Activities',
+                no_assigned: 'No activities assigned',
+                no_available: 'All activities are assigned',
+                no_results: 'No results for search',
+                add_activity: 'Add',
+                remove_activity: 'Remove',
+                filter_shift: 'Shift',
+                filter_model: 'Model',
+                all_shifts: 'All',
+                group_leadership: 'LEADERSHIP',
+                group_salon: 'DINING / SERVICE',
+                group_kitchen: 'KITCHEN',
+                group_drive_thru: 'DRIVE-THRU',
+                activities_count: 'activities',
+                loading: 'Loading configuration...',
+                saved: 'Saved!',
+                error_save: 'Error saving',
+                empty_state_title: 'Select a Position',
+                empty_state_subtitle: 'Choose a position from the left panel to view and assign activities',
+                shift_label: 'Shift',
+                store_model_label: 'Model',
+                all: 'All',
+                adding: 'Adding...',
+                removing: 'Removing...',
+                error_add: 'Error assigning activity',
+                error_remove: 'Error removing activity',
+                error_load: 'Error loading data',
+                positions: 'Positions',
+            },
+            daily: {
+                title: 'Daily Assignment',
+                subtitle: 'Drag people to positions — activities are inherited automatically',
+                store_label: 'Store',
+                week_label: 'Week',
+                shift_am: 'AM Shift (Opening)',
+                shift_pm: 'PM Shift (Closing)',
+                save: 'Save Changes',
+                saving: 'Saving...',
+                saved: 'Saved!',
+                tablero: 'Board',
+                tablero_title: 'Operations Board',
+                close_board: 'Close',
+                operational_control: 'OPERATIONAL CONTROL PANEL',
+                mark_absent: 'Mark as Absent',
+                change_person: 'Change Person',
+                call_now: 'Call Now',
+                available_today: 'Available Today',
+                absent_today: 'Absent',
+                assigned_to: 'Assigned to',
+                search_employee: 'Search employee...',
+                vacant: 'VACANT',
+                select_employee: 'Select employee...',
+                station_map: 'Station Map',
+                activities_inherited: 'inherited activities',
+                no_employees: 'No employees scheduled',
+                no_shifts: 'No schedules for this day',
+                loading: 'Loading assignments...',
+                error_load: 'Error loading data',
+                error_save: 'Error saving assignments',
+                section_salon: 'Dining / Service',
+                section_kitchen: 'Kitchen',
+                section_leadership: 'Leadership',
+                section_drive_thru: 'Drive-Thru',
+                drive_thru_toggle: 'Drive-Thru',
+                auto_fill: 'Auto-fill',
+                clear_all: 'Clear All',
+                day_mon: 'Mon',
+                day_tue: 'Tue',
+                day_wed: 'Wed',
+                day_thu: 'Thu',
+                day_fri: 'Fri',
+                day_sat: 'Sat',
+                day_sun: 'Sun',
+                prev_week: 'Previous Week',
+                next_week: 'Next Week',
+                search_placeholder: 'Search employee...',
+                save_error: 'Error saving assignments',
+                absent_section: 'Absent',
+                unassign: 'Unassign',
+                activities_label: 'Activities',
+                more_activities: 'more',
+                section_drivethru: 'DRIVE-THRU',
+            },
+        },
     }
 };
 
 interface LanguageContextType {
     language: Language;
     setLanguage: (lang: Language) => void;
-    t: (key: string) => string; // Translator function
-    dictionary: any; // Raw dictionary access
+    t: (key: string, options?: Record<string, unknown>) => string; // Translator function
+    dictionary: Dictionary; // Raw dictionary access
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-    const [language, setLanguage] = useState<Language>('es');
-
-    // Persist preference
-    useEffect(() => {
-        const saved = localStorage.getItem('teg_language') as Language;
-        if (saved && (saved === 'es' || saved === 'en')) {
-            setLanguage(saved);
+    const [language, setLanguage] = useState<Language>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('teg_language') as Language;
+            if (saved && (saved === 'es' || saved === 'en')) {
+                return saved;
+            }
         }
-    }, []);
+        return 'es';
+    });
 
     const changeLanguage = (lang: Language) => {
         setLanguage(lang);
@@ -3062,14 +3478,24 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     };
 
     // Helper to access nested keys like "nav.title"
-    const t = (path: string): string => {
+    const t = (path: string, options?: Record<string, unknown>): string => {
         const keys = path.split('.');
-        let current = dictionaries[language];
+        let current: string | Dictionary = dictionaries[language];
         for (const key of keys) {
-            if (current[key] === undefined) return path; // Return key if not found
-            current = current[key];
+            if (typeof current === 'string') return path;
+            const next: string | Dictionary | undefined = current[key];
+            if (next === undefined) return path;
+            current = next;
         }
-        return typeof current === 'string' ? current : path;
+        if (typeof current !== 'string') return path;
+        if (options) {
+            let result = current;
+            for (const [key, value] of Object.entries(options)) {
+                result = result.replace(new RegExp(`{${key}}`, 'g'), String(value));
+            }
+            return result;
+        }
+        return current;
     };
 
     return (

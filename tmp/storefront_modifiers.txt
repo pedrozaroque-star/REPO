@@ -1,0 +1,294 @@
+=== SLAUSON STOREFRONT MODIFIERS BY PRODUCT ===
+
+========================================================
+PRODUCT: "Taco Asada"
+========================================================
+
+Match #1 (ID: 28572074906):
+Price: $$2.29
+Modifier Groups (0):
+
+Match #2 (ID: 28572074906):
+Price: $$2.29
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Taco Plate"
+========================================================
+
+Match #1 (ID: 28572075018):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #2 (ID: 28572075018):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #3 (ID: 28572075018):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #4 (ID: 28572075018):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #5 (ID: 28572075018):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #6 (ID: 28572075018):
+Price: $$9.69
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Burrito Asada"
+========================================================
+
+Match #1 (ID: 28572074941):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #2 (ID: 28572074941):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #3 (ID: 28572074941):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #4 (ID: 28572074941):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #5 (ID: 28572074941):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #6 (ID: 28572074941):
+Price: $$9.19
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Super Burrito Asada"
+========================================================
+
+Match #1 (ID: 28572075029):
+Price: $$11.69
+Modifier Groups (0):
+
+Match #2 (ID: 28572075029):
+Price: $$11.69
+Modifier Groups (0):
+
+Match #3 (ID: 28572075029):
+Price: $$11.69
+Modifier Groups (0):
+
+Match #4 (ID: 28572075029):
+Price: $$11.69
+Modifier Groups (0):
+
+Match #5 (ID: 28572075029):
+Price: $$11.69
+Modifier Groups (0):
+
+Match #6 (ID: 28572075029):
+Price: $$11.69
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Quesadilla Asada"
+========================================================
+
+Match #1 (ID: 28572074980):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #2 (ID: 28572074980):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #3 (ID: 28572074980):
+Price: $$9.19
+Modifier Groups (0):
+
+Match #4 (ID: 28572074980):
+Price: $$9.19
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Super Quesadilla Asada"
+========================================================
+
+Match #1 (ID: 28572075049):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #2 (ID: 28572075049):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #3 (ID: 28572075049):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #4 (ID: 28572075049):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #5 (ID: 28572075049):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #6 (ID: 28572075049):
+Price: $$10.59
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Mulita Asada"
+========================================================
+
+Match #1 (ID: 28572074915):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #2 (ID: 28572074915):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #3 (ID: 28572074915):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #4 (ID: 28572074915):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #5 (ID: 28572074915):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #6 (ID: 28572074915):
+Price: $$4.79
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Super Mulita Asada"
+========================================================
+
+Match #1 (ID: 28572075019):
+Price: $$5.99
+Modifier Groups (0):
+
+Match #2 (ID: 28572075019):
+Price: $$5.99
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Sope Asada"
+========================================================
+
+Match #1 (ID: 28572074930):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #2 (ID: 28572074930):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #3 (ID: 28572074930):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #4 (ID: 28572074930):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #5 (ID: 28572074930):
+Price: $$4.79
+Modifier Groups (0):
+
+Match #6 (ID: 28572074930):
+Price: $$4.79
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Torta Asada"
+========================================================
+
+Match #1 (ID: 28572074963):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #2 (ID: 28572074963):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #3 (ID: 28572074963):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #4 (ID: 28572074963):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #5 (ID: 28572074963):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #6 (ID: 28572074963):
+Price: $$9.69
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Super Nachos Asada"
+========================================================
+
+Match #1 (ID: 28572075060):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #2 (ID: 28572075060):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #3 (ID: 28572075060):
+Price: $$9.69
+Modifier Groups (0):
+
+Match #4 (ID: 28572075060):
+Price: $$9.69
+Modifier Groups (0):
+
+
+========================================================
+PRODUCT: "Plato Asada"
+========================================================
+
+Match #1 (ID: 28572074991):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #2 (ID: 28572074991):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #3 (ID: 28572074991):
+Price: $$10.59
+Modifier Groups (0):
+
+Match #4 (ID: 28572074991):
+Price: $$10.59
+Modifier Groups (0):
+
+

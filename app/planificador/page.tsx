@@ -1496,7 +1496,9 @@ export default function SchedulePlanner() {
                     isOpen={isConfirmModalOpen}
                     onClose={() => setIsConfirmModalOpen(false)}
                     onConfirm={executePublish}
-                    count={shiftsToPublish.length}
+                    title={t('planner.modals.publish.title')}
+                    message={t('planner.modals.publish.message').replace('{n}', String(shiftsToPublish.length))}
+                    type="primary"
                     generating={isGeneratingAPI} // Reusing loading state for visuals
                 />
             )}

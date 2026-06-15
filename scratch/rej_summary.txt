@@ -1,0 +1,39 @@
+Total rejected hunks: 2
+
+=================== REJECT 1 ===================
+Header: @@ -2454,204 +2956,35 @@ export default function MissionControlRoles() {
+Original lines count: 203
+Original first few lines:
+   '                        />'
+   '                      </div>'
+   ''
+   '                      <div>'
+   '                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-2">Turno</label>'
+   '                        <select '
+Replacement lines count: 34
+Replacement first few lines:
+   '                        />'
+   '                      </div>'
+   '                      <div>'
+   '                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 ml-2">Turno</label>'
+   '                        <select '
+   "                          value={newActivity.shift || 'AM'}"
+
+=================== REJECT 2 ===================
+Header: @@ -2661,204 +2994,69 @@ export default function MissionControlRoles() {
+Original lines count: 203
+Original first few lines:
+   '                        </span>'
+   '                      </button>'
+   '                      '
+   '                      {editingActivityId && ('
+   '                        <button '
+   '                          onClick={() => {'
+Replacement lines count: 68
+Replacement first few lines:
+   '                        </span>'
+   '                      </button>'
+   '                    </div>'
+   '                  </div>'
+   '                </div>'
+   ''

@@ -1,0 +1,8 @@
+=== SLAUSON STOREFRONT MODIFIER OPTIONS ===
+
+Option Term: "sour cream" #1 at index 441000:
+Snippet: "ges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075071","name":"Sour Cream","description":"A side of fresh sour cream. 4oz","displayPrice":"$$2.49","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/2e14e1c9-b229-4cd5-9495-6e2f1460eaf4-retina"
+
+Option Term: "sour cream" #2 at index 933995:
+Snippet: "ges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075071","name":"Sour Cream","description":"A side of fresh sour cream. 4oz","displayPrice":"$$2.49","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/2e14e1c9-b229-4cd5-9495-6e2f1460eaf4-retina"
+

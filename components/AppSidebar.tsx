@@ -182,6 +182,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         {
             title: t('sections.team'), id: 'equipo',
             items: [
+                { name: t('items.actividades'), plainName: 'Actividades', path: '/actividades', icon: <ClipboardList size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
                 { name: t('items.roles'), plainName: 'Roles', path: '/roles', icon: <Users size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
                 { name: t('items.my_schedule'), plainName: 'Mi Horario', path: '/mis-horarios', icon: <CalendarCheck size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
                 { name: t('items.self_scheduling'), plainName: 'Auto-Schedule', path: '/gestion/auto-schedule', icon: <UserCog size={20} />, roles: ['supervisor', 'admin'] },

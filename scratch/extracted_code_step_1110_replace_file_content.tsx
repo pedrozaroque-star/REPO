@@ -1,0 +1,1 @@
+"  // States for Templates\n  const [templates, setTemplates] = useState<any[]>([]);\n  const [newTemplateName, setNewTemplateName] = useState('');\n  const [showTemplateSave, setShowTemplateSave] = useState(false);\n  const [viewMode, setViewMode] = useState<'daily' | 'weekly'>('daily');\n  const [rosterSearch, setRosterSearch] = useState('');"

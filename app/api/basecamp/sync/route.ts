@@ -404,13 +404,13 @@ export async function POST(request: Request) {
   if (!forceFullSync) {
     const { data: lastSync } = await supabase
       .from('bc_sync_log')
-      .select('completed_at')
+      .select('started_at')
       .in('status', ['completed', 'completed_with_errors'])
-      .order('completed_at', { ascending: false })
+      .order('started_at', { ascending: false })
       .limit(1)
       .single()
 
-    lastSyncAt = lastSync?.completed_at || null
+    lastSyncAt = lastSync?.started_at || null
   }
 
   const syncMode = lastSyncAt ? 'incremental' : 'full'
@@ -743,10 +743,9 @@ export async function POST(request: Request) {
         continue
       }
 
-      // INCREMENTAL: Skip unchanged projects
-      if (changedProjectIds !== null && !changedProjectIds.has(project.id)) {
-        continue // Project hasn't changed since last sync
-      }
+      // ALWAYS sync all projects. Reordering/completing tasks in Basecamp does NOT update the project's updated_at timestamp,
+      // so skipping projects causes list order and completion mismatches. Individual resources inside the project
+      // are still skipped if they are unchanged, ensuring high speed.
 
       console.log(`\n📁 Processing project: "${project.name}" (bc_id: ${project.id})`)
 
@@ -849,9 +848,21 @@ export async function POST(request: Request) {
 
             // Fetch todos within this list
             try {
-              const todos = await fetchAllTodos(project.id, list.id)
+              const todos = await fetchAllTodos(project.id, list.id, !forceFullSync)
+
+              // Separate active and completed todos
+              const activeTodos = todos.filter(t => !t.completed)
+              const activeBcIds = activeTodos.map(t => t.id)
 
               for (const t of todos) {
+                const todoUpdatedAt = t.updated_at || t.created_at
+                const isUnchanged = t.completed && lastSyncAt && todoUpdatedAt && todoUpdatedAt <= lastSyncAt
+
+                if (isUnchanged) {
+                  counters.todos++
+                  continue
+                }
+
                 const authorUuid = await resolveOrCreatePerson(t.creator, supabase, peopleMap)
                 const processedTodoDesc = await processHtmlContent(t.description || '', token, 'todos', t.id, supabase, urlCache)
                 const { data: dbTodo, error: todoErr } = await supabase
@@ -938,6 +949,27 @@ export async function POST(request: Request) {
                   } catch (comFetchErr: any) {
                     console.warn(`      ⚠️ comments fetch error for todo ${t.id}:`, comFetchErr.message)
                   }
+                }
+              }
+
+              // Self-healing: Mark active tasks in DB that are no longer active in Basecamp as completed
+              const { data: dbActiveTodos } = await supabase
+                .from('bc_todos')
+                .select('bc_id')
+                .eq('todolist_id', todolistUuid)
+                .eq('is_completed', false)
+
+              if (dbActiveTodos && dbActiveTodos.length > 0) {
+                const dbActiveBcIds = dbActiveTodos.map(t => Number(t.bc_id))
+                const completedBcIds = dbActiveBcIds.filter(bcId => !activeBcIds.includes(bcId))
+
+                if (completedBcIds.length > 0) {
+                  console.log(`🧹 [Basecamp Sync] Self-healing: Marking ${completedBcIds.length} tasks as completed for list ${list.name}:`, completedBcIds)
+                  await supabase
+                    .from('bc_todos')
+                    .update({ is_completed: true, completed_at: new Date().toISOString() })
+                    .eq('todolist_id', todolistUuid)
+                    .in('bc_id', completedBcIds)
                 }
               }
             } catch (todosErr: any) {

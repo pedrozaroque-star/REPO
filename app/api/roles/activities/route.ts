@@ -1,69 +1,100 @@
-import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+/**
+ * @module PositionActivitiesAPI
+ * @description API endpoint to fetch and manage global position-activity mappings.
+ * @businessRules
+ * - Activity assignments are global for all stores.
+ * - Store model type allows custom mappings for Regular vs Drive-Thru stores.
+ * - Assignments are resolved by position key (e.g. COOK_MALE, CASHIER) instead of specific stations.
+ * @dataFlow
+ * - Reads and writes to the `position_activities` and `operating_procedures` tables in Supabase.
+ * @notes
+ * - Uses supabaseAdmin to bypass RLS for configuration read/write operations.
+ */
 
-const CONFIG_NAME = '__CONFIG_ACTIVITIES__';
+import { NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
 
-export async function GET(req: Request) {
-    const { searchParams } = new URL(req.url);
-    const store_id = searchParams.get('store_id');
-
-    if (!store_id) {
-        return NextResponse.json({ error: 'Store ID is required' }, { status: 400 });
-    }
-
+export async function GET() {
     try {
         const { data, error } = await supabaseAdmin
-            .from('station_templates')
-            .select('data')
-            .eq('store_id', store_id)
-            .eq('template_name', CONFIG_NAME)
-            .maybeSingle();
+            .from('position_activities')
+            .select(`
+                *,
+                operating_procedures (
+                    id,
+                    activity,
+                    start_time,
+                    duration_minutes,
+                    shift_type,
+                    frequency,
+                    role,
+                    description
+                )
+            `)
+            .order('sort_order', { ascending: true })
 
-        if (error) throw error;
+        if (error) throw error
 
-        // Si no existe, devolvemos estructura vacía
-        if (!data) {
-            return NextResponse.json({ master_activities: [], station_mappings: {} });
-        }
-
-        return NextResponse.json(data.data);
+        return NextResponse.json(data)
     } catch (error: any) {
-        console.error('FETCH ACTIVITIES ERROR:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('FETCH POSITION ACTIVITIES ERROR:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
     }
 }
 
 export async function POST(req: Request) {
     try {
-        const { store_id, master_activities, station_mappings } = await req.json();
+        const body = await req.json()
+        const { position_key, shift, activity_id, frequency, store_model, action } = body
 
-        if (!store_id) {
-            return NextResponse.json({ error: 'Store ID is required' }, { status: 400 });
+        if (!position_key || !activity_id) {
+            return NextResponse.json({ error: 'Position key and Activity ID are required' }, { status: 400 })
         }
 
-        const configData = { master_activities, station_mappings };
+        const resolvedShift = shift || 'AMBOS'
+        const resolvedFreq = frequency || 'Diario'
+        const resolvedModel = store_model || 'AMBOS'
 
-        // Intentamos upsert basado en store_id y template_name especial
-        // Primero buscamos si existe para obtener el ID o simplemente borramos e insertamos (limpio)
-        await supabaseAdmin
-            .from('station_templates')
-            .delete()
-            .eq('store_id', store_id)
-            .eq('template_name', CONFIG_NAME);
+        if (action === 'delete') {
+            const { error } = await supabaseAdmin
+                .from('position_activities')
+                .delete()
+                .eq('position_key', position_key)
+                .eq('shift', resolvedShift)
+                .eq('activity_id', activity_id)
+                .eq('frequency', resolvedFreq)
+                .eq('store_model', resolvedModel)
 
-        const { error } = await supabaseAdmin
-            .from('station_templates')
-            .insert([{
-                store_id,
-                template_name: CONFIG_NAME,
-                data: configData
-            }]);
+            if (error) throw error
 
-        if (error) throw error;
+            return NextResponse.json({ success: true })
+        } else {
+            // Find activity in operating_procedures to get start_time for sort_order
+            const { data: proc } = await supabaseAdmin
+                .from('operating_procedures')
+                .select('start_time')
+                .eq('id', activity_id)
+                .single()
 
-        return NextResponse.json({ success: true });
+            const sortOrder = proc?.start_time ? parseInt(proc.start_time.split(':')[0]) * 60 + parseInt(proc.start_time.split(':')[1]) : 0
+
+            const { error } = await supabaseAdmin
+                .from('position_activities')
+                .upsert([{
+                    position_key,
+                    shift: resolvedShift,
+                    activity_id,
+                    frequency: resolvedFreq,
+                    store_model: resolvedModel,
+                    sort_order: sortOrder
+                }], { onConflict: 'position_key,shift,activity_id,frequency,store_model' })
+
+            if (error) throw error
+
+            return NextResponse.json({ success: true })
+        }
     } catch (error: any) {
-        console.error('SAVE ACTIVITIES ERROR:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error('SAVE POSITION ACTIVITIES ERROR:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
     }
 }

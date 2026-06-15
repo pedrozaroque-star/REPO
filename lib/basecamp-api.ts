@@ -738,23 +738,23 @@ export async function fetchTodoLists(projectId: number, todosetId: number): Prom
 export async function fetchTodos(
   projectId: number,
   todolistId: number,
-  options?: { completed?: boolean }
+  options?: { completed?: boolean; noPaginate?: boolean }
 ): Promise<BasecampTodo[]> {
   const params = options?.completed ? '?completed=true' : ''
   return basecampFetch<BasecampTodo[]>(
-    `/buckets/${projectId}/todolists/${todolistId}/todos.json${params}`
+    `/buckets/${projectId}/todolists/${todolistId}/todos.json${params}`,
+    { noPaginate: options?.noPaginate }
   )
 }
 
-/** Obtiene TODOS los to-dos (activos + completados) de una to-do list.
- *  Necesario para sync completo del histórico. */
 export async function fetchAllTodos(
   projectId: number,
-  todolistId: number
+  todolistId: number,
+  noPaginateCompleted: boolean = true
 ): Promise<BasecampTodo[]> {
   const [active, completed] = await Promise.all([
     fetchTodos(projectId, todolistId),
-    fetchTodos(projectId, todolistId, { completed: true }),
+    fetchTodos(projectId, todolistId, { completed: true, noPaginate: noPaginateCompleted }),
   ])
   return [...active, ...completed]
 }

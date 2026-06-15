@@ -110,7 +110,7 @@ export async function GET(req: Request) {
         const { accessToken, fromEmail } = authObj;
 
         // 2. Fetch Data
-        const { data: stores } = await supabase.from('stores').select('id, name, supervisor_name, external_id')
+        const { data: stores } = await supabase.from('stores').select('id, name, supervisor_name, external_id, supervisor_id, users!stores_supervisor_id_fkey(email)')
 
         let punches: any[] = []
         let currentOffset = 0
@@ -290,9 +290,15 @@ export async function GET(req: Request) {
             }
         }
 
+        const supervisorEmails = Array.from(
+            new Set(
+                stores?.map((s: any) => s.users?.email).filter(Boolean)
+            )
+        )
+
         await sendViaGmail({
             from: `"Sistema Gavilan" <${fromEmail}>`,
-            to: 'jennifer@cingularhr.com',
+            to: ['jennifer@cingularhr.com', ...supervisorEmails].join(', '),
             subject: `📊 Reporte Semanal de Infracciones de Break (${mondayStr} a ${sundayStr})`,
             html: htmlBody
         })

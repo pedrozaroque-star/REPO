@@ -1,0 +1,170 @@
+=== STOREFRONT MODIFIER OCCURRENCES ===
+
+Term: "condiments" #1 at index 121991:
+Snippet: "20 People","description":"6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$201.99","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/6471196c-ee95-4228"
+
+Term: "condiments" #2 at index 128825:
+Snippet: " People","description":"7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$245.79","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/71932433-3224-4e69"
+
+Term: "condiments" #3 at index 134741:
+Snippet: "0 People","description":"12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$373.89","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7d791171-b284-4b2d"
+
+Term: "condiments" #4 at index 456658:
+Snippet: "20 People","description":"6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$201.99","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/6471196c-ee95-42"
+
+Term: "condiments" #5 at index 458708:
+Snippet: " People","description":"7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$245.79","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/71932433-3224-4e"
+
+Term: "condiments" #6 at index 460757:
+Snippet: "0 People","description":"10 lbs of meat, trays of beans, rice, 5 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$301.69","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/e51012a1-f4f7-4c"
+
+Term: "condiments" #7 at index 462806:
+Snippet: "0 People","description":"12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$373.89","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7d791171-b284-4b"
+
+Term: "condiments" #8 at index 614986:
+Snippet: "20 People","description":"6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$201.99","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/6471196c-ee95-4228"
+
+Term: "condiments" #9 at index 621820:
+Snippet: " People","description":"7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$245.79","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/71932433-3224-4e69"
+
+Term: "condiments" #10 at index 627736:
+Snippet: "0 People","description":"12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$373.89","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7d791171-b284-4b2d"
+
+Term: "choice" #1 at index 121968:
+Snippet: "72075087","name":"15 - 20 People","description":"6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$201.99","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/"
+
+Term: "choice" #2 at index 128802:
+Snippet: "075088","name":"20 - 25 People","description":"7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$245.79","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/"
+
+Term: "choice" #3 at index 130754:
+Snippet: "ctions":null,"defaultQuantity":null}},{"__typename":"StorePageCarouselItem","id":"28572075018","name":"Taco Plate","description":"Three Tacos Of Your Choice - Served Plain - Accompanied By Beans And Rice","displayPrice":"$$9.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photos"
+
+Term: "choice" #4 at index 134718:
+Snippet: "2075090","name":"30 - 40 People","description":"12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$373.89","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/"
+
+Term: "choice" #5 at index 153905:
+Snippet: "em","id":"28572074991","name":"Plato Asada","description":"Grilled Steak - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/36441fa8-5ed7-44eb-a064-5aa6ea9a25d8-retin"
+
+Term: "choice" #6 at index 184964:
+Snippet: "adges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075018","name":"Taco Plate","description":"Three Tacos Of Your Choice - Served Plain - Accompanied By Beans And Rice","displayPrice":"$$9.69","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/phot"
+
+Term: "choice" #7 at index 327788:
+Snippet: "em","id":"28572074991","name":"Plato Asada","description":"Grilled Steak - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/36441fa8-5ed7-44eb-a064-5aa6ea9a25d8-ret"
+
+Term: "choice" #8 at index 329772:
+Snippet: "","id":"28572074992","name":"Plato Pastor","description":"Marinated Pork - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/e4f1d3f4-dbfc-4e3e-8518-dc51780d5b25-ret"
+
+Term: "choice" #9 at index 331758:
+Snippet: ""id":"28572074993","name":"Plato Chorizo","description":"Mexican Sausage - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/28b75840-25da-4a1c-ae69-af9e73acd201-ret"
+
+Term: "choice" #10 at index 333740:
+Snippet: "","id":"28572074994","name":"Plato Pollo","description":"Grilled Chicken - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/616199d3-c655-4a84-a916-7019f0443d1f-ret"
+
+Term: "salsa" #1 at index 121983:
+Snippet: "":"15 - 20 People","description":"6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$201.99","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/64711"
+
+Term: "salsa" #2 at index 128817:
+Snippet: ""20 - 25 People","description":"7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$245.79","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/71932"
+
+Term: "salsa" #3 at index 134733:
+Snippet: ":"30 - 40 People","description":"12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$373.89","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7d791"
+
+Term: "salsa" #4 at index 456650:
+Snippet: "":"15 - 20 People","description":"6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$201.99","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/647"
+
+Term: "salsa" #5 at index 458700:
+Snippet: ""20 - 25 People","description":"7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$245.79","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/719"
+
+Term: "salsa" #6 at index 460749:
+Snippet: ":"25 - 30 People","description":"10 lbs of meat, trays of beans, rice, 5 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$301.69","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/e51"
+
+Term: "salsa" #7 at index 462798:
+Snippet: ":"30 - 40 People","description":"12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$373.89","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7d7"
+
+Term: "salsa" #8 at index 614978:
+Snippet: "":"15 - 20 People","description":"6 lbs of meat, trays of beans, rice, 3 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$201.99","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/64711"
+
+Term: "salsa" #9 at index 621812:
+Snippet: ""20 - 25 People","description":"7.5 lbs of meat, trays of beans, rice, 4 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$245.79","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/71932"
+
+Term: "salsa" #10 at index 627728:
+Snippet: ":"30 - 40 People","description":"12 lbs of meat, trays of beans, rice, 6 gallons of agua fresca, and tortillas of maiz or harina, your choice!\r\n\r\nSalsas, condiments, and utensils included!","displayPrice":"$$373.89","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7d791"
+
+Term: "extra cheese" #1 at index 249621:
+Snippet: "rl":null,"badges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572074938","name":"Sope Queso","description":"No meat, extra cheese - A thick tortilla topped with beans, sour cream, and cheese","displayPrice":"$$4.79","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws."
+
+Term: "extra cheese" #2 at index 742616:
+Snippet: "rl":null,"badges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572074938","name":"Sope Queso","description":"No meat, extra cheese - A thick tortilla topped with beans, sour cream, and cheese","displayPrice":"$$4.79","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws."
+
+Term: "sour cream" #1 at index 125861:
+Snippet: "ty":null}},{"__typename":"StorePageCarouselItem","id":"28572075029","name":"Super Burrito Asada","description":"Grilled Steak - Includes rice, beans, sour cream, cheese, and guacamole.","displayPrice":"$$11.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7dd73c33-8ad5-4e03-"
+
+Term: "sour cream" #2 at index 139478:
+Snippet: "null,"defaultQuantity":null}},{"__typename":"StorePageCarouselItem","id":"28572075049","name":"Super Quesadilla Asada","description":"Grilled Steak - Sour cream, guacamole, and melted cheese.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/cf79ef58-364"
+
+Term: "sour cream" #3 at index 143387:
+Snippet: "ultQuantity":null}},{"__typename":"StorePageCarouselItem","id":"28572075060","name":"Super Nachos Asada","description":"Grilled Steak - Nacho cheese, sour cream, and guacamole.","displayPrice":"$$9.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/808ea069-c804-4578-8b7e-a63d"
+
+Term: "sour cream" #4 at index 150042:
+Snippet: "{"__typename":"StorePageCarouselItem","id":"28572074930","name":"Sope Asada","description":"1 Grilled Beef Sope - A thick tortilla topped with beans, sour cream, and cheese","displayPrice":"$$4.79","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/8b628abf-5d7c-4d7f-a19a-ba8110f0"
+
+Term: "sour cream" #5 at index 159619:
+Snippet: "":null}},{"__typename":"StorePageCarouselItem","id":"28572075032","name":"Super Burrito Pollo","description":"Grilled Chicken - Includes rice, beans, sour cream, cheese, and guacamole.","displayPrice":"$$11.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/0385c07e-409a-441d-"
+
+Term: "sour cream" #6 at index 177367:
+Snippet: "oter":null,"items":[{"__typename":"MenuPageItem","id":"28572075029","name":"Super Burrito Asada","description":"Grilled Steak - Includes rice, beans, sour cream, cheese, and guacamole.","displayPrice":"$$11.69","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7dd73c33-8ad5-4e0"
+
+Term: "sour cream" #7 at index 194638:
+Snippet: "mId":""},{"__typename":"MenuPageItem","id":"28572074930","name":"Sope Asada","description":"1 Grilled Beef Sope - A thick tortilla topped with beans, sour cream, and cheese","displayPrice":"$$4.79","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/8b628abf-5d7c-4d7f-a19a-ba8110"
+
+Term: "sour cream" #8 at index 196567:
+Snippet: "],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075049","name":"Super Quesadilla Asada","description":"Grilled Steak - Sour cream, guacamole, and melted cheese.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/cf79ef58-3"
+
+Term: "sour cream" #9 at index 233966:
+Snippet: ""items":[{"__typename":"MenuPageItem","id":"28572074930","name":"Sope Asada","description":"1 Grilled Beef Sope - A thick tortilla topped with beans, sour cream, and cheese","displayPrice":"$$4.79","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/8b628abf-5d7c-4d7f-a19a-ba8110"
+
+Term: "sour cream" #10 at index 235928:
+Snippet: "":""},{"__typename":"MenuPageItem","id":"28572074931","name":"Sope Pastor","description":"1 Marinated Pork Sope - A thick tortilla topped with beans, sour cream, and cheese","displayPrice":"$$4.79","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7c923d5f-7979-48db-a4ab-fb2e7d"
+
+Term: "guacamole" #1 at index 125885:
+Snippet: ":"StorePageCarouselItem","id":"28572075029","name":"Super Burrito Asada","description":"Grilled Steak - Includes rice, beans, sour cream, cheese, and guacamole.","displayPrice":"$$11.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7dd73c33-8ad5-4e03-bbd4-e64d51d894e3-retin"
+
+Term: "guacamole" #2 at index 132716:
+Snippet: "tQuantity":null}},{"__typename":"StorePageCarouselItem","id":"28572074963","name":"Torta Asada","description":"Grilled Steak - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese","displayPrice":"$$9.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/93868265-cb80-46f4-9d9d-f"
+
+Term: "guacamole" #3 at index 139490:
+Snippet: "tQuantity":null}},{"__typename":"StorePageCarouselItem","id":"28572075049","name":"Super Quesadilla Asada","description":"Grilled Steak - Sour cream, guacamole, and melted cheese.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/cf79ef58-3645-4126-9417"
+
+Term: "guacamole" #4 at index 143403:
+Snippet: "l}},{"__typename":"StorePageCarouselItem","id":"28572075060","name":"Super Nachos Asada","description":"Grilled Steak - Nacho cheese, sour cream, and guacamole.","displayPrice":"$$9.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/808ea069-c804-4578-8b7e-a63d7a40f82b-retina"
+
+Term: "guacamole" #5 at index 153872:
+Snippet: ""__typename":"StorePageCarouselItem","id":"28572074991","name":"Plato Asada","description":"Grilled Steak - Includes a small side salad, rice, beans, guacamole, and tortillas of your choice.","displayPrice":"$$10.59","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/36441fa8-5ed"
+
+Term: "guacamole" #6 at index 159643:
+Snippet: "StorePageCarouselItem","id":"28572075032","name":"Super Burrito Pollo","description":"Grilled Chicken - Includes rice, beans, sour cream, cheese, and guacamole.","displayPrice":"$$11.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/0385c07e-409a-441d-ae2f-20f8af7d9ac3-retin"
+
+Term: "guacamole" #7 at index 163493:
+Snippet: "antity":null}},{"__typename":"StorePageCarouselItem","id":"28572074975","name":"Torta Milanesa","description":"Breaded Steak - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese","displayPrice":"$$9.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/384b91e1-b461-41a4-9602-9"
+
+Term: "guacamole" #8 at index 165453:
+Snippet: "},{"__typename":"StorePageCarouselItem","id":"28572074976","name":"Torta Cubana","description":"Breaded Steak + Ham + Wiener - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese","displayPrice":"$$9.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/418de496-1e12-40e6-965e-3"
+
+Term: "guacamole" #9 at index 171133:
+Snippet: "uantity":null}},{"__typename":"StorePageCarouselItem","id":"28572074964","name":"Torta Pastor","description":"Marinated Pork - Lettuce, Tomato, Mayo, Guacamole, Beans, and Cheese","displayPrice":"$$9.69","displayStrikethroughPrice":"","imgUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/47745c01-8cc1-437c-854a-2"
+
+Term: "guacamole" #10 at index 177391:
+Snippet: "typename":"MenuPageItem","id":"28572075029","name":"Super Burrito Asada","description":"Grilled Steak - Includes rice, beans, sour cream, cheese, and guacamole.","displayPrice":"$$11.69","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/7dd73c33-8ad5-4e03-bbd4-e64d51d894e3-ret"
+
+Term: "jack cheese" #1 at index 446712:
+Snippet: "oreId":"23989119","overrideNavigateUrl":null,"badges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075074","name":"Jack Cheese","description":"A side of Monterrey Jack cheese. 4oz","displayPrice":"$$2.49","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/medi"
+
+Term: "jack cheese" #2 at index 446760:
+Snippet: "dges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075074","name":"Jack Cheese","description":"A side of Monterrey Jack cheese. 4oz","displayPrice":"$$2.49","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/b83f5fa1-eff9-4f80-8aa1-bd284093e69a-"
+
+Term: "jack cheese" #3 at index 939707:
+Snippet: "oreId":"23989119","overrideNavigateUrl":null,"badges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075074","name":"Jack Cheese","description":"A side of Monterrey Jack cheese. 4oz","displayPrice":"$$2.49","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/medi"
+
+Term: "jack cheese" #4 at index 939755:
+Snippet: "dges":[],"minLeadTime":null,"chainItemId":""},{"__typename":"MenuPageItem","id":"28572075074","name":"Jack Cheese","description":"A side of Monterrey Jack cheese. 4oz","displayPrice":"$$2.49","displayStrikethroughPrice":"","imageUrl":"https://img.cdn4dd.com/cdn-cgi/image/fit=contain,width=1200,height=672,format=auto/https://doordash-static.s3.amazonaws.com/media/photosV2/b83f5fa1-eff9-4f80-8aa1-bd284093e69a-"
+
