@@ -6,7 +6,6 @@ import { Camera, Star, Info, X, Check, Trash2, Image as ImageIcon, Sparkles, Vid
 import { uploadPhotos } from '@/lib/uploadPhotos'
 import { compressImage } from '@/lib/image-compression'
 import { useLanguage } from '@/lib/i18n'
-import LiveCamera from '@/components/checklists/LiveCamera'
 
 interface QuestionProps {
     question: {
@@ -42,39 +41,30 @@ const isVideo = (url: string) => {
 export default function DynamicQuestion({ question, index, value, photos, onChange, onPhotosChange, checklistType, comment, onCommentChange }: QuestionProps) {
     const { t } = useLanguage()
     const [uploading, setUploading] = useState(false)
-    const [showCamera, setShowCamera] = useState(false)
 
-    // Ref for video input only (photos now use LiveCamera)
+    // Separate refs for distinct Android intents
+    const photoInputRef = useRef<HTMLInputElement>(null)
     const videoInputRef = useRef<HTMLInputElement>(null)
 
-    // Handler for LiveCamera capture (single photo at a time)
-    const handleLiveCameraCapture = async (file: File) => {
-        setUploading(true)
-        try {
-            const compressed = await compressImage(file)
-            const urls = await uploadPhotos([compressed], 'checklist-photos', `question-${question.id}`)
-            onPhotosChange([...photos, ...urls])
-        } catch (err) {
-            console.error('Upload failed:', err)
-            alert(t('inspections.form.dynamic.upload_error'))
-        } finally {
-            setUploading(false)
-        }
-    }
-
-    // Handler for video file input (kept as native input)
-    const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files?.length) return
         setUploading(true)
         try {
+            // Compress all images in parallel
             const originalFiles = Array.from(e.target.files)
-            const urls = await uploadPhotos(originalFiles, 'checklist-photos', `question-${question.id}`)
+            const compressedFiles = await Promise.all(
+                originalFiles.map(file => compressImage(file))
+            )
+
+            const urls = await uploadPhotos(compressedFiles, 'checklist-photos', `question-${question.id}`)
             onPhotosChange([...photos, ...urls])
         } catch (err) {
             console.error('Upload failed:', err)
             alert(t('inspections.form.dynamic.upload_error'))
         } finally {
             setUploading(false)
+            // Reset all inputs
+            if (photoInputRef.current) photoInputRef.current.value = ''
             if (videoInputRef.current) videoInputRef.current.value = ''
         }
     }
@@ -285,26 +275,17 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         ))}
                     </AnimatePresence>
 
-                    {/* BUTTON 1: CAMERA (Photos) — Opens LiveCamera */}
+                    {/* BUTTON 1: CAMERA (Photos) */}
                     <button
-                        type="button" onClick={() => setShowCamera(true)} disabled={uploading}
+                        type="button" onClick={() => photoInputRef.current?.click()} disabled={uploading}
                         className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
                     >
                         <Camera size={18} />
                         <span className="text-[8px] font-black uppercase">{t('inspections.form.dynamic.photo_label')}</span>
                     </button>
+                    <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*" capture="environment" multiple />
 
-                    {/* LiveCamera Modal for Evidence Photos */}
-                    {showCamera && (
-                        <LiveCamera
-                            facingMode="environment"
-                            allowMultiple
-                            onCapture={handleLiveCameraCapture}
-                            onClose={() => setShowCamera(false)}
-                        />
-                    )}
-
-                    {/* BUTTON 2: VIDEO (Video) — Kept as native input */}
+                    {/* BUTTON 2: VIDEO (Video) */}
                     <button
                         type="button" onClick={() => videoInputRef.current?.click()} disabled={uploading}
                         className="h-16 w-16 rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 flex flex-col items-center justify-center gap-1 flex-shrink-0 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors"
@@ -312,7 +293,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                         <Video size={18} />
                         <span className="text-[8px] font-black uppercase">{t('inspections.form.dynamic.video_label')}</span>
                     </button>
-                    <input type="file" ref={videoInputRef} onChange={handleVideoUpload} className="hidden" accept="video/*" capture="environment" />
+                    <input type="file" ref={videoInputRef} onChange={handlePhotoUpload} className="hidden" accept="video/*" capture="environment" multiple />
 
 
 

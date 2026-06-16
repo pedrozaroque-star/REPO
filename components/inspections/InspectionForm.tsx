@@ -7,7 +7,6 @@ import { ShieldCheck, Camera, Send, Calendar, Clock, MapPin, Sun, Moon, CheckCir
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
 import { useDynamicChecklist } from '@/hooks/useDynamicChecklist'
 import DynamicQuestion from '@/components/checklists/DynamicQuestion'
-import LiveCamera from '@/components/checklists/LiveCamera'
 import { getSafeLADateISO } from '@/lib/checklistPermissions'
 import { getNumericValue } from '@/lib/scoreCalculator'
 import { useLanguage } from '@/lib/i18n'
@@ -187,11 +186,12 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
   /* INSPECTOR SELFIE LOGIC */
   const [inspectorPhoto, setInspectorPhoto] = useState<string | null>(initialData?.inspector_photo_url || null)
   const [uploadingSelfie, setUploadingSelfie] = useState(false)
-  const [showSelfieCamera, setShowSelfieCamera] = useState(false)
 
-  const handleSelfieCapture = async (file: File) => {
-    setShowSelfieCamera(false)
+  const handleInspectorPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return
+
     setUploadingSelfie(true)
+    const file = e.target.files[0]
 
     try {
       // Compress
@@ -202,7 +202,7 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
         fileType: 'image/webp'
       }
 
-      let fileToUpload: File = file
+      let fileToUpload = file
       try {
         const imageCompression = (await import('browser-image-compression')).default
         fileToUpload = await imageCompression(file, options)
@@ -818,12 +818,8 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                 <div className="absolute inset-0 rounded-full ring-inset ring-2 ring-black/5 pointer-events-none" />
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => setShowSelfieCamera(true)}
-                disabled={uploadingSelfie}
-                className={`cursor-pointer group relative overflow-hidden w-48 h-48 rounded-full bg-white border-4 border-dashed border-indigo-200 flex flex-col items-center justify-center hover:bg-indigo-50 hover:border-indigo-300 transition-all ${uploadingSelfie ? 'opacity-50 pointer-events-none' : ''}`}
-              >
+              <label className={`cursor-pointer group relative overflow-hidden w-48 h-48 rounded-full bg-white border-4 border-dashed border-indigo-200 flex flex-col items-center justify-center hover:bg-indigo-50 hover:border-indigo-300 transition-all ${uploadingSelfie ? 'opacity-50 pointer-events-none' : ''}`}>
+
                 {uploadingSelfie ? (
                   <div className="flex flex-col items-center gap-2">
                     <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -838,16 +834,16 @@ export default function InspectionForm({ user, initialData, stores }: { user: an
                     <span className="text-[10px] text-indigo-400 mt-1 px-4 text-center leading-tight">{t('inspections.form.evidence.mandatory')}</span>
                   </>
                 )}
-              </button>
-            )}
 
-            {/* LiveCamera Modal for Selfie */}
-            {showSelfieCamera && (
-              <LiveCamera
-                facingMode="user"
-                onCapture={handleSelfieCapture}
-                onClose={() => setShowSelfieCamera(false)}
-              />
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  className="hidden"
+                  onChange={handleInspectorPhotoUpload}
+                  disabled={uploadingSelfie}
+                />
+              </label>
             )}
           </div>
         </div>
