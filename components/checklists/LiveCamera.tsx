@@ -9,38 +9,23 @@
  * del sistema operativo. Esto elimina completamente la opción de subir fotos de la galería.
  * 
  * ═══════════════════════════════════════════════════════════════════════
- *   📱 PARA CUANDO EVOLUCIONEMOS A APP PUBLICADA EN APP STORE / GOOGLE PLAY
+ *   📱 COMPATIBLE CON PWA STANDALONE (iOS + Android)
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * Actualmente la app funciona como PWA standalone (instalada desde el navegador).
- * En modo PWA standalone en iOS, getUserMedia puede ser inestable (el stream de cámara
- * se congela o no inicia). Por eso, por ahora usamos <input type="file" capture="...">
- * que delega al OS la captura.
- * 
- * Cuando la app se publique como app nativa (React Native, Capacitor, etc.),
- * este componente debe integrarse para bloquear 100% el acceso a la galería:
- * 
- *   1. En InspectionForm.tsx (selfie):
- *      - Reemplazar <input type="file" capture="user"> por <LiveCamera facingMode="user" />
- * 
- *   2. En DynamicQuestion.tsx (fotos de evidencia):
- *      - Reemplazar <input type="file" capture="environment"> por <LiveCamera facingMode="environment" allowMultiple />
- * 
- *   3. Las claves i18n ya están creadas en lib/i18n.tsx bajo 'inspections.form.camera.*'
- * 
- * ═══════════════════════════════════════════════════════════════════════
+ * Si getUserMedia falla o se cuelga (timeout 5s), cae automáticamente al fallback
+ * con <input capture> que abre la cámara nativa del OS.
  * 
  * @businessRules
  * - Los supervisores DEBEN tomar fotos en tiempo real durante inspecciones
  * - NO se permite subir fotos de la galería (ni iPhone ni Android)
- * - Si getUserMedia falla (PWA standalone en iOS raro), se recurre a <input capture> como fallback
+ * - Si getUserMedia falla (PWA standalone en iOS), se recurre a <input capture> como fallback
  * @dataFlow
  * - getUserMedia → video stream → canvas capture → blob → File → callback onCapture
  * @notes
  * - Safari iOS REQUIERE playsinline + muted en el <video> o el stream no se muestra
+ * - Safari NO soporta canvas.toBlob('image/webp') — se usa 'image/jpeg' como fallback
+ * - Timeout de 5 segundos: si getUserMedia no responde, cae a fallback automáticamente
  * - Siempre llamar track.stop() al cerrar para liberar cámara y batería
- * - Usar toBlob() (async) en vez de toDataURL() (sync) por performance en móvil
- * - Probado y confirmado compatible con: Chrome Android, Safari iOS (browser), Firefox, Desktop
  */
 
 import React, { useRef, useState, useEffect, useCallback } from 'react'
@@ -58,11 +43,24 @@ interface LiveCameraProps {
     allowMultiple?: boolean
 }
 
+/** Detecta si el navegador soporta WebP en canvas */
+function supportsWebP(): boolean {
+    try {
+        const c = document.createElement('canvas')
+        c.width = 1
+        c.height = 1
+        return c.toDataURL('image/webp').startsWith('data:image/webp')
+    } catch {
+        return false
+    }
+}
+
 export default function LiveCamera({ facingMode, onCapture, onClose, allowMultiple = false }: LiveCameraProps) {
     const { t } = useLanguage()
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const streamRef = useRef<MediaStream | null>(null)
+    const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const [status, setStatus] = useState<'loading' | 'streaming' | 'preview' | 'error' | 'fallback'>('loading')
     const [error, setError] = useState<string>('')
@@ -73,6 +71,21 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
     // Fallback input ref
     const fallbackInputRef = useRef<HTMLInputElement>(null)
 
+    // Stop camera stream
+    const stopCamera = useCallback(() => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current)
+            timeoutRef.current = null
+        }
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop())
+            streamRef.current = null
+        }
+        if (videoRef.current) {
+            videoRef.current.srcObject = null
+        }
+    }, [])
+
     // Start camera stream
     const startCamera = useCallback(async () => {
         setStatus('loading')
@@ -80,9 +93,18 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
 
         // Check if getUserMedia is supported
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.warn('[LiveCamera] getUserMedia not supported, using fallback')
             setStatus('fallback')
             return
         }
+
+        // Timeout: if camera doesn't start in 5 seconds, fall back
+        // This handles iOS standalone mode where getUserMedia can hang
+        timeoutRef.current = setTimeout(() => {
+            console.warn('[LiveCamera] Camera timeout (5s), falling back to native input')
+            stopCamera()
+            setStatus('fallback')
+        }, 5000)
 
         try {
             const constraints: MediaStreamConstraints = {
@@ -95,49 +117,57 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
             }
 
             const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+            // Clear timeout — camera started successfully
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current)
+                timeoutRef.current = null
+            }
+
             streamRef.current = stream
 
             if (videoRef.current) {
                 videoRef.current.srcObject = stream
-                // Wait for video to be ready
-                videoRef.current.onloadedmetadata = () => {
+
+                // Use both event listeners for maximum iOS compatibility
+                const onReady = () => {
                     videoRef.current?.play().then(() => {
                         setStatus('streaming')
                     }).catch(() => {
-                        // If autoplay fails, try with user interaction
+                        // Autoplay blocked — still show streaming so user can tap to play
                         setStatus('streaming')
                     })
                 }
+
+                // Try loadeddata (more reliable on iOS than loadedmetadata)
+                videoRef.current.onloadeddata = onReady
+
+                // Safety: also try playing after a short delay if events don't fire
+                setTimeout(() => {
+                    if (videoRef.current && videoRef.current.readyState >= 2) {
+                        onReady()
+                    }
+                }, 500)
             }
         } catch (err: any) {
-            console.error('Camera error:', err)
+            console.error('[LiveCamera] Camera error:', err)
+
+            // Clear timeout on error
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current)
+                timeoutRef.current = null
+            }
 
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                 setError(t('inspections.form.camera.permission_denied'))
                 setStatus('error')
-            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                // No camera found, fall back
-                setStatus('fallback')
-            } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-                // Camera in use or hardware error — try fallback
-                setStatus('fallback')
             } else {
-                // Any other error — try fallback
+                // Any other error — try fallback (NotFoundError, NotReadableError, etc.)
+                console.warn('[LiveCamera] Falling back to native input due to:', err.name)
                 setStatus('fallback')
             }
         }
-    }, [facingMode, t])
-
-    // Stop camera stream
-    const stopCamera = useCallback(() => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop())
-            streamRef.current = null
-        }
-        if (videoRef.current) {
-            videoRef.current.srcObject = null
-        }
-    }, [])
+    }, [facingMode, t, stopCamera])
 
     // Capture photo from video stream
     const capturePhoto = useCallback(() => {
@@ -149,8 +179,8 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
         if (!ctx) return
 
         // Set canvas to video dimensions for full resolution
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
+        canvas.width = video.videoWidth || 1280
+        canvas.height = video.videoHeight || 720
 
         // If front camera, mirror the image
         if (facingMode === 'user') {
@@ -163,6 +193,11 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
         // Reset transform
         ctx.setTransform(1, 0, 0, 1, 0, 0)
 
+        // Safari doesn't support WebP in canvas — use JPEG as fallback
+        const useWebP = supportsWebP()
+        const mimeType = useWebP ? 'image/webp' : 'image/jpeg'
+        const ext = useWebP ? 'webp' : 'jpg'
+
         // Convert to blob (async, memory efficient)
         canvas.toBlob((blob) => {
             if (blob) {
@@ -171,18 +206,22 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
                 setCapturedUrl(url)
                 setStatus('preview')
             }
-        }, 'image/webp', 0.85)
 
-        // Clean up canvas memory
-        canvas.width = 0
-        canvas.height = 0
+            // Clean up canvas memory
+            canvas.width = 0
+            canvas.height = 0
+        }, mimeType, 0.85)
     }, [facingMode])
 
     // Confirm captured photo
     const confirmPhoto = useCallback(() => {
         if (!capturedBlob) return
 
-        const file = new File([capturedBlob], `capture-${Date.now()}.webp`, { type: 'image/webp' })
+        const useWebP = supportsWebP()
+        const ext = useWebP ? 'webp' : 'jpg'
+        const mimeType = useWebP ? 'image/webp' : 'image/jpeg'
+
+        const file = new File([capturedBlob], `capture-${Date.now()}.${ext}`, { type: mimeType })
         onCapture(file)
         setPhotoCount(prev => prev + 1)
 
@@ -228,10 +267,16 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
         startCamera()
         return () => {
             stopCamera()
-            if (capturedUrl) URL.revokeObjectURL(capturedUrl)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    // Clean up captured URL on unmount
+    useEffect(() => {
+        return () => {
+            if (capturedUrl) URL.revokeObjectURL(capturedUrl)
+        }
+    }, [capturedUrl])
 
     // Handle body scroll lock
     useEffect(() => {
@@ -243,24 +288,20 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
 
     const handleClose = () => {
         stopCamera()
-        if (capturedUrl) URL.revokeObjectURL(capturedUrl)
         onClose()
     }
 
-    // ─── FALLBACK MODE ───
+    // ─── FALLBACK MODE (PWA standalone / unsupported browser) ───
     if (status === 'fallback') {
         return (
             <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-6">
                 <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-sm w-full text-center space-y-5">
-                    <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
-                        <AlertTriangle className="w-8 h-8 text-amber-600" />
+                    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
+                        <Camera className="w-8 h-8 text-blue-600" />
                     </div>
-                    <p className="text-sm text-gray-600 dark:text-slate-300">
-                        {t('inspections.form.camera.not_supported')}
-                    </p>
 
-                    <label className="block cursor-pointer bg-blue-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-blue-700 active:scale-95 transition-all">
-                        <Camera className="inline w-5 h-5 mr-2" />
+                    <label className="block cursor-pointer bg-blue-600 text-white font-bold py-4 px-6 rounded-xl hover:bg-blue-700 active:scale-95 transition-all text-base">
+                        <Camera className="inline w-5 h-5 mr-2 -mt-0.5" />
                         {t('inspections.form.camera.take_photo')}
                         <input
                             ref={fallbackInputRef}
@@ -287,7 +328,7 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
         )
     }
 
-    // ─── ERROR MODE ───
+    // ─── ERROR MODE (permission denied) ───
     if (status === 'error') {
         return (
             <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-6">
@@ -311,7 +352,7 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
             <canvas ref={canvasRef} className="hidden" />
 
             {/* Top bar */}
-            <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/60 to-transparent">
+            <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/60 to-transparent" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
                 <button onClick={handleClose} className="w-10 h-10 bg-black/40 backdrop-blur-sm rounded-full flex items-center justify-center text-white active:scale-90 transition-transform">
                     <X size={22} />
                 </button>
@@ -331,6 +372,7 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
                     </div>
                 )}
 
+                {/* Video element — MUST have playsinline + muted for iOS Safari */}
                 <video
                     ref={videoRef}
                     autoPlay
@@ -349,9 +391,9 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
             </div>
 
             {/* Bottom controls */}
-            <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent pb-safe">
+            <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
                 {status === 'streaming' && (
-                    <div className="flex items-center justify-center gap-6 py-6 pb-8">
+                    <div className="flex items-center justify-center gap-6 py-6">
                         {allowMultiple && photoCount > 0 && (
                             <button onClick={handleClose} className="w-14 h-14 bg-green-500 rounded-full flex items-center justify-center text-white shadow-lg active:scale-90 transition-transform">
                                 <Check size={24} />
@@ -370,7 +412,7 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
                 )}
 
                 {status === 'preview' && (
-                    <div className="flex items-center justify-center gap-8 py-6 pb-8">
+                    <div className="flex items-center justify-center gap-8 py-6">
                         {/* Retake */}
                         <button onClick={retakePhoto} className="flex flex-col items-center gap-1.5 active:scale-90 transition-transform">
                             <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
@@ -387,6 +429,15 @@ export default function LiveCamera({ facingMode, onCapture, onClose, allowMultip
                             <span className="text-white text-[10px] font-bold uppercase">
                                 {allowMultiple ? t('inspections.form.camera.take_another') : t('inspections.form.camera.use_photo')}
                             </span>
+                        </button>
+                    </div>
+                )}
+
+                {/* Loading state also shows a cancel button */}
+                {status === 'loading' && (
+                    <div className="flex items-center justify-center py-6">
+                        <button onClick={handleClose} className="text-white/60 text-sm font-medium active:scale-95 transition-transform">
+                            {t('inspections.form.camera.close')}
                         </button>
                     </div>
                 )}
