@@ -2,7 +2,7 @@
 
 /**
  * @module LiveCamera
- * @status 🔒 RESERVADO PARA FUTURO — No integrado actualmente.
+ * @status ✅ ACTIVO — Integrado en InspectionForm.tsx (selfie) y DynamicQuestion.tsx (evidencia).
  * 
  * @description Componente de cámara en vivo usando getUserMedia API.
  * Abre la cámara del dispositivo directamente en el navegador, sin pasar por el selector de archivos
