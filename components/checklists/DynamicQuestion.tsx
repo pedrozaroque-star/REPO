@@ -268,7 +268,7 @@ export default function DynamicQuestion({ question, index, value, photos, onChan
                                 ) : (
                                     <img src={url} className="w-16 h-16 object-cover rounded-xl shadow-sm border border-gray-200 dark:border-slate-700" alt="Evidence" />
                                 )}
-                                <button onClick={() => removePhoto(url)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md scale-0 group-hover/delete:scale-100 transition-transform z-10">
+                                <button onClick={() => removePhoto(url)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md scale-100 md:scale-0 md:group-hover/delete:scale-100 transition-transform z-10">
                                     <X size={12} strokeWidth={3} />
                                 </button>
                             </motion.div>
