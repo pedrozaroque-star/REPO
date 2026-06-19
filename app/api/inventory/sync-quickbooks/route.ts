@@ -20,14 +20,22 @@
  *   del proveedor externo.
  * - Solo se procesan items de QB con Type = 'Inventory' o 'NonInventory'.
  *
+ * SMART PRICE PROTECTION (2026-06-19):
+ * - `multiplier`: Columna en `quickbooks_mappings` para items donde QB tiene precio
+ *   por pieza pero DB guarda por case. Ej: Papelito (QB $0.58/pza × 60 = DB $34.80).
+ *   Fallback: mapa hardcodeado `FALLBACK_MULTIPLIERS` si la columna no existe.
+ * - `max_drop_percent`: % máximo permitido de caída por sync (default 50%).
+ *   → SUBIDAS de precio: SIEMPRE se permiten (ej: $0.58 → $0.62 ✅)
+ *   → BAJADAS ≤ max_drop_percent: se permiten (ej: -10% ✅)
+ *   → BAJADAS > max_drop_percent: se BLOQUEAN y se logea warning (ej: -60% ❌)
+ *
  * DATA FLOW:
  * 1. Lee la integración de QB desde `integrations` table (tokens OAuth)
  * 2. Renueva el OAuth token via `authClient.refreshUsingToken()`
  * 3. Inicializa QB client con `node-quickbooks` SDK
  * 4. Fetch de todos los items activos de QB (`findItems`)
  * 5. Para cada QB item:
- *    - Case A (ya mapeado): Actualiza precio en `inventory_items`, registra
- *      cambio en `inventory_price_history` si |oldPrice - newPrice| > $0.001
+ *    - Case A (ya mapeado): Verifica protección → Actualiza si pasa
  *    - Case B (no mapeado, nombre coincide): Crea mapping en `quickbooks_mappings`
  *    - Case C (no mapeado, no existe): Crea nuevo `inventory_item` + mapping
  *
@@ -39,7 +47,7 @@
  * Tablas Supabase:
  * - `integrations` → tokens OAuth, realm_id de QuickBooks
  * - `inventory_items` → catálogo interno de ingredientes con precios
- * - `quickbooks_mappings` → relación QB item ID ↔ inventory_item_id
+ * - `quickbooks_mappings` → relación QB item ID ↔ inventory_item_id + multiplier + max_drop_percent
  * - `inventory_price_history` → historial de cambios de precio por item
  *
  * NOTES:
@@ -49,6 +57,7 @@
  * - Items nuevos se crean con `unit_type: 'Unit'` por defecto; el gerente
  *   debe ajustar la unidad correcta después.
  * - El matching de nombres es exact-match case-insensitive con trim.
+ * - [2026-06-19] Added smart price protection: multiplier from DB, max_drop_percent blocking.
  */
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
@@ -121,13 +130,17 @@ export async function POST() {
         const { data: internalItems } = await supabase.from('inventory_items').select('*');
         if (!internalItems) throw new Error('No internal items found');
 
-        const { data: existingMappings } = await supabase.from('quickbooks_mappings').select('qb_item_id, inventory_item_id');
+        // Fetch mappings with protection columns (multiplier, max_drop_percent)
+        // If columns don't exist yet (pre-migration), the select still works — those fields will be undefined
+        const { data: existingMappings } = await supabase.from('quickbooks_mappings').select('qb_item_id, inventory_item_id, multiplier, max_drop_percent');
         const mappedQbIds = new Set(existingMappings?.map(m => m.qb_item_id));
         const usedInternalIds = new Set(existingMappings?.map(m => m.inventory_item_id));
 
         let updatedCount = 0;
         let createdCount = 0;
         let priceChanges = 0;
+        let blockedCount = 0;
+        const blockedItems: string[] = [];
 
         // Build a lookup of current prices for change detection
         const currentPriceMap = new Map<string, number>();
@@ -138,6 +151,13 @@ export async function POST() {
         const DEFAULT_CATEGORY_ID = '5678dc7e-4514-4757-a5d0-9330e904140e'; // QuickBooks Import
         const now = new Date();
 
+        // FALLBACK multipliers: Used when the DB columns don't exist yet (pre-migration)
+        // Once the migration runs, these are overridden by quickbooks_mappings.multiplier
+        const FALLBACK_MULTIPLIERS: Record<string, number> = {
+            '540': 60, // Papelito Para Torta (QB has price per piece, DB has Case of 60)
+        };
+        const DEFAULT_MAX_DROP_PERCENT = 50; // Block drops > 50% by default
+
         for (const qbItem of qbItems) {
             if (qbItem.Type !== 'Inventory' && qbItem.Type !== 'NonInventory') continue;
 
@@ -146,13 +166,36 @@ export async function POST() {
             // Fallback to UnitPrice only for NonInventory/Service items that lack PurchaseCost.
             const purchaseCost = Number(qbItem.PurchaseCost || 0);
             const unitPrice = Number(qbItem.UnitPrice || 0);
-            const rate = purchaseCost > 0 ? purchaseCost : unitPrice;
+            const baseRate = purchaseCost > 0 ? purchaseCost : unitPrice;
 
             // Case A: Already mapped
             const existingMapping = existingMappings?.find(m => m.qb_item_id === qbItem.Id);
             if (existingMapping) {
+                // --- SMART PRICE PROTECTION ---
+                // 1. Get multiplier: from DB column (post-migration) or fallback map (pre-migration)
+                const dbMultiplier = Number((existingMapping as any).multiplier);
+                const multiplier = (dbMultiplier && dbMultiplier > 0) ? dbMultiplier : (FALLBACK_MULTIPLIERS[qbItem.Id] || 1);
+                const rate = baseRate * multiplier;
+
                 const oldPrice = currentPriceMap.get(existingMapping.inventory_item_id) || 0;
 
+                // 2. Check price protection: allow increases, block suspicious drops
+                if (oldPrice > 0 && rate > 0 && rate < oldPrice) {
+                    const dropPercent = ((oldPrice - rate) / oldPrice) * 100;
+                    const maxDrop = Number((existingMapping as any).max_drop_percent) || DEFAULT_MAX_DROP_PERCENT;
+
+                    if (dropPercent > maxDrop) {
+                        // 🛡️ BLOCKED: Suspicious price drop
+                        console.log(`[QB-Sync] 🛡️ BLOCKED: "${qbItem.Name}" price drop ${dropPercent.toFixed(1)}% exceeds max ${maxDrop}% ($${oldPrice.toFixed(2)} → $${rate.toFixed(2)})`);
+                        blockedCount++;
+                        blockedItems.push(`${qbItem.Name}: $${oldPrice.toFixed(2)} → $${rate.toFixed(2)} (-${dropPercent.toFixed(1)}%)`);
+                        // Still update the mapping's last_fetch_cost so we know what QB tried to send
+                        await supabase.from('quickbooks_mappings').update({ last_fetch_cost: rate, updated_at: now }).eq('qb_item_id', qbItem.Id);
+                        continue; // Skip the actual price update
+                    }
+                }
+
+                // 3. Price is acceptable (increase or small drop) — apply update
                 // Save price history ONLY if the price actually changed
                 if (Math.abs(oldPrice - rate) > 0.001 && rate > 0) {
                     await supabase.from('inventory_price_history').insert({
@@ -161,7 +204,8 @@ export async function POST() {
                         effective_date: now.toISOString()
                     });
                     priceChanges++;
-                    console.log(`[QB-Sync] 💰 Price change: ${qbItem.Name} $${oldPrice.toFixed(2)} → $${rate.toFixed(2)}`);
+                    const direction = rate > oldPrice ? '⬆️' : '⬇️';
+                    console.log(`[QB-Sync] ${direction} Price change: ${qbItem.Name} $${oldPrice.toFixed(2)} → $${rate.toFixed(2)}`);
                 }
 
                 await supabase.from('inventory_items').update({ purchase_unit_cost: rate, updated_at: now }).eq('id', existingMapping.inventory_item_id);
@@ -169,6 +213,10 @@ export async function POST() {
                 updatedCount++;
                 continue;
             }
+
+            // For new/unmapped items, apply multiplier from fallback map only
+            const newItemMultiplier = FALLBACK_MULTIPLIERS[qbItem.Id] || 1;
+            const rate = baseRate * newItemMultiplier;
 
             // Case B: Not mapped, try to find a FREE internal item by Name exactly
             let internal = internalItems.find(i =>
@@ -214,13 +262,20 @@ export async function POST() {
             updatedCount++;
         }
 
-        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes tracked`);
+        // Log summary with protection details
+        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked`);
+        if (blockedItems.length > 0) {
+            console.log(`[QB-Sync] 🛡️ Blocked items:`);
+            blockedItems.forEach(b => console.log(`  - ${b}`));
+        }
 
         return NextResponse.json({
             success: true,
             updatedCount,
             createdCount,
-            priceChanges
+            priceChanges,
+            blockedCount,
+            blockedItems: blockedItems.length > 0 ? blockedItems : undefined
         });
 
     } catch (error: any) {
