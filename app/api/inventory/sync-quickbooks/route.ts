@@ -8,16 +8,16 @@
  * del proveedor y registra cambios de precio en `inventory_price_history`.
  *
  * BUSINESS RULES:
- * - PRECIO CORRECTO: Se usa `PurchaseCost` (costo de compra al proveedor externo),
- *   NO `UnitPrice` (precio de venta/reventa). Ejemplo real: "Papelito Para Torta"
- *   tiene UnitPrice=$18 (venta) vs PurchaseCost=$0.58 (compra). Usar UnitPrice
- *   causaba oscilaciones de costos absurdas.
- * - Fallback: `UnitPrice` solo se usa para items NonInventory/Service sin PurchaseCost.
- * - MODELO BODEGA: La bodega de Tacos Gavilán es el proveedor interno que compra
- *   al proveedor externo y revende a los restaurantes. Items creados desde QB
- *   se marcan con `is_bodega: true` (items de almacén/warehouse). Ambos tipos
- *   (bodega y restaurant) usan PurchaseCost porque representa el costo real
- *   del proveedor externo.
+ * - PRECIO CORRECTO: Se usa `UnitPrice` (precio que la bodega cobra al restaurante),
+ *   que refleja el costo real del restaurante. `PurchaseCost` es lo que la bodega
+ *   paga al proveedor externo y resulta en un food cost artificialmente bajo (~27%
+ *   en vez del real ~33-35%).
+ * - Fallback: `PurchaseCost` se usa si `UnitPrice` no existe.
+ * - EXCEPCIÓN multiplier: Items con multiplier > 1 (ej: Papelito, que tiene UnitPrice=$18
+ *   inflado) usan PurchaseCost × multiplier para obtener el precio correcto por case.
+ * - MODELO BODEGA: La bodega de Tacos Gavilán compra al proveedor externo (PurchaseCost)
+ *   y revende a los restaurantes (UnitPrice). El food cost del restaurante debe usar
+ *   UnitPrice porque es lo que realmente paga.
  * - Solo se procesan items de QB con Type = 'Inventory' o 'NonInventory'.
  *
  * SMART PRICE PROTECTION (2026-06-19):
@@ -161,12 +161,17 @@ export async function POST() {
         for (const qbItem of qbItems) {
             if (qbItem.Type !== 'Inventory' && qbItem.Type !== 'NonInventory') continue;
 
-            // CRITICAL: Use PurchaseCost (costo de compra al proveedor), NOT UnitPrice (precio de venta).
-            // UnitPrice caused oscillation bugs (e.g., Papelito Para Torta: $18 sale vs $0.58 purchase).
-            // Fallback to UnitPrice only for NonInventory/Service items that lack PurchaseCost.
+            // PRICE FIELD SELECTION:
+            // La bodega compra al proveedor externo (PurchaseCost) y revende al restaurante (UnitPrice).
+            // El food cost del RESTAURANTE debe usar UnitPrice (lo que realmente paga).
+            // Fallback: PurchaseCost si UnitPrice no existe.
+            // EXCEPCIÓN: Items con multiplier > 1 (ej: Papelito) usan PurchaseCost × multiplier
+            //   porque QB tiene precio unitario ($0.58/pza) y el multiplier lo convierte a case ($34.80).
+            //   UnitPrice para estos items suele ser un precio de venta inflado ($18) que no aplica.
             const purchaseCost = Number(qbItem.PurchaseCost || 0);
             const unitPrice = Number(qbItem.UnitPrice || 0);
-            const baseRate = purchaseCost > 0 ? purchaseCost : unitPrice;
+            // Default: UnitPrice first, PurchaseCost as fallback
+            const baseRate = unitPrice > 0 ? unitPrice : purchaseCost;
 
             // Case A: Already mapped
             const existingMapping = existingMappings?.find(m => m.qb_item_id === qbItem.Id);
@@ -175,7 +180,10 @@ export async function POST() {
                 // 1. Get multiplier: from DB column (post-migration) or fallback map (pre-migration)
                 const dbMultiplier = Number((existingMapping as any).multiplier);
                 const multiplier = (dbMultiplier && dbMultiplier > 0) ? dbMultiplier : (FALLBACK_MULTIPLIERS[qbItem.Id] || 1);
-                const rate = baseRate * multiplier;
+                // Items con multiplier > 1 (ej: Papelito) deben usar PurchaseCost × multiplier
+                // porque QB tiene precio unitario y UnitPrice es un precio de venta inflado.
+                const effectiveBase = multiplier > 1 ? (purchaseCost > 0 ? purchaseCost : baseRate) : baseRate;
+                const rate = effectiveBase * multiplier;
 
                 const oldPrice = currentPriceMap.get(existingMapping.inventory_item_id) || 0;
 
