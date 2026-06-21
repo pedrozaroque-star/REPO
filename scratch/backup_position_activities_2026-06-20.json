@@ -1,0 +1,3272 @@
+[
+  {
+    "id": "be40ba6e-d414-4fff-bc58-a14be0034baf",
+    "position_key": "MANAGER",
+    "shift": "AMBOS",
+    "activity_id": "44aa6968-38b1-41d7-a964-d5036221db45",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 960,
+    "created_at": "2026-06-07T17:01:58.261272+00:00"
+  },
+  {
+    "id": "27d5fc28-b3c0-448d-a03d-202c358c17af",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "8c2e3bc4-efc9-48d2-afe2-462c1f607c8c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 590,
+    "created_at": "2026-06-07T17:01:58.261272+00:00"
+  },
+  {
+    "id": "365beb8f-e29c-44b4-9c3b-9553653edda4",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "8c2e3bc4-efc9-48d2-afe2-462c1f607c8c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 590,
+    "created_at": "2026-06-07T17:01:58.261272+00:00"
+  },
+  {
+    "id": "ac059a51-df51-401c-bc38-2108c2734660",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "8c2e3bc4-efc9-48d2-afe2-462c1f607c8c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 590,
+    "created_at": "2026-06-07T17:01:58.261272+00:00"
+  },
+  {
+    "id": "c720ccab-5291-4420-a766-09109a458dc6",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "4cbe4bcb-5ef6-4987-ad95-8859713c012e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 580,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "af277071-89a8-4f31-bcd1-ff8df4bae601",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "4cbe4bcb-5ef6-4987-ad95-8859713c012e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 580,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "ec1c0666-ab6e-466e-ba30-e6de508ff2d9",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "4cbe4bcb-5ef6-4987-ad95-8859713c012e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 580,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "65e916cb-93c5-4dea-9cfa-c54091d77fb9",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "5d0a2128-dfbd-4c16-be82-daf194bbbfd4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 543,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "56225e3a-524a-410a-be3e-853008f41e7d",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "5d0a2128-dfbd-4c16-be82-daf194bbbfd4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 543,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "e5a80771-8c49-49b8-b6ec-0bb4dd7038a4",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "5d0a2128-dfbd-4c16-be82-daf194bbbfd4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 543,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "3448b3d1-694a-4342-a360-b2e813451687",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "96c27d13-9992-4c78-ac32-cbefd61dceb7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 558,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "453015eb-fc50-4a29-add6-158581437bfd",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "96c27d13-9992-4c78-ac32-cbefd61dceb7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 558,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "341da066-f53d-4818-b332-3b613b61aeb5",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "96c27d13-9992-4c78-ac32-cbefd61dceb7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 558,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "5795d9cb-19f9-4bf5-b385-4ceb3289fef5",
+    "position_key": "MANAGER",
+    "shift": "PM",
+    "activity_id": "e9f3afd5-5b0f-4878-b97f-31a8b952d1e7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 60,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "e2c77c33-343a-438f-a2ee-db8801b80372",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "3ff78a6a-67ea-4a0e-bb4a-4668b8cbe501",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 540,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "df588829-be04-4a61-9da5-cbaeab37c1ec",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "3ff78a6a-67ea-4a0e-bb4a-4668b8cbe501",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 540,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "03f5d12a-d5ce-49c7-8ce9-4ec5bb216a51",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "3ff78a6a-67ea-4a0e-bb4a-4668b8cbe501",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 540,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "c495938c-7988-46db-8e1a-fa2035719cf3",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "1b39b267-c4e1-4d7a-8a25-5aef37c32d0d",
+    "frequency": "Viernes",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "534212ee-3f68-44ea-ab55-5d1f798ffac5",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "1b39b267-c4e1-4d7a-8a25-5aef37c32d0d",
+    "frequency": "Viernes",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "eeb7d54f-4969-42bd-8777-0c02f6f739c0",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "1b39b267-c4e1-4d7a-8a25-5aef37c32d0d",
+    "frequency": "Viernes",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "1ba158c2-32a8-4afe-8739-601f327c6a74",
+    "position_key": "MANAGER",
+    "shift": "PM",
+    "activity_id": "eae402fb-6344-4ed8-91ee-51cd9fb07fdc",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 80,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "30208b07-8e9d-416b-9999-bb7f2ad916d5",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "d1b80509-58a3-4a67-af0e-750bfb54f638",
+    "frequency": "Domingo",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "9d4d4449-4769-4acd-b62d-5818a5243c36",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "d1b80509-58a3-4a67-af0e-750bfb54f638",
+    "frequency": "Domingo",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "a8451467-e1cc-4470-92a7-21cae72aa1ef",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "d1b80509-58a3-4a67-af0e-750bfb54f638",
+    "frequency": "Domingo",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "71e20a9e-2cdd-4ebd-b1fa-8b4a29f2bea7",
+    "position_key": "MANAGER",
+    "shift": "PM",
+    "activity_id": "1b07d432-5a58-47df-8dd0-54efd7f306d8",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 60,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "d2f398a2-06c0-40cc-b4c6-a8b0e3122cfd",
+    "position_key": "ASSISTANT",
+    "shift": "AM",
+    "activity_id": "9af2cb82-aa6a-430a-a262-55713516a520",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "2b3e161c-264d-4bd4-a385-fccfbf9af98a",
+    "position_key": "SHIFT_LEADER_MALE",
+    "shift": "AM",
+    "activity_id": "9af2cb82-aa6a-430a-a262-55713516a520",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "ed084c17-0e21-459e-808c-bfbd6b5d533a",
+    "position_key": "SHIFT_LEADER_FEMALE",
+    "shift": "AM",
+    "activity_id": "9af2cb82-aa6a-430a-a262-55713516a520",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 542,
+    "created_at": "2026-06-07T17:01:58.518189+00:00"
+  },
+  {
+    "id": "e3e1c39c-f177-4727-aa8e-4d529be49780",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "50912ee1-4fee-4b46-a5e5-728dbaddf841",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "b79d9486-cc2e-4e7c-848f-d9a1006d8ae1",
+    "position_key": "Uber + Salsas",
+    "shift": "PM",
+    "activity_id": "cb27bdd6-3422-4d2e-a923-1cea352b319b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "947ef391-eabd-4767-b45a-2094441b48c6",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "58a4b30f-8fa4-40dc-9c64-b3ef4bec4b1e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "143756b7-0ee9-4271-92be-e39bc25e7996",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "6d8e4b04-d5bb-47df-8977-9cd85c6b8fe4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "d49b6bfd-c3d9-42eb-8aff-a37124b8a2a9",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "8defe4b9-4282-441e-b514-29bfb2ea079a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "03d55c11-2cba-4850-93ec-188fa69e03f2",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "207e5cd8-0cbb-4c81-8a9f-978ee11e7de2",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 900,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "8d4b9ef4-063c-445c-bf79-6fd316fbd85d",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "cb3e8521-3d90-4269-ac6c-3dad32e61d55",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "fa218f70-868c-4734-a45b-2e3da1081293",
+    "position_key": "Ventana 1",
+    "shift": "AM",
+    "activity_id": "05f1c463-0512-47a2-a3ae-486586a53ee0",
+    "frequency": "Diario",
+    "store_model": "DRIVE_THRU",
+    "sort_order": 480,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "035db4c4-284d-43c9-83be-b8c2a5f948ae",
+    "position_key": "Ventana 1",
+    "shift": "AM",
+    "activity_id": "58a4b30f-8fa4-40dc-9c64-b3ef4bec4b1e",
+    "frequency": "Diario",
+    "store_model": "DRIVE_THRU",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "489f50b0-8518-4018-ab7a-58cae1a6b61b",
+    "position_key": "Ventana 1",
+    "shift": "AM",
+    "activity_id": "7c7466ec-dfb7-42e6-96b8-c3953f646b97",
+    "frequency": "Diario",
+    "store_model": "DRIVE_THRU",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "eaf53115-1ce4-4079-8e09-6910623a58e6",
+    "position_key": "Ventana 2",
+    "shift": "AM",
+    "activity_id": "58a4b30f-8fa4-40dc-9c64-b3ef4bec4b1e",
+    "frequency": "Diario",
+    "store_model": "DRIVE_THRU",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "db52d5c6-8da1-4f8b-8253-cb4f8f4db4fc",
+    "position_key": "Uber + Salsas",
+    "shift": "AM",
+    "activity_id": "cb27bdd6-3422-4d2e-a923-1cea352b319b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "bc2d4e74-dd05-429b-be93-da9a87272274",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "54dc7f5f-6b55-42ff-924b-2b6dbea8ac3b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "75f04bfb-a351-4658-aa62-f19f9d039bae",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "54dc7f5f-6b55-42ff-924b-2b6dbea8ac3b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "9da9913f-fa38-46ee-adb1-4b9850936661",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "dfb09401-bbbb-4477-8da7-f242823ae3e4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "5854001c-9385-468a-bfd0-fe6b1ee71d18",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "dfb09401-bbbb-4477-8da7-f242823ae3e4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "90a1ff88-9e39-4780-b5d0-86365b6160e4",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "58a4b30f-8fa4-40dc-9c64-b3ef4bec4b1e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "caddf26e-aed0-46c1-b7cf-71005568d7fa",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "7c7466ec-dfb7-42e6-96b8-c3953f646b97",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "e4b374a7-9c87-44d5-8e2e-ed72c8904230",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "0f4782bb-501a-435b-a31d-beca81971789",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "c23e9a09-0db5-4292-a07e-de7e72466856",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "a8793815-a128-48e1-8abb-714efa9da147",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "059a19e9-09c8-4927-97fa-9d22365908d5",
+    "position_key": "Caja 2",
+    "shift": "PM",
+    "activity_id": "58a4b30f-8fa4-40dc-9c64-b3ef4bec4b1e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "09e43eb7-69e7-46a2-b5c6-9663ac6feae9",
+    "position_key": "Caja 2",
+    "shift": "PM",
+    "activity_id": "7c7466ec-dfb7-42e6-96b8-c3953f646b97",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "ff505816-4e0a-4f96-8e81-c6099d808d74",
+    "position_key": "Caja 2",
+    "shift": "PM",
+    "activity_id": "0f4782bb-501a-435b-a31d-beca81971789",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "7191ff47-fd3e-4bf6-ab76-1533ff11811d",
+    "position_key": "Caja 2",
+    "shift": "PM",
+    "activity_id": "a8793815-a128-48e1-8abb-714efa9da147",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "8f681cda-24a5-4aef-9696-7c8074c36d5b",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "50912ee1-4fee-4b46-a5e5-728dbaddf841",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "6c276a7b-cecc-4f85-b40c-5e87beec23bb",
+    "position_key": "LIMPIEZA",
+    "shift": "AM",
+    "activity_id": "ad0c6b39-d310-4bd3-9a37-7255d38e4155",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "1b957854-3c9f-49c2-8de7-7ab1ae9c2b90",
+    "position_key": "LIMPIEZA",
+    "shift": "AM",
+    "activity_id": "02de7adc-2b89-44d3-bd7f-21bb946e3a3d",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "90630765-e5df-4c19-a4a9-d00b941d001c",
+    "position_key": "LIMPIEZA",
+    "shift": "AM",
+    "activity_id": "8defe4b9-4282-441e-b514-29bfb2ea079a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "bb9836ae-03cb-4bb9-b2ed-9bf0bee9208c",
+    "position_key": "LIMPIEZA",
+    "shift": "AM",
+    "activity_id": "4aae2d81-5bfc-4a41-875f-aeb09c6c36b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 105,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "174d92f8-9103-4022-8912-5db38358d186",
+    "position_key": "LIMPIEZA",
+    "shift": "AM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "dc811c17-a812-45e5-bba8-e08cded82406",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "ad0c6b39-d310-4bd3-9a37-7255d38e4155",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "77b91809-3aad-4da2-829a-92c7aea301dc",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "02de7adc-2b89-44d3-bd7f-21bb946e3a3d",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "cf7a9ff2-354f-44ee-91f5-a55c156a9b31",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "8defe4b9-4282-441e-b514-29bfb2ea079a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "724ca3a1-0142-40b4-b9c9-0da90663e5cb",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "4aae2d81-5bfc-4a41-875f-aeb09c6c36b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 105,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "eccba0ab-ddd3-4a84-b3e7-a3cdd9e6edba",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "1f0b1c70-306a-43c7-be87-58f5ce26d9be",
+    "position_key": "Ventana 2",
+    "shift": "PM",
+    "activity_id": "58a4b30f-8fa4-40dc-9c64-b3ef4bec4b1e",
+    "frequency": "Diario",
+    "store_model": "DRIVE_THRU",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "7aefdb83-b66f-4537-a376-ab89875dd167",
+    "position_key": "PREPARACION",
+    "shift": "AM",
+    "activity_id": "e359fe7b-092b-4e5f-892b-90b0fd2f2822",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "1f4cff34-7113-4776-b295-acf7f9d87040",
+    "position_key": "PREPARACION",
+    "shift": "AM",
+    "activity_id": "ca8505b4-4c9f-4325-aff1-3dcce1e16fca",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "beac4e5c-f16a-4b2c-8b24-03e007261972",
+    "position_key": "PREPARACION",
+    "shift": "AM",
+    "activity_id": "e7b5428b-d38f-4786-b705-8b15064f4eb3",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "cbe788e6-ab12-43b4-a26e-fe9b6195d9ba",
+    "position_key": "PREPARACION",
+    "shift": "AM",
+    "activity_id": "6ffaa582-d2b5-417b-ba80-24d2df00e150",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "6ae8e403-6779-4644-9df7-35fbfe41e323",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "e359fe7b-092b-4e5f-892b-90b0fd2f2822",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "d0477694-9bbf-4473-83d2-ab4256b95ec4",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "ca8505b4-4c9f-4325-aff1-3dcce1e16fca",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "108fce58-fbcb-4251-ac33-379d16cfcf05",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "e7b5428b-d38f-4786-b705-8b15064f4eb3",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "6417fce0-1a1e-4f5c-98b5-ad19e6478797",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "6ffaa582-d2b5-417b-ba80-24d2df00e150",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "0d38bc03-31d2-469e-90b9-fdebc144856e",
+    "position_key": "TORTAS/MULITAS",
+    "shift": "AM",
+    "activity_id": "b0abaf5a-03cf-4632-be63-844a21f04941",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "fc669409-9ad9-495b-adbf-2b42d51cefea",
+    "position_key": "TORTAS/MULITAS",
+    "shift": "PM",
+    "activity_id": "b0abaf5a-03cf-4632-be63-844a21f04941",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "5d0c27c4-01c1-437f-a4c9-f0946e4fb156",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "58a4b30f-8fa4-40dc-9c64-b3ef4bec4b1e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "23eed723-6dea-4e0d-ad3f-01613c59fe0a",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "6d8e4b04-d5bb-47df-8977-9cd85c6b8fe4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "f67799b9-f2e6-4262-9ab4-7036ccb79bf4",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "8defe4b9-4282-441e-b514-29bfb2ea079a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "00b081fa-0d67-41d6-96ca-506909729deb",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "207e5cd8-0cbb-4c81-8a9f-978ee11e7de2",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 900,
+    "created_at": "2026-06-07T19:08:55.74911+00:00"
+  },
+  {
+    "id": "46dab79e-feba-434b-9416-899793f814c1",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "cb3e8521-3d90-4269-ac6c-3dad32e61d55",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.848279+00:00"
+  },
+  {
+    "id": "352da656-d4ee-4782-8d1c-f0dfe1cf35bb",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "b0abaf5a-03cf-4632-be63-844a21f04941",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.848279+00:00"
+  },
+  {
+    "id": "6929f4ca-d92d-4719-a275-b242d341ba73",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "b0abaf5a-03cf-4632-be63-844a21f04941",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 600,
+    "created_at": "2026-06-07T19:08:55.848279+00:00"
+  },
+  {
+    "id": "d197c4f2-6586-4052-9737-4a4a0fcacb6b",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "6ffaa582-d2b5-417b-ba80-24d2df00e150",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.848279+00:00"
+  },
+  {
+    "id": "61d3b0da-b6a7-4e82-bd14-e2f91e7deaaa",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "PM",
+    "activity_id": "6ffaa582-d2b5-417b-ba80-24d2df00e150",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T19:08:55.848279+00:00"
+  },
+  {
+    "id": "96c51b56-40e8-4766-9798-49504ba03685",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "2b92799e-56cd-4e93-9f13-b1494d14aadf",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "00f38e13-db9a-4f96-bc28-8c23b90100aa",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "f6a25d88-460c-4334-837e-0a74a2b2604f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "959dde4e-7c49-48d3-97eb-7b454ff9e8d2",
+    "position_key": "Caja 2",
+    "shift": "PM",
+    "activity_id": "9ac57321-64d4-4f91-8811-a579ede79fa7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "2600cc7f-44c0-4896-a038-1f032fccb8bc",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "f57b2ec8-488a-449c-b579-b21b4d6589be",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "e2609e72-aeaf-4435-aa42-fe2df01275d0",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "13a20630-1d83-4abb-8deb-d8e4b2f9eec1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "778b4f16-9c90-43cb-988f-3bdc45962033",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "b675a36d-5714-43fe-84e9-99e22a2ef57a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "6bf28fda-77cf-42d8-9d4f-31513b092ee9",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "9a2f3c01-81b2-4eb3-b5bc-f11f8a7181e1",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "b87a8b07-c90c-42d9-862b-86232b44bb9c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "be452013-2581-4221-9b8c-68aaa0157467",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "a8e47e0a-84f3-4445-9ae6-cb8345bc39bb",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "e9f3afd5-5b0f-4878-b97f-31a8b952d1e7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "9e800728-caf2-4771-9f2c-c6836cab9718",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "8b8bcb23-ca75-41e6-8cf5-f205b212bf54",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "fe7ae44c-5c2e-4c8f-b399-3e1d64508037",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "50cc03eb-9adf-4fd0-9e3c-b241692303f8",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "6d44e233-ca19-4737-bc91-7a757545a7e6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "6d0a12cd-4332-47bc-b61a-67e8fb6c2625",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "2e480a51-8108-403b-8dd4-7d13b071a4c1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "df6d1e07-20e9-448b-ab0a-b92f3bb907c1",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "8eac6bb5-0fd5-41ed-8bbe-4cb85a36a5b7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "eec48348-20dd-46ef-86c7-b57ce9620152",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "2586cf00-07e0-4d79-bd56-f7462abec763",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "0df32a03-84d3-4a88-8340-4e67ae380a86",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "a516d558-a357-4796-bb57-698e1f5f9b54",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "802b5a99-636f-4b9d-a586-d3922b0b8e19",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "9ed2b56d-dd71-4dd9-ba95-aee0723a3ad7",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "05f1c463-0512-47a2-a3ae-486586a53ee0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "34f16d56-914b-4ddd-9fbd-5ca46e00aca3",
+    "position_key": "Uber + Salsas",
+    "shift": "AM",
+    "activity_id": "5808a8f0-69ef-40ef-86ad-986df9e6dffb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "b6345b8e-2c3f-4e2e-a2e9-a814a365fb62",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "d648fff2-5827-405f-9355-c646ce65aea6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "4ebf5cae-b5cd-48d7-88e1-27df80ad1cae",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "23daf7ac-38c8-4e42-b3c6-a227809514a7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "c42f7383-c158-4205-8217-3affc54a0faf",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "fc62c4ce-5743-4166-8528-542a16c270e0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "2a7dbcac-c893-4b1e-8c4f-29aeba59bc3c",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "9562cbb3-0194-49e3-b58c-2d5eef54065b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "a8e987a1-a35c-463e-84fc-8013b7ef4f56",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "5808a8f0-69ef-40ef-86ad-986df9e6dffb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "84e7fb4b-1e4c-4e20-8a20-aa52cd0bc254",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "ac933729-62a9-43e6-8e39-773cbc792e20",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "3285ebd7-ebaf-454e-9a82-a2a8c3551352",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "545a45e2-69c3-4bd1-9855-187b13aaf616",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "819aed51-2f39-4edb-a4fe-cd3b10bdcdb0",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "06fe5562-2ea9-42c0-82f0-90ae2e1027b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "82f75971-e625-402b-b04c-d6886f0fc02a",
+    "position_key": "Uber + Salsas",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "b7d499fb-172f-48d7-96b5-426f97a57d4a",
+    "position_key": "Uber + Salsas",
+    "shift": "PM",
+    "activity_id": "9ac57321-64d4-4f91-8811-a579ede79fa7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "dfb7faad-2f86-4605-bef2-23c5c2f399c3",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "9ac57321-64d4-4f91-8811-a579ede79fa7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "44494edd-b9e9-4fb8-9abe-59f4ae072859",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "12a7e189-a994-40d1-a542-4a9dcd7b892c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "a9abc79e-1451-4e68-a3c5-a866cbab3d7c",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "f4b96851-0fac-4013-81ff-f7bebce6ba31",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "cc3c21c6-74e0-44ce-896b-09dae90ecf58",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "cf0702d2-51a0-4c69-8d39-e801ea93a866",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "c9bf277a-9704-4aba-9e06-81d2c9cf25ef",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "f74f9d9d-685a-4ae8-8025-417c5ca2a365",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "495df084-1701-4bf4-ae7f-d4fd3383bd3e",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "b0abaf5a-03cf-4632-be63-844a21f04941",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "0f784233-5fab-43ea-b852-ef45ba2fd2a0",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "c8afc81f-3562-4509-a9a6-cbee0cc36fb8",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "e9f3afd5-5b0f-4878-b97f-31a8b952d1e7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "b70dc94e-0b59-4e2b-b74d-d3c785a4d6db",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "c98e67aa-8582-4093-b9b3-16cf767561c9",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "fe7ae44c-5c2e-4c8f-b399-3e1d64508037",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "55c79aec-3aa4-4141-b2ff-fcddbefe41d3",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "98ca37c0-a3f2-4a33-9ad3-42b2b0e088fb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "4e9a483d-327c-4406-b9b4-1b1e38222d6f",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "12a7e189-a994-40d1-a542-4a9dcd7b892c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "a1de45e0-a7e5-4c66-9c2a-f03457c642d0",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "fc62c4ce-5743-4166-8528-542a16c270e0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "4acdb166-e878-4ba2-bb4e-0a8fa7698602",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "d648fff2-5827-405f-9355-c646ce65aea6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "2d8e89b2-5b69-4c8b-a958-d188462a368e",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "23daf7ac-38c8-4e42-b3c6-a227809514a7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "7f7a0a7e-005b-46f3-a497-4e8b499b589c",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "06fe5562-2ea9-42c0-82f0-90ae2e1027b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "356a8063-0b15-4a56-bfbb-777a6a8939c7",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "3f29be92-4166-454a-986f-e03831b3d181",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "488bd52a-dd38-4681-bfc5-679c6d2c3c20",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "1d88d5fb-1667-4af2-9f34-6add379e9cef",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "0df32a03-84d3-4a88-8340-4e67ae380a86",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "53c41fff-fa29-4314-8c3f-0189766b7a7a",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "a7a4d6eb-aaca-4ace-acac-9cb75814900c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.407358+00:00"
+  },
+  {
+    "id": "4204d8b2-0c03-4377-b978-eb2beb8aa3f6",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "6d44e233-ca19-4737-bc91-7a757545a7e6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "7a184a30-d244-4251-8257-99b845fad0b7",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "2e480a51-8108-403b-8dd4-7d13b071a4c1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "54fe72a8-805d-4114-89d9-14a10c053a26",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "8eac6bb5-0fd5-41ed-8bbe-4cb85a36a5b7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "aecfd41d-dba8-4480-9f23-fa413d2c24b2",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "f8ecca59-f3b2-461b-aa6b-4d036d0a0e26",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "de749cae-4c1c-475a-915b-9f615980727e",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "05f1c463-0512-47a2-a3ae-486586a53ee0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "ed3669a1-de8a-46ef-a94f-d69754c3c0be",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "PM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "f57ddecd-990b-4036-a101-0844052515bc",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "1c011d76-33c0-4c7f-ab83-52d61344ebec",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "PM",
+    "activity_id": "e9f3afd5-5b0f-4878-b97f-31a8b952d1e7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "6a40ee8c-f8c4-4a15-bb31-686332670f96",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "PM",
+    "activity_id": "fe7ae44c-5c2e-4c8f-b399-3e1d64508037",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "d919d1d0-6fb4-4de6-8ccf-8c26b9621617",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "f4b96851-0fac-4013-81ff-f7bebce6ba31",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "b4acd0c1-dab4-4a0a-893f-27c99de455c6",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "cf0702d2-51a0-4c69-8d39-e801ea93a866",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "1e898d2f-2421-42b9-9691-cf98c3a8f746",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "81ec7af4-a3ed-4973-8aeb-bbd9d2ee5564",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "3491d60e-ba0b-4327-9773-663604f239ab",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "22797020-2a4f-4c26-b913-ca17bb0753d7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "21bb96a8-cbfd-405b-bf29-87a700a12ecc",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "ba5873ec-ecc8-4450-9993-bf0714faf406",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "0c645048-6cb6-49a1-b716-713ac8319095",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "61910513-cfb6-4db9-b8de-56734548b070",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "7b74b004-5c88-425c-9d10-cbee010a1dc2",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "3ba5182b-38d6-4d93-9f7d-2e51dbb8464a",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "9e7c3dfd-b097-4753-a5f1-5e50928be9c8",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "8a58c12b-863e-4d78-acb3-77f0eecfe48b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "0a8d247e-434f-4cb2-8083-6321a80f93c7",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "802b5a99-636f-4b9d-a586-d3922b0b8e19",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "d78deab2-d058-4291-99de-900d3ba968dd",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "e98d6525-6cce-4e18-87b4-3fa93e174067",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "678235dd-d489-4aed-a7c0-0efdcb800a8f",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "ac933729-62a9-43e6-8e39-773cbc792e20",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "3acbe8ec-4952-4dce-adeb-c8de2d835f52",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "545a45e2-69c3-4bd1-9855-187b13aaf616",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "9e7cf3a3-c040-4079-82ae-9487d4ac068d",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "fc62c4ce-5743-4166-8528-542a16c270e0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "4340285f-dd9e-4ff0-bc6f-c387d9ce1dda",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "fc62c4ce-5743-4166-8528-542a16c270e0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "2ade3540-afcd-44bf-897b-517591194969",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "132c9347-22c9-428e-822a-345b5b877324",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "a9ae6f7a-c944-4d28-a066-fec8794c0a4a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "9e4d0529-d41e-4e9d-a9dd-96bbcb0e143a",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "6d44e233-ca19-4737-bc91-7a757545a7e6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "b32b0b96-9275-40a6-a2d0-2fc57af2c2d3",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "2e480a51-8108-403b-8dd4-7d13b071a4c1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "138e1c89-0bbc-435f-834d-b6e9c8976d24",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "8eac6bb5-0fd5-41ed-8bbe-4cb85a36a5b7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "294f50ff-f327-4390-be76-0b7ffa9120dc",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "0df32a03-84d3-4a88-8340-4e67ae380a86",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "34a394b3-05bc-4781-b4a8-ede5a52e1452",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "4475cbad-4954-46e3-93eb-f1055e8ec60a",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "05f1c463-0512-47a2-a3ae-486586a53ee0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "acf27e4a-3d37-4d23-b07a-e9109c379b3b",
+    "position_key": "Caja 2",
+    "shift": "PM",
+    "activity_id": "12a7e189-a994-40d1-a542-4a9dcd7b892c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "6d0c01c0-72e0-48e5-82b8-033742c30c40",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "cf0702d2-51a0-4c69-8d39-e801ea93a866",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "c544e61d-468d-4aa8-ad9c-c36c9ba127fc",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "f4b96851-0fac-4013-81ff-f7bebce6ba31",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "ac945b42-9d59-4585-898b-fef222656cc3",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "7b74b004-5c88-425c-9d10-cbee010a1dc2",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "0d293921-924c-4827-ab3e-8411db1ddf77",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "6d44e233-ca19-4737-bc91-7a757545a7e6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "441987e9-e1ac-4c55-b3fa-f74bbdf9029c",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "2e480a51-8108-403b-8dd4-7d13b071a4c1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "4f7328e8-e765-436f-bd2b-6c1a95e21a5f",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "8eac6bb5-0fd5-41ed-8bbe-4cb85a36a5b7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "e00ca91e-06ca-44a8-b1d0-084ea2a0cd1f",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "2574a930-ae96-4a11-ac1d-d33cf63e8e6e",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "df3ac85d-e682-4e3a-9143-4fba5b93259d",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "3742cbbc-3436-4240-bdce-edc60f5b2dea",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "802b5a99-636f-4b9d-a586-d3922b0b8e19",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "6ae9fc4a-643d-4a6e-81dc-c27416b13bc2",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "05f1c463-0512-47a2-a3ae-486586a53ee0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "d7e22291-a945-4e39-a53d-69bf919c7d60",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "58e56a60-643c-470a-ba62-4a98e542ab17",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "23daf7ac-38c8-4e42-b3c6-a227809514a7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "5634cce1-249b-47c6-82b4-2076687c78e9",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "d648fff2-5827-405f-9355-c646ce65aea6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "d6987884-3728-4c10-bf92-a16b7a8f0ec3",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "e98d6525-6cce-4e18-87b4-3fa93e174067",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "279bc783-f0cd-4d67-9a04-fd5fe1abe5b5",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "06fe5562-2ea9-42c0-82f0-90ae2e1027b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "ff7659d8-abaf-45e1-9c8a-f5d180038113",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "a9ae6f7a-c944-4d28-a066-fec8794c0a4a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "9292ec5a-9c61-4dd9-ae96-795f14c1b4b8",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "f74f9d9d-685a-4ae8-8025-417c5ca2a365",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.516441+00:00"
+  },
+  {
+    "id": "c47b3751-80d3-41d1-b9ab-69be0cf72a4d",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "5808a8f0-69ef-40ef-86ad-986df9e6dffb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "49fb9d3f-ca9f-4577-a6fb-22041673fddc",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "12a7e189-a994-40d1-a542-4a9dcd7b892c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "34d354b8-dbcd-431a-be81-1a52a02a8743",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "a7a4d6eb-aaca-4ace-acac-9cb75814900c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "e0078f3e-9446-47b1-adf8-0d1ad249d115",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "545a45e2-69c3-4bd1-9855-187b13aaf616",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "49472d32-615c-4188-862c-44e392f46857",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "ac933729-62a9-43e6-8e39-773cbc792e20",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "f4d1845e-cff8-45c5-a4d8-14519be15409",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "887de803-3acd-4cb1-b11b-3380630750df",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "d4ecc4ae-981f-4768-b0c0-e63d64f9567d",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "b675a36d-5714-43fe-84e9-99e22a2ef57a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "61612b03-0415-49e8-ba40-898d02dc1d06",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "13a20630-1d83-4abb-8deb-d8e4b2f9eec1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "97895c38-b7f4-42a9-a841-ab2110ea7214",
+    "position_key": "Caja 1 / Salón",
+    "shift": "PM",
+    "activity_id": "12a7e189-a994-40d1-a542-4a9dcd7b892c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "f8e0dbed-fa8d-4dc5-9630-7b1c8fe45fa8",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "459a007a-2991-4058-b297-f19cbeca9170",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "5eea9473-6c2e-4afd-ba9b-82d57ec50a0f",
+    "position_key": "LIMPIEZA",
+    "shift": "PM",
+    "activity_id": "8a58c12b-863e-4d78-acb3-77f0eecfe48b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "ff3a7c55-b2da-43f4-b5a1-409d59168bff",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "3b82a7a6-72e9-4d47-9ef3-954ad9fe9c62",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "0c058438-f361-4c82-bb59-d5181184bb81",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "52d33cad-daaa-4a35-90c2-8d4977903e71",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "ae49abac-e940-4f11-8650-21f1b9d81182",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "913378fa-71e5-44df-9b96-831eb9e85a70",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "06fe5562-2ea9-42c0-82f0-90ae2e1027b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "6d02ac27-7f5c-4341-b4df-01f38a7d5f83",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "12a7e189-a994-40d1-a542-4a9dcd7b892c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "36db4543-7222-4adf-9c83-560e13b43712",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "df3ac85d-e682-4e3a-9143-4fba5b93259d",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "ca4f4946-bfda-4c20-afc9-d6e13731cf0a",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "545a45e2-69c3-4bd1-9855-187b13aaf616",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "49158eeb-96d1-4822-ade2-4cca96d56c88",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "e98d6525-6cce-4e18-87b4-3fa93e174067",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "32508ef7-8d04-4127-99ed-d8dc7354195f",
+    "position_key": "Caja 3",
+    "shift": "PM",
+    "activity_id": "9ac57321-64d4-4f91-8811-a579ede79fa7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "e29b6463-4845-4c45-988e-6f597b6476cf",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "0dd0beb4-e682-438a-a02b-9cc01b484dcb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "d16f1641-ba01-4167-8b34-54b091632412",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "a66d3e44-a94b-4ddc-b80d-e201bdcd5665",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "7ec5d6bc-9a0b-45dd-9b2a-fad1b63be333",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "1e752d0c-8d4a-4b8a-8545-62ee74f615d0",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "560b555f-6524-48d1-97b9-8a859d0bdd87",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "22797020-2a4f-4c26-b913-ca17bb0753d7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "fa6f00cd-43bb-4038-9a64-cc08d47c7fba",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "f69649c7-21a6-44ed-aa08-0da6c73654eb",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "545a45e2-69c3-4bd1-9855-187b13aaf616",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "172fa3f3-f7fe-46af-834b-869e0773d659",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "1b39b267-c4e1-4d7a-8a25-5aef37c32d0d",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "d22196a3-cdc1-47c4-a2d5-f0841f5a60df",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "d648fff2-5827-405f-9355-c646ce65aea6",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "49fca557-af25-4767-9d6a-ad6693056cee",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "23daf7ac-38c8-4e42-b3c6-a227809514a7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "59b7e884-56f4-4297-a2e2-49994b211c87",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "1c7ae14b-ac96-4f1e-a43f-10d993a9f6e3",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "2096aed0-1987-4562-a0ce-859560609e40",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "98ca37c0-a3f2-4a33-9ad3-42b2b0e088fb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "163cd4cb-14a9-462f-ba92-d4454b5f10b3",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "d13ad906-7229-48e6-a494-811a273f2079",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "36e8d399-3674-48f2-a6ff-de4f53442038",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "ac933729-62a9-43e6-8e39-773cbc792e20",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "e99a136c-72f1-40ca-b0f8-ee5088a8fa8e",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "5808a8f0-69ef-40ef-86ad-986df9e6dffb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "957bcbda-e399-4a2d-9a18-c7901773b359",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "2f14e211-9f54-4ea9-892a-6d29eadf8b1f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "a2197c37-fd0f-4cfd-aa57-5bd56d3b4d46",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "a7a4d6eb-aaca-4ace-acac-9cb75814900c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "da7edbbf-77e3-4954-8922-4c9b9c1aa4c7",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "f9688914-741a-4412-a05f-432da449d2d4",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "0df32a03-84d3-4a88-8340-4e67ae380a86",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "6336acd1-41bc-44cc-ab36-73deeaf4b5e4",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "842d2e62-3d8e-4f94-ac76-143a26647b45",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "d01c4a36-b365-48f8-b4f1-d1f0eee7acee",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "b12bbd90-e0b8-42a0-b6b5-278bb8bb8d49",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "70a5304d-a9c5-4c50-93b3-909821b33f0a",
+    "position_key": "Uber + Salsas",
+    "shift": "AM",
+    "activity_id": "81ec7af4-a3ed-4973-8aeb-bbd9d2ee5564",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "a5b1d26d-cfff-4b6b-869a-33790bf1d6ec",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "d2c8a546-b819-4e0e-83a0-7305690c0da5",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "f4b96851-0fac-4013-81ff-f7bebce6ba31",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "af166d56-403a-475d-8bad-59f0ca0a8cea",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "cf0702d2-51a0-4c69-8d39-e801ea93a866",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "1eb2e3dd-a68f-4e7e-bec4-8f21c2ef768e",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "5808a8f0-69ef-40ef-86ad-986df9e6dffb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "d10feae7-d037-421a-b7d3-28988b07cf0f",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "2f14e211-9f54-4ea9-892a-6d29eadf8b1f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "a11f3442-9534-4b2b-8e8c-c6bd05bce143",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "94e8607f-7326-434d-a388-2393cbed9bda",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "f5bda9ee-7cba-480e-bc59-26e5febd4d10",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "6000e5f3-c427-4d2a-b786-d6c22b8f8429",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "94e8607f-7326-434d-a388-2393cbed9bda",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.604609+00:00"
+  },
+  {
+    "id": "0f01aa3a-fa5e-40a0-95b4-6fa168a6bec6",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "72f1a148-54e3-450d-8752-568e18b2ff88",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "17c6f2fd-9e14-4235-89b4-c874ec72ab01",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "d27ef765-d510-4079-aa13-4b99892df793",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "69a6715b-ec08-4891-994a-414bdd2efecd",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "06fe5562-2ea9-42c0-82f0-90ae2e1027b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "ef9651f7-7deb-4e65-a8b9-7c6e2087ef9a",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "2f14e211-9f54-4ea9-892a-6d29eadf8b1f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "a6112544-938d-4b43-afcc-7f922390c6d7",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "PM",
+    "activity_id": "9ac57321-64d4-4f91-8811-a579ede79fa7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "fa3d9a82-f370-4c1e-8bfc-c33b3852611e",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "b675a36d-5714-43fe-84e9-99e22a2ef57a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "202caf91-e0f7-466f-aa5a-d2fc97375a44",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "b675a36d-5714-43fe-84e9-99e22a2ef57a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "88680c0e-503d-4bc2-afb3-17cef5361c00",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "94e8607f-7326-434d-a388-2393cbed9bda",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "13eb23a6-03bc-4b0d-99e8-55bd38ea4411",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "94e8607f-7326-434d-a388-2393cbed9bda",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "ca95bf4a-6723-4993-8920-3ec5c43d7b82",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "0c645048-6cb6-49a1-b716-713ac8319095",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "9ea29ee0-45ef-4851-bea6-4475f1ddd502",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "fc62c4ce-5743-4166-8528-542a16c270e0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "1cb25bd0-c0a9-44ad-a61c-51559dd5168c",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "7b74b004-5c88-425c-9d10-cbee010a1dc2",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "f445f56b-9c16-4fc5-ac8b-44e0ce72b778",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "fc62c4ce-5743-4166-8528-542a16c270e0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "8a095285-2a99-4b39-a0f6-28fad98de2ed",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "d13ad906-7229-48e6-a494-811a273f2079",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "6fa3c315-6db9-4652-badd-65a0b2780033",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "0c645048-6cb6-49a1-b716-713ac8319095",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "2f449625-06b1-4cf8-9c69-43fba3f34e3b",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "2f14e211-9f54-4ea9-892a-6d29eadf8b1f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "d3b4f5f6-5e03-4c80-910d-01008f1ac985",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "ab16f36c-5388-46aa-8cd7-231d57f33903",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "5b1cc2ed-47d9-408d-949e-c46d941c7a59",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "1fb244a7-2ba7-4843-b03b-5415512f43e4",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "8c57fa45-d246-413e-b71d-48a9d94cd586",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "6e01ecf9-bda3-4092-a509-0564cf751b3e",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "d27ef765-d510-4079-aa13-4b99892df793",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "f037d76b-97a6-43e2-8767-15785fd99b88",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "22797020-2a4f-4c26-b913-ca17bb0753d7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "633860d9-1161-43c3-8a82-f00bdf7fe979",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "13a20630-1d83-4abb-8deb-d8e4b2f9eec1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "0f504366-a49c-42b0-9311-3a815bf5056f",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "f74f9d9d-685a-4ae8-8025-417c5ca2a365",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "525a801f-462d-4491-8eb0-5ac948ff6104",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "f74f9d9d-685a-4ae8-8025-417c5ca2a365",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "682aed51-deeb-468f-b434-268f46af2215",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "e98d6525-6cce-4e18-87b4-3fa93e174067",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "f8614656-d0db-42fe-ad23-3cdab7494a63",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "23daf7ac-38c8-4e42-b3c6-a227809514a7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "19cac463-4877-4a3e-8566-dacfdad90f79",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "b675a36d-5714-43fe-84e9-99e22a2ef57a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "5d0d2f6a-2538-4da4-9c23-7f68b8761890",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "22797020-2a4f-4c26-b913-ca17bb0753d7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "3ce0b920-76b7-42e9-af83-dd779bc5bcce",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "9562cbb3-0194-49e3-b58c-2d5eef54065b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "b86533ac-3feb-4081-b5b7-fa2e20b94280",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "a8793815-a128-48e1-8abb-714efa9da147",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "a3d5e8a6-d7bf-4a00-a9bd-5fdcd9b551c2",
+    "position_key": "Caja 1 / Salón",
+    "shift": "AM",
+    "activity_id": "81ec7af4-a3ed-4973-8aeb-bbd9d2ee5564",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "6c21b94c-7444-4875-9c2a-64e8b8a1ff64",
+    "position_key": "Ventana 2",
+    "shift": "AM",
+    "activity_id": "0f4782bb-501a-435b-a31d-beca81971789",
+    "frequency": "Diario",
+    "store_model": "DRIVE_THRU",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "2c2700f6-8207-4079-92e4-6275891d259b",
+    "position_key": "Uber + Salsas",
+    "shift": "AM",
+    "activity_id": "0f4782bb-501a-435b-a31d-beca81971789",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "c6bc8273-5c9c-4ee8-9516-8ba12fb40a2c",
+    "position_key": "Uber + Salsas",
+    "shift": "AM",
+    "activity_id": "6d8e4b04-d5bb-47df-8977-9cd85c6b8fe4",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "2925269b-37d7-40b8-a8e9-0c2dc43b6d19",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "AM",
+    "activity_id": "a9ae6f7a-c944-4d28-a066-fec8794c0a4a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "070f62f8-3333-48a1-b451-ae746cb94532",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "13a20630-1d83-4abb-8deb-d8e4b2f9eec1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "85cc6835-997a-45c8-8ba6-ce75798ee99c",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "f88f5cb5-7360-42ff-bbd4-f951d96b3d5c",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "0c645048-6cb6-49a1-b716-713ac8319095",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "54de4488-dd3b-43be-8fe7-555cb64e5f3c",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "8c57fa45-d246-413e-b71d-48a9d94cd586",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "9c10746a-8098-418c-add9-3ec9ea5fb545",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "13a20630-1d83-4abb-8deb-d8e4b2f9eec1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "416b4a91-42a1-4f68-8a56-30f409089584",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "b675a36d-5714-43fe-84e9-99e22a2ef57a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "4e21c0cd-1c3f-4531-822d-ec6843afccfe",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "b7b7a47c-450f-48f4-a3b8-edc572b58047",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "515ff891-4088-4b2a-bd31-346bbb544e4d",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "9562cbb3-0194-49e3-b58c-2d5eef54065b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "fc1f606f-72a4-41bc-b7f4-fba992a0c280",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "b7b7a47c-450f-48f4-a3b8-edc572b58047",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "487c7bd3-33da-48b1-8418-e67776b32066",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "53a9755d-27d8-4e5b-977d-db4943655b7e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "741704af-7ce5-4cfd-984a-14149fd39a77",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "f4b96851-0fac-4013-81ff-f7bebce6ba31",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "357be6ea-461a-4fe2-a0c9-ef65777d2647",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "cf0702d2-51a0-4c69-8d39-e801ea93a866",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "e012fe9b-f6e4-4094-be77-20380f496efc",
+    "position_key": "ENTREGA",
+    "shift": "PM",
+    "activity_id": "c3467c93-9a88-493c-b9a4-4d0fbf75a716",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "ec0e49d6-ece6-48b3-beff-972ee6a4c399",
+    "position_key": "ENTREGA",
+    "shift": "PM",
+    "activity_id": "e9f3afd5-5b0f-4878-b97f-31a8b952d1e7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "8e0e8f18-cd6c-4cb2-a5ae-ec471dbc66ca",
+    "position_key": "ENTREGA",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.686661+00:00"
+  },
+  {
+    "id": "a9ed4145-7f64-4199-a982-78d46f261daa",
+    "position_key": "ENTREGA",
+    "shift": "PM",
+    "activity_id": "fe7ae44c-5c2e-4c8f-b399-3e1d64508037",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "2c28ceed-39ed-47ca-bdb1-96d8454f3532",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "bf6583c1-88dc-4f7d-8b70-2477c40a0a95",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "02d26646-2958-4034-a502-51efc00e6b9e",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "06fe5562-2ea9-42c0-82f0-90ae2e1027b9",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "79dbc979-ea49-438f-a32d-637fe896f40f",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "9562cbb3-0194-49e3-b58c-2d5eef54065b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "d3e3ac0c-238b-4d11-871a-eef796f9f6c5",
+    "position_key": "TORTAS/MULITAS",
+    "shift": "PM",
+    "activity_id": "13a20630-1d83-4abb-8deb-d8e4b2f9eec1",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "44d10e14-858e-4a88-b783-798605d13b5f",
+    "position_key": "TORTAS/MULITAS",
+    "shift": "PM",
+    "activity_id": "fc62c4ce-5743-4166-8528-542a16c270e0",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "816b4663-8c05-49ff-b490-5382c0b337fe",
+    "position_key": "TORTAS/MULITAS",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "2b455e25-fcc3-4148-8e4f-2e4c1379256a",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "887de803-3acd-4cb1-b11b-3380630750df",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "a8691390-67a0-40d9-9eed-1c16ae4895e3",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "98ca37c0-a3f2-4a33-9ad3-42b2b0e088fb",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "d7fb45d9-a488-4ca4-948f-4d3d692a6aab",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "d13ad906-7229-48e6-a494-811a273f2079",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "3145b4d0-249e-4342-bb55-bc9b594a2306",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "b12bbd90-e0b8-42a0-b6b5-278bb8bb8d49",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "6bd6920d-6c8b-4167-b16f-6e39cae1a51b",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "a9ae6f7a-c944-4d28-a066-fec8794c0a4a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "6f4e1776-2a83-450a-8162-f1d664c49668",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "52d33cad-daaa-4a35-90c2-8d4977903e71",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "ca327611-54ed-41c7-b01a-a43536a6b8ce",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "b7b7a47c-450f-48f4-a3b8-edc572b58047",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "5105930b-fd2c-4952-9e53-8db95daf8e00",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "72f1a148-54e3-450d-8752-568e18b2ff88",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "58298965-e329-45d1-ac3e-e8fbc0da083d",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "53a9755d-27d8-4e5b-977d-db4943655b7e",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "f40d031b-1ee0-4bc7-a669-fb6c9a409cef",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "b87a8b07-c90c-42d9-862b-86232b44bb9c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "451265a2-f7db-43b1-ad9e-8c82eea9be8f",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "8c57fa45-d246-413e-b71d-48a9d94cd586",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "755f006f-4d83-465a-9286-f207f396b69d",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "d27ef765-d510-4079-aa13-4b99892df793",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "ace3a902-aeca-46f7-a2d5-f67d436dd3b7",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "b87a8b07-c90c-42d9-862b-86232b44bb9c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "c81193ea-e3f5-465a-b435-b90f44b5c618",
+    "position_key": "TACOS",
+    "shift": "PM",
+    "activity_id": "3b82a7a6-72e9-4d47-9ef3-954ad9fe9c62",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "c91889ab-5c97-4010-9fd6-1191355fd814",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "5b1cc2ed-47d9-408d-949e-c46d941c7a59",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "c04ebd22-827a-4bcc-92a9-9893a0b2c251",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "1b39b267-c4e1-4d7a-8a25-5aef37c32d0d",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "eee52c84-7f52-47f9-9dd6-3490b52ab692",
+    "position_key": "TORTAS/QUESADILLAS",
+    "shift": "PM",
+    "activity_id": "8c57fa45-d246-413e-b71d-48a9d94cd586",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "32d2c5db-1429-41d7-a8d5-0b372505676a",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "d27ef765-d510-4079-aa13-4b99892df793",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "68b1c353-69b4-4a63-b570-5fca03438734",
+    "position_key": "CARNES",
+    "shift": "PM",
+    "activity_id": "b87a8b07-c90c-42d9-862b-86232b44bb9c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "2650e6b3-5ae0-405a-8946-79b590c8fca9",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "PM",
+    "activity_id": "7b74b004-5c88-425c-9d10-cbee010a1dc2",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "0062e238-ecef-4b64-8e19-0cc598e7c6f4",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "4ca2f741-4cb5-4e39-880d-00b9c5d6332a",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "2e377b3c-cb8c-446f-853f-43e6044f0500",
+    "position_key": "CUBRIR DESCANSOS (COCINA)",
+    "shift": "AM",
+    "activity_id": "cf175290-709c-45f0-b329-20ca266b3b6f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "bf389b3c-6d61-4868-a4ff-3014ae7ddfde",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "56899940-e969-4fb8-aa6e-046c15377647",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "49e163be-8798-4028-a584-eddcf6b871ea",
+    "position_key": "CARNES",
+    "shift": "AM",
+    "activity_id": "cf175290-709c-45f0-b329-20ca266b3b6f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "233f8061-41eb-4892-8206-cdd8db7af57e",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "5b1cc2ed-47d9-408d-949e-c46d941c7a59",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "08b9de7c-647c-45f0-9169-d333d5f04a46",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "8c57fa45-d246-413e-b71d-48a9d94cd586",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "18828f5a-e51e-46df-a463-7e845c8dc942",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "d27ef765-d510-4079-aa13-4b99892df793",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "46d52dfb-42ff-444b-9711-695dfcf1d587",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "b87a8b07-c90c-42d9-862b-86232b44bb9c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "1a5a76e5-c13a-40da-bd19-be713e011f40",
+    "position_key": "BURRITOS",
+    "shift": "PM",
+    "activity_id": "22797020-2a4f-4c26-b913-ca17bb0753d7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "2e9aad0f-42b9-469d-bd9c-c08c24983382",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "8c57fa45-d246-413e-b71d-48a9d94cd586",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "bc0907e9-85ca-4342-ac9a-00d45aa12c28",
+    "position_key": "PREPARACION",
+    "shift": "PM",
+    "activity_id": "22797020-2a4f-4c26-b913-ca17bb0753d7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "8d7ab66b-5681-4515-8f3b-d62a5249b83f",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "8a58c12b-863e-4d78-acb3-77f0eecfe48b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "4d8b1b76-fcff-45af-98b2-5790e489cbc3",
+    "position_key": "CUBRIR DESCANSOS (SALÓN)",
+    "shift": "AM",
+    "activity_id": "8a58c12b-863e-4d78-acb3-77f0eecfe48b",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "7cad9310-756b-46fe-9723-46e0bd2985e7",
+    "position_key": "BURRITOS",
+    "shift": "AM",
+    "activity_id": "cf175290-709c-45f0-b329-20ca266b3b6f",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "466c9bf3-adc4-4578-b5e0-06a717726bb8",
+    "position_key": "TORTILLAS",
+    "shift": "PM",
+    "activity_id": "22797020-2a4f-4c26-b913-ca17bb0753d7",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "5f9731f0-91a2-47bd-b9d6-d8ea53cd8ce7",
+    "position_key": "Caja 2",
+    "shift": "AM",
+    "activity_id": "e2deb6df-e422-43cb-ba13-c165f1653646",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  },
+  {
+    "id": "9f399373-0504-41b5-9f94-eb51f6e41a08",
+    "position_key": "TACOS",
+    "shift": "AM",
+    "activity_id": "b87a8b07-c90c-42d9-862b-86232b44bb9c",
+    "frequency": "Diario",
+    "store_model": "AMBOS",
+    "sort_order": 0,
+    "created_at": "2026-06-07T20:21:03.769257+00:00"
+  }
+]

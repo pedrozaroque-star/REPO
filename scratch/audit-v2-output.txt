@@ -1,0 +1,606 @@
+﻿[dotenv@17.2.3] injecting env (26) from .env.local -- tip: ≡ƒöÉ prevent building .env in docker: https://dotenvx.com/prebuild
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  ≡ƒö┤ RECETAS CON FOOD COST >50% (usando f├│rmula real)
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  842.0% | "Plato Milanesa" ($10.59) | food: $89.17 | pkg: $0.00
+       4 pza "Milaneza" [pzaΓåÆlb] ΓåÆ $88.0000 (food)
+       1 pza "Papelito Para Torta" [same] ΓåÆ $0.5800 (food)
+       4 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.1855 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       0.5 oz "Queso Cotija 021" [same] ΓåÆ $0.1663 (food)
+       ≡ƒö┤ "Milaneza" $88.00 = 831% of price
+
+  549.0% | "Side Order Queso Fresco" ($2.39) | food: $13.12 | pkg: $0.00
+       4 pza "Queso Tortas/platos/Desayuno" [pzaΓåÆoz] ΓåÆ $13.1200 (food)
+       ≡ƒö┤ "Queso Tortas/platos/Desayuno" $13.12 = 549% of price
+
+  468.2% | "Torta Milanesa" ($9.69) | food: $45.37 | pkg: $0.00
+       2 pza "Milaneza" [pzaΓåÆlb] ΓåÆ $44.0000 (food)
+       1 pza "Papelito Para Torta" [same] ΓåÆ $0.5800 (food)
+       1 pza "Teleras" [same] ΓåÆ $0.4167 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+       ≡ƒö┤ "Milaneza" $44.00 = 454% of price
+
+  247.3% | "Torta Cubana" ($9.69) | food: $23.96 | pkg: $0.00
+       1 pza "Milaneza" [pzaΓåÆlb] ΓåÆ $22.0000 (food)
+       1 pza "Papelito Para Torta" [same] ΓåÆ $0.5800 (food)
+       1.4 oz "Jamon Pack" [ozΓåÆlb] ΓåÆ $0.4655 (food)
+       1 pza "Teleras" [same] ΓåÆ $0.4167 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       ≡ƒö┤ "Milaneza" $22.00 = 227% of price
+
+  164.8% | "Extra Queso Fresco (In Store)" ($1.99) | food: $3.28 | pkg: $0.00
+       1 pza "Queso Tortas/platos/Desayuno" [pzaΓåÆoz] ΓåÆ $3.2800 (food)
+
+  115.7% | "Torta Queso" ($9.69) | food: $11.21 | pkg: $0.00
+       3 pza "Queso Tortas/platos/Desayuno" [pzaΓåÆoz] ΓåÆ $9.8400 (food)
+       1 pza "Papelito Para Torta" [same] ΓåÆ $0.5800 (food)
+       1 pza "Teleras" [same] ΓåÆ $0.4167 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+       ≡ƒö┤ "Queso Tortas/platos/Desayuno" $9.84 = 102% of price
+
+  73.5% | "Sope Queso" ($4.79) | food: $3.52 | pkg: $0.00
+       1 pza "Queso Tortas/platos/Desayuno" [pzaΓåÆoz] ΓåÆ $3.2800 (food)
+       0.5 oz "Queso Cotija 021" [same] ΓåÆ $0.1663 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+
+  56.8% | "Meat Only Super Burrito Asada" ($12.89) | food: $7.33 | pkg: $0.28
+       12 oz "Carne Asada" [ozΓåÆlb] ΓåÆ $6.0976 (food)
+       4 oz "Queso Rayado" [ozΓåÆlb] ΓåÆ $0.5125 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       1.4 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.1493 (food)
+       ≡ƒö┤ "Carne Asada" $6.10 = 47% of price
+
+  56.5% | "Meat Only Burrito Asada" ($11.19) | food: $6.32 | pkg: $0.00
+       12 oz "Carne Asada" [ozΓåÆlb] ΓåÆ $6.0976 (food)
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       ≡ƒö┤ "Carne Asada" $6.10 = 54% of price
+
+  55.6% | "Side Order Cotija" ($2.39) | food: $1.33 | pkg: $0.00
+       4 oz "Queso Cotija 021" [same] ΓåÆ $1.3300 (food)
+
+  53.9% | "Meat Only Super Burrito Cabeza" ($12.89) | food: $6.95 | pkg: $0.00
+       12 oz "Cabeza" [ozΓåÆlb] ΓåÆ $5.7241 (food)
+       4 oz "Queso Rayado" [ozΓåÆlb] ΓåÆ $0.5125 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       1.4 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.1493 (food)
+       ≡ƒö┤ "Cabeza" $5.72 = 44% of price
+
+  53.2% | "Meat Only Burrito Cabeza" ($11.19) | food: $5.95 | pkg: $0.00
+       12 oz "Cabeza" [ozΓåÆlb] ΓåÆ $5.7241 (food)
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       ≡ƒö┤ "Cabeza" $5.72 = 51% of price
+
+  51.0% | "Super Nachos Asada" ($9.69) | food: $4.94 | pkg: $0.00
+       6 oz "Carne Asada" [ozΓåÆlb] ΓåÆ $3.0488 (food)
+       1 pza "Tortilla Nachos" [pzaΓåÆoz] ΓåÆ $1.0500 (food)
+       4 oz "Amarillo Cheese" [same] ΓåÆ $0.3499 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       1.4 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.1493 (food)
+
+  50.3% | "Meat Only Super Burrito Lengua" ($12.89) | food: $6.48 | pkg: $0.00
+       12 oz "Lengua" [ozΓåÆlb] ΓåÆ $5.2500 (food)
+       4 oz "Queso Rayado" [ozΓåÆlb] ΓåÆ $0.5125 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       1.4 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.1493 (food)
+       ≡ƒö┤ "Lengua" $5.25 = 41% of price
+
+  50.2% | "Full Flan" ($27.89) | food: $14.00 | pkg: $0.00
+       8 pza "Whole Flan" [same] ΓåÆ $14.0000 (food)
+       ≡ƒö┤ "Whole Flan" $14.00 = 50% of price
+
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  ≡ƒƒí RECETAS CON FOOD COST <15% (sospechosamente bajo)
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  14.9% | "Torta Vegetariana" ($9.69) | food: $1.44
+       1 pza "Papelito Para Torta" [same] ΓåÆ $0.5800 (food)
+       1 pza "Teleras" [same] ΓåÆ $0.4167 (food)
+       0.07 oz "Bolsa Mayonesa" [ozΓåÆlb] ΓåÆ $0.0075 (food)
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+       1.5 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.0696 (food)
+
+  14.7% | "Quesadilla Pollo" ($9.19) | food: $1.35
+       1 pza "Quesadilla Bodega" [same] ΓåÆ $0.6000 (food)
+       6 oz "Pollo" [ozΓåÆlb] ΓåÆ $0.7500 (food)
+
+  14.6% | "Nacho Cheese" ($2.39) | food: $0.35
+       4 oz "Amarillo Cheese" [same] ΓåÆ $0.3499 (food)
+
+  14.4% | "Jack Cheese" ($0.89) | food: $0.13
+       1 oz "Queso Rayado" [ozΓåÆlb] ΓåÆ $0.1281 (food)
+
+  14.4% | "Burrito Pollo" ($9.19) | food: $1.32
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       6 oz "Pollo" [ozΓåÆlb] ΓåÆ $0.7500 (food)
+       6 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.2782 (food)
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+
+  14.4% | "Huevos con Salchicha" ($10.59) | food: $1.52
+       4 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.1855 (food)
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+       0.05 oz "Queso Cotija 021" [same] ΓåÆ $0.0166 (food)
+       1.6 oz "Salchicha Bag" [same] ΓåÆ $0.2000 (food)
+       2 pza "Huevo" [same] ΓåÆ $0.3000 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       1 pza "Papelito Para Torta" [same] ΓåÆ $0.5800 (food)
+
+  14.4% | "Guacamole" ($1.19) | food: $0.17
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+
+  14.3% | "Guacamole" ($2.39) | food: $0.34
+       2 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.3419 (food)
+
+  14.2% | "Sope Pastor" ($4.79) | food: $0.68
+       1 pza "Sopes" [same] ΓåÆ $0.1708 (food)
+       1.5 oz "Pastor" [ozΓåÆlb] ΓåÆ $0.2713 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+       0.5 oz "Queso Cotija 021" [same] ΓåÆ $0.1663 (food)
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+
+  14.1% | "Coffee" ($2.59) | food: $0.36
+       1 pza "Cafe Regular" [same] ΓåÆ $0.3643 (food)
+
+  14.0% | "Extra Arroz 3 oz" ($1.99) | food: $0.28
+       6 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.2782 (food)
+
+  13.7% | "Taco Pastor" ($2.29) | food: $0.31
+       2 pza "1100 Tortilla,White Corn 4.7OZ 60CT" [same] ΓåÆ $0.0417 (food)
+       1.5 oz "Pastor" [ozΓåÆlb] ΓåÆ $0.2713 (food)
+
+  13.5% | "Super Mulita Buche" ($5.99) | food: $0.81
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Buche 6 oz" [same] ΓåÆ $0.3300 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  13.4% | "Super Mulita Chorizo" ($5.99) | food: $0.80
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Chorizo 8 oz" [same] ΓåÆ $0.3237 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  13.4% | "Super Mulita Carnitas" ($5.99) | food: $0.80
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Carnitas 6 oz" [same] ΓåÆ $0.3200 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  12.5% | "Super Mulita Pastor" ($5.99) | food: $0.75
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Pastor" [ozΓåÆlb] ΓåÆ $0.2713 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  12.5% | "Sope Pollo" ($4.79) | food: $0.60
+       1 pza "Sopes" [same] ΓåÆ $0.1708 (food)
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+       1.5 oz "Pollo" [ozΓåÆlb] ΓåÆ $0.1875 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+       0.5 oz "Queso Cotija 021" [same] ΓåÆ $0.1663 (food)
+
+  12.3% | "Mulita Buche" ($4.79) | food: $0.59
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Buche 6 oz" [same] ΓåÆ $0.3300 (food)
+
+  12.3% | "Medium Coke Zero" ($3.59) | food: $0.44
+       2.38 oz "Coca-Cola- Coke Zero Sugar" [ozΓåÆgal] ΓåÆ $0.4400 (food)
+
+  12.2% | "Mulita Chorizo" ($4.79) | food: $0.58
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Chorizo 8 oz" [same] ΓåÆ $0.3237 (food)
+
+  12.1% | "Mulita Carnitas" ($4.79) | food: $0.58
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Carnitas 6 oz" [same] ΓåÆ $0.3200 (food)
+
+  12.1% | "Burrito Huevos Mexicana" ($9.19) | food: $1.11
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       2 pza "Huevo" [same] ΓåÆ $0.3000 (food)
+       6 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.2782 (food)
+       2 pza "1 oz Bolsa de Mixta" [same] ΓåÆ $0.2384 (food)
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+
+  12.0% | "Sour Cream" ($2.49) | food: $0.30
+       2.8 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.2987 (food)
+
+  12.0% | "Medium Pi├▒a" ($3.59) | food: $0.43
+       22 oz "Pi├▒a Concentrate" [ozΓåÆgal] ΓåÆ $0.4297 (food)
+
+  11.9% | "Large Tamarindo" ($4.09) | food: $0.49
+       32 oz "Tamarindo Concentrate" [ozΓåÆgal] ΓåÆ $0.4875 (food)
+
+  11.7% | "Burrito Huevos con Salchicha" ($9.19) | food: $1.07
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       2 pza "Huevo" [same] ΓåÆ $0.3000 (food)
+       1.6 oz "Salchicha Bag" [same] ΓåÆ $0.2000 (food)
+       6 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.2782 (food)
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+
+  11.2% | "Large Coke" ($4.09) | food: $0.46
+       3.47 oz "Coca-Cola Classic" [ozΓåÆgal] ΓåÆ $0.4571 (food)
+
+  11.2% | "Large Strawberry Fanta" ($4.09) | food: $0.46
+       3.47 oz "Fanta Strawberry" [ozΓåÆgal] ΓåÆ $0.4571 (food)
+
+  11.2% | "Large Diet Coke" ($4.09) | food: $0.46
+       3.47 oz "Diet Coke" [ozΓåÆgal] ΓåÆ $0.4571 (food)
+
+  11.2% | "Large Sprite" ($4.09) | food: $0.46
+       3.47 oz "Sprite" [ozΓåÆgal] ΓåÆ $0.4571 (food)
+
+  11.2% | "Large Iced Tea" ($4.09) | food: $0.46
+       3.47 oz "Fuze Raspberry Iced Tea" [ozΓåÆgal] ΓåÆ $0.4571 (food)
+
+  11.2% | "Large Lemonade" ($4.09) | food: $0.46
+       3.47 oz "Minute Maid Lemonade" [ozΓåÆgal] ΓåÆ $0.4571 (food)
+
+  11.2% | "Large Orange Fanta" ($4.09) | food: $0.46
+       3.47 oz "Fanta Orange" [ozΓåÆgal] ΓåÆ $0.4571 (food)
+
+  11.2% | "Rice" ($2.49) | food: $0.28
+       6 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.2782 (food)
+
+  11.1% | "Super Mulita Pollo" ($5.99) | food: $0.67
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Pollo" [ozΓåÆlb] ΓåÆ $0.1875 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  11.1% | "Mulita Pastor" ($4.79) | food: $0.53
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Pastor" [ozΓåÆlb] ΓåÆ $0.2713 (food)
+
+  10.9% | "Quesadilla Queso" ($5.49) | food: $0.60
+       1 pza "Quesadilla Bodega" [same] ΓåÆ $0.6000 (food)
+
+  10.7% | "Orden Harina" ($1.59) | food: $0.17
+       2 pza "358_9604BT Tortilla Regular 8 in" [same] ΓåÆ $0.1700 (food)
+
+  10.5% | "Champurrado" ($4.09) | food: $0.43
+       6.4 oz "Champurrado Mix" [ozΓåÆgal] ΓåÆ $0.4300 (food)
+
+  10.5% | "Tortilla de Maiz" ($1.59) | food: $0.17
+       8 pza "1100 Tortilla,White Corn 4.7OZ 60CT" [same] ΓåÆ $0.1667 (food)
+
+  10.3% | "Sope Frijol" ($3.99) | food: $0.41
+       1 pza "Sopes" [same] ΓåÆ $0.1708 (food)
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+       0.5 oz "Queso Cotija 021" [same] ΓåÆ $0.1663 (food)
+
+  10.2% | "Side Order Beans/Rice" ($2.49) | food: $0.25
+       4 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.1855 (food)
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+
+  10.0% | "Super Mulita Queso" ($4.79) | food: $0.48
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1 oz "Bolsa Aguacate" [ozΓåÆlb] ΓåÆ $0.1709 (food)
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  10.0% | "Taco Pollo" ($2.29) | food: $0.23
+       2 pza "1100 Tortilla,White Corn 4.7OZ 60CT" [same] ΓåÆ $0.0417 (food)
+       1.5 oz "Pollo" [ozΓåÆlb] ΓåÆ $0.1875 (food)
+
+  9.5% | "Large Jamaica" ($4.09) | food: $0.39
+       32 oz "Jamaica Concentrate" [ozΓåÆgal] ΓåÆ $0.3875 (food)
+
+  9.4% | "Burrito Rice/Beans" ($6.09) | food: $0.57
+       1 pza "358-9673BT 13ΓÇ¥ Flour Tortilla" [same] ΓåÆ $0.2250 (food)
+       6 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.2782 (food)
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+
+  9.4% | "Mulita Pollo" ($4.79) | food: $0.45
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+       1.5 oz "Pollo" [ozΓåÆlb] ΓåÆ $0.1875 (food)
+
+  9.3% | "Medium Tamarindo" ($3.59) | food: $0.34
+       22 oz "Tamarindo Concentrate" [ozΓåÆgal] ΓåÆ $0.3352 (food)
+
+  9.3% | "Olla Champurrado" ($27.89) | food: $2.58
+       38.4 oz "Champurrado Mix" [ozΓåÆgal] ΓåÆ $2.5800 (food)
+
+  9.3% | "Champurrado To-Go Box (96oz)" ($27.89) | food: $2.58
+       38.4 oz "Champurrado Mix" [ozΓåÆgal] ΓåÆ $2.5800 (food)
+
+  8.7% | "Medium Strawberry Fanta" ($3.59) | food: $0.31
+       2.38 oz "Fanta Strawberry" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  8.7% | "Medium Diet Coke" ($3.59) | food: $0.31
+       2.38 oz "Diet Coke" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  8.7% | "Medium Sprite" ($3.59) | food: $0.31
+       2.38 oz "Sprite" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  8.7% | "Medium Lemonade" ($3.59) | food: $0.31
+       2.38 oz "Minute Maid Lemonade" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  8.7% | "Medium Orange Fanta" ($3.59) | food: $0.31
+       2.38 oz "Fanta Orange" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  8.7% | "Medium Iced Tea" ($3.59) | food: $0.31
+       2.38 oz "Fuze Raspberry Iced Tea" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  8.7% | "Medium Coke" ($3.59) | food: $0.31
+       2.38 oz "Coca-Cola Classic" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  8.1% | "Medium Strawberry Fanta" ($3.89) | food: $0.31
+       2.38 oz "Fanta Strawberry" [ozΓåÆgal] ΓåÆ $0.3135 (food)
+
+  7.7% | "Champurrado To-Go Box (96oz)" ($33.49) | food: $2.58
+       38.4 oz "Champurrado Mix" [ozΓåÆgal] ΓåÆ $2.5800 (food)
+
+  7.5% | "Sour Cream" ($1.99) | food: $0.15
+       1.4 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.1493 (food)
+
+  7.4% | "Medium Jamaica" ($3.59) | food: $0.27
+       22 oz "Jamaica Concentrate" [ozΓåÆgal] ΓåÆ $0.2664 (food)
+
+  7.0% | "Extra Arroz 1.5 oz (In Store)" ($0.99) | food: $0.07
+       1.5 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.0696 (food)
+
+  7.0% | "Sour cream" ($0.69) | food: $0.05
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  6.8% | "Full Tray Beans" ($40.29) | food: $2.74
+       10 lb "Frijol Molido" [same] ΓåÆ $2.7400 (food)
+
+  6.5% | "Mulita Queso" ($3.99) | food: $0.26
+       1 pza "Mulitas Con Queso" [same] ΓåÆ $0.2608 (food)
+
+  6.2% | "Sour Cream" ($2.39) | food: $0.15
+       1.4 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.1493 (food)
+
+  6.1% | "Half Tray Beans" ($26.79) | food: $1.64
+       6 lb "Frijol Molido" [same] ΓåÆ $1.6440 (food)
+
+  5.8% | "Egg" ($2.59) | food: $0.15
+       1 pza "Huevo" [same] ΓåÆ $0.1500 (food)
+
+  5.6% | "Dz. Tortillas Maiz" ($4.49) | food: $0.25
+       12 pza "1100 Tortilla,White Corn 4.7OZ 60CT" [same] ΓåÆ $0.2500 (food)
+
+  5.4% | "Sour Cream" ($0.89) | food: $0.05
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  5.0% | "30 - 40 People" ($373.89) | food: $18.65
+       10 lb "Arroz" [same] ΓåÆ $7.4200 (food)
+       10 lb "Frijol Molido" [same] ΓåÆ $2.7400 (food)
+       24 pza "1.5 oz Salsa Roja Pack" [same] ΓåÆ $1.1640 (food)
+       24 pza "1.5 oz Salsa Verde Pack" [same] ΓåÆ $0.9522 (food)
+       30 pza "1 oz Bolsa de Mixta" [same] ΓåÆ $3.5763 (food)
+       30 pza "Lima Bolsita" [same] ΓåÆ $1.8286 (food)
+       20 oz "Rajas y Zanahorias" [ozΓåÆlb] ΓåÆ $0.9674 (food)
+
+  4.8% | "Crema 1.5 oz (In Store)" ($0.99) | food: $0.05
+       0.45 oz "Bolsa Crema" [ozΓåÆlb] ΓåÆ $0.0480 (food)
+
+  4.1% | "Beans" ($2.49) | food: $0.10
+       6 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.1028 (food)
+
+  4.1% | "25 - 30 People" ($301.69) | food: $12.24
+       6 lb "Arroz" [same] ΓåÆ $4.4520 (food)
+       6 lb "Frijol Molido" [same] ΓåÆ $1.6440 (food)
+       20 pza "1.5 oz Salsa Roja Pack" [same] ΓåÆ $0.9700 (food)
+       20 pza "1.5 oz Salsa Verde Pack" [same] ΓåÆ $0.7935 (food)
+       20 pza "1 oz Bolsa de Mixta" [same] ΓåÆ $2.3842 (food)
+       20 pza "Lima Bolsita" [same] ΓåÆ $1.2190 (food)
+       16 oz "Rajas y Zanahorias" [ozΓåÆlb] ΓåÆ $0.7739 (food)
+
+  3.9% | "20 - 25 People" ($245.79) | food: $9.66
+       4 lb "Arroz" [same] ΓåÆ $2.9680 (food)
+       4 lb "Frijol Molido" [same] ΓåÆ $1.0960 (food)
+       16 pza "1.5 oz Salsa Roja Pack" [same] ΓåÆ $0.7760 (food)
+       16 pza "1.5 oz Salsa Verde Pack" [same] ΓåÆ $0.6348 (food)
+       20 pza "1 oz Bolsa de Mixta" [same] ΓåÆ $2.3842 (food)
+       20 pza "Lima Bolsita" [same] ΓåÆ $1.2190 (food)
+       12 oz "Rajas y Zanahorias" [ozΓåÆlb] ΓåÆ $0.5804 (food)
+
+  3.7% | "15 - 20 People" ($201.99) | food: $7.38
+       3 lb "Arroz" [same] ΓåÆ $2.2260 (food)
+       3 lb "Frijol Molido" [same] ΓåÆ $0.8220 (food)
+       12 pza "1.5 oz Salsa Roja Pack" [same] ΓåÆ $0.5820 (food)
+       12 pza "1.5 oz Salsa Verde Pack" [same] ΓåÆ $0.4761 (food)
+       16 pza "1 oz Bolsa de Mixta" [same] ΓåÆ $1.9074 (food)
+       16 pza "Lima Bolsita" [same] ΓåÆ $0.9752 (food)
+       8 oz "Rajas y Zanahorias" [ozΓåÆlb] ΓåÆ $0.3869 (food)
+
+  3.4% | "Extra Frijol 3 oz" ($1.99) | food: $0.07
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+
+  3.1% | "Fiesta Platters" ($240.99) | food: $7.38
+       3 lb "Arroz" [same] ΓåÆ $2.2260 (food)
+       3 lb "Frijol Molido" [same] ΓåÆ $0.8220 (food)
+       12 pza "1.5 oz Salsa Roja Pack" [same] ΓåÆ $0.5820 (food)
+       12 pza "1.5 oz Salsa Verde Pack" [same] ΓåÆ $0.4761 (food)
+       16 pza "1 oz Bolsa de Mixta" [same] ΓåÆ $1.9074 (food)
+       16 pza "Lima Bolsita" [same] ΓåÆ $0.9752 (food)
+       8 oz "Rajas y Zanahorias" [ozΓåÆlb] ΓåÆ $0.3869 (food)
+
+  2.6% | "Taco Plate" ($9.69) | food: $0.25
+       4 oz "Arroz" [ozΓåÆlb] ΓåÆ $0.1855 (food)
+       4 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0685 (food)
+
+  2.6% | "Extra Frijol 1.5 oz (In Store)" ($0.99) | food: $0.03
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+
+  2.6% | "Extra Frijol 1.5 oz (In Store)" ($0.99) | food: $0.03
+       1.5 oz "Frijol Molido" [ozΓåÆlb] ΓåÆ $0.0257 (food)
+
+  1.9% | "Whole Beans" ($2.89) | food: $0.06
+       4 oz "Frijol Entero" [ozΓåÆlb] ΓåÆ $0.0560 (food)
+
+  1.3% | "Dz. Tortillas Harina" ($6.69) | food: $0.09
+       1 1 dz "358_9604BT Tortilla Regular 8 in" [1 dzΓåÆpza] ΓåÆ $0.0850 (food)
+
+  1.1% | "Flan" ($4.79) | food: $0.05
+       1 pza "Flan" [same] ΓåÆ $0.0514 (food)
+
+  0.9% | "Extra Mayonesa" ($0.79) | food: $0.01
+       0.07 oz "Bolsa Mayonesa" [ozΓåÆlb] ΓåÆ $0.0075 (food)
+
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  Γ£à RECETAS EN RANGO NORMAL (15-50%)
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+  Γ£à 49.1% | "Super Nachos Cabeza" ($9.69) | food: $4.75 | pkg: $0.00
+  ΓÜá∩╕Å 48.9% | "Meat Only Burrito Lengua" ($11.19) | food: $5.47 | pkg: $0.00
+  Γ£à 48.2% | "Extra Cotija Cheese 1.5 oz (In Store)" ($0.69) | food: $0.33 | pkg: $0.00
+  Γ£à 46.6% | "Super Nachos Lengua" ($9.69) | food: $4.52 | pkg: $0.00
+  Γ£à 45.6% | "Torta Asada" ($9.69) | food: $4.42 | pkg: $0.00
+  Γ£à 43.7% | "Torta Cabeza" ($9.69) | food: $4.23 | pkg: $0.00
+  Γ£à 41.5% | "Plato Asada" ($10.59) | food: $4.39 | pkg: $0.00
+  Γ£à 41.2% | "Torta Lengua" ($9.69) | food: $4.00 | pkg: $0.00
+  Γ£à 39.7% | "Quesadilla Asada" ($9.19) | food: $3.65 | pkg: $0.00
+  Γ£à 39.7% | "Plato Cabeza" ($10.59) | food: $4.20 | pkg: $0.00
+  Γ£à 39.6% | "Super Burrito Asada" ($11.69) | food: $4.62 | pkg: $0.00
+  Γ£à 39.4% | "Burrito Asada" ($9.19) | food: $3.62 | pkg: $0.00
+  Γ£à 39.2% | "Super Quesadilla Asada" ($10.59) | food: $4.15 | pkg: $0.00
+  Γ£à 38.8% | "Taco Vegetariano" ($2.29) | food: $0.89 | pkg: $0.00
+  Γ£à 38.1% | "Super Burrito Cabeza" ($11.69) | food: $4.45 | pkg: $0.00
+  Γ£à 37.7% | "Quesadilla Cabeza" ($9.19) | food: $3.46 | pkg: $0.00
+  Γ£à 37.4% | "Burrito Cabeza" ($9.19) | food: $3.43 | pkg: $0.00
+  Γ£à 37.3% | "Super Quesadilla Cabeza" ($10.59) | food: $3.95 | pkg: $0.00
+  Γ£à 36.0% | "Super Burrito Lengua" ($11.69) | food: $4.21 | pkg: $0.00
+  Γ£à 35.8% | "Plato Lengua" ($10.59) | food: $3.80 | pkg: $0.00
+  Γ£à 35.1% | "Taco Asada" ($2.29) | food: $0.80 | pkg: $0.00
+  Γ£à 35.1% | "Quesadilla Lengua" ($9.19) | food: $3.23 | pkg: $0.00
+  Γ£à 35.1% | "Super Quesadilla Lengua" ($10.59) | food: $3.72 | pkg: $0.00
+  Γ£à 34.8% | "Burrito Lengua" ($9.19) | food: $3.20 | pkg: $0.00
+  Γ£à 34.4% | "Chips" ($3.39) | food: $1.17 | pkg: $0.00
+  Γ£à 34.1% | "Super Nachos Chorizo" ($9.69) | food: $3.30 | pkg: $0.00
+  Γ£à 33.1% | "Super Nachos Buche" ($9.69) | food: $3.21 | pkg: $0.00
+  Γ£à 33.1% | "Taco Cabeza" ($2.29) | food: $0.76 | pkg: $0.00
+  Γ£à 33.0% | "Torta de Huevo/Asada" ($9.69) | food: $3.20 | pkg: $0.00
+  Γ£à 33.0% | "Torta Huevos con Asada" ($9.69) | food: $3.20 | pkg: $0.00
+  Γ£à 32.7% | "Super Nachos Carnitas" ($9.69) | food: $3.17 | pkg: $0.00
+  Γ£à 30.7% | "Super Nachos Pastor" ($9.69) | food: $2.98 | pkg: $0.00
+  Γ£à 30.5% | "Taco Lengua" ($2.29) | food: $0.70 | pkg: $0.00
+  Γ£à 30.0% | "Meat Only Super Burrito Buche" ($12.89) | food: $3.87 | pkg: $0.00
+  Γ£à 29.6% | "Meat Only Super Burrito Chorizo" ($12.89) | food: $3.82 | pkg: $0.00
+  Γ£à 29.4% | "Meat Only Super Burrito Carnitas" ($12.89) | food: $3.79 | pkg: $0.00
+  Γ£à 28.6% | "Plato Jamon" ($10.59) | food: $3.03 | pkg: $0.00
+  Γ£à 28.6% | "Extra Cheese 3 oz (In Store)" ($1.79) | food: $0.51 | pkg: $0.00
+  Γ£à 28.6% | "Torta Jamon" ($9.69) | food: $2.77 | pkg: $0.00
+  Γ£à 28.3% | "Huevos con Asada" ($10.59) | food: $3.00 | pkg: $0.00
+  Γ£à 28.2% | "Pan Tostado con Fri/Que" ($3.39) | food: $0.95 | pkg: $0.00
+  Γ£à 27.9% | "Super Quesadilla Jamon" ($10.59) | food: $2.95 | pkg: $0.00
+  Γ£à 27.8% | "Torta Buche" ($9.69) | food: $2.69 | pkg: $0.00
+  Γ£à 27.5% | "Torta Chorizo" ($9.69) | food: $2.67 | pkg: $0.00
+  Γ£à 27.5% | "Guacamole" ($2.49) | food: $0.68 | pkg: $0.00
+  Γ£à 27.4% | "Torta Carnitas" ($9.69) | food: $2.65 | pkg: $0.00
+  Γ£à 27.3% | "Super Nachos Pollo" ($9.69) | food: $2.64 | pkg: $0.00
+  Γ£à 26.9% | "Torta Huevos con Jamon" ($9.69) | food: $2.60 | pkg: $0.00
+  Γ£à 26.9% | "Torta Huevos con Jamon" ($9.69) | food: $2.60 | pkg: $0.00
+  Γ£à 26.8% | "Quesadilla Jamon" ($9.19) | food: $2.46 | pkg: $0.00
+  Γ£à 26.5% | "Bottled Water" ($1.19) | food: $0.32 | pkg: $0.00
+  Γ£à 26.4% | "Meat Only Super Burrito Pastor" ($12.89) | food: $3.40 | pkg: $0.00
+  Γ£à 26.1% | "Burrito Huevos con Asada" ($9.19) | food: $2.40 | pkg: $0.00
+  Γ£à 25.8% | "Jack Cheese" ($1.99) | food: $0.51 | pkg: $0.00
+  Γ£à 25.6% | "Meat Only Burrito Buche" ($11.19) | food: $2.87 | pkg: $0.00
+  Γ£à 25.4% | "Torta Pastor" ($9.69) | food: $2.46 | pkg: $0.00
+  Γ£à 25.2% | "Meat Only Burrito Chorizo" ($11.19) | food: $2.81 | pkg: $0.00
+  Γ£à 24.9% | "Meat Only Burrito Carnitas" ($11.19) | food: $2.79 | pkg: $0.00
+  Γ£à 24.9% | "Super Burrito Buche" ($11.69) | food: $2.91 | pkg: $0.00
+  Γ£à 24.8% | "Plato Carnitas" ($10.59) | food: $2.62 | pkg: $0.00
+  Γ£à 24.6% | "Super Burrito Chorizo" ($11.69) | food: $2.88 | pkg: $0.00
+  Γ£à 24.6% | "Super Nachos No Carne" ($7.69) | food: $1.89 | pkg: $0.00
+  Γ£à 24.5% | "Super Burrito Carnitas" ($11.69) | food: $2.87 | pkg: $0.00
+  Γ£à 24.5% | "Sope Asada" ($4.79) | food: $1.17 | pkg: $0.00
+  Γ£à 23.9% | "Torta Huevos con Chorizo" ($9.69) | food: $2.32 | pkg: $0.00
+  Γ£à 23.5% | "Plato Buche" ($10.59) | food: $2.49 | pkg: $0.00
+  Γ£à 23.5% | "Sope Cabeza" ($4.79) | food: $1.13 | pkg: $0.00
+  Γ£à 23.5% | "Super Burrito Vegetariano" ($11.69) | food: $2.75 | pkg: $0.00
+  Γ£à 23.4% | "1 lb Guacamole" ($11.69) | food: $2.73 | pkg: $0.00
+  Γ£à 23.3% | "Papelito" ($2.49) | food: $0.58 | pkg: $0.00
+  Γ£à 23.3% | "Plato Chorizo" ($10.59) | food: $2.47 | pkg: $0.00
+  Γ£à 22.9% | "Super Burrito Pastor" ($11.69) | food: $2.67 | pkg: $0.00
+  Γ£à 22.8% | "Super Quesadilla Buche" ($10.59) | food: $2.41 | pkg: $0.00
+  Γ£à 22.6% | "Large Horchata" ($4.09) | food: $0.93 | pkg: $0.00
+  Γ£à 22.5% | "Super Quesadilla Chorizo" ($10.59) | food: $2.39 | pkg: $0.00
+  Γ£à 22.4% | "Super Quesadilla Carnitas" ($10.59) | food: $2.37 | pkg: $0.00
+  Γ£à 22.3% | "Sope Lengua" ($4.79) | food: $1.07 | pkg: $0.00
+  Γ£à 22.0% | "Huevos con Chorizo" ($10.59) | food: $2.33 | pkg: $0.00
+  Γ£à 22.0% | "Side Order Nacho Cheese" ($2.39) | food: $0.52 | pkg: $0.00
+  Γ£à 21.9% | "Torta Pollo" ($9.69) | food: $2.12 | pkg: $0.00
+  Γ£à 21.7% | "Extra Queso" ($0.59) | food: $0.13 | pkg: $0.00
+  Γ£à 21.7% | "Jack Cheese" ($1.77) | food: $0.38 | pkg: $0.00
+  Γ£à 21.4% | "Jack Cheese" ($2.39) | food: $0.51 | pkg: $0.00
+  Γ£à 21.4% | "Meat Only Burrito Pastor" ($11.19) | food: $2.40 | pkg: $0.00
+  Γ£à 21.4% | "Mulita Asada" ($4.79) | food: $1.02 | pkg: $0.00
+  Γ£à 21.3% | "Plato Pastor" ($10.59) | food: $2.26 | pkg: $0.00
+  Γ£à 21.3% | "Huevos con Jamon" ($10.59) | food: $2.25 | pkg: $0.00
+  Γ£à 21.2% | "Meat Only Super Burrito Pollo" ($12.89) | food: $2.73 | pkg: $0.00
+  Γ£à 20.9% | "Quesadilla Buche" ($9.19) | food: $1.92 | pkg: $0.00
+  Γ£à 20.9% | "Olla Caf├⌐ de olla" ($25.39) | food: $5.30 | pkg: $0.00
+  Γ£à 20.7% | "Super Mulita Asada" ($5.99) | food: $1.24 | pkg: $0.00
+  Γ£à 20.6% | "Quesadilla Chorizo" ($9.19) | food: $1.90 | pkg: $0.00
+  Γ£à 20.6% | "Burrito Buche" ($9.19) | food: $1.89 | pkg: $0.00
+  Γ£à 20.6% | "Jack Cheese" ($2.49) | food: $0.51 | pkg: $0.00
+  Γ£à 20.6% | "Super Quesadilla Pastor" ($10.59) | food: $2.18 | pkg: $0.00
+  Γ£à 20.5% | "Quesadilla Carnitas" ($9.19) | food: $1.88 | pkg: $0.00
+  Γ£à 20.4% | "Mulita Cabeza" ($4.79) | food: $0.98 | pkg: $0.00
+  Γ£à 20.3% | "Burrito Chorizo" ($9.19) | food: $1.87 | pkg: $0.00
+  Γ£à 20.1% | "Burrito Carnitas" ($9.19) | food: $1.85 | pkg: $0.00
+  Γ£à 20.0% | "Super Burrito Pollo" ($11.69) | food: $2.34 | pkg: $0.00
+  Γ£à 20.0% | "Super Mulita Cabeza" ($5.99) | food: $1.20 | pkg: $0.00
+  Γ£à 19.9% | "Bottled Water" ($1.59) | food: $0.32 | pkg: $0.00
+  Γ£à 19.6% | "Burrito Huevos con Jamon" ($9.19) | food: $1.80 | pkg: $0.00
+  Γ£à 19.5% | "Queso" ($1.79) | food: $0.35 | pkg: $0.00
+  Γ£à 19.1% | "Mulita Lengua" ($4.79) | food: $0.92 | pkg: $0.00
+  Γ£à 19.1% | "Guacamole" ($1.79) | food: $0.34 | pkg: $0.00
+  Γ£à 19.0% | "Extra Nacho Cheese 1.5 oz (In Store)" ($0.69) | food: $0.13 | pkg: $0.00
+  Γ£à 19.0% | "Super Mulita Lengua" ($5.99) | food: $1.14 | pkg: $0.00
+  Γ£à 18.9% | "Burrito Huevos con Chorizo" ($9.19) | food: $1.74 | pkg: $0.00
+  Γ£à 18.6% | "Extra Queso" ($0.69) | food: $0.13 | pkg: $0.00
+  Γ£à 18.6% | "Jack Cheese" ($0.69) | food: $0.13 | pkg: $0.00
+  Γ£à 18.6% | "Jack Cheese" ($0.69) | food: $0.13 | pkg: $0.00
+  Γ£à 18.4% | "Full Tray Rice" ($40.29) | food: $7.42 | pkg: $0.00
+  Γ£à 18.4% | "Huevos Rancheros" ($10.59) | food: $1.95 | pkg: $0.00
+  Γ£à 18.3% | "Quesadilla Pastor" ($9.19) | food: $1.69 | pkg: $0.00
+  Γ£à 18.1% | "Plato Pollo" ($10.59) | food: $1.92 | pkg: $0.00
+  Γ£à 18.0% | "Burrito Pastor" ($9.19) | food: $1.66 | pkg: $0.00
+  Γ£à 17.7% | "Medium Horchata" ($3.59) | food: $0.64 | pkg: $0.00
+  Γ£à 17.6% | "Extra Nacho Cheese 3 oz (In Store)" ($1.99) | food: $0.35 | pkg: $0.00
+  Γ£à 17.5% | "Caf├⌐ de olla" ($3.79) | food: $0.66 | pkg: $0.00
+  Γ£à 17.4% | "Super Quesadilla Pollo" ($10.59) | food: $1.84 | pkg: $0.00
+  Γ£à 17.3% | "Guacamole" ($0.99) | food: $0.17 | pkg: $0.00
+  Γ£à 17.3% | "Extra Guacamole" ($0.99) | food: $0.17 | pkg: $0.00
+  Γ£à 17.3% | "Torta de Huevo" ($9.69) | food: $1.67 | pkg: $0.00
+  Γ£à 17.2% | "Guacamole" ($1.99) | food: $0.34 | pkg: $0.00
+  Γ£à 17.1% | "Torta Salchicha" ($9.69) | food: $1.66 | pkg: $0.00
+  Γ£à 16.7% | "Super Burrito Beans/Rice/Cheese" ($9.49) | food: $1.59 | pkg: $0.00
+  Γ£à 16.6% | "Half Tray Rice" ($26.79) | food: $4.45 | pkg: $0.00
+  Γ£à 16.5% | "Burrito Beans/Cheese/Rice" ($6.59) | food: $1.08 | pkg: $0.00
+  Γ£à 16.3% | "Burrito Vegetariano" ($9.19) | food: $1.49 | pkg: $0.00
+  Γ£à 16.2% | "Taco Buche" ($2.29) | food: $0.37 | pkg: $0.00
+  Γ£à 16.1% | "Huevos a la Mexicana" ($10.59) | food: $1.71 | pkg: $0.00
+  Γ£à 16.1% | "Pan Tostado" ($2.59) | food: $0.42 | pkg: $0.00
+  Γ£à 16.1% | "Jack Cheese" ($2.39) | food: $0.38 | pkg: $0.00
+  Γ£à 16.0% | "Taco Chorizo" ($2.29) | food: $0.37 | pkg: $0.00
+  Γ£à 15.8% | "Taco Carnitas" ($2.29) | food: $0.36 | pkg: $0.00
+  Γ£à 15.7% | "Large Coke Zero" ($4.09) | food: $0.64 | pkg: $0.00
+  Γ£à 15.6% | "Super Quesadilla Queso" ($6.99) | food: $1.09 | pkg: $0.00
+  Γ£à 15.5% | "Sope Buche" ($4.79) | food: $0.74 | pkg: $0.00
+  Γ£à 15.4% | "Meat Only Burrito Pollo" ($11.19) | food: $1.73 | pkg: $0.00
+  Γ£à 15.3% | "Burrito Beans/Cheese" ($6.09) | food: $0.93 | pkg: $0.00
+  Γ£à 15.3% | "Sope Chorizo" ($4.79) | food: $0.73 | pkg: $0.00
+  Γ£à 15.3% | "Large Pi├▒a" ($4.09) | food: $0.63 | pkg: $0.00
+  Γ£à 15.3% | "Sope Carnitas" ($4.79) | food: $0.73 | pkg: $0.00
+  Γ£à 15.2% | "Mulita Jamon" ($4.79) | food: $0.73 | pkg: $0.00
+  Γ£à 15.1% | "Burrito Huevos con Queso" ($9.19) | food: $1.38 | pkg: $0.00
+
+ΓòÉΓòÉΓòÉ RESUMEN FINAL ΓòÉΓòÉΓòÉ
+  Total recetas: 312 (247 con precio)
+  Promedio food cost: 29.7%
+  ≡ƒö┤ FC > 50%: 15
+  Γ£à FC 15-50%: 146
+  ≡ƒƒí FC < 15%: 85
+  Warnings totales: 17

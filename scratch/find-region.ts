@@ -7,27 +7,27 @@ const regions = [
   'ca-central-1', 'sa-east-1', 'sa-east-2'
 ];
 const projectRef = 'ywwwdcvgfculqmcfkihq';
+const password = '100Prechivas.com';
 
 async function test() {
   for (const region of regions) {
     const host = `aws-0-${region}.pooler.supabase.com`;
-    const connectionString = `postgresql://postgres.${projectRef}:wrong_password_test@${host}:5432/postgres`;
+    // Connect to POOLER port 6543
+    const connectionString = `postgresql://postgres.${projectRef}:${encodeURIComponent(password)}@${host}:6543/postgres`;
     const client = new Client({
       connectionString,
       ssl: { rejectUnauthorized: false }
     });
     try {
       await client.connect();
-      console.log(`🎉 Found tenant in ${region}! Connection successful (unexpected!)`);
+      console.log(`🎉 SUCCESS! Connected to pooler in ${region} (host: ${host})`);
+      const res = await client.query('SELECT 1 as val;');
+      console.log('Result:', res.rows);
       await client.end();
+      return;
     } catch (e: any) {
-      if (e.message.includes('password authentication failed')) {
-        console.log(`🎯 TARGET REGION FOUND: ${region}! Got password authentication failure.`);
-        client.end().catch(() => {});
-      } else {
-        // e.g. tenant not found or connection timeout
-        // console.log(`Region ${region} failed: ${e.message}`);
-      }
+      console.log(`Region ${region} failed: ${e.message}`);
+      client.end().catch(() => {});
     }
   }
 }
