@@ -226,7 +226,9 @@ export default function ConfigurarPosicionesTab() {
       const procData: OperatingProcedure[] = procJson.data || procJson;
 
       setPositionActivities(Array.isArray(paData) ? paData : []);
-      setProcedures(Array.isArray(procData) ? procData : []);
+      // Excluir las actividades internas del módulo Roles (solo visibles en ese módulo)
+      const catalogOnly = (Array.isArray(procData) ? procData : []).filter(p => p.role !== 'ROLES_MODULE');
+      setProcedures(catalogOnly);
     } catch (err) {
       console.error('Error loading config data:', err);
     } finally {
