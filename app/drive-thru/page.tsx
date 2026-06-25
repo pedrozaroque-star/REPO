@@ -339,6 +339,10 @@ function DriveThruContent() {
         })
     }
 
+    const isLbToday = !selectedDate || selectedDate === getBusinessDate()
+    const realTimeSlotIndex = ALL_SLOTS.indexOf(getCurrentSlot())
+    const isLbNextDisabled = lbSlotIndex >= ALL_SLOTS.length - 1 || (isLbToday && lbSlotIndex >= realTimeSlotIndex)
+
     // ═══════════════════════════════════════════════════════
     // TAB 2: TIMELINE
     // ═══════════════════════════════════════════════════════
@@ -705,11 +709,11 @@ function DriveThruContent() {
                 {activeTab === 'leaderboard' && (
                     <div className="space-y-4">
                         {/* Controls */}
-                        <div className="flex items-center justify-between flex-wrap gap-3">
-                            <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-sm">
+                        <div className="flex items-center justify-between flex-wrap gap-3 w-full">
+                            <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-xs sm:text-sm">
                                 <button
                                     onClick={() => setLbViewMode('day')}
-                                    className={`px-4 py-2 rounded-md transition-all font-medium ${lbViewMode === 'day'
+                                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-md transition-all font-medium ${lbViewMode === 'day'
                                         ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                                         : 'text-slate-500 hover:text-slate-700'
                                         }`}
@@ -718,7 +722,7 @@ function DriveThruContent() {
                                 </button>
                                 <button
                                     onClick={() => setLbViewMode('slot')}
-                                    className={`px-4 py-2 rounded-md transition-all font-medium ${lbViewMode === 'slot'
+                                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-md transition-all font-medium ${lbViewMode === 'slot'
                                         ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                                         : 'text-slate-500 hover:text-slate-700'
                                         }`}
@@ -729,23 +733,23 @@ function DriveThruContent() {
 
                             {/* Slot navigation */}
                             {lbViewMode === 'slot' && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5">
                                     <button
                                         onClick={() => navigateLbSlot(-1)}
                                         disabled={lbSlotIndex <= 0}
-                                        className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
+                                        className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
                                     >
-                                        <ChevronLeft size={18} />
+                                        <ChevronLeft size={16} />
                                     </button>
-                                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300 min-w-[60px] text-center bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-lg">
+                                    <span className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 min-w-[50px] sm:min-w-[60px] text-center bg-slate-100 dark:bg-slate-800 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg">
                                         {ALL_SLOTS[lbSlotIndex]}
                                     </span>
                                     <button
                                         onClick={() => navigateLbSlot(1)}
-                                        disabled={lbSlotIndex >= ALL_SLOTS.length - 1}
-                                        className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
+                                        disabled={isLbNextDisabled}
+                                        className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors border border-slate-200 dark:border-slate-700"
                                     >
-                                        <ChevronRight size={18} />
+                                        <ChevronRight size={16} />
                                     </button>
                                 </div>
                             )}

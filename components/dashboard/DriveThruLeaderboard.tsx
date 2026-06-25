@@ -188,6 +188,10 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
         })
     }
 
+    const isToday = !selectedDate || selectedDate === getBusinessDate()
+    const realTimeSlotIndex = ALL_SLOTS.indexOf(getCurrentSlot())
+    const isNextDisabled = currentSlotIndex >= ALL_SLOTS.length - 1 || (isToday && currentSlotIndex >= realTimeSlotIndex)
+
     // Find alerts (stores in red)
     const redStores = data?.entries.filter(e => e.color === 'red') || []
     // Max bar width reference
@@ -235,22 +239,32 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
             {/* Header */}
             <div className="px-5 py-4 bg-gradient-to-r from-slate-50 to-white dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-700">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl shadow-lg shadow-orange-500/20">
-                            <Timer className="text-white" size={20} />
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center justify-between w-full sm:w-auto">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl shadow-lg shadow-orange-500/20">
+                                <Timer className="text-white" size={20} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-900 dark:text-white text-sm">{t('drive_thru.title')}</h3>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{t('drive_thru.subtitle')}</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 className="font-bold text-slate-900 dark:text-white text-sm">{t('drive_thru.title')}</h3>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{t('drive_thru.subtitle')}</p>
-                        </div>
+                        {/* Link to full module (mobile only) */}
+                        <button
+                            onClick={() => router.push('/drive-thru')}
+                            className="sm:hidden p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+                            title="Ver módulo completo"
+                        >
+                            <TrendingUp size={16} />
+                        </button>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between sm:justify-start w-full sm:w-auto gap-2 flex-wrap sm:flex-nowrap">
                         {/* View Mode Toggle */}
                         <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-xs">
                             <button
                                 onClick={() => setViewMode('day')}
-                                className={`px-2.5 py-1 rounded-md transition-all font-medium ${viewMode === 'day'
+                                className={`px-2 sm:px-2.5 py-1 rounded-md transition-all font-medium ${viewMode === 'day'
                                     ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                                     : 'text-slate-500 hover:text-slate-700'
                                     }`}
@@ -259,7 +273,7 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                             </button>
                             <button
                                 onClick={() => setViewMode('slot')}
-                                className={`px-2.5 py-1 rounded-md transition-all font-medium ${viewMode === 'slot'
+                                className={`px-2 sm:px-2.5 py-1 rounded-md transition-all font-medium ${viewMode === 'slot'
                                     ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                                     : 'text-slate-500 hover:text-slate-700'
                                     }`}
@@ -278,12 +292,12 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                                 >
                                     <ChevronLeft size={16} />
                                 </button>
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 min-w-[40px] text-center bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 min-w-[40px] text-center bg-slate-100 dark:bg-slate-800 px-1.5 sm:px-2 py-1 rounded-md">
                                     {ALL_SLOTS[currentSlotIndex]}
                                 </span>
                                 <button
                                     onClick={() => navigateSlot(1)}
-                                    disabled={currentSlotIndex >= ALL_SLOTS.length - 1}
+                                    disabled={isNextDisabled}
                                     className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
                                 >
                                     <ChevronRight size={16} />
@@ -291,10 +305,10 @@ export default function DriveThruLeaderboard({ selectedDate }: DriveThruLeaderbo
                             </div>
                         )}
 
-                        {/* Link to full module */}
+                        {/* Link to full module (desktop only) */}
                         <button
                             onClick={() => router.push('/drive-thru')}
-                            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+                            className="hidden sm:block p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
                             title="Ver módulo completo"
                         >
                             <TrendingUp size={16} />
