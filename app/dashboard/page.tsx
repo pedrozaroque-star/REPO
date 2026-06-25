@@ -16,6 +16,7 @@ import FeedbackReviewModal from '@/components/FeedbackReviewModal'
 import DateRangeFilter from '@/components/sales/DateRangeFilter'
 import { useLanguage } from '@/lib/i18n'
 import OperationsAlerts from '@/components/dashboard/OperationsAlerts'
+import DriveThruLeaderboard from '@/components/dashboard/DriveThruLeaderboard'
 
 function DashboardContent() {
     const router = useRouter()
@@ -545,6 +546,9 @@ function DashboardContent() {
 
                 {/* ROW 1.5: Operations Alerts */}
                 <OperationsAlerts startDate={startDateStr} endDate={endDateStr} />
+
+                {/* ROW 1.75: Drive-Thru Leaderboard */}
+                <DriveThruLeaderboard selectedDate={startDateStr} />
 
                 {/* ROW 2: Anomalies + Supervisors */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -59,6 +59,10 @@
         {
             "path": "/api/cron/sync-mobile-menu",
             "schedule": "0 6 * * *"
+        },
+        {
+            "path": "/api/cron/sync-drive-thru",
+            "schedule": "*/5 * * * *"
         }
     ]
 }

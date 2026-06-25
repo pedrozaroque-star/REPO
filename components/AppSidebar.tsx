@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -129,6 +129,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.planner'), plainName: 'Planificador', path: '/planificador', icon: <Calendar size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.breaks_ai'), plainName: 'Descansos', path: '/descansos', icon: <Zap size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.feedback'), plainName: 'Feedback', path: '/feedback', icon: <MessageSquare size={20} />, roles: ['asistente', 'manager', 'supervisor', 'admin'] },
+                { name: t('items.drive_thru_leaderboard'), plainName: 'Drive-Thru', path: '/drive-thru', icon: <Timer size={20} />, roles: ['manager', 'supervisor', 'admin'] },
             ]
         },
         {
@@ -160,6 +161,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.menu_catalog'), plainName: 'Catálogo', path: '/inventory/menu', icon: <ClipboardList size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.food_costs'), plainName: 'Costos', path: '/inventory/costs', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
                 { name: t('items.prep'), plainName: 'Preparador', path: '/inventory/preparador', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
+                { name: t('items.bodega_orders'), plainName: 'Pedidos Bodega', path: '/inventory/orders', icon: <Truck size={20} />, roles: ['admin', 'manager', 'supervisor'] },
             ]
         },
         {

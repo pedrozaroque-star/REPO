@@ -6,7 +6,7 @@ export async function GET() {
         const supabase = await getSupabaseClient()
         const { data, error } = await supabase
             .from('stores')
-            .select('id, name, external_id')
+            .select('id, name, external_id, has_drive_thru')
             .eq('is_active', true)
             .order('name')
 

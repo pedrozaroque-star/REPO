@@ -352,6 +352,9 @@ async function getSalesForStore(token: string, storeId: string, startDate: strin
                     'diningOption',
                     'voided',
                     'openedDate',
+                    'closedDate',       // DT SOS: needed for duration fallback calc
+                    'duration',         // DT SOS: primary duration source
+                    'displayNumber',    // DT Leaderboard: order display number for lookup
                     'numberOfGuests',
                     'checks.voided',
                     'checks.amount',
