@@ -40,6 +40,9 @@
  * - El sync procesa tiendas secuencialmente con 1s de espera entre cada una para
  *   respetar los rate limits de Toast API.
  * - Logging usa el prefijo [DT-SYNC] para facilitar búsqueda en logs.
+ * - **Cálculo KDS Prep Time (SOS)**: Las métricas de Speed of Service se calculan basándose en
+ *   el tiempo de preparación de la KDS (desde que se manda el ticket a cocina con createdDate
+ *   hasta que se le hace bump en pantalla con modifiedDate para selections listas).
  */
 
 import { getAuthToken } from '@/lib/toast-api'
@@ -320,7 +323,10 @@ export async function fetchDriveThruOrders(
         'displayNumber',
         'checks.voided',
         'checks.amount',
-        'checks.taxAmount'
+        'checks.taxAmount',
+        'checks.selections.createdDate',
+        'checks.selections.modifiedDate',
+        'checks.selections.voided'
     ].join(',')
 
     while (hasMore) {
@@ -369,18 +375,56 @@ export async function fetchDriveThruOrders(
                 // Only keep Drive-Thru orders
                 if (!diningOptionName.toLowerCase().includes('drive')) continue
 
-                // --- Calculate duration_seconds ---
-                let durationSeconds: number | null = null
-
-                if (typeof order.duration === 'number' && order.duration > 0) {
-                    // Toast provides duration in seconds directly
-                    durationSeconds = order.duration
-                } else if (order.openedDate && order.closedDate) {
-                    // Fallback: calculate from timestamps
-                    const diffMs = new Date(order.closedDate).getTime() - new Date(order.openedDate).getTime()
-                    if (diffMs > 0) {
-                        durationSeconds = Math.floor(diffMs / 1000)
+                // --- Calculate duration_seconds using KDS kitchen screen timestamps ---
+                const selections: any[] = []
+                if (order.checks && Array.isArray(order.checks)) {
+                    for (const check of order.checks) {
+                        if (check.voided) continue
+                        if (check.selections && Array.isArray(check.selections)) {
+                            for (const sel of check.selections) {
+                                if (sel.voided) continue
+                                selections.push(sel)
+                            }
+                        }
                     }
+                }
+
+                let durationSeconds: number | null = null
+                let kdsOpenedAt: string | null = null
+                let kdsClosedAt: string | null = null
+
+                if (selections.length > 0) {
+                    const createdTimes = selections
+                        .map(s => s.createdDate ? new Date(s.createdDate).getTime() : NaN)
+                        .filter(t => !isNaN(t))
+                    const modifiedTimes = selections
+                        .map(s => s.modifiedDate ? new Date(s.modifiedDate).getTime() : NaN)
+                        .filter(t => !isNaN(t))
+
+                    if (createdTimes.length > 0 && modifiedTimes.length > 0) {
+                        const minCreated = Math.min(...createdTimes)
+                        const maxModified = Math.max(...modifiedTimes)
+
+                        if (maxModified >= minCreated) {
+                            durationSeconds = Math.floor((maxModified - minCreated) / 1000)
+                            kdsOpenedAt = new Date(minCreated).toISOString()
+                            kdsClosedAt = new Date(maxModified).toISOString()
+                        }
+                    }
+                }
+
+                // Fallback to POS timestamps if KDS data is missing or invalid
+                if (durationSeconds === null) {
+                    if (typeof order.duration === 'number' && order.duration > 0) {
+                        durationSeconds = order.duration
+                    } else if (order.openedDate && order.closedDate) {
+                        const diffMs = new Date(order.closedDate).getTime() - new Date(order.openedDate).getTime()
+                        if (diffMs > 0) {
+                            durationSeconds = Math.floor(diffMs / 1000)
+                        }
+                    }
+                    kdsOpenedAt = order.openedDate || null
+                    kdsClosedAt = order.closedDate || null
                 }
 
                 // Skip order if duration is null, or if it is an outlier (under 15s or over 15 min / 900s)
@@ -400,8 +444,8 @@ export async function fetchDriveThruOrders(
                     }
                 }
 
-                // --- Determine half_hour_slot ---
-                const openedAt = order.openedDate || ''
+                // --- Determine half_hour_slot based on KDS kitchen start time ---
+                const openedAt = kdsOpenedAt || order.openedDate || ''
                 const { slot, hour, slotIndex } = openedAt
                     ? calculateHalfHourSlot(openedAt)
                     : { slot: '06:00', hour: 6, slotIndex: 0 }
@@ -414,7 +458,7 @@ export async function fetchDriveThruOrders(
                     order_guid: order.guid || `${storeId}-${page}-${orders.length}`,
                     order_number: order.displayNumber ? String(order.displayNumber) : null,
                     opened_at: openedAt,
-                    closed_at: order.closedDate || null,
+                    closed_at: kdsClosedAt || order.closedDate || null,
                     duration_seconds: durationSeconds,
                     half_hour_slot: slot,
                     hour,

@@ -34,6 +34,12 @@ interface Procedure {
   overrides?: any;
   store_model?: string;
   shift?: string;
+  created_by_id?: string;
+  created_by_name?: string;
+  updated_by_id?: string;
+  updated_by_name?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 const EMPTY_FORM: Partial<Procedure> = {
@@ -243,14 +249,20 @@ export default function ProceduresTimeline() {
       const res = await fetch('/api/procedimientos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...editForm, id: editingId })
+        body: JSON.stringify({
+          ...editForm,
+          id: editingId,
+          user_id: user?.id,
+          user_name: user?.name,
+        })
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error');
 
       // Actualizar y re-ordenar automáticamente
+      const updatedProc = { ...editForm, updated_by_name: user?.name, updated_at: new Date().toISOString() };
       setProcedures(prev => sortProcedures(
-        prev.map(p => p.id === editingId ? { ...p, ...editForm } as Procedure : p)
+        prev.map(p => p.id === editingId ? { ...p, ...updatedProc } as Procedure : p)
       ));
       setEditingId(null);
       setEditForm({});
@@ -276,7 +288,11 @@ export default function ProceduresTimeline() {
       const res = await fetch('/api/procedimientos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(createForm)
+        body: JSON.stringify({
+          ...createForm,
+          user_id: user?.id,
+          user_name: user?.name,
+        })
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error');
@@ -296,13 +312,30 @@ export default function ProceduresTimeline() {
   // ═══════════════════════════════════════
   // DELETE
   // ═══════════════════════════════════════
+  const isAdminForDelete = user?.role?.toLowerCase() === 'admin';
+
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // Solo admin puede eliminar
+    if (!isAdminForDelete) {
+      alert(t('procedures.delete_admin_only'));
+      setDeletingId(null);
+      return;
+    }
+
     try {
       setSaving(true);
-      const res = await fetch(`/api/procedimientos?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/procedimientos?id=${id}&role=${encodeURIComponent(user?.role || '')}`, { method: 'DELETE' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Error');
+      if (!res.ok) {
+        if (json.error === 'ADMIN_ONLY') {
+          alert(t('procedures.delete_admin_only'));
+          setDeletingId(null);
+          return;
+        }
+        throw new Error(json.error || 'Error');
+      }
 
       setProcedures(prev => prev.filter(p => p.id !== id));
       setDeletingId(null);
@@ -723,8 +756,18 @@ export default function ProceduresTimeline() {
             {t('procedures.empty')}
           </div>
         ) : (
-          ['Apertura', 'Regular', 'Cierre'].map(shiftKey => {
+          (() => {
+            // Compute global numbering offset per shift
+            const shiftOrder = ['Apertura', 'Regular', 'Cierre'];
+            const offsets: Record<string, number> = {};
+            let runningTotal = 0;
+            for (const sk of shiftOrder) {
+              offsets[sk] = runningTotal;
+              runningTotal += (groupedProcedures[sk]?.length || 0);
+            }
+            return shiftOrder.map(shiftKey => {
             const shiftProcedures = groupedProcedures[shiftKey];
+            const globalOffset = offsets[shiftKey] || 0;
             if (!shiftProcedures || shiftProcedures.length === 0) return null;
 
             return (
@@ -925,6 +968,7 @@ export default function ProceduresTimeline() {
                                   />
                                 ) : (
                                   <h3 className="text-sm sm:text-lg font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 text-xs font-bold text-slate-500 dark:text-slate-400 mr-2 flex-shrink-0">{globalOffset + idx + 1}</span>
                                     {proc.activity}
                                   </h3>
                                 )}
@@ -936,22 +980,22 @@ export default function ProceduresTimeline() {
                                     </div>
                                   )}
                                   {isAdmin && !isEditing && (
-                                    <>
-                                      <button 
-                                        onClick={(e) => handleEditClick(proc, e)}
-                                        className="text-slate-400 hover:text-blue-500 transition-colors p-1"
-                                        title={t('procedures.actions.edit')}
-                                      >
-                                        <Edit2 className="w-4 h-4" />
-                                      </button>
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); setDeletingId(isDeleting ? null : proc.id); }}
-                                        className="text-slate-400 hover:text-red-500 transition-colors p-1"
-                                        title={t('procedures.actions.delete')}
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </>
+                                    <button 
+                                      onClick={(e) => handleEditClick(proc, e)}
+                                      className="text-slate-400 hover:text-blue-500 transition-colors p-1"
+                                      title={t('procedures.actions.edit')}
+                                    >
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  {isAdminForDelete && !isEditing && (
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); setDeletingId(isDeleting ? null : proc.id); }}
+                                      className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                                      title={t('procedures.actions.delete')}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
                                   )}
                                   {isEditing && (
                                     <div className="flex gap-1">
@@ -1100,6 +1144,20 @@ export default function ProceduresTimeline() {
                             </div>
                           </div>
 
+                          {/* Audit Info */}
+                          {(proc.updated_by_name || proc.created_by_name) && !isEditing && (
+                            <div className="px-3 sm:px-5 pb-1.5 pt-0">
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">
+                                {proc.updated_by_name && proc.updated_at && proc.updated_at !== proc.created_at
+                                  ? `✏️ ${t('procedures.audit.updated_by')} ${proc.updated_by_name} · ${new Date(proc.updated_at).toLocaleDateString()}`
+                                  : proc.created_by_name
+                                    ? `📝 ${t('procedures.audit.created_by')} ${proc.created_by_name} · ${proc.created_at ? new Date(proc.created_at).toLocaleDateString() : ''}`
+                                    : ''
+                                }
+                              </p>
+                            </div>
+                          )}
+
                           {/* Expandable Details */}
                           <AnimatePresence>
                             {(expandedId === proc.id || isEditing) && (
@@ -1142,6 +1200,7 @@ export default function ProceduresTimeline() {
               </motion.div>
             );
           })
+          })()
         )}
       </div>
 

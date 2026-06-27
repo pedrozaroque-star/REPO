@@ -29,7 +29,7 @@ async function sleep(ms: number) {
 
 async function main() {
     const startDate = '2026-06-01'
-    const endDate = '2026-06-25'
+    const endDate = '2026-06-26'
     const dates = getDatesRange(startDate, endDate)
     
     console.log(`🧹 Starting historical backfill for Drive-Thru from ${startDate} to ${endDate}`)
@@ -62,7 +62,7 @@ async function main() {
             // 2. Fetch and import clean data using the new filter
             console.log(`  Running syncDriveThruData(${date})...`)
             const result = await syncDriveThruData(date)
-            console.log(`  ✅ Date completed. Stored: ${result.stored} orders, Stats: ${result.stats.length} slots. Errors: ${result.errors.length}`)
+            console.log(`  ✅ Date completed. Stored: ${result.stored} orders, Stats: ${result.stats} slots. Errors: ${result.errors.length}`)
             
             if (result.errors.length > 0) {
                 console.error(`  ❌ Errors reported:`, result.errors)

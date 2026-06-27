@@ -18,7 +18,7 @@
 
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ClipboardList, Settings, CalendarDays, Info, X } from 'lucide-react'
+import { ClipboardList, Settings, CalendarDays, BarChart3, Info, X } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import dynamic from 'next/dynamic'
 
@@ -32,6 +32,9 @@ const ConfigurarPosicionesTab = dynamic(() => import('@/components/actividades/C
 const AsignacionDiariaTab = dynamic(() => import('@/components/actividades/AsignacionDiariaTab'), {
   loading: () => <TabSkeleton />,
 })
+const ReportesChecklistTab = dynamic(() => import('@/components/actividades/ReportesChecklistTab'), {
+  loading: () => <TabSkeleton />,
+})
 
 function TabSkeleton() {
   return (
@@ -41,7 +44,7 @@ function TabSkeleton() {
   )
 }
 
-type TabKey = 'catalogo' | 'configurar' | 'asignacion'
+type TabKey = 'catalogo' | 'configurar' | 'asignacion' | 'reportes'
 
 export default function ActividadesPage() {
   const { t } = useLanguage()
@@ -66,6 +69,12 @@ export default function ActividadesPage() {
       label: t('actividades.tabs.daily_assignment'),
       icon: <CalendarDays size={18} />,
       description: t('actividades.tabs.daily_assignment_desc'),
+    },
+    {
+      key: 'reportes',
+      label: t('actividades.tabs.reports'),
+      icon: <BarChart3 size={18} />,
+      description: t('actividades.tabs.reports_desc'),
     },
   ]
 
@@ -144,6 +153,7 @@ export default function ActividadesPage() {
             {activeTab === 'catalogo' && <CatalogoTab />}
             {activeTab === 'configurar' && <ConfigurarPosicionesTab />}
             {activeTab === 'asignacion' && <AsignacionDiariaTab />}
+            {activeTab === 'reportes' && <ReportesChecklistTab />}
           </motion.div>
         </AnimatePresence>
       </div>

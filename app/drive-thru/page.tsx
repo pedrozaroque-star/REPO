@@ -436,6 +436,11 @@ function DriveThruContent() {
             }
             params.push(`limit=${luPageSize}`)
             params.push(`offset=${(luPage - 1) * luPageSize}`)
+            if (sortField) {
+                const apiSortField = sortField === 'slot' ? 'half_hour_slot' : sortField
+                params.push(`sortBy=${apiSortField}`)
+                params.push(`sortOrder=${sortDirection}`)
+            }
 
             const res = await fetch(url + params.join('&'))
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -447,7 +452,7 @@ function DriveThruContent() {
         } finally {
             setLuLoading(false)
         }
-    }, [luOrderNumber, luStoreId, luDate, luPage])
+    }, [luOrderNumber, luStoreId, luDate, luPage, sortField, sortDirection])
 
     const handleSearch = useCallback(() => {
         if (luPage === 1) {
@@ -491,7 +496,7 @@ function DriveThruContent() {
         if (activeTab === 'lookup') {
             fetchLookup()
         }
-    }, [activeTab, luStoreId, luDate, luPage, fetchLookup])
+    }, [activeTab, luStoreId, luDate, luPage, sortField, sortDirection, fetchLookup])
 
     // ═══════════════════════════════════════════════════════
     // TAB 4: REPORTS
@@ -1183,186 +1188,158 @@ function DriveThruContent() {
                         )}
 
                         {/* Results table */}
-                        {!luLoading && !luError && luData && luData.orders.length > 0 && (() => {
-                            const sortedOrders = [...luData.orders].sort((a, b) => {
-                                if (!sortField) return 0
-
-                                let aVal: any
-                                let bVal: any
-
-                                if (sortField === 'slot') {
-                                    aVal = `${a.business_date} ${a.slot_label}`
-                                    bVal = `${b.business_date} ${b.slot_label}`
-                                } else {
-                                    aVal = a[sortField as keyof LookupOrder]
-                                    bVal = b[sortField as keyof LookupOrder]
-                                }
-
-                                if (aVal === undefined || aVal === null) return 1
-                                if (bVal === undefined || bVal === null) return -1
-
-                                if (typeof aVal === 'string') {
-                                    return sortDirection === 'asc'
-                                        ? aVal.localeCompare(bVal)
-                                        : bVal.localeCompare(aVal)
-                                } else {
-                                    return sortDirection === 'asc' ? aVal - bVal : bVal - aVal
-                                }
-                            })
-
-                            return (
-                                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                                    <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                                        <h3 className="font-bold text-slate-800 dark:text-white text-sm">
-                                            {t('drive_thru.order_details')} ({luData.total})
-                                        </h3>
-                                        <span className="text-xs text-slate-500 font-medium">
-                                            Mostrando {Math.min((luPage - 1) * luPageSize + 1, luData.total)} - {Math.min(luPage * luPageSize, luData.total)} de {luData.total}
-                                        </span>
-                                    </div>
-                                    <div className="overflow-x-auto font-sans">
-                                        <table className="w-full text-sm text-slate-700 dark:text-slate-300">
-                                            <thead>
-                                                <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
-                                                    <th 
-                                                        onClick={() => handleSort('order_number')}
-                                                        className="text-left px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
-                                                    >
-                                                        <div className="flex items-center gap-1 select-none">
-                                                            {t('drive_thru.order_number')}
-                                                            {sortField === 'order_number' && (
-                                                                sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
-                                                            )}
-                                                        </div>
-                                                    </th>
-                                                    <th 
-                                                        onClick={() => handleSort('store_name')}
-                                                        className="text-left px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
-                                                    >
-                                                        <div className="flex items-center gap-1 select-none">
-                                                            {t('drive_thru.store')}
-                                                            {sortField === 'store_name' && (
-                                                                sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
-                                                            )}
-                                                        </div>
-                                                    </th>
-                                                    <th 
-                                                        onClick={() => handleSort('slot')}
-                                                        className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors hidden sm:table-cell"
-                                                    >
-                                                        <div className="flex items-center justify-center gap-1 select-none">
-                                                            {t('drive_thru.slot')}
-                                                            {sortField === 'slot' && (
-                                                                sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
-                                                            )}
-                                                        </div>
-                                                    </th>
-                                                    <th 
-                                                        onClick={() => handleSort('opened_at')}
-                                                        className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
-                                                    >
-                                                        <div className="flex items-center justify-center gap-1 select-none">
-                                                            {t('drive_thru.opened_at')}
-                                                            {sortField === 'opened_at' && (
-                                                                sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
-                                                            )}
-                                                        </div>
-                                                    </th>
-                                                    <th 
-                                                        onClick={() => handleSort('closed_at')}
-                                                        className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
-                                                    >
-                                                        <div className="flex items-center justify-center gap-1 select-none">
-                                                            {t('drive_thru.closed_at')}
-                                                            {sortField === 'closed_at' && (
-                                                                sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
-                                                            )}
-                                                        </div>
-                                                    </th>
-                                                    <th 
-                                                        onClick={() => handleSort('duration_seconds')}
-                                                        className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
-                                                    >
-                                                        <div className="flex items-center justify-center gap-1 select-none">
-                                                            {t('drive_thru.duration')}
-                                                            {sortField === 'duration_seconds' && (
-                                                                sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
-                                                            )}
-                                                        </div>
-                                                    </th>
-                                                    <th className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 w-16 select-none">Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {sortedOrders.map((order, idx) => {
-                                                    const color = getDurationColor(order.duration_seconds)
-                                                    const colors = getColorClasses(color)
-                                                    const openedTime = order.opened_at ? new Date(order.opened_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' }) : '—'
-                                                    const closedTime = order.closed_at ? new Date(order.closed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' }) : '—'
-
-                                                    return (
-                                                        <tr key={idx} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                                                            <td className="px-4 py-3 font-mono font-bold">
-                                                                <button
-                                                                    title={`GUID: ${order.order_guid}\nHaz clic para extraer ticket desde los servidores de Toast.`}
-                                                                    className="hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-400/10 px-2 py-0.5 rounded cursor-pointer border border-transparent hover:border-amber-200 dark:hover:border-amber-500/30 transition-all font-bold text-sky-600 dark:text-sky-400 text-left font-mono"
-                                                                    onClick={() => handleOrderClick(order)}
-                                                                >
-                                                                    #{order.order_number || 'N/A'}
-                                                                </button>
-                                                            </td>
-                                                            <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-medium">
-                                                                {order.store_name}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center text-slate-500 tabular-nums hidden sm:table-cell">
-                                                                {order.business_date} {order.slot_label}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 tabular-nums">
-                                                                {openedTime}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 tabular-nums">
-                                                                {closedTime}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                <span className={`font-bold tabular-nums ${colors.text}`}>
-                                                                    {formatDuration(order.duration_seconds)}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                <div className={`w-3 h-3 rounded-full mx-auto ${colors.dot}`} />
-                                                            </td>
-                                                        </tr>
-                                                    )
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {/* Pagination Controls */}
-                                    {luData.total > luPageSize && (
-                                        <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                                            <button
-                                                onClick={() => setLuPage(prev => Math.max(prev - 1, 1))}
-                                                disabled={luPage === 1}
-                                                className="px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-700 dark:text-slate-300 shadow-sm"
-                                            >
-                                                Anterior
-                                            </button>
-                                            <span className="text-xs font-medium text-slate-600 dark:text-slate-400 select-none">
-                                                Página {luPage} de {Math.ceil(luData.total / luPageSize)}
-                                            </span>
-                                            <button
-                                                onClick={() => setLuPage(prev => Math.min(prev + 1, Math.ceil(luData.total / luPageSize)))}
-                                                disabled={luPage >= Math.ceil(luData.total / luPageSize)}
-                                                className="px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-700 dark:text-slate-300 shadow-sm"
-                                            >
-                                                Siguiente
-                                            </button>
-                                        </div>
-                                    )}
+                        {!luLoading && !luError && luData && luData.orders.length > 0 && (
+                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                                <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                                    <h3 className="font-bold text-slate-800 dark:text-white text-sm">
+                                        {t('drive_thru.order_details')} ({luData.total})
+                                    </h3>
+                                    <span className="text-xs text-slate-500 font-medium">
+                                        Mostrando {Math.min((luPage - 1) * luPageSize + 1, luData.total)} - {Math.min(luPage * luPageSize, luData.total)} de {luData.total}
+                                    </span>
                                 </div>
-                            )
-                        })()}
+                                <div className="overflow-x-auto font-sans">
+                                    <table className="w-full text-sm text-slate-700 dark:text-slate-300">
+                                        <thead>
+                                            <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                                                <th 
+                                                    onClick={() => handleSort('order_number')}
+                                                    className="text-left px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-1 select-none">
+                                                        {t('drive_thru.order_number')}
+                                                        {sortField === 'order_number' && (
+                                                            sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
+                                                        )}
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    onClick={() => handleSort('store_name')}
+                                                    className="text-left px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-1 select-none">
+                                                        {t('drive_thru.store')}
+                                                        {sortField === 'store_name' && (
+                                                            sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
+                                                        )}
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    onClick={() => handleSort('slot')}
+                                                    className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors hidden sm:table-cell"
+                                                >
+                                                    <div className="flex items-center justify-center gap-1 select-none">
+                                                        {t('drive_thru.slot')}
+                                                        {sortField === 'slot' && (
+                                                            sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
+                                                        )}
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    onClick={() => handleSort('opened_at')}
+                                                    className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
+                                                >
+                                                    <div className="flex items-center justify-center gap-1 select-none">
+                                                        {t('drive_thru.opened_at')}
+                                                        {sortField === 'opened_at' && (
+                                                            sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
+                                                        )}
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    onClick={() => handleSort('closed_at')}
+                                                    className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
+                                                >
+                                                    <div className="flex items-center justify-center gap-1 select-none">
+                                                        {t('drive_thru.closed_at')}
+                                                        {sortField === 'closed_at' && (
+                                                            sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
+                                                        )}
+                                                    </div>
+                                                </th>
+                                                <th 
+                                                    onClick={() => handleSort('duration_seconds')}
+                                                    className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/30 transition-colors"
+                                                >
+                                                    <div className="flex items-center justify-center gap-1 select-none">
+                                                        {t('drive_thru.duration')}
+                                                        {sortField === 'duration_seconds' && (
+                                                            sortDirection === 'asc' ? <ArrowUp size={14} className="text-orange-500" /> : <ArrowDown size={14} className="text-orange-500" />
+                                                        )}
+                                                    </div>
+                                                </th>
+                                                <th className="text-center px-4 py-3 font-semibold text-slate-600 dark:text-slate-400 w-16 select-none">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {luData.orders.map((order, idx) => {
+                                                const color = getDurationColor(order.duration_seconds)
+                                                const colors = getColorClasses(color)
+                                                const openedTime = order.opened_at ? new Date(order.opened_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' }) : '—'
+                                                const closedTime = order.closed_at ? new Date(order.closed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/Los_Angeles' }) : '—'
+
+                                                return (
+                                                    <tr key={idx} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                                        <td className="px-4 py-3 font-mono font-bold">
+                                                            <button
+                                                                title={`GUID: ${order.order_guid}\nHaz clic para extraer ticket desde los servidores de Toast.`}
+                                                                className="hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-400/10 px-2 py-0.5 rounded cursor-pointer border border-transparent hover:border-amber-200 dark:hover:border-amber-500/30 transition-all font-bold text-sky-600 dark:text-sky-400 text-left font-mono"
+                                                                onClick={() => handleOrderClick(order)}
+                                                            >
+                                                                #{order.order_number || 'N/A'}
+                                                            </button>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-medium">
+                                                            {order.store_name}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center text-slate-500 tabular-nums hidden sm:table-cell">
+                                                            {order.business_date} {order.slot_label}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 tabular-nums">
+                                                            {openedTime}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center text-slate-600 dark:text-slate-400 tabular-nums">
+                                                            {closedTime}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            <span className={`font-bold tabular-nums ${colors.text}`}>
+                                                                {formatDuration(order.duration_seconds)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            <div className={`w-3 h-3 rounded-full mx-auto ${colors.dot}`} />
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Pagination Controls */}
+                                {luData.total > luPageSize && (
+                                    <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                                        <button
+                                            onClick={() => setLuPage(prev => Math.max(prev - 1, 1))}
+                                            disabled={luPage === 1}
+                                            className="px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-700 dark:text-slate-300 shadow-sm"
+                                        >
+                                            Anterior
+                                        </button>
+                                        <span className="text-xs font-medium text-slate-600 dark:text-slate-400 select-none">
+                                            Página {luPage} de {Math.ceil(luData.total / luPageSize)}
+                                        </span>
+                                        <button
+                                            onClick={() => setLuPage(prev => Math.min(prev + 1, Math.ceil(luData.total / luPageSize)))}
+                                            disabled={luPage >= Math.ceil(luData.total / luPageSize)}
+                                            className="px-3 py-1.5 text-xs font-semibold border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-slate-700 dark:text-slate-300 shadow-sm"
+                                        >
+                                            Siguiente
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 

@@ -77,9 +77,25 @@ export async function GET(request: NextRequest) {
         if (storeId) query = query.eq('store_id', storeId)
         if (date) query = query.eq('business_date', date)
 
-        query = query
-            .order('opened_at', { ascending: false })
-            .range(offset, offset + limit - 1)
+        const validSortFields = [
+            'order_number',
+            'store_name',
+            'half_hour_slot',
+            'opened_at',
+            'closed_at',
+            'duration_seconds',
+            'net_sales'
+        ]
+        const sortByParam = searchParams.get('sortBy') || 'opened_at'
+        const sortBy = validSortFields.includes(sortByParam) ? sortByParam : 'opened_at'
+        const sortOrder = searchParams.get('sortOrder') || 'desc'
+        const ascending = sortOrder === 'asc'
+
+        query = query.order(sortBy, { ascending })
+        if (sortBy !== 'opened_at') {
+            query = query.order('opened_at', { ascending: false })
+        }
+        query = query.range(offset, offset + limit - 1)
 
         const { data: orders, error } = await query
 
