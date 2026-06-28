@@ -533,133 +533,9 @@ export async function POST(req: Request) {
 
                             let resolvedActivities = [...activeMappings];
 
-                            // Smart Fallback: If current role is Shift Leader and no Assistant is working this shift, inherit Assistant tasks
-                            const isShiftLeader = roleKey === 'SHIFT_LEADER_MALE' || roleKey === 'SHIFT_LEADER_FEMALE';
-                            if (isShiftLeader) {
-                                // Find if there is any assistant working this shift
-                                const isAssistantWorking = (stationAssignments || []).some((a: any) => {
-                                    if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
-                                    
-                                    // Find employee job title for this assignment
-                                    const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
-                                    if (!otherEmp) return false;
-                                    
-                                    // Let's find their job title
-                                    let otherJobTitle = '';
-                                    if (otherEmp.job_references?.[0]) {
-                                        const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
-                                        if (job) otherJobTitle = job.title;
-                                    }
-                                    
-                                    const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
-                                    return otherRole === 'ASSISTANT';
-                                });
-
-                                if (!isAssistantWorking) {
-                                    const assistantActs = (positionActivities || []).filter((item: any) => {
-                                        if (item.position_key !== 'ASSISTANT') return false;
-                                        const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
-                                        const matchFreq = isFreqMatch(item.frequency, myDayIndex);
-                                        const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
-                                        return matchShift && matchFreq && matchModel;
-                                    });
-                                    resolvedActivities.push(...assistantActs);
-                                }
-                            }
-
-                            // Dynamic Auto-Redistribution from Vacant Stations
-                            const activeStations = [
-                                'Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'Caja 1 / Salón',
-                                'Caja 2', 'Caja 3', 'Caja 4', 'Caja 5', 'Uber + Salsas', 'ENTREGA', 'LIMPIEZA',
-                                'CUBRIR DESCANSOS (SALÓN)',
-                                'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS',
-                                'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)',
-                                'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'
-                            ];
-
-                            const vacantStations = activeStations.filter(station => {
-                                const shiftStation = `${station}_${shiftType}`;
-                                const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
-                                if (!ass || !ass.employee_id) return true;
-
-                                const otherShift = (shifts || []).find(sh => 
-                                    sh.shift_date === dayStr && 
-                                    String(sh.employee_id) === String(ass.employee_id) &&
-                                    (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
-                                );
-                                return otherShift?.is_callback === true;
-                            });
-
-                            const isRoleWorking = (roleToCheck: string) => {
-                                return (stationAssignments || []).some(a => {
-                                    if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
-                                    const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
-                                    if (!otherEmp) return false;
-                                    
-                                    let otherJobTitle = '';
-                                    if (otherEmp.job_references?.[0]) {
-                                        const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
-                                        if (job) otherJobTitle = job.title;
-                                    }
-                                    const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
-                                    return otherRole === roleToCheck;
-                                });
-                            };
-
-                            vacantStations.forEach(V => {
-                                const activeBackups = (STATION_BACKUPS[V] || []).filter(backupStation => {
-                                    const shiftStation = `${backupStation}_${shiftType}`;
-                                    const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
-                                    if (!ass || !ass.employee_id) return false;
-                                    const otherShift = (shifts || []).find(sh => 
-                                        sh.shift_date === dayStr && 
-                                        String(sh.employee_id) === String(ass.employee_id) &&
-                                        (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
-                                    );
-                                    return otherShift?.is_callback !== true;
-                                });
-
-                                let shouldInherit = false;
-                                const isKitchenVacant = ['BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS', 'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)', 'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'].includes(V);
-
-                                if (activeBackups.length > 0) {
-                                    shouldInherit = myPosition.main_station === activeBackups[0];
-                                } else {
-                                    if (isKitchenVacant) {
-                                        if (roleKey === 'SHIFT_LEADER_MALE') {
-                                            shouldInherit = true;
-                                        } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_MALE')) {
-                                            shouldInherit = true;
-                                        } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_MALE') && !isRoleWorking('ASSISTANT')) {
-                                            shouldInherit = true;
-                                        }
-                                    } else {
-                                        if (roleKey === 'SHIFT_LEADER_FEMALE') {
-                                            shouldInherit = true;
-                                        } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_FEMALE')) {
-                                            shouldInherit = true;
-                                        } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_FEMALE') && !isRoleWorking('ASSISTANT')) {
-                                            shouldInherit = true;
-                                        }
-                                    }
-                                }
-
-                                if (shouldInherit) {
-                                    const vacantActs = (positionActivities || []).filter((pa: any) => {
-                                        if (pa.position_key !== V) return false;
-                                        if (pa.shift !== 'AMBOS' && pa.shift !== shiftType) return false;
-                                        if (pa.store_model !== 'AMBOS' && pa.store_model !== storeModel) return false;
-                                        if (!isFreqMatch(pa.frequency, myDayIndex)) return false;
-                                        return true;
-                                    });
-
-                                    const tagged = vacantActs.map((pa: any) => ({
-                                        ...pa,
-                                        inheritedFrom: V
-                                    }));
-                                    resolvedActivities.push(...tagged);
-                                }
-                            });
+                            // NOTE: Auto-redistribución de estaciones vacantes y herencia de Assistant
+                            // fueron removidas para mantener consistencia con el frontend (Asignación Diaria).
+                            // El correo ahora SOLO muestra actividades directas de la estación/rol asignado.
 
                             // Deduplicate and sort by sort_order
                             const seen = new Set<string>();
@@ -676,9 +552,6 @@ export async function POST(req: Request) {
                             uniqueResolved.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
 
                             finalTasks = uniqueResolved.map((item: any) => {
-                                if (item.inheritedFrom) {
-                                    return `${item.operating_procedures?.activity} (De Estación Vacante: ${item.inheritedFrom})`;
-                                }
                                 return item.operating_procedures?.activity;
                             }).filter(Boolean);
                         }
@@ -740,134 +613,9 @@ export async function POST(req: Request) {
 
                         let resolvedActivities = [...activeMappings];
 
-                        // Smart Fallback: If current role is Shift Leader and no Assistant is working this shift, inherit Assistant tasks
-                        const isShiftLeader = roleKey === 'SHIFT_LEADER_MALE' || roleKey === 'SHIFT_LEADER_FEMALE';
-                        if (isShiftLeader) {
-                            // Find if there is any assistant working this shift
-                            const isAssistantWorking = (stationAssignments || []).some((a: any) => {
-                                if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
-                                
-                                // Find employee job title for this assignment
-                                const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
-                                if (!otherEmp) return false;
-                                
-                                // Let's find their job title
-                                let otherJobTitle = '';
-                                if (otherEmp.job_references?.[0]) {
-                                    const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
-                                    if (job) otherJobTitle = job.title;
-                                }
-                                
-                                const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
-                                return otherRole === 'ASSISTANT';
-                            });
-
-                            if (!isAssistantWorking) {
-                                const assistantActs = (positionActivities || []).filter((item: any) => {
-                                    if (item.position_key !== 'ASSISTANT') return false;
-                                    const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
-                                    const matchFreq = isFreqMatch(item.frequency, myDayIndex);
-                                    const matchModel = item.store_model === 'AMBOS' || item.store_model === storeModel;
-                                    return matchShift && matchFreq && matchModel;
-                                });
-                                resolvedActivities.push(...assistantActs);
-                            }
-                        }
-
-                        // Dynamic Auto-Redistribution from Vacant Stations
-                        const activeStations = [
-                            'Ventana 1', 'Ventana 2', 'Ventana 2 (B)', 'Caja 1 / Salón',
-                            'Caja 2', 'Caja 3', 'Caja 4', 'Caja 5', 'Uber + Salsas', 'ENTREGA', 'LIMPIEZA',
-                            'CUBRIR DESCANSOS (SALÓN)',
-                            'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS',
-                            'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)',
-                            'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'
-                        ];
-
-                        const vacantStations = activeStations.filter(station => {
-                            const shiftStation = `${station}_${shiftType}`;
-                            const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
-                            if (!ass || !ass.employee_id) return true;
-
-                            const otherShift = (shifts || []).find(sh => 
-                                sh.shift_date === dayStr && 
-                                String(sh.employee_id) === String(ass.employee_id) &&
-                                (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
-                            );
-                            return otherShift?.is_callback === true;
-                        });
-
-                        const isRoleWorking = (roleToCheck: string) => {
-                            return (stationAssignments || []).some(a => {
-                                if (a.assignment_date !== dayStr || !a.sub_position?.endsWith(`_${shiftType}`)) return false;
-                                const otherEmp = (employees || []).find((e: any) => e.id === a.employee_id);
-                                if (!otherEmp) return false;
-                                
-                                let otherJobTitle = '';
-                                if (otherEmp.job_references?.[0]) {
-                                    const job = (allJobs || []).find((j: any) => j.guid === otherEmp.job_references[0].guid);
-                                    if (job) otherJobTitle = job.title;
-                                }
-                                const otherRole = resolvePositionKey(otherJobTitle, a.sub_position || a.main_station, a.station_group);
-                                return otherRole === roleToCheck;
-                            });
-                        };
-
-                        vacantStations.forEach(V => {
-                            const activeBackups = (STATION_BACKUPS[V] || []).filter(backupStation => {
-                                const shiftStation = `${backupStation}_${shiftType}`;
-                                const ass = (stationAssignments || []).find(a => a.assignment_date === dayStr && a.sub_position === shiftStation);
-                                if (!ass || !ass.employee_id) return false;
-                                const otherShift = (shifts || []).find(sh => 
-                                    sh.shift_date === dayStr && 
-                                    String(sh.employee_id) === String(ass.employee_id) &&
-                                    (new Date(sh.start_time).getHours() >= 17 ? 'PM' : 'AM') === shiftType
-                                );
-                                return otherShift?.is_callback !== true;
-                            });
-
-                            let shouldInherit = false;
-                            const isKitchenVacant = ['BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'TORTAS/MULITAS', 'TACOS', 'CARNES', 'PREPARACION', 'CUBRIR DESCANSOS (COCINA)', 'TORTAS/QUESADILLAS (DT)', 'TACOS/BURRITOS (DT)', 'CUBRIR DESCANSOS (DT)'].includes(V);
-
-                            if (activeBackups.length > 0) {
-                                // No assigned station, so cannot match backup
-                                shouldInherit = false;
-                            } else {
-                                if (isKitchenVacant) {
-                                    if (roleKey === 'SHIFT_LEADER_MALE') {
-                                        shouldInherit = true;
-                                    } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_MALE')) {
-                                        shouldInherit = true;
-                                    } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_MALE') && !isRoleWorking('ASSISTANT')) {
-                                        shouldInherit = true;
-                                    }
-                                } else {
-                                    if (roleKey === 'SHIFT_LEADER_FEMALE') {
-                                        shouldInherit = true;
-                                    } else if (roleKey === 'ASSISTANT' && !isRoleWorking('SHIFT_LEADER_FEMALE')) {
-                                        shouldInherit = true;
-                                    } else if (roleKey === 'MANAGER' && !isRoleWorking('SHIFT_LEADER_FEMALE') && !isRoleWorking('ASSISTANT')) {
-                                        shouldInherit = true;
-                                    }
-                                }
-                            }
-
-                            if (shouldInherit) {
-                                const vacantActs = (positionActivities || []).filter((pa: any) => {
-                                    if (pa.position_key !== V) return false;
-                                    if (pa.shift !== 'AMBOS' && pa.shift !== shiftType) return false;
-                                    if (pa.store_model !== 'AMBOS' && pa.store_model !== storeModel) return false;
-                                    if (!isFreqMatch(pa.frequency, myDayIndex)) return false;
-                                    return true;
-                                });
-
-                                const tagged = vacantActs.map((pa: any) => ({
-                                    ...pa,
-                                    inheritedFrom: V
-                                }));
-                                resolvedActivities.push(...tagged);
-                            }
-                        });
+                            // NOTE: Auto-redistribución de estaciones vacantes y herencia de Assistant
+                            // fueron removidas para mantener consistencia con el frontend (Asignación Diaria).
+                            // El correo ahora SOLO muestra actividades directas del rol detectado.
 
                         // Deduplicate and sort by sort_order
                         const seen = new Set<string>();
@@ -884,9 +632,6 @@ export async function POST(req: Request) {
                         uniqueResolved.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
 
                         const finalTasks = uniqueResolved.map((item: any) => {
-                            if (item.inheritedFrom) {
-                                return `${item.operating_procedures?.activity} (De Estación Vacante: ${item.inheritedFrom})`;
-                            }
                             return item.operating_procedures?.activity;
                         }).filter(Boolean);
 

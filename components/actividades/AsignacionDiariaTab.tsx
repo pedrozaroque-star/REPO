@@ -772,6 +772,10 @@ export default function AsignacionDiariaTab() {
       .map(pa => pa.operating_procedures?.activity)
       .filter(Boolean) as string[];
 
+    // Leadership positions allow dual assignment (leadership + operational station)
+    const LEADERSHIP_STATIONS = ['MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE'];
+    const isLeadershipStation = LEADERSHIP_STATIONS.includes(station);
+
     setAssignments((prev) => {
       const filtered = prev.filter(
         (a) => !(a.assignment_date === dateStr && a.sub_position === subPos)
@@ -779,13 +783,25 @@ export default function AsignacionDiariaTab() {
 
       if (!employeeId) return filtered;
 
+      // Remove duplicate employee from the SAME category only:
+      // - If assigning to a leadership station → remove from other leadership stations (not operational)
+      // - If assigning to an operational station → remove from other operational stations (not leadership)
       const withoutDuplicateEmp = filtered.filter(
-        (a) =>
-          !(
-            a.assignment_date === dateStr &&
-            a.employee_id === employeeId &&
-            a.sub_position?.endsWith(`_${activeShift}`)
-          )
+        (a) => {
+          if (a.assignment_date !== dateStr) return true;
+          if (a.employee_id !== employeeId) return true;
+          if (!a.sub_position?.endsWith(`_${activeShift}`)) return true;
+
+          // Check if the existing assignment is leadership
+          const existingStationBase = a.main_station || a.sub_position?.replace(`_${activeShift}`, '') || '';
+          const isExistingLeadership = LEADERSHIP_STATIONS.includes(existingStationBase);
+
+          // Allow keeping if they're in different categories (leadership vs operational)
+          if (isLeadershipStation !== isExistingLeadership) return true;
+
+          // Same category → remove the old one (replace within category)
+          return false;
+        }
       );
 
       return [
