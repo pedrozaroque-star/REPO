@@ -774,63 +774,16 @@ export default function AsignacionDiariaTab() {
       .map(pa => pa.operating_procedures?.activity)
       .filter(Boolean) as string[];
 
-    // Leadership positions allow dual assignment (leadership + operational station)
-    const LEADERSHIP_STATIONS = ['MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE'];
-    // Closing stations allow the same person to be in another station AND a closing slot
-    const CIERRE_STATIONS = ['CIERRE 1', 'CIERRE 2'];
-    const isLeadershipStation = LEADERSHIP_STATIONS.includes(station);
-    const isCierreStation = CIERRE_STATIONS.includes(station);
-
     setAssignments((prev) => {
+      // Only clear the current station slot — never remove the employee from other stations
       const filtered = prev.filter(
         (a) => !(a.assignment_date === dateStr && a.sub_position === subPos)
       );
 
       if (!employeeId) return filtered;
 
-      // CIERRE stations are additive — never remove employee from other positions.
-      // Only replace within the exact same CIERRE slot (already handled by `filtered` above).
-      if (isCierreStation) {
-        return [
-          ...filtered,
-          {
-            store_id: selectedStoreGuid,
-            employee_id: employeeId,
-            assignment_date: dateStr,
-            main_station: station,
-            sub_position: subPos,
-            station_group: group,
-            tasks: defaultTasks,
-          },
-        ];
-      }
-
-      // Remove duplicate employee from the SAME category only:
-      // - If assigning to a leadership station → remove from other leadership stations (not operational/cierre)
-      // - If assigning to an operational station → remove from other operational stations (not leadership/cierre)
-      const withoutDuplicateEmp = filtered.filter(
-        (a) => {
-          if (a.assignment_date !== dateStr) return true;
-          if (a.employee_id !== employeeId) return true;
-          if (!a.sub_position?.endsWith(`_${activeShift}`)) return true;
-
-          const existingStationBase = a.main_station || a.sub_position?.replace(`_${activeShift}`, '') || '';
-          const isExistingLeadership = LEADERSHIP_STATIONS.includes(existingStationBase);
-          const isExistingCierre = CIERRE_STATIONS.includes(existingStationBase);
-
-          // Never remove CIERRE assignments when assigning to non-CIERRE stations
-          if (isExistingCierre) return true;
-
-          // Allow keeping if they're in different categories (leadership vs operational)
-          if (isLeadershipStation !== isExistingLeadership) return true;
-
-          // Same category → remove the old one (replace within category)
-          return false;
-        }
-      );
-
       return [
-        ...withoutDuplicateEmp,
+        ...filtered,
         {
           store_id: selectedStoreGuid,
           employee_id: employeeId,
