@@ -1,0 +1,1205 @@
+<!--
+@module Reporte de Pendientes del Sistema (Tacos El Gavilán)
+@description Este archivo HTML contiene el informe consolidado y estático de auditoría y plan de trabajo de los 15 proyectos tecnológicos pendientes para Tacos El Gavilán. Está diseñado para ser totalmente autónomo (self-contained) y compatible para compartirse directamente vía WhatsApp, abriéndose sin fallos en dispositivos móviles.
+@businessRules
+  1. No requiere ejecución de JavaScript para renderizar contenido, previniendo fallos en navegadores integrados de aplicaciones.
+  2. Todos los estilos están embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS para asegurar máxima compatibilidad con motores de renderizado antiguos (WebViews de WhatsApp/Android).
+  3. No depende de redes CDN externas para fuentes o íconos. Todo es nativo o usa vectores SVG embebidos.
+  4. Soporta modo de impresión optimizado (@media print) que oculta controles de interfaz y adapta el contraste para papel.
+@notes
+  - Corregido error de visualización en WhatsApp causado por bloqueos de scripts externos y de ejecución de JS local.
+  - Diseño modernizado a estética premium utilizando paleta de colores corporativos de Tacos El Gavilán y tipografía Outfit con fallbacks a fuentes del sistema.
+-->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pendientes del Sistema - Tacos El Gavilan 2026</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+            line-height: 1.5;
+            padding-bottom: 40px;
+        }
+
+        /* ── Top Brand Bar ── */
+        .brand-bar {
+            background-color: #0f172a;
+            border-bottom: 4px solid #e05638;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .brand-logo-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #ffffff;
+        }
+        
+        .brand-logo {
+            color: #e05638;
+        }
+        
+        .brand-text-container {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .brand-title {
+            font-weight: 800;
+            font-size: 15px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #ffffff;
+        }
+        
+        .brand-subtitle {
+            font-size: 11px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        
+        .top-badge {
+            background-color: rgba(224, 86, 56, 0.1);
+            color: #f43f5e;
+            border: 1px solid rgba(224, 86, 56, 0.2);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* ── Hero/Header Section ── */
+        .hero {
+            max-width: 1200px;
+            margin: 32px auto 16px auto;
+            padding: 0 24px;
+            text-align: left;
+        }
+        
+        .hero h1 {
+            font-size: 26px;
+            font-weight: 900;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+            margin-bottom: 6px;
+        }
+        
+        .hero p {
+            font-size: 14px;
+            color: #64748b;
+            font-weight: 400;
+        }
+
+        /* ── Stats Grid ── */
+        .stats-grid {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 16px 24px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+        
+        @media (min-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        
+        .stat-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+        
+        .stat-card.total::before { background-color: #0f172a; }
+        .stat-card.pendiente::before { background-color: #ef4444; }
+        .stat-card.progreso::before { background-color: #f59e0b; }
+        .stat-card.completado::before { background-color: #10b981; }
+        
+        .stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        
+        .stat-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .stat-number {
+            font-size: 36px;
+            font-weight: 900;
+            line-height: 1;
+            color: #0f172a;
+            margin-bottom: 4px;
+        }
+        
+        .stat-desc {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        /* ── Print Button Section ── */
+        .print-section {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px 16px 24px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        
+        .btn-print {
+            display: inline-flex;
+            align-items: center;
+            background-color: #e05638;
+            color: #ffffff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px -1px rgba(224, 86, 56, 0.2);
+            font-family: inherit;
+        }
+        
+        .btn-print:hover {
+            background-color: #c24125;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 8px -1px rgba(224, 86, 56, 0.3);
+        }
+        
+        .btn-print:active {
+            transform: translateY(0);
+        }
+
+        /* ── Tasks Wrapper ── */
+        .tasks-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+        
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 36px 0 16px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .section-header h2 {
+            font-size: 18px;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.3px;
+        }
+        
+        .section-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 9999px;
+        }
+        
+        .section-badge.progreso {
+            background-color: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+        
+        .section-badge.pendiente {
+            background-color: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+        }
+        
+        /* ── Card Grid ── */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        
+        @media (min-width: 768px) {
+            .cards-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        /* ── Task Card ── */
+        .task-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+        }
+        
+        @media (hover: hover) {
+            .task-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+                border-color: rgba(224, 86, 56, 0.3);
+            }
+        }
+        
+        .card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+        
+        .badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        /* Categories */
+        .badge-inv { background-color: rgba(217, 119, 6, 0.08); color: #b45309; border: 1px solid rgba(217, 119, 6, 0.15); }
+        .badge-sys { background-color: rgba(37, 99, 235, 0.08); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.15); }
+        .badge-dev { background-color: rgba(124, 58, 237, 0.08); color: #6d28d9; border: 1px solid rgba(124, 58, 237, 0.15); }
+        .badge-ops { background-color: rgba(5, 150, 105, 0.08); color: #047857; border: 1px solid rgba(5, 150, 105, 0.15); }
+        .badge-com { background-color: rgba(219, 39, 119, 0.08); color: #be185d; border: 1px solid rgba(219, 39, 119, 0.15); }
+        
+        /* Priorities */
+        .badge-hi  { background-color: rgba(220, 38, 38, 0.08); color: #b91c1c; border: 1px solid rgba(220, 38, 38, 0.15); }
+        .badge-med { background-color: rgba(202, 138, 4, 0.08); color: #854d0e; border: 1px solid rgba(202, 138, 4, 0.15); }
+        .badge-lo  { background-color: rgba(79, 70, 229, 0.08); color: #4338ca; border: 1px solid rgba(79, 70, 229, 0.15); }
+        
+        /* Statuses */
+        .badge-pending  { background-color: #fef2f2; color: #ef4444; border: 1px solid #fecaca; }
+        .badge-progress { background-color: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+        .badge-complete { background-color: #ecfdf5; color: #10b981; border: 1px solid #a7f3d0; }
+        
+        .task-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 16px;
+            line-height: 1.4;
+            letter-spacing: -0.2px;
+        }
+        
+        .card-section {
+            margin-bottom: 16px;
+        }
+        
+        .card-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .card-section-title {
+            font-size: 10px;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .card-section-icon {
+            color: #94a3b8;
+            flex-shrink: 0;
+        }
+        
+        .audit-box {
+            background-color: #fdf8f6;
+            border-left: 3px solid #e05638;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-size: 13px;
+            color: #334155;
+            line-height: 1.6;
+        }
+        
+        .audit-box em {
+            font-style: normal;
+            font-weight: 600;
+            color: #0f172a;
+            background-color: rgba(224, 86, 56, 0.05);
+            padding: 1px 4px;
+            border-radius: 4px;
+        }
+
+        .audit-box strong {
+            font-weight: 700;
+            color: #e05638;
+        }
+        
+        /* Steps List */
+        .steps-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .step-item {
+            position: relative;
+            padding-left: 28px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            color: #475569;
+            line-height: 1.5;
+        }
+        
+        .step-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .step-number {
+            position: absolute;
+            left: 0;
+            top: 2px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            background-color: #e2e8f0;
+            color: #475569;
+            font-size: 10px;
+            font-weight: 700;
+            border-radius: 50%;
+        }
+
+        /* ── Footer ── */
+        .footer {
+            text-align: center;
+            padding: 32px 24px;
+            font-size: 12px;
+            color: #94a3b8;
+            border-top: 1px solid #e2e8f0;
+            margin-top: 48px;
+            background-color: #ffffff;
+        }
+        
+        /* ── Print Settings ── */
+        @media print {
+            .brand-bar, .print-section {
+                display: none !important;
+            }
+            body {
+                background-color: #ffffff;
+                color: #000000;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(4, 1fr) !important;
+                gap: 10px;
+                padding: 10px 0;
+            }
+            .stat-card {
+                border: 1px solid #cbd5e1;
+                box-shadow: none !important;
+                padding: 12px;
+            }
+            .task-card {
+                break-inside: avoid;
+                page-break-inside: avoid;
+                box-shadow: none !important;
+                border: 1px solid #cbd5e1 !important;
+                margin-bottom: 16px;
+                padding: 16px;
+            }
+            .cards-grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 12px;
+            }
+            .audit-box {
+                background-color: #fafafa !important;
+                border-left: 3px solid #000000 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--                  TOP BRAND BAR                     -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="brand-bar">
+        <div class="brand-logo-wrap">
+            <!-- Gavilan Flying Bird Icon -->
+            <svg class="brand-logo" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 2L2 8.66l9.5 3.84L15.34 22z"/>
+            </svg>
+            <div class="brand-text-container">
+                <span class="brand-title">Tacos El Gavilan</span>
+                <span class="brand-subtitle">Departamento de Sistemas</span>
+            </div>
+        </div>
+        <div class="top-badge">Auditoría 2026</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--                  HERO HEADER                       -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="hero">
+        <h1>Pendientes del Sistema</h1>
+        <p>Plan de Trabajo &amp; Auditoría Tecnológica de Proyectos Activos y Pendientes</p>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--                     ESTADÍSTICAS                   -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="stats-grid">
+        <div class="stat-card total">
+            <div class="stat-header">
+                <span class="stat-label">Total</span>
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="#0f172a" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="8" y1="6" x2="21" y2="6"></line>
+                    <line x1="8" y1="12" x2="21" y2="12"></line>
+                    <line x1="8" y1="18" x2="21" y2="18"></line>
+                    <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                    <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                    <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+            </div>
+            <div>
+                <div class="stat-number">15</div>
+                <div class="stat-desc">Tareas identificadas</div>
+            </div>
+        </div>
+        <div class="stat-card pendiente">
+            <div class="stat-header">
+                <span class="stat-label">Pendiente</span>
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="#ef4444" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            </div>
+            <div>
+                <div class="stat-number">6</div>
+                <div class="stat-desc">No iniciados</div>
+            </div>
+        </div>
+        <div class="stat-card progreso">
+            <div class="stat-header">
+                <span class="stat-label">En Progreso</span>
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="#f59e0b" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                </svg>
+            </div>
+            <div>
+                <div class="stat-number">9</div>
+                <div class="stat-desc">En desarrollo</div>
+            </div>
+        </div>
+        <div class="stat-card completado">
+            <div class="stat-header">
+                <span class="stat-label">Completado</span>
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+            <div>
+                <div class="stat-number">0</div>
+                <div class="stat-desc">0% completado</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--                  BOTÓN IMPRIMIR                    -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="print-section">
+        <button class="btn-print" onclick="window.print()">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+                <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            Imprimir Informe
+        </button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--                 LISTADO DE TAREAS                  -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="tasks-container">
+
+        <!-- ────────── EN PROGRESO (9) ────────── -->
+        <div class="section-header">
+            <h2>En Progreso</h2>
+            <span class="section-badge progreso">9 Tareas</span>
+        </div>
+        
+        <div class="cards-grid">
+        
+            <!-- TAREA 1 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-inv">📦 Inventario</span>
+                        <span class="badge badge-hi">🔴 Alta</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">1. Inventario con reposición automática</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Muy Avanzado.</strong> Existe el esquema SQL de inventario semanal y conteos. La página <em>app/inventory/orders/page.tsx</em> calcula el pedido automático: <strong>Pedido = PAR de mañana − Sobrante de hoy</strong> con reglas de redondeo específicas para Papelitos, Mulitas y Quesadillas.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Terminar la vinculación manual de todos los insumos con las referencias del Excel.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Calibrar las reglas de redondeo para otros insumos de alto volumen.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">3</span>
+                            <span class="step-text">Automatizar la generación de borradores de compras.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 2 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-inv">📦 Inventario</span>
+                        <span class="badge badge-hi">🔴 Alta</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">2. Inventario para Bodega y COGS (Viele &amp; Sons)</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Estructurado.</strong> La categoría VIELE AND SONS existe en la base de datos. El catálogo de insumos (<em>app/inventory/items/page.tsx</em>) soporta diferenciar entre artículos de bodega y restaurante mediante la columna <strong>is_bodega</strong> vinculada con QuickBooks.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Completar la carga de todos los insumos de Viele &amp; Sons en la base de datos.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Validar que la sincronización de QuickBooks aplique correctamente los costos para productos externos.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 3 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-dev">📺 Dispositivos</span>
+                        <span class="badge badge-med">🟡 Media</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">3. Configuración local de TVs de Menús</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Muy Avanzado.</strong> Pantalla de visualización en <em>/tv</em> con auto-actualizador API cada 2 minutos. La pantalla de administración <em>/admin/tv-menus</em> permite subir imágenes y asignarlas a tiendas/pantallas específicas, diferenciando imágenes universales y excepciones.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Cargar las imágenes finales de los menús para las 15 sucursales.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Probar el botón de pantalla completa en los navegadores de las Smart TVs de las tiendas.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 4 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-com">✉️ Comunicaciones</span>
+                        <span class="badge badge-lo">🔵 Baja</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">4. Logotipo de marca en correos electrónicos</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Configuración Básica.</strong> Las credenciales SMTP de <em>tacosgavilan.com</em> están configuradas en <em>.env.local</em> y los scripts de envío funcionan, pero el remitente no muestra el avatar oficial ni plantillas HTML visuales de marca.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Diseñar una plantilla HTML bilingüe para correos del sistema con el logo oficial.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Configurar registros SPF, DKIM e implementar BIMI para que los gestores de correo muestren el logo.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 5 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-ops">📝 Operaciones</span>
+                        <span class="badge badge-hi">🔴 Alta</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">5. Descripciones de procedimientos en página de ACTIVIDADES</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Estructura Concluida.</strong> Módulo <em>app/actividades</em> terminado con tres pestañas (Catálogo, Configurar, Asignación Diaria). El catálogo usa <em>ProceduresTimeline</em> con <strong>110 tareas precargadas</strong> en la base de datos. Sin embargo, muchas tareas tienen la descripción en NULL.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Revisar los 110 procedimientos precargados en la base de datos.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Redactar y actualizar las descripciones de procedimientos clave desde la interfaz administrativa para que los empleados las visualicen en las tabletas.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 6 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-dev">📺 Dispositivos</span>
+                        <span class="badge badge-hi">🔴 Alta</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">6. Verificar tabletas piloto en Slauson</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>En Pruebas.</strong> Hay <strong>4 tabletas</strong> asignadas físicamente en Slauson corriendo software piloto: 2 para el Preparador de Bodega, 1 para el Tablero de Roles y 1 para Breaks &amp; Lunches AI.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Monitorear diariamente el uso de las tabletas por gerentes y personal.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Verificar la estabilidad del Wi-Fi y la persistencia de las aplicaciones.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">3</span>
+                            <span class="step-text">Recopilar comentarios sobre usabilidad.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 7 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-sys">💻 Sistemas</span>
+                        <span class="badge badge-hi">🔴 Alta</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">7. App de Tacos Gavilán (Imitar King Taco)</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Muy Avanzado.</strong> Backend con esquema en Supabase para carritos, recompensas y geofencing. Frontend móvil en React Native/TypeScript (Expo Router) con: menú (56KB), carrito (46KB), login (9KB) y componentes como CustomizerModal y OrderStatusWidget.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Integrar el frontend de Expo con las APIs reales de Supabase y Toast.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Implementar notificaciones push y geofencing para avisar a la cocina al aproximarse.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">3</span>
+                            <span class="step-text">Configurar y testear Stripe para pagos móviles.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 8 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-sys">💻 Sistemas</span>
+                        <span class="badge badge-hi">🔴 Alta</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">8. Sincronizador y clon de Basecamp</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Altamente Avanzado.</strong> Interfaz web completa en <em>app/basecamp/page.tsx</em> con integración OAuth2. Las tablas <em>bc_*</em> (proyectos, listas, tareas, asignados, mensajes, comentarios) están creadas. El endpoint <em>/api/basecamp/sync</em> realiza la sincronización total en segundo plano.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Habilitar la sincronización automática periódica (cron jobs) de Basecamp en Vercel.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Depurar y optimizar el rendimiento al sincronizar proyectos grandes.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 9 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-sys">💻 Sistemas</span>
+                        <span class="badge badge-med">🟡 Media</span>
+                        <span class="badge badge-progress">▶ En Progreso</span>
+                    </div>
+                    <h3 class="task-title">9. Página Web Oficial de Tacos El Gavilán</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>Avanzado.</strong> Construida en el directorio <em>tacosgavilan-web</em> con un <em>index.html</em> completo (54KB) y una hoja de estilos <em>css/style.css</em> altamente detallada (70KB) con diseños y logotipos integrados.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Validar responsividad y optimización SEO de la landing page.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Conectar enlaces de menú con el sistema de pedidos de Toast o la app móvil.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">3</span>
+                            <span class="step-text">Desplegar el sitio público (Hosting Vercel/Netlify).</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- /grid -->
+
+        <!-- ────────── PENDIENTES (6) ────────── -->
+        <div class="section-header">
+            <h2>Pendientes</h2>
+            <span class="section-badge pendiente">6 Tareas</span>
+        </div>
+        
+        <div class="cards-grid">
+        
+            <!-- TAREA 10 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-inv">📦 Inventario</span>
+                        <span class="badge badge-med">🟡 Media</span>
+                        <span class="badge badge-pending">⏳ Pendiente</span>
+                    </div>
+                    <h3 class="task-title">10. Determinar gasto en Salsa Bar</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>No Iniciado.</strong> Hay menciones a la barra de salsas en inspecciones históricas de supervisores, pero no existe ninguna receta, fórmula o medición de costo integrada en el pipeline de Food Cost.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Crear una receta virtual para la barra de salsas (aguacates, tomates, chiles, cebollas, recipientes desechables).</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Medir el consumo promedio diario por tienda e integrarlo al costo diario de alimentos.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 11 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-dev">📺 Dispositivos</span>
+                        <span class="badge badge-med">🟡 Media</span>
+                        <span class="badge badge-pending">⏳ Pendiente</span>
+                    </div>
+                    <h3 class="task-title">11. Fotos y verificación Apple Business Connect (Slauson)</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>No Iniciado (Tarea Externa).</strong> Requiere subir fotos profesionales y realizar la verificación oficial de propiedad e identidad comercial de la sucursal de SLAUSON directamente en el portal de Apple.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Tomar fotos de alta resolución de la tienda Slauson (interior y fachada).</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Subir las fotos a Apple Business Connect y enviar los documentos de verificación.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 12 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-sys">💻 Sistemas</span>
+                        <span class="badge badge-med">🟡 Media</span>
+                        <span class="badge badge-pending">⏳ Pendiente</span>
+                    </div>
+                    <h3 class="task-title">12. Registro de proveedores y técnicos sin contraseña</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>No Iniciado.</strong> Se requiere un portal público con magic links para que proveedores y técnicos externos reporten mantenimientos, carguen evidencias fotográficas y comentarios sin límite.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Diseñar el esquema de BD para tickets de mantenimiento y registro de proveedores.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Crear la ruta pública de acceso con token y la interfaz de carga de fotos conectada a Supabase Storage.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 13 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-inv">📦 Inventario</span>
+                        <span class="badge badge-med">🟡 Media</span>
+                        <span class="badge badge-pending">⏳ Pendiente</span>
+                    </div>
+                    <h3 class="task-title">13. Control de uniformes, gorras e inventario de ropa</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>No Iniciado.</strong> No se cuenta con tablas ni módulos específicos para registrar stock, gestionar intercambios de empleados ni ventas de chamarras/gorras.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Crear la tabla de inventario de uniformes y ropa en la base de datos.</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Diseñar un dashboard para registrar entradas, salidas por empleado y ventas internas.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 14 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-ops">📝 Operaciones</span>
+                        <span class="badge badge-hi">🔴 Alta</span>
+                        <span class="badge badge-pending">⏳ Pendiente</span>
+                    </div>
+                    <h3 class="task-title">14. Manuales, videos y certificación de cocina</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>No Iniciado (Básico).</strong> Solo existe el módulo de evaluación de personal para managers en <em>app/evaluacion/page.tsx</em>, pero no tiene contenido de capacitación en video ni pruebas con emisión de certificados digitales.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Desarrollar módulo de e-learning con videos de preparación (envolver burritos, freír, etc.).</span>
+                        </div>
+                        <div class="step-item">
+                            <span class="step-number">2</span>
+                            <span class="step-text">Crear cuestionarios interactivos y generación automática de PDFs de certificados oficiales.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAREA 15 -->
+            <div class="task-card">
+                <div>
+                    <div class="card-tags">
+                        <span class="badge badge-ops">📝 Operaciones</span>
+                        <span class="badge badge-med">🟡 Media</span>
+                        <span class="badge badge-pending">⏳ Pendiente</span>
+                    </div>
+                    <h3 class="task-title">15. Sección de Cultura Empresarial</h3>
+                    
+                    <div class="card-section">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                            Estatus del código / BD
+                        </span>
+                        <div class="audit-box">
+                            <strong>No Iniciado.</strong> Catalogado en la hoja de ruta para alinear a los nuevos colaboradores con la visión, metas y valores corporativos de la marca.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-section" style="margin-top: 14px;">
+                    <span class="card-section-title">
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                        Pasos recomendados
+                    </span>
+                    <div class="steps-list">
+                        <div class="step-item">
+                            <span class="step-number">1</span>
+                            <span class="step-text">Diseñar una vista atractiva que presente la misión, visión, metas y filosofía de servicio al cliente de Tacos El Gavilán.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- /grid -->
+
+    </div> <!-- /tasks-container -->
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--                      FOOTER                         -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="footer">
+        🦅 Tacos El Gavilan · Informe de Auditoría Tecnológica 2026 · Departamento de Sistemas
+    </div>
+
+</body>
+</html>

@@ -176,7 +176,9 @@ export default function DescansosPage() {
             s.id === shift.id ? { ...s, breaks_schedule: newBreaks } : s
         );
         lastDataRef.current = { ...lastDataRef.current, shifts: updatedShifts };
-        await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true);
+        
+        // Pasamos shift.id como targetShiftId para que no mueva a los demás
+        await triggerAiRecalculation(absentEmpIds, lastDataRef.current, false, true, false, shift.id);
 
         setTimeout(() => setAiStatus(null), 4000);
     };
@@ -261,7 +263,7 @@ export default function DescansosPage() {
     const lastDataRef = useRef<{ shifts: Shift[], hours: any[], employees: Employee[], jobs: Job[], learnedPrefs?: LearnedPreference[] }>({ shifts: [], hours: [], employees: [], jobs: [], learnedPrefs: [] })
     const lastPolledDbRef = useRef<string>('')  // Snapshot serializado de la BD para polling
 
-    const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false, isRealtimeReload: boolean = false) => {
+    const triggerAiRecalculation = async (absentSet: Set<string>, dataOverride?: any, isManualAction: boolean = false, forceRecalculate: boolean = false, isRealtimeReload: boolean = false, targetShiftIdToRecalculate?: string) => {
         setCalculating(true);
         await new Promise(r => setTimeout(r, 50));
 
@@ -301,7 +303,16 @@ export default function DescansosPage() {
             const titleLowerCase = extTitle.toLowerCase();
             const employeeName = emp ? `${emp.first_name} ${emp.last_name}`.toLowerCase() : '';
             const isLeader = titleLowerCase.includes('manager') || titleLowerCase.includes('asst') || titleLowerCase.includes('shift') || titleLowerCase.includes('lead') || titleLowerCase.includes('asistente') || titleLowerCase.includes('assistant') || titleLowerCase.includes('encargado') || employeeName.includes('alberto romero') || employeeName.includes('manager');
-            return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: employeeName };
+            
+            // 🎯 MEJORA SLAUSON: Si solo queremos recalcular un empleado (doble clic), 
+            // congelamos temporalmente los breaks de todos los demás haciéndolos 'manuales'.
+            // Esto asegura que la IA respete las posiciones de todos los demás sin moverlos.
+            let safeBreaks = s.breaks_schedule;
+            if (targetShiftIdToRecalculate && s.id !== targetShiftIdToRecalculate) {
+                safeBreaks = (s.breaks_schedule || []).map((b: any) => ({ ...b, is_manual: true }));
+            }
+
+            return { ...s, is_leader: isLeader, job_title: extTitle, employee_name: employeeName, breaks_schedule: safeBreaks };
         });
 
         // 🧠 BYPASS DE OPTIMIZACIÓN: Si los turnos ya tienen breaks calculados, los reusamos.
@@ -330,6 +341,17 @@ export default function DescansosPage() {
 
         try {
             const augmented = scheduleBreaksWithDemand(shiftsForAi, hours, learnedPrefs || []);
+            
+            // 🎯 MEJORA SLAUSON: Descongelamos los breaks de los demás empleados para no guardarlos con 'is_manual: true' falso
+            if (targetShiftIdToRecalculate) {
+                augmented.forEach((s: any) => {
+                    if (s.id !== targetShiftIdToRecalculate) {
+                        const original = presentShifts.find((old: Shift) => old.id === s.id);
+                        s.breaks_schedule = original ? [...(original.breaks_schedule || [])] : [];
+                    }
+                });
+            }
+
             // 🔧 FIX SYNC PC↔TABLETA: Inyectar turnos de ausentes como fantasmas visuales
             const absentShiftsForRender = shifts
                 .filter((s: Shift) => s.employee_id !== null && absentSet.has(String(s.employee_id)))
