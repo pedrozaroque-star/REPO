@@ -1755,7 +1755,31 @@ export default function AsignacionDiariaTab() {
 
                     if (currentEmp && !isReassigning) {
                       // Display Employee Profile + Activities
-                      const stationActivitiesList = activityMap[selectedSlotForCard.stationKey || selectedSlotForCard.label] || [];
+                      // Collect activities from ALL stations this employee is assigned to (not just the clicked one)
+                      const empAssignments = assignments.filter(a => 
+                        a.assignment_date === selectedDateStr && 
+                        a.employee_id === String(currentEmp.id) &&
+                        a.sub_position?.endsWith(`_${activeShift}`)
+                      );
+                      const empStationKeys = empAssignments.map(a => a.main_station).filter(Boolean);
+                      // Ensure current station is included
+                      const clickedStation = selectedSlotForCard.stationKey || selectedSlotForCard.label;
+                      if (!empStationKeys.includes(clickedStation)) {
+                        empStationKeys.push(clickedStation);
+                      }
+                      // Merge activities from all assigned stations, deduplicated
+                      const seenIds = new Set<string>();
+                      const stationActivitiesList: PositionActivity[] = [];
+                      empStationKeys.forEach(sk => {
+                        const acts = activityMap[sk] || [];
+                        acts.forEach(a => {
+                          const key = a.id || a.activity_id || `${sk}_${a.operating_procedures?.activity}`;
+                          if (!seenIds.has(key)) {
+                            seenIds.add(key);
+                            stationActivitiesList.push(a);
+                          }
+                        });
+                      });
                       
                       // Sort activities by category: Apertura (1) -> Regular (2) -> Cierre (3)
                       const sortedActivities = [...stationActivitiesList].sort((a, b) => {
