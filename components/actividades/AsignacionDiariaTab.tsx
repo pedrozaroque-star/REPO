@@ -578,12 +578,39 @@ export default function AsignacionDiariaTab() {
   }, [currentWeekStart, locale]);
 
   // Filter shifts for selected day + shift
+  // Uses OVERLAP logic: if a shift spans both AM and PM, it appears in both.
+  // AM window: 6:00 AM - 4:59 PM | PM window: 5:00 PM - 5:59 AM (next day)
   const todayShifts = useMemo(() => {
-    return shifts.filter(
-      (s) =>
-        s.shift_date === selectedDateStr &&
-        getShiftFromTime(s.start_time) === activeShift
-    );
+    return shifts.filter((s) => {
+      if (s.shift_date !== selectedDateStr) return false;
+
+      // Parse start/end hours
+      const getHour = (timeStr: string): number => {
+        if (!timeStr) return 0;
+        try {
+          if (timeStr.includes(':') && !timeStr.includes('T')) {
+            return parseInt(timeStr.split(':')[0], 10);
+          }
+          return new Date(timeStr).getHours();
+        } catch { return 0; }
+      };
+
+      const startH = getHour(s.start_time);
+      const endH = getHour(s.end_time);
+
+      if (activeShift === 'AM') {
+        // AM window: 6:00 - 16:59
+        // Show if: starts in AM window, OR ends during AM window (after 6:00)
+        const startsInAM = startH >= 6 && startH < 17;
+        return startsInAM;
+      } else {
+        // PM window: 17:00 - 5:59
+        // Show if: starts in PM window, OR starts before PM but ends in/after PM (crosses 5PM boundary)
+        const startsInPM = startH >= 17 || startH < 6;
+        const crossesIntoPM = startH < 17 && startH >= 6 && (endH >= 17 || endH < startH);
+        return startsInPM || crossesIntoPM;
+      }
+    });
   }, [shifts, selectedDateStr, activeShift]);
 
   // Build roster of employees for the day
