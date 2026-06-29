@@ -419,12 +419,23 @@ export async function POST(req: Request) {
                     const start = startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
                     const end = endDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles' })
 
-                    // BUSCAR POSICION / STATION
+                    // BUSCAR POSICIONES / STATIONS (un empleado puede tener múltiples posiciones)
                     const dayStr = s.shift_date; // Usar la fecha del shift mapeada correctamente en DB en vez de la conversión UTC
-                    const myPosition = (stationAssignments || []).find(a => 
+
+                    // Determine shift type from start time
+                    let empShiftType = 'AM';
+                    if (startDate.getHours() >= 17) {
+                        empShiftType = 'PM';
+                    }
+                    const shiftSuffix = `_${empShiftType}`;
+
+                    // Find ALL positions for this employee on this day & shift
+                    const myPositions = (stationAssignments || []).filter(a => 
                         a.employee_id === emp.id && 
-                        a.assignment_date === dayStr
-                    )
+                        a.assignment_date === dayStr &&
+                        (a.sub_position?.endsWith(shiftSuffix) || (!a.sub_position?.includes('_AM') && !a.sub_position?.includes('_PM')))
+                    );
+                    const myPosition = myPositions.length > 0 ? myPositions[0] : null;
 
                     let positionBadge = '';
                     let tasksHtml = '';
@@ -478,33 +489,36 @@ export async function POST(req: Request) {
                             </div>
                         `;
                         tasksHtml = '';
-                    } else if (myPosition && isActivitiesEnabled) {
-                        const shiftStation = myPosition.sub_position || myPosition.main_station;
+                    } else if (myPositions.length > 0 && isActivitiesEnabled) {
+                        // Show ALL station names in the badge
+                        const stationNames = myPositions.map(p => p.main_station || p.sub_position?.replace(shiftSuffix, '')).filter(Boolean);
+                        const stationDisplay = stationNames.join(' + ');
                         positionBadge = `
                             <div style="margin-top: 4px; font-size: 13px; font-weight: 800; color: #4f46e5; background: #eef2ff; padding: 4px 10px; border-radius: 6px; display: inline-block; border: 1px solid #c7d2fe;">
-                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Posición:</span> ${shiftStation}
+                                <span style="font-size: 10px; color: #6366f1; text-transform: uppercase;">Posición:</span> ${stationDisplay}
                             </div>
                         `;
 
-                        // Resolve shift: AM vs PM
-                        let shiftType = 'AM';
-                        if (shiftStation && shiftStation.toLowerCase().endsWith('_pm')) {
-                            shiftType = 'PM';
-                        } else if (startDate.getHours() >= 17) {
-                            shiftType = 'PM';
-                        }
-
+                        const shiftType = empShiftType;
                         const storeModel = hasDT ? 'DRIVE_THRU' : 'REGULAR';
 
-                        // Resolve role key based on job title and station name
-                        const roleKey = resolvePositionKey(jobTitle, shiftStation, myPosition.station_group);
+                        // Resolve role key from the first position (for leadership detection)
+                        const shiftStation = myPosition!.sub_position || myPosition!.main_station;
+                        const roleKey = resolvePositionKey(jobTitle, shiftStation, myPosition!.station_group);
                         const isLeadership = roleKey && ['MANAGER', 'ASSISTANT', 'SHIFT_LEADER_MALE', 'SHIFT_LEADER_FEMALE'].includes(roleKey);
 
-                        let finalTasks: string[] = [];
-                        const customTasks = (myPosition.tasks && Array.isArray(myPosition.tasks)) ? myPosition.tasks.filter(Boolean) : [];
+                        // Collect custom tasks from all positions
+                        const allCustomTasks: string[] = [];
+                        myPositions.forEach(pos => {
+                            if (pos.tasks && Array.isArray(pos.tasks)) {
+                                allCustomTasks.push(...pos.tasks.filter(Boolean));
+                            }
+                        });
 
-                        if (customTasks.length > 0) {
-                            const resolved = customTasks.map((taskText: string) => {
+                        let finalTasks: string[] = [];
+
+                        if (allCustomTasks.length > 0) {
+                            const resolved = allCustomTasks.map((taskText: string) => {
                                 const normText = normalizeText(taskText);
                                 const matchedAct = (allProcedures || []).find((act: any) => normalizeText(act.activity) === normText);
                                 return {
@@ -517,12 +531,12 @@ export async function POST(req: Request) {
                             resolved.sort((a: any, b: any) => a.sort_order - b.sort_order);
                             finalTasks = resolved.map((r: any) => r.text);
                         } else {
-                            // Fetch active activities for this position
-                            // Match if:
-                            // a) The activity is mapped to the current Station Name (e.g. TACOS, CARNES)
-                            // b) The activity is mapped to the employee's Leadership Role (e.g. MANAGER, ASSISTANT)
+                            // Fetch active activities for ALL assigned positions
+                            // Collect station names from all positions
+                            const allStationKeys = myPositions.map(p => p.main_station).filter(Boolean);
+
                             const activeMappings = (positionActivities || []).filter((item: any) => {
-                                const matchPos = (item.position_key === myPosition.main_station) || (isLeadership && item.position_key === roleKey);
+                                const matchPos = allStationKeys.includes(item.position_key) || (isLeadership && item.position_key === roleKey);
                                 if (!matchPos) return false;
 
                                 const matchShift = item.shift === 'AMBOS' || item.shift === shiftType;
