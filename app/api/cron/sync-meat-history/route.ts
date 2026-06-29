@@ -72,6 +72,10 @@ export async function GET(request: Request) {
 
         if (!inventoryData || !recipesData || !stores) throw new Error("Error obteniendo datos base de Supabase")
 
+        // @businessRule: Solo rastreamos carnes que requieren PREPARACIÓN ANTICIPADA en parrilla.
+        // Buche, Chorizo y Carnitas se cocinan AL MOMENTO bajo demanda, por lo que
+        // NO necesitan proyección de pace y están excluidos intencionalmente de esta lista.
+        // CARNITAS se rastrea aquí para datos de bodega pero se filtra del carousel de parrilla en el frontend.
         const targetProteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA', 'CAFE', 'CHAMPURRADO', 'AGUACATE', 'GUACAMOLE', 'FRIJOL MOLIDO', 'ARROZ']
         const meatItems = inventoryData.filter(i => {
             const name = i.name.toUpperCase()
@@ -96,25 +100,71 @@ export async function GET(request: Request) {
             }
         })
 
-        // Regla Gavilán: El día cierra a las 6:00 AM (LA Time)
+        // Sort stores consistently to ensure stable batching
+        const sortedStores = stores.sort((a, b) => a.id - b.id)
+
+        // Parse query parameter ?batch=0/1/2 or determine dynamically by current LA minute
+        const searchParams = new URL(request.url).searchParams
+        const batchParam = searchParams.get('batch')
+        let batch = batchParam !== null ? parseInt(batchParam, 10) : null
+        
         const now = new Date()
         const laNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-        if (laNow.getHours() < 6) { laNow.setDate(laNow.getDate() - 1) }
         
-        const laYesterday = new Date(laNow)
+        if (batch === null || isNaN(batch)) {
+            const min = laNow.getMinutes()
+            batch = Math.floor((min % 30) / 10) // 0-9m -> 0, 10-19m -> 1, 20-29m -> 2
+        }
+
+        // Calculate store batch slices dynamically
+        const batchSize = Math.ceil(sortedStores.length / 3)
+        const startIdx = batch * batchSize
+        const endIdx = Math.min(startIdx + batchSize, sortedStores.length)
+        const storesToProcess = sortedStores.slice(startIdx, endIdx)
+
+        console.log(`📦 [CRON] Procesando Batch ${batch} (tiendas ${startIdx + 1} a ${endIdx} de ${sortedStores.length})`)
+
+        // Regla Gavilán: El día cierra a las 6:00 AM (LA Time)
+        const businessDay = new Date(laNow)
+        if (laNow.getHours() < 6) { businessDay.setDate(businessDay.getDate() - 1) }
+        
+        const laYesterday = new Date(businessDay)
         laYesterday.setDate(laYesterday.getDate() - 1)
         
         const formatLA = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         const dateStrYest = formatLA(laYesterday)
-        const dateStrToday = formatLA(laNow)
+        const dateStrToday = formatLA(businessDay)
         
-        const targetDates = [dateStrYest, dateStrToday]
-        console.log(`📅 [CRON] Procesando intraday... Fechas: ${targetDates.join(', ')}`)
+        // Optimización: Solo sincronizamos ayer durante la hora posterior al cierre del día laboral (6:00 AM a 6:59 AM)
+        const laHour = laNow.getHours()
+        const targetDates = (laHour === 6) ? [dateStrYest, dateStrToday] : [dateStrToday]
+        console.log(`📅 [CRON] Procesando intraday... Fechas: ${targetDates.join(', ')} (Hora LA: ${laHour})`)
 
         const results: any[] = []
 
         const limit = 3; 
         let activePromises = 0;
+        const queue: (() => void)[] = [];
+
+        const acquire = () => new Promise<void>((resolve) => {
+            if (activePromises < limit) {
+                activePromises++;
+                resolve();
+            } else {
+                queue.push(resolve);
+            }
+        });
+
+        const release = () => {
+            activePromises--;
+            if (queue.length > 0) {
+                const next = queue.shift();
+                if (next) {
+                    activePromises++;
+                    next();
+                }
+            }
+        };
         const processStore = async (store: any) => {
             if (!store.external_id) return
             
@@ -251,20 +301,16 @@ export async function GET(request: Request) {
         } // End of For targetDates Loop
         }
 
-        const promises = []
-        for (const store of stores) {
-            if (!store.external_id) continue;
+        const promises = storesToProcess.map(async (store) => {
+            if (!store.external_id) return;
             
-            while(activePromises >= limit) {
-                await new Promise(r => setTimeout(r, 500))
+            await acquire();
+            try {
+                await processStore(store);
+            } finally {
+                release();
             }
-            
-            activePromises++
-            const p = processStore(store).finally(() => {
-                activePromises--
-            })
-            promises.push(p)
-        }
+        });
         
         await Promise.all(promises)
 

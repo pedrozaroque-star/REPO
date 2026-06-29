@@ -48,3 +48,11 @@ Cron sync-food-cost → pre-calcula cache mensual
 - Cada tienda tiene un UUID en `stores` table y un Toast External ID
 - El día laboral empieza a las 6:00 AM y termina a las 5:59 AM del siguiente día
 - El turno PM inicia a las 5:00 PM
+
+### Preparador (Prep Line / Cooking Pace)
+- El módulo proyecta **libras crudas** que el taquero debe poner en la parrilla por bloques de 30 minutos
+- Solo se proyectan carnes de **PARRILLA** que requieren anticipación: `ASADA, PASTOR, POLLO, CABEZA, LENGUA`
+- **Buche, Chorizo y Carnitas se cocinan AL MOMENTO** bajo demanda — NO necesitan proyección de pace
+- CARNITAS se rastrea en el CRON para datos de bodega, pero se filtra del carousel de la tablet de parrilla
+- El acelerador intraday compara ventas reales de hoy vs proyección histórica para ajustar el pace en tiempo real
+- Los datos REAL (verde) vienen de `meat_consumption_history` y se refrescan cada 3 minutos

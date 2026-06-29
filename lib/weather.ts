@@ -83,14 +83,15 @@ function mapWmoCode(code: number): string {
     if (code <= 3) return 'Cloudy'
     if (code >= 45 && code <= 48) return 'Fog'
     if (code >= 51 && code <= 55) return 'Drizzle'
-    if (code >= 61 && code <= 65) return 'Rain'
-    if (code >= 66 && code <= 67) return 'Freezing Rain'
-    if (code >= 71 && code <= 77) return 'Snow'
-    if (code >= 80 && code <= 82) return 'Rain Showers' // Often heavy but brief
 
-    // HEAVY STUFF
+    // HEAVY STUFF FIRST
     if (code === 65) return 'Heavy Rain' // Heavy intens
     if (code === 82) return 'Heavy Rain' // Violent showers
+
+    if (code >= 61 && code <= 64) return 'Rain'
+    if (code >= 66 && code <= 67) return 'Freezing Rain'
+    if (code >= 71 && code <= 77) return 'Snow'
+    if (code >= 80 && code <= 81) return 'Rain Showers' // Often heavy but brief
     if (code >= 95) return 'Thunderstorm'
 
     return 'Unknown'

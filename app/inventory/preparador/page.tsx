@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2 } from 'lucide-react'
+import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -78,13 +78,194 @@ export default function PreparadorLineaPage() {
     const [sending, setSending] = useState(false)
     const [showDayModal, setShowDayModal] = useState(false)
     
+    // Waste Dashboard Modal
+    const [showWasteModal, setShowWasteModal] = useState(false)
+    const [selectedWasteDate, setSelectedWasteDate] = useState('')
+    const [wasteData, setWasteData] = useState<any[]>([])
+    const [loadingWasteData, setLoadingWasteData] = useState(false)
+    const [showWasteInfo, setShowWasteInfo] = useState(false)
+
+    // Carga de Datos de Merma (para el día de hoy o días pasados)
+    useEffect(() => {
+        if (!showWasteModal || !storeId) return
+
+        // Función para obtener la fecha local de LA de hoy
+        const getLATodayStr = () => {
+            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+            const laDate = new Date(laTimeStr)
+            if (laDate.getHours() < 6) laDate.setDate(laDate.getDate() - 1)
+            return laDate.getFullYear() + '-' + String(laDate.getMonth() + 1).padStart(2, '0') + '-' + String(laDate.getDate()).padStart(2, '0')
+        }
+
+        const todayStr = getLATodayStr()
+        
+        // Si no se ha inicializado la fecha seleccionada, la ponemos en hoy
+        if (!selectedWasteDate) {
+            setSelectedWasteDate(todayStr)
+            return
+        }
+
+        const loadData = async () => {
+            setLoadingWasteData(true)
+            const proteins = ['ASADA', 'PASTOR', 'POLLO', 'CABEZA', 'LENGUA']
+            const isToday = selectedWasteDate === todayStr
+
+            if (isToday) {
+                // Para hoy, calculamos en base a los datos en vivo que ya están cargados en el componente
+                // 1. Obtener la hora actual en LA para ver qué bloques ya se completaron
+                const d = new Date()
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/Los_Angeles', hour: 'numeric', minute: 'numeric', hour12: false
+                });
+                let timeParts = formatter.format(d).split(':')
+                let h = parseInt(timeParts[0], 10)
+                let m = parseInt(timeParts[1], 10)
+                if (h === 24) h = 0;
+                const curMin = h * 60 + m;
+
+                const stats = proteins.map(proto => {
+                    let totalProj = 0
+                    let totalReal = 0
+                    let count = 0
+
+                    carouselBuckets.forEach((bucket) => {
+                        const [bh, bm] = bucket.id.split(':').map(Number)
+                        const bMin = bh * 60 + bm
+                        
+                        const adjustedBMin = bh < 6 ? bMin + 24 * 60 : bMin
+                        const adjustedCurMin = h < 6 ? curMin + 24 * 60 : curMin
+                        
+                        if (adjustedBMin < adjustedCurMin) {
+                            const item = bucket.data.find(d => d.meat_type === proto)
+                            if (item) {
+                                totalProj += item.avg_lbs * intelligenceAcelerador
+                                if (item.real_lbs !== undefined) {
+                                    totalReal += item.real_lbs
+                                    count++
+                                }
+                            }
+                        }
+                    })
+
+                    return {
+                        proto,
+                        totalProj,
+                        totalReal,
+                        hasRealData: count > 0
+                    }
+                })
+                setWasteData(stats)
+                setLoadingWasteData(false)
+            } else {
+                // Para días pasados: cargamos dinámicamente de la base de datos y la API
+                try {
+                    // A. Calcular el DOW de la fecha seleccionada
+                    const parts = selectedWasteDate.split('-').map(Number)
+                    const parsedDate = new Date(parts[0], parts[1] - 1, parts[2])
+                    const jsDow = parsedDate.getDay()
+                    const targetDOW = jsDow === 0 ? 7 : jsDow
+
+                    // B. Carga de proyecciones históricas (promedios) para ese DOW
+                    const resHistory = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${targetDOW}`)
+                    const historyJson = await resHistory.json()
+
+                    // C. Carga de factor de inteligencia de ese día
+                    const resIntel = await fetch(`/api/preparador/intelligence?store_id=${storeId}&date=${selectedWasteDate}`)
+                    const intelJson = resIntel.ok ? await resIntel.json() : { growth_factor: 1.0 }
+                    const factor = intelJson.growth_factor || 1.0
+
+                    // D. Carga de consumos reales grabados en DB para ese día
+                    const { data: realData, error: dbErr } = await supabase
+                        .from('meat_consumption_history')
+                        .select('interval_start, meat_type, raw_lbs')
+                        .eq('store_id', storeId)
+                        .eq('business_date', selectedWasteDate)
+
+                    if (dbErr) throw dbErr
+
+                    const stats = proteins.map(proto => {
+                        let totalProj = 0
+                        let totalReal = 0
+                        let count = 0
+
+                        // El histórico tiene intervalos de 30 mins (igual que hoy)
+                        if (Array.isArray(historyJson)) {
+                            const filteredHist = historyJson.filter((m: any) => m.meat_type === proto)
+                            filteredHist.forEach((item: any) => {
+                                totalProj += item.avg_lbs * factor
+                            })
+                        }
+
+                        // Consumo real registrado
+                        if (Array.isArray(realData)) {
+                            const filteredReal = realData.filter((d: any) => d.meat_type === proto)
+                            filteredReal.forEach((item: any) => {
+                                totalReal += Number(item.raw_lbs || 0)
+                                count++
+                            })
+                        }
+
+                        return {
+                            proto,
+                            totalProj,
+                            totalReal,
+                            hasRealData: count > 0
+                        }
+                    })
+                    setWasteData(stats)
+                } catch (e) {
+                    console.error("Error loading past waste data:", e)
+                    setWasteData([])
+                } finally {
+                    setLoadingWasteData(false)
+                }
+            }
+        }
+
+        loadData()
+    }, [showWasteModal, selectedWasteDate, storeId, carouselBuckets, intelligenceAcelerador, supabase])
+
+    // Wake Lock Effect to keep screen active on tablets
+    useEffect(() => {
+        let wakeLock: any = null;
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await (navigator as any).wakeLock.request('screen');
+                    console.log("Wake Lock acquired successfully");
+                }
+            } catch (err) {
+                console.warn("Wake Lock failed:", err);
+            }
+        }
+        requestWakeLock();
+        
+        const handleVisibilityChange = () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                requestWakeLock();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            if (wakeLock) {
+                wakeLock.release().then(() => {
+                    wakeLock = null;
+                });
+            }
+        };
+    }, []);
+
     // Alarma de Cocción
     const [showCookAlert, setShowCookAlert] = useState(false)
     const [nextBlockLabel, setNextBlockLabel] = useState('')
     const cookAlarmRef = useRef<HTMLAudioElement | null>(null)
     const lastCookAlertRef = useRef<string | null>(null)
 
-    // Agrupación de datos para el Modal
+    // Agrupación de datos para el Modal VIEW DAY
+    // @businessRule: Solo se proyectan las carnes de PARRILLA (Asada, Pastor, Pollo, Cabeza, Lengua).
+    // Buche, Chorizo y Carnitas se cocinan AL MOMENTO y no requieren proyección de pace.
     const getHourlyData = () => {
         const validData = meatData.filter(m => m.meat_type !== 'CARNITAS')
         const hourlyMap = new Map<string, { ASADA: number, CABEZA: number, LENGUA: number, PASTOR: number, POLLO: number }>()
@@ -215,12 +396,21 @@ export default function PreparadorLineaPage() {
                 const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}`)
                 const json = await res.json()
                 if (Array.isArray(json)) {
-                    // Pre-filtro: La tablet 1 excluye CAFE y CHAMPURRADO
+                    // @businessRule: Solo se proyectan carnes de PARRILLA que necesitan anticipación.
                     const tablet1Proteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
-                    setMeatData(json.filter(m => tablet1Proteins.includes(m.meat_type)))
+                    setMeatData(json.filter((m: any) => tablet1Proteins.includes(m.meat_type)))
+                    localStorage.setItem(`prep_meat_history_${storeId}_${businessDow}`, JSON.stringify(json))
                 }
             } catch (err) {
                 console.error(err)
+                const cached = localStorage.getItem(`prep_meat_history_${storeId}_${businessDow}`)
+                if (cached) {
+                    try {
+                        const json = JSON.parse(cached)
+                        const tablet1Proteins = ['ASADA', 'PASTOR', 'POLLO', 'CARNITAS', 'CABEZA', 'LENGUA']
+                        setMeatData(json.filter((m: any) => tablet1Proteins.includes(m.meat_type)))
+                    } catch (e) {}
+                }
             } finally {
                 setFetchingMeat(false)
             }
@@ -237,17 +427,33 @@ export default function PreparadorLineaPage() {
             if (laDate.getHours() < 6) laDate.setDate(laDate.getDate() - 1)
             const dStr = laDate.getFullYear() + '-' + String(laDate.getMonth() + 1).padStart(2, '0') + '-' + String(laDate.getDate()).padStart(2, '0')
 
-            const { data } = await supabase.from('meat_consumption_history')
-                .select('interval_start, meat_type, raw_lbs')
-                .eq('store_id', storeId)
-                .eq('business_date', dStr)
-                
-            if (data) {
-                setRealMeatData(data.map(d => ({
-                    interval_start: d.interval_start,
-                    meat_type: d.meat_type,
-                    real_lbs: d.raw_lbs
-                })))
+            try {
+                const { data } = await supabase.from('meat_consumption_history')
+                    .select('interval_start, meat_type, raw_lbs')
+                    .eq('store_id', storeId)
+                    .eq('business_date', dStr)
+                    
+                if (data) {
+                    setRealMeatData(data.map(d => ({
+                        interval_start: d.interval_start,
+                        meat_type: d.meat_type,
+                        real_lbs: d.raw_lbs
+                    })))
+                    localStorage.setItem(`prep_real_meat_${storeId}`, JSON.stringify(data))
+                }
+            } catch (err) {
+                console.error("Real meat fetch error:", err)
+                const cached = localStorage.getItem(`prep_real_meat_${storeId}`)
+                if (cached) {
+                    try {
+                        const data = JSON.parse(cached)
+                        setRealMeatData(data.map((d: any) => ({
+                            interval_start: d.interval_start,
+                            meat_type: d.meat_type,
+                            real_lbs: d.raw_lbs
+                        })))
+                    } catch (e) {}
+                }
             }
         }
         fetchRealD()
@@ -265,13 +471,21 @@ export default function PreparadorLineaPage() {
                     const data = await res.json()
                     setIntelligenceAcelerador(data.growth_factor || 1.0)
                     setWeatherAlert(data.weather_adjustment || false)
+                    localStorage.setItem(`prep_intelligence_${storeId}`, JSON.stringify(data))
                 }
             } catch (err) {
                 console.error("Intelligence error:", err)
+                const cached = localStorage.getItem(`prep_intelligence_${storeId}`)
+                if (cached) {
+                    try {
+                        const data = JSON.parse(cached)
+                        setIntelligenceAcelerador(data.growth_factor || 1.0)
+                        setWeatherAlert(data.weather_adjustment || false)
+                    } catch (e) {}
+                }
             }
         }
         fetchIntelligence()
-        // Reconsultamos al motor cada 30 minutos para ver si aumentó el ritmo o si empezó a llover
         const int = setInterval(fetchIntelligence, 30 * 60 * 1000)
         return () => clearInterval(int)
     }, [storeId])
@@ -349,6 +563,10 @@ export default function PreparadorLineaPage() {
                     lastCookAlertRef.current = signature
                     setNextBlockLabel(arr[foundCurrentIndex + 1].label)
                     setShowCookAlert(true)
+                    // Haptic feedback / vibration for tablet alerts
+                    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                        navigator.vibrate([500, 200, 500])
+                    }
                     // Play sound if available
                     if (cookAlarmRef.current) {
                         // Reset audio and play
@@ -418,7 +636,7 @@ export default function PreparadorLineaPage() {
     if (!mounted || authLoading) return <div className="p-8 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
 
     if (!user || !['admin', 'manager', 'supervisor'].includes(user.role?.toLowerCase() || '')) {
-        return <div className="p-8 text-center text-red-500 text-2xl font-bold">🚫 ACCESS DENIED</div>
+        return <div className="p-8 text-center text-red-500 text-2xl font-bold">{t('prep.accessDenied')}</div>
     }
 
     return (
@@ -442,10 +660,10 @@ export default function PreparadorLineaPage() {
                         >
                             <BellRing size={120} className="text-red-500 animate-bounce mb-8" />
                             <h2 className="text-4xl md:text-6xl font-black text-white px-4 leading-tight uppercase mb-6 tracking-tighter">
-                                PREPARE THE NEXT BLOCK!
+                                {t('prep.prepareNextBlock')}
                             </h2>
                             <p className="text-red-200 font-medium text-2xl md:text-4xl mb-12 uppercase tracking-wide bg-red-950/50 py-4 px-8 rounded-2xl border border-red-500/30">
-                                NEXT SCHEDULE:<br/>
+                                {t('prep.nextSchedule')}<br/>
                                 <span className="text-white font-black">{nextBlockLabel}</span>
                             </p>
                             <button 
@@ -464,7 +682,7 @@ export default function PreparadorLineaPage() {
                                 className="w-full md:w-[400px] bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-white font-black text-3xl px-10 py-8 rounded-3xl shadow-[0_0_50px_rgba(16,185,129,0.3)] transition-transform active:scale-95 border-b-8 border-emerald-700 flex flex-col items-center justify-center"
                             >
                                 <CheckCircle2 size={40} className="mb-2" />
-                                UNDERSTOOD
+                                {t('prep.understood')}
                             </button>
                         </motion.div>
                     </motion.div>
@@ -478,8 +696,8 @@ export default function PreparadorLineaPage() {
                         <ChefHat size={24} />
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-slate-800 dark:text-white leading-tight">PREP LINE</h1>
-                        <p className="text-xs text-slate-500 font-medium">Pace Control & Supply Management</p>
+                        <h1 className="text-xl font-black text-slate-800 dark:text-white leading-tight">{t('prep.title')}</h1>
+                        <p className="text-xs text-slate-500 font-medium">{t('prep.subtitle')}</p>
                     </div>
                 </div>
                 
@@ -487,10 +705,10 @@ export default function PreparadorLineaPage() {
                     <button 
                         onClick={toggleFullscreen}
                         className="flex items-center gap-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-3 py-2 rounded-lg font-bold text-sm transition-colors"
-                        title="Modo Tableta (Pantalla Completa)"
+                        title={t('prep.tabletMode')}
                     >
                         {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                        <span className="hidden sm:inline">{isFullscreen ? 'EXIT' : 'TABLET'}</span>
+                        <span className="hidden sm:inline">{isFullscreen ? t('prep.exit') : t('prep.tablet')}</span>
                     </button>
                     
                     {(() => {
@@ -510,9 +728,17 @@ export default function PreparadorLineaPage() {
                         )
                     })()}
                     
+                    <button 
+                        onClick={() => setShowWasteModal(true)} 
+                        className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-red-900/20 cursor-pointer"
+                    >
+                        <TrendingDown size={16} />
+                        <span className="hidden sm:inline">{t('prep.wasteReportBtn')}</span>
+                    </button>
+
                     <a href="/inventory/preparador/bodega" target="_blank" className="flex items-center gap-2 bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-slate-900/20">
                         <BellRing size={16} className="animate-pulse" />
-                        <span className="hidden sm:inline">OPEN WAREHOUSE</span>
+                        <span className="hidden sm:inline">{t('prep.openWarehouse')}</span>
                     </a>
                 </div>
             </div>
@@ -527,25 +753,25 @@ export default function PreparadorLineaPage() {
                             <Clock className="w-10 h-10 md:w-12 md:h-12 text-blue-500 shrink-0" />
                             <div>
                                 <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-lg lg:text-2xl flex items-center gap-2">
-                                    Cooking Pace
+                                    {t('prep.cookingPace')}
                                     {intelligenceAcelerador !== 1.0 && (
                                         <span className={`text-sm px-2 py-0.5 rounded-lg border ${intelligenceAcelerador > 1 ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800/50'}`}>
                                             Pace {intelligenceAcelerador > 1 ? '+' : ''}{((intelligenceAcelerador - 1) * 100).toFixed(0)}%
                                         </span>
                                     )}
                                 </h2>
-                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">Live Projection (Average x Today's Pace)</p>
+                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">{t('prep.liveProjection')}</p>
                             </div>
                         </div>
                         <button onClick={() => setShowDayModal(true)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 px-4 md:px-6 py-2 md:py-3 rounded-xl text-sm md:text-lg font-black transition-colors shrink-0 shadow-sm ml-2">
-                            VIEW DAY
+                            {t('prep.viewDay')}
                         </button>
                     </div>
 
                     {fetchingMeat ? (
                         <div className="flex flex-col items-center justify-center flex-1 text-slate-400 gap-3">
                             <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
-                            <p className="font-bold">Calculating History...</p>
+                            <p className="font-bold">{t('prep.calculatingHistory')}</p>
                         </div>
                     ) : (
                         <div 
@@ -605,7 +831,7 @@ export default function PreparadorLineaPage() {
                                                     {isRealCurrent && <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse" />}
                                                             <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
                                                                 <span className="uppercase text-lg md:text-2xl flex items-center gap-2">
-                                                                    {isRealCurrent ? 'NOW' : (localIndex === 1 && activeIndex === currentBucketIndex ? 'NEXT' : (activeIndex < currentBucketIndex ? 'PAST' : 'PROJECTION'))}
+                                                                    {isRealCurrent ? t('prep.now') : (localIndex === 1 && activeIndex === currentBucketIndex ? t('prep.next') : (activeIndex < currentBucketIndex ? t('prep.past') : t('prep.projection')))}
                                                                     {isTop && <HelpCircle size={20} className="text-blue-500/50 hover:text-blue-500 transition-colors" />}
                                                                 </span>
                                                                 <span className={`text-2xl md:text-4xl font-black lowercase tracking-tighter [font-feature-settings:'tnum'] ${isTop ? 'opacity-90 text-blue-950 dark:text-blue-100' : 'opacity-60'}`}>
@@ -621,29 +847,38 @@ export default function PreparadorLineaPage() {
                                                                 <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-1 md:mb-2 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
                                                                 
                                                                 <div className="flex w-full items-center justify-center gap-4">
-                                                                    {/* Projected Column */}
-                                                                    <div className="flex flex-col items-center justify-center leading-none">
+                                                                    {/* Projected Column (attenuated when real data exists) */}
+                                                                    <div className={`flex flex-col items-center justify-center leading-none transition-all duration-300 ${m.real_lbs !== undefined ? 'opacity-40 scale-90' : 'opacity-100'}`}>
                                                                         <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-[5.5rem] text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-5xl xl:text-6xl text-slate-800 dark:text-white'}`}>
                                                                             {(m.avg_lbs * intelligenceAcelerador).toFixed(1)}
                                                                         </span>
-                                                                        <span className="text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider mt-2 bg-white/50 dark:bg-slate-800/50 px-2 py-0.5 rounded-md">PROY: {m.avg_lbs.toFixed(1)}</span>
+                                                                        <span className="text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider mt-2 bg-white/50 dark:bg-slate-800/50 px-2 py-0.5 rounded-md">{t('prep.proy')} {m.avg_lbs.toFixed(1)}</span>
                                                                     </div>
                                                                     
-                                                                    {/* Real Consumed Column (only for past/current buckets if exists) */}
-                                                                    {m.real_lbs !== undefined && (
+                                                                    {/* Real Consumed Column */}
+                                                                    {m.real_lbs !== undefined ? (
                                                                         <>
                                                                             <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
                                                                             <div className="flex flex-col items-center justify-center leading-none">
-                                                                                <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl' : 'text-3xl xl:text-4xl'}`}>
+                                                                                <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl animate-pulse' : 'text-3xl xl:text-4xl animate-pulse'}`}>
                                                                                     {m.real_lbs.toFixed(1)}
                                                                                 </span>
-                                                                                <span className="text-[10px] md:text-xs font-bold text-emerald-700 dark:text-emerald-500 tracking-wider mt-2 bg-emerald-500/10 px-2 py-0.5 rounded-md">REAL</span>
+                                                                                <span className="text-[10px] md:text-xs font-bold text-emerald-700 dark:text-emerald-500 tracking-wider mt-2 bg-emerald-500/10 px-2 py-0.5 rounded-md">{t('prep.real')}</span>
+                                                                            </div>
+                                                                        </>
+                                                                    ) : (activeIndex < currentBucketIndex) && (
+                                                                        <>
+                                                                            <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                            <div className="flex flex-col items-center justify-center leading-none">
+                                                                                <span className="text-[10px] md:text-xs font-bold text-amber-600 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
+                                                                                    {t('prep.syncing')}
+                                                                                </span>
                                                                             </div>
                                                                         </>
                                                                     )}
                                                                 </div>
                                                             </div>
-                                                )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">No projection data</p>}
+                                                )) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">{t('prep.noProjectionData')}</p>}
                                             </div>
                                         </div>
                                     </motion.div>
@@ -671,14 +906,14 @@ export default function PreparadorLineaPage() {
                             className={`flex-1 py-4 font-black flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm
                                 ${activeTab === 'alimentos' ? 'bg-orange-100 text-orange-700 border-2 border-orange-500 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
-                            <UtensilsCrossed size={20} /> FOOD ITEMS
+                            <UtensilsCrossed size={20} /> {t('prep.foodItems')}
                         </button>
                         <button 
                             onClick={() => setActiveTab('desechables')}
                             className={`flex-1 py-4 font-black flex items-center justify-center gap-2 rounded-xl transition-all shadow-sm
                                 ${activeTab === 'desechables' ? 'bg-blue-100 text-blue-700 border-2 border-blue-500 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-50 text-slate-500 hover:bg-slate-200 border-2 border-transparent dark:bg-slate-800'}`}
                         >
-                            <PackageOpen size={20} /> DISPOSABLES
+                            <PackageOpen size={20} /> {t('prep.disposables')}
                         </button>
                     </div>
 
@@ -747,7 +982,7 @@ export default function PreparadorLineaPage() {
                                     {sending ? <Loader2 className="animate-spin w-8 h-8" /> : (
                                         <>
                                             <AlertTriangle size={30} className="animate-pulse" />
-                                            SEND
+                                            {t('prep.send')}
                                         </>
                                     )}
                                 </button>
@@ -766,8 +1001,8 @@ export default function PreparadorLineaPage() {
                             {/* Header */}
                             <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 shrink-0">
                                 <div>
-                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">Day Projection</h2>
-                                    <p className="text-slate-500 font-medium text-sm">Historical average consumption per hour (Raw Pounds)</p>
+                                    <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tighter">{t('prep.dayProjection')}</h2>
+                                    <p className="text-slate-500 font-medium text-sm">{t('prep.dayProjectionDesc')}</p>
                                 </div>
                                 <button onClick={() => setShowDayModal(false)} className="bg-slate-200 hover:bg-red-500 hover:text-white cursor-pointer dark:bg-slate-800 dark:hover:bg-red-600 text-slate-700 dark:text-slate-300 p-2 rounded-full transition-colors active:scale-95 shadow-sm">
                                     <X size={28} />
@@ -779,13 +1014,13 @@ export default function PreparadorLineaPage() {
                                 <table className="w-full text-left border-collapse">
                                     <thead className="bg-white dark:bg-slate-800 sticky top-0 shadow-sm z-10">
                                         <tr>
-                                            <th className="p-4 font-bold text-slate-400 text-sm tracking-widest pl-6">HORA</th>
+                                            <th className="p-4 font-bold text-slate-400 text-sm tracking-widest pl-6">{t('prep.hour')}</th>
                                             <th className="p-4 font-black text-blue-600 dark:text-blue-400 tracking-wider">ASADA</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">POLLO</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">PASTOR</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">CABEZA</th>
                                             <th className="p-4 font-bold text-slate-500 dark:text-slate-400">LENGUA</th>
-                                            <th className="p-4 font-black text-slate-800 dark:text-white tracking-widest pr-6 text-right">HOUR TOTAL</th>
+                                            <th className="p-4 font-black text-slate-800 dark:text-white tracking-widest pr-6 text-right">{t('prep.hourTotal')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -801,7 +1036,7 @@ export default function PreparadorLineaPage() {
                                                     <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.PASTOR > 0 ? data.PASTOR.toFixed(1) : '-'}</td>
                                                     <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.CABEZA > 0 ? data.CABEZA.toFixed(1) : '-'}</td>
                                                     <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{data.LENGUA > 0 ? data.LENGUA.toFixed(1) : '-'}</td>
-                                                    <td className="p-4 font-black text-slate-800 dark:text-white text-right pr-6">{hrTotal.toFixed(1)} <span className="text-xs opacity-50 font-bold ml-1">lbs</span></td>
+                                                    <td className="p-4 font-black text-slate-800 dark:text-white text-right pr-6">{hrTotal.toFixed(1)} <span className="text-xs opacity-50 font-bold ml-1">{t('prep.lbs')}</span></td>
                                                 </tr>
                                             )
                                         })}
@@ -813,8 +1048,8 @@ export default function PreparadorLineaPage() {
                             <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-6 flex flex-wrap gap-4 justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.05)] shrink-0 z-20">
                                 <div className="flex gap-3 overflow-x-auto pb-2 md:pb-0">
                                     <div className="bg-blue-50 dark:bg-blue-900/30 px-6 py-3 flex flex-col items-center justify-center rounded-2xl border border-blue-200 dark:border-blue-800 shrink-0">
-                                        <span className="text-xs uppercase font-bold text-blue-600 dark:text-blue-400">Total Asada</span>
-                                        <span className="font-black text-blue-700 dark:text-blue-300 text-3xl">{dayTotals.ASADA.toFixed(1)} <span className="text-sm font-bold opacity-50">lbs</span></span>
+                                        <span className="text-xs uppercase font-bold text-blue-600 dark:text-blue-400">{t('prep.totalLabel')} Asada</span>
+                                        <span className="font-black text-blue-700 dark:text-blue-300 text-3xl">{dayTotals.ASADA.toFixed(1)} <span className="text-sm font-bold opacity-50">{t('prep.lbs')}</span></span>
                                     </div>
                                     {['POLLO', 'PASTOR', 'CABEZA', 'LENGUA'].map(meat => (
                                         <div key={meat} className="bg-slate-50 dark:bg-slate-800 px-5 py-3 flex flex-col items-center justify-center rounded-2xl border border-slate-200 dark:border-slate-700 shrink-0">
@@ -825,8 +1060,8 @@ export default function PreparadorLineaPage() {
                                 </div>
                                 
                                 <div className="bg-slate-800 text-white dark:bg-white dark:text-slate-900 px-8 py-4 rounded-2xl flex flex-col items-center justify-center shadow-lg shrink-0">
-                                    <span className="text-xs uppercase font-bold text-blue-200 dark:text-blue-700 tracking-widest">Daily Pace Total</span>
-                                    <span className="font-black text-4xl">{grandTotal.toFixed(1)} <span className="text-sm opacity-60 ml-1">LBS</span></span>
+                                    <span className="text-xs uppercase font-bold text-blue-200 dark:text-blue-700 tracking-widest">{t('prep.dailyPaceTotal')}</span>
+                                    <span className="font-black text-4xl">{grandTotal.toFixed(1)} <span className="text-sm opacity-60 ml-1">{t('prep.lbs').toUpperCase()}</span></span>
                                 </div>
                             </div>
                         </div>
@@ -861,33 +1096,31 @@ export default function PreparadorLineaPage() {
                             </button>
                             
                             <h2 className="text-3xl md:text-5xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">
-                                Meat Projection
+                                {t('prep.meatProjection')}
                             </h2>
                             <p className="text-slate-500 mb-6 md:mb-8 border-b border-slate-200 dark:border-slate-800 pb-4 md:pb-6 text-lg md:text-2xl shrink-0">
-                                How the AI calculates these historical pounds for the prep line:
+                                {t('prep.meatProjectionDesc')}
                             </p>
                             
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 md:gap-8 text-slate-600 dark:text-slate-300 overflow-y-auto shrink pb-2 pr-2">
                                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 dark:bg-red-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        🥩 RAW POUNDS
+                                        {t('prep.rawPoundsTitle')}
                                     </h3>
-                                    <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        For Asada, Pastor, Pollo, Cabeza, and Lengua, the large numbers represent the projected physical demand in <b className="text-red-600 dark:text-red-400">Raw Pounds (Not Cooked)</b>.
-                                    </p>
+                                    <p className="mb-6 font-medium text-lg md:text-2xl" dangerouslySetInnerHTML={{ __html: t('prep.rawPoundsDesc') }} />
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-600 dark:text-emerald-500 mt-1">1.</span> 
-                                            <span>The system extracts the number of mulitas, tacos, burritos, etc., sold at this hour throughout the years.</span>
+                                            <span>{t('prep.rawPoundsStep1')}</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-600 dark:text-emerald-500 mt-1">2.</span> 
-                                            <span>It multiplies each dish by its recipe weight in ounces and then applies the <b className="text-slate-800 dark:text-white">cooking shrinkage (Yield)</b> in reverse to determine how much the original raw meat weighed.</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.rawPoundsStep2') }} />
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-600 dark:text-emerald-500 mt-1">3.</span> 
-                                            <span><b>Final explanation:</b> The number on screen is exactly the amount of raw meat the prep cook or taquero should take out and put on the grill to sustain the pace of that half-hour window, without running short or having too much left over.</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.rawPoundsStep3') }} />
                                         </li>
                                     </ul>
                                 </div>
@@ -895,23 +1128,23 @@ export default function PreparadorLineaPage() {
                                 <div className="bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        📅 HISTORICAL AVERAGE
+                                        {t('prep.histAvgTitle')}
                                     </h3>
                                     <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        Where does the AI get these numbers it tells me to cook?
+                                        {t('prep.histAvgDesc')}
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span>The system reads the analytical transaction history from the last <b>years</b> of this same location.</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.histAvgPoint1') }} />
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span>It specifically searches for <b>this day of the week</b> (e.g., if today is Monday, it averages all recent Mondays).</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.histAvgPoint2') }} />
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-blue-600 dark:text-blue-500 mt-1">✔</span> 
-                                            <span>It averages exclusively <b>this half-hour block</b>, ensuring that the Cooking Pace faithfully follows the local peak hours of the store without you having to guess.</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.histAvgPoint3') }} />
                                         </li>
                                     </ul>
                                 </div>
@@ -919,23 +1152,23 @@ export default function PreparadorLineaPage() {
                                 <div className="xl:col-span-2 bg-slate-50 dark:bg-slate-800/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-700/50 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 dark:bg-amber-500/10 rounded-full blur-3xl" />
                                     <h3 className="text-2xl md:text-3xl font-black tracking-widest text-slate-800 dark:text-slate-100 uppercase mb-4 flex items-center gap-3">
-                                        ⏱️ LIVE PACE (INTRADAY AI)
+                                        {t('prep.livePaceTitle')}
                                     </h3>
                                     <p className="mb-6 font-medium text-lg md:text-2xl">
-                                        How does the algorithm protect you from a surprise shortage today?
+                                        {t('prep.livePaceDesc')}
                                     </p>
                                     <ul className="list-inside space-y-5 font-medium text-base md:text-xl leading-relaxed">
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span><b>Peak Detection:</b> Every 30 minutes, the AI connects directly to Toast to sum all cash and card money that has entered your register <b>TODAY</b> since you opened.</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.livePacePoint1') }} />
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span><b>The Accelerator:</b> If the AI detects that 20% more money has come in today than "should have" entered by this hour, it concludes the store is experiencing a peak (for example, a local event) and generates an <b>Accelerator (+20%)</b>.</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.livePacePoint2') }} />
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-amber-600 dark:text-amber-500 mt-1">⚡</span> 
-                                            <span><b>Auto Adjustment:</b> Immediately, the tablet will multiply that +20% to your "Raw Pounds" aggressively to demand more meat on the grill, preventing your cooked inventory from running out in the next half hour.</span>
+                                            <span dangerouslySetInnerHTML={{ __html: t('prep.livePacePoint3') }} />
                                         </li>
                                     </ul>
                                 </div>
@@ -946,7 +1179,163 @@ export default function PreparadorLineaPage() {
                                     onClick={() => setShowInfoModal(false)}
                                     className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black uppercase md:text-2xl tracking-widest py-5 md:py-6 rounded-2xl transition-all shadow-xl shadow-blue-500/30"
                                 >
-                                    Understood!
+                                    {t('prep.understoodBtn')}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Waste Dashboard Modal */}
+            <AnimatePresence>
+                {showWasteModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+                        <motion.div 
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl p-6 md:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]"
+                        >
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4 shrink-0">
+                                <div>
+                                    <h2 className="text-2xl md:text-3xl font-black text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-3">
+                                        <TrendingDown className="text-red-500 w-8 h-8" />
+                                        <span>{t('prep.wasteReport')}</span>
+                                        <button 
+                                            onClick={() => setShowWasteInfo(!showWasteInfo)} 
+                                            className="text-slate-400 hover:text-blue-500 transition-colors p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none cursor-pointer"
+                                            title="Información del cálculo"
+                                        >
+                                            <HelpCircle size={20} />
+                                        </button>
+                                    </h2>
+                                    <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+                                        {t('prep.wasteReportDesc')}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-3 w-full sm:w-auto">
+                                    <input 
+                                        type="date" 
+                                        value={selectedWasteDate}
+                                        onChange={(e) => setSelectedWasteDate(e.target.value)}
+                                        className="bg-slate-100 dark:bg-slate-800 border-none font-bold text-sm text-slate-700 dark:text-slate-300 rounded-xl p-3 focus:ring-2 focus:ring-red-500 outline-none cursor-pointer w-full sm:w-auto"
+                                    />
+                                    <button 
+                                        onClick={() => setShowWasteModal(false)}
+                                        className="p-3 hover:bg-slate-105 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer text-slate-500 hover:text-slate-700"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <AnimatePresence>
+                                {showWasteInfo && (
+                                    <motion.div 
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-200/50 dark:border-blue-800/30 p-4 rounded-2xl mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-300 shrink-0 overflow-hidden"
+                                    >
+                                        <h4 className="font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-2">
+                                            <HelpCircle size={16} />
+                                            {t('prep.meatProjection')}
+                                        </h4>
+                                        <ul className="list-disc pl-5 space-y-2 font-medium">
+                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoProj')}</span></li>
+                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoReal')}</span></li>
+                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoVar')}</span></li>
+                                            <li><span className="font-bold text-slate-750 dark:text-slate-200">{t('prep.wasteInfoStatus')}</span></li>
+                                        </ul>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
+                            <div className="overflow-y-auto pr-2 space-y-6 flex-1 flex flex-col justify-center min-h-[250px]">
+                                {loadingWasteData ? (
+                                    <div className="flex flex-col items-center justify-center py-12 gap-3">
+                                        <Loader2 className="animate-spin text-red-500 w-12 h-12" />
+                                        <span className="text-sm font-bold text-slate-500 dark:text-slate-400 animate-pulse">{t('prep.calculatingHistory')}</span>
+                                    </div>
+                                ) : (
+                                    (() => {
+                                        const stats = wasteData.map(s => {
+                                            const diff = s.totalReal - s.totalProj
+                                            const diffPct = s.totalProj > 0 ? (diff / s.totalProj) * 100 : 0
+
+                                            let statusKey = 'prep.onTrack'
+                                            let statusColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                            
+                                            if (diffPct > 10) {
+                                                statusKey = 'prep.underPrep'
+                                                statusColor = 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                                            } else if (diffPct < -10) {
+                                                statusKey = 'prep.overPrep'
+                                                statusColor = 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                                            }
+
+                                            return {
+                                                ...s,
+                                                diff,
+                                                diffPct,
+                                                statusKey,
+                                                statusColor
+                                            }
+                                        })
+
+                                        return (
+                                            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shrink-0">
+                                                <table className="w-full text-left border-collapse">
+                                                    <thead>
+                                                        <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-sm border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider">
+                                                            <th className="p-4">Proteína</th>
+                                                            <th className="p-4 text-center">Proyectado (lbs)</th>
+                                                            <th className="p-4 text-center">Consumido Real (lbs)</th>
+                                                            <th className="p-4 text-center">{t('prep.variance')}</th>
+                                                            <th className="p-4 text-center">{t('prep.status')}</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-base font-semibold">
+                                                        {stats.map(s => (
+                                                            <tr key={s.proto} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                                                <td className="p-4 font-bold text-slate-800 dark:text-slate-200 uppercase">{s.proto}</td>
+                                                                <td className="p-4 text-center text-slate-600 dark:text-slate-400">{s.totalProj.toFixed(1)}</td>
+                                                                <td className="p-4 text-center text-slate-800 dark:text-slate-200">
+                                                                    {s.hasRealData ? s.totalReal.toFixed(1) : <span className="text-slate-400 dark:text-slate-600 italic">No Data</span>}
+                                                                </td>
+                                                                <td className={`p-4 text-center font-black ${s.diff > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                                                                    {s.hasRealData ? (
+                                                                        <>
+                                                                            {s.diff > 0 ? '+' : ''}{s.diff.toFixed(1)} ({s.diffPct > 0 ? '+' : ''}{s.diffPct.toFixed(0)}%)
+                                                                        </>
+                                                                    ) : '-'}
+                                                                </td>
+                                                                <td className="p-4 text-center">
+                                                                    {s.hasRealData ? (
+                                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${s.statusColor}`}>
+                                                                            {t(s.statusKey)}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-400 dark:text-slate-600 font-normal">Pending Sync</span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )
+                                    })()
+                                )}
+                            </div>
+
+                            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800 shrink-0">
+                                <button 
+                                    onClick={() => setShowWasteModal(false)}
+                                    className="w-full bg-slate-800 hover:bg-black dark:bg-slate-700 dark:hover:bg-slate-650 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-wider text-sm cursor-pointer"
+                                >
+                                    {t('prep.understood')}
                                 </button>
                             </div>
                         </motion.div>

@@ -42,7 +42,7 @@
         },
         {
             "path": "/api/cron/sync-meat-history",
-            "schedule": "*/30 * * * *"
+            "schedule": "*/10 * * * *"
         },
         {
             "path": "/api/cron/smart-rebalance",

@@ -37,21 +37,26 @@ export async function GET(request: Request) {
             month: '2-digit',
             day: '2-digit'
         })
-        const todayStr = formatter.format(d) // YYYY-MM-DD local a CA
+        const realTodayStr = formatter.format(d)
+        
+        const dateParam = searchParams.get('date')
+        const todayStr = dateParam || realTodayStr
+        const isToday = todayStr === realTodayStr
 
         // Invocamos a intelligence.ts (El pronóstico inteligente base de 4 semanas)
         const forecast = await generateSmartForecast(externalId, todayStr)
 
         let intradayAccelerator = 1.0;
         try {
-            // "Ritmo Intraday": Llamada EN VIVO a Toast para ver ventas de HOY
-            const liveData = await fetchToastData({
-                storeIds: externalId,
-                startDate: todayStr,
-                endDate: todayStr,
-                groupBy: 'day',
-                skipCache: true
-            });
+            if (isToday) {
+                // "Ritmo Intraday": Llamada EN VIVO a Toast para ver ventas de HOY
+                const liveData = await fetchToastData({
+                    storeIds: externalId,
+                    startDate: todayStr,
+                    endDate: todayStr,
+                    groupBy: 'day',
+                    skipCache: true
+                });
             
             if (liveData.rows && liveData.rows.length > 0) {
                 const liveSales = liveData.rows[0].netSales || 0;
@@ -79,12 +84,23 @@ export async function GET(request: Request) {
                     intradayAccelerator = rawFactor;
                 }
             }
-        } catch (e) {
+        }
+    } catch (e) {
             console.error("No se pudo obtener Toast en vivo para Ritmo Intraday:", e)
             // Si falla Toast por algun rate limit, silenciosamente cae en el promedio de tendencia 4 semanas intacto
         }
 
-        const finalGrowthFactor = (forecast.growth_factor_applied || 1.0) * intradayAccelerator;
+        // Apply preparation-only holiday multipliers
+        const { getHolidayImpact } = await import('@/lib/holidays')
+        const holidayImpact = getHolidayImpact(todayStr)
+        let holidayMultiplier = 1.0
+        if (holidayImpact === 'HIGH') {
+            holidayMultiplier = 1.20 // +20% boost
+        } else if (holidayImpact === 'LOW') {
+            holidayMultiplier = 0.85 // -15% drop
+        }
+
+        const finalGrowthFactor = (forecast.growth_factor_applied || 1.0) * intradayAccelerator * holidayMultiplier;
 
         // Devolvemos sólo los parámetros vitales para el Front-End del preparador
         return NextResponse.json({

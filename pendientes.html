@@ -1,21 +1,24 @@
 <!--
-@module Reporte de Pendientes del Sistema (Tacos El Gavilán)
-@description Este archivo HTML contiene el informe consolidado y estático de auditoría y plan de trabajo de los 15 proyectos tecnológicos pendientes para Tacos El Gavilán. Está diseñado para ser totalmente autónomo (self-contained) y compatible para compartirse directamente vía WhatsApp, abriéndose sin fallos en dispositivos móviles.
+@module Reporte de Pendientes e Informe de Horas del Sistema (Tacos El Gavilán)
+@description Este archivo HTML contiene el informe consolidado y estático de auditoría, plan de trabajo de los 17 proyectos tecnológicos para Tacos El Gavilán (incluyendo el módulo Drive-Thru completado), y el Reporte Mensual de Actualizaciones y Horas de Junio de 2026. Está diseñado para ser totalmente autónomo (self-contained) y compatible para compartirse directamente vía WhatsApp, abriéndose sin fallos en dispositivos móviles.
 @businessRules
   1. No requiere ejecución de JavaScript para renderizar contenido, previniendo fallos en navegadores integrados de aplicaciones.
   2. Todos los estilos están embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS para asegurar máxima compatibilidad con motores de renderizado antiguos (WebViews de WhatsApp/Android).
   3. No depende de redes CDN externas para fuentes o íconos. Todo es nativo o usa vectores SVG embebidos.
   4. Soporta modo de impresión optimizado (@media print) que oculta controles de interfaz y adapta el contraste para papel.
 @notes
-  - Corregido error de visualización en WhatsApp causado por bloqueos de scripts externos y de ejecución de JS local.
-  - Diseño modernizado a estética premium utilizando paleta de colores corporativos de Tacos El Gavilán y tipografía Outfit con fallbacks a fuentes del sistema.
+  - Integrado el reporte mensual de horas trabajadas de junio 2026 (182.0 horas totales).
+  - Traducido todo el lenguaje técnico a términos sencillos y operativos entendibles por gerentes y directivos.
+  - Añadida la tarea pendiente número 16: "CLONAR Cohesion (app de contabilidad) solicitado por raquel velazquez".
+  - Añadida la tarea número 17: "Módulo de Rendimiento y Telemetría de Drive-Thru (HME Zoom Nitro)" como COMPLETADO.
+  - Implementado sistema de pestañas responsive mediante CSS puro (radio inputs) para mantener la compatibilidad offline sin JS.
 -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pendientes del Sistema - Tacos El Gavilan 2026</title>
+    <title>Pendientes e Informe de Horas - Tacos El Gavilan</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
         
@@ -32,7 +35,7 @@
             line-height: 1.5;
             padding-bottom: 40px;
         }
-
+ 
         /* ── Top Brand Bar ── */
         .brand-bar {
             background-color: #0f172a;
@@ -84,7 +87,7 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-
+ 
         /* ── Hero/Header Section ── */
         .hero {
             max-width: 1200px;
@@ -106,7 +109,7 @@
             color: #64748b;
             font-weight: 400;
         }
-
+ 
         /* ── Stats Grid ── */
         .stats-grid {
             max-width: 1200px;
@@ -119,7 +122,7 @@
         
         @media (min-width: 768px) {
             .stats-grid {
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(5, 1fr);
             }
         }
         
@@ -149,6 +152,7 @@
         .stat-card.pendiente::before { background-color: #ef4444; }
         .stat-card.progreso::before { background-color: #f59e0b; }
         .stat-card.completado::before { background-color: #10b981; }
+        .stat-card.horas::before { background-color: #e05638; }
         
         .stat-header {
             display: flex;
@@ -177,7 +181,67 @@
             font-size: 12px;
             color: #94a3b8;
         }
-
+ 
+        /* ── CSS Tab Switcher System ── */
+        .tabs-nav {
+            display: flex;
+            justify-content: flex-start;
+            gap: 12px;
+            margin: 24px auto 8px auto;
+            max-width: 1200px;
+            padding: 0 24px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 12px;
+        }
+ 
+        .tab-label {
+            padding: 10px 20px;
+            border-radius: 8px;
+            background-color: #f1f5f9;
+            color: #475569;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid #cbd5e1;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            user-select: none;
+        }
+ 
+        .tab-label:hover {
+            background-color: #e2e8f0;
+            color: #0f172a;
+        }
+ 
+        #tab-pendientes:checked ~ .tabs-nav label[for="tab-pendientes"],
+        #tab-reporte:checked ~ .tabs-nav label[for="tab-reporte"] {
+            background-color: #e05638;
+            color: #ffffff;
+            border-color: #e05638;
+            box-shadow: 0 4px 6px -1px rgba(224, 86, 56, 0.2);
+        }
+ 
+        .tab-content-pendientes,
+        .tab-content-reporte {
+            display: none;
+            animation: fadeIn 0.25s ease;
+        }
+ 
+        #tab-pendientes:checked ~ .tab-content-pendientes {
+            display: block;
+        }
+ 
+        #tab-reporte:checked ~ .tab-content-reporte {
+            display: block;
+        }
+ 
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+ 
         /* ── Print Button Section ── */
         .print-section {
             max-width: 1200px;
@@ -212,8 +276,8 @@
         .btn-print:active {
             transform: translateY(0);
         }
-
-        /* ── Tasks Wrapper ── */
+ 
+        /* ── Tasks & Report Wrapper ── */
         .tasks-container {
             max-width: 1200px;
             margin: 0 auto;
@@ -224,7 +288,7 @@
             display: flex;
             align-items: center;
             gap: 12px;
-            margin: 36px 0 16px 0;
+            margin: 24px 0 16px 0;
             padding-bottom: 8px;
             border-bottom: 2px solid #e2e8f0;
         }
@@ -253,6 +317,12 @@
             background-color: #fef2f2;
             color: #b91c1c;
             border: 1px solid #fecaca;
+        }
+ 
+        .section-badge.completado {
+            background-color: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
         }
         
         /* ── Card Grid ── */
@@ -377,10 +447,19 @@
             padding: 1px 4px;
             border-radius: 4px;
         }
-
+ 
         .audit-box strong {
             font-weight: 700;
             color: #e05638;
+        }
+ 
+        .audit-box.green-box {
+            background-color: #f6fdfa;
+            border-left-color: #10b981;
+        }
+ 
+        .audit-box.green-box strong {
+            color: #10b981;
         }
         
         /* Steps List */
@@ -418,7 +497,211 @@
             font-weight: 700;
             border-radius: 50%;
         }
-
+ 
+        .step-number.green-num {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+ 
+        /* ── Report Tab Design Styles ── */
+        .report-section {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+            margin-bottom: 24px;
+        }
+ 
+        .report-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+        }
+ 
+        .report-title-row h2 {
+            font-size: 20px;
+            font-weight: 800;
+            color: #0f172a;
+        }
+ 
+        .report-subtitle-text {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+ 
+        .hours-badge-large {
+            background-color: #e05638;
+            color: #ffffff;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 800;
+            font-size: 14px;
+            letter-spacing: -0.2px;
+        }
+ 
+        /* Report table design */
+        .report-table-wrapper {
+            overflow-x: auto;
+            margin-bottom: 24px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+ 
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            text-align: left;
+            min-width: 800px;
+        }
+ 
+        .report-table th {
+            background-color: #0f172a;
+            color: #ffffff;
+            font-weight: 700;
+            padding: 12px 16px;
+            border-bottom: 2px solid #e05638;
+        }
+ 
+        .report-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: top;
+            color: #334155;
+            line-height: 1.5;
+        }
+ 
+        .report-table tr:hover {
+            background-color: #f8fafc;
+        }
+ 
+        .table-badge-module {
+            background-color: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            display: inline-block;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+ 
+        .lang-split {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+ 
+        .lang-split .en-desc {
+            color: #64748b;
+            font-style: italic;
+            border-top: 1px dashed #e2e8f0;
+            padding-top: 4px;
+            margin-top: 4px;
+        }
+ 
+        /* Parallel activities grids */
+        .parallel-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+ 
+        @media (min-width: 768px) {
+            .parallel-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+ 
+        .parallel-card {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 16px;
+        }
+ 
+        .parallel-card h4 {
+            font-size: 14px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+ 
+        .parallel-card .hours {
+            background-color: rgba(224, 86, 56, 0.1);
+            color: #e05638;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+ 
+        .parallel-card p {
+            font-size: 12.5px;
+            color: #475569;
+            line-height: 1.5;
+        }
+ 
+        .parallel-card p .en-text {
+            display: block;
+            color: #64748b;
+            font-style: italic;
+            margin-top: 6px;
+            border-top: 1px dashed #e2e8f0;
+            padding-top: 4px;
+        }
+ 
+        /* Modules Summary list */
+        .modules-summary {
+            list-style: none;
+            padding: 0;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+ 
+        @media (min-width: 768px) {
+            .modules-summary {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+ 
+        .module-summary-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+ 
+        .module-summary-item span {
+            font-weight: 600;
+            color: #334155;
+        }
+ 
+        .module-summary-item .hours {
+            background-color: #0f172a;
+            color: #ffffff;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+ 
         /* ── Footer ── */
         .footer {
             text-align: center;
@@ -432,15 +715,20 @@
         
         /* ── Print Settings ── */
         @media print {
-            .brand-bar, .print-section {
+            .brand-bar, .print-section, .tabs-nav {
                 display: none !important;
             }
             body {
                 background-color: #ffffff;
                 color: #000000;
             }
+            .tab-content-pendientes,
+            .tab-content-reporte {
+                display: block !important;
+                page-break-after: always;
+            }
             .stats-grid {
-                grid-template-columns: repeat(4, 1fr) !important;
+                grid-template-columns: repeat(5, 1fr) !important;
                 gap: 10px;
                 padding: 10px 0;
             }
@@ -465,11 +753,28 @@
                 background-color: #fafafa !important;
                 border-left: 3px solid #000000 !important;
             }
+            .report-table-wrapper {
+                border: 1px solid #cbd5e1 !important;
+            }
+            .report-table th {
+                background-color: #f1f5f9 !important;
+                color: #000000 !important;
+                border-bottom: 2px solid #000000 !important;
+            }
+            .hours-badge-large {
+                background-color: #f1f5f9 !important;
+                color: #000000 !important;
+                border: 1px solid #cbd5e1 !important;
+            }
         }
     </style>
 </head>
 <body>
-
+ 
+    <!-- Radio Button Controls for Switcher -->
+    <input type="radio" id="tab-pendientes" name="main-tabs" checked style="display:none;">
+    <input type="radio" id="tab-reporte" name="main-tabs" style="display:none;">
+ 
     <!-- ═══════════════════════════════════════════════════ -->
     <!--                  TOP BRAND BAR                     -->
     <!-- ═══════════════════════════════════════════════════ -->
@@ -484,24 +789,24 @@
                 <span class="brand-subtitle">Departamento de Sistemas</span>
             </div>
         </div>
-        <div class="top-badge">Auditoría 2026</div>
+        <div class="top-badge">Auditoría & Horas 2026</div>
     </div>
-
+ 
     <!-- ═══════════════════════════════════════════════════ -->
     <!--                  HERO HEADER                       -->
     <!-- ═══════════════════════════════════════════════════ -->
     <div class="hero">
-        <h1>Pendientes del Sistema</h1>
-        <p>Plan de Trabajo &amp; Auditoría Tecnológica de Proyectos Activos y Pendientes</p>
+        <h1>Control y Avance del Sistema</h1>
+        <p>Informe Consolidado de Horas de Trabajo (Junio 2026) y Planificación de Proyectos Pendientes</p>
     </div>
-
+ 
     <!-- ═══════════════════════════════════════════════════ -->
     <!--                     ESTADÍSTICAS                   -->
     <!-- ═══════════════════════════════════════════════════ -->
     <div class="stats-grid">
         <div class="stat-card total">
             <div class="stat-header">
-                <span class="stat-label">Total</span>
+                <span class="stat-label">Total Tareas</span>
                 <svg viewBox="0 0 24 24" width="20" height="20" stroke="#0f172a" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="8" y1="6" x2="21" y2="6"></line>
                     <line x1="8" y1="12" x2="21" y2="12"></line>
@@ -512,8 +817,20 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number">15</div>
-                <div class="stat-desc">Tareas identificadas</div>
+                <div class="stat-number">17</div>
+                <div class="stat-desc">Tareas registradas</div>
+            </div>
+        </div>
+        <div class="stat-card progreso">
+            <div class="stat-header">
+                <span class="stat-label">En Progreso</span>
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="#f59e0b" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                </svg>
+            </div>
+            <div>
+                <div class="stat-number">9</div>
+                <div class="stat-desc">En desarrollo activo</div>
             </div>
         </div>
         <div class="stat-card pendiente">
@@ -526,20 +843,8 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number">6</div>
-                <div class="stat-desc">No iniciados</div>
-            </div>
-        </div>
-        <div class="stat-card progreso">
-            <div class="stat-header">
-                <span class="stat-label">En Progreso</span>
-                <svg viewBox="0 0 24 24" width="20" height="20" stroke="#f59e0b" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
-                </svg>
-            </div>
-            <div>
-                <div class="stat-number">9</div>
-                <div class="stat-desc">En desarrollo</div>
+                <div class="stat-number">7</div>
+                <div class="stat-desc">Sin iniciar / Por evaluar</div>
             </div>
         </div>
         <div class="stat-card completado">
@@ -550,15 +855,45 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number">0</div>
-                <div class="stat-desc">0% completado</div>
+                <div class="stat-number" style="color: #10b981;">1</div>
+                <div class="stat-desc">1 tarea finalizada</div>
+            </div>
+        </div>
+        <div class="stat-card horas">
+            <div class="stat-header">
+                <span class="stat-label">Horas Junio</span>
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="#e05638" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+            </div>
+            <div>
+                <div class="stat-number" style="color: #e05638;">182.0</div>
+                <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
     </div>
-
-    <!-- ═══════════════════════════════════════════════════ -->
-    <!--                  BOTÓN IMPRIMIR                    -->
-    <!-- ═══════════════════════════════════════════════════ -->
+ 
+    <!-- ─── TABS NAVIGATION ─── -->
+    <div class="tabs-nav">
+        <label for="tab-pendientes" class="tab-label">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            Pendientes del Sistema
+        </label>
+        <label for="tab-reporte" class="tab-label">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            </svg>
+            Reporte Mensual (Junio 2026)
+        </label>
+    </div>
+ 
+    <!-- ─── BOTÓN IMPRIMIR ─── -->
     <div class="print-section">
         <button class="btn-print" onclick="window.print()">
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
@@ -569,637 +904,1115 @@
             Imprimir Informe
         </button>
     </div>
-
+ 
     <!-- ═══════════════════════════════════════════════════ -->
-    <!--                 LISTADO DE TAREAS                  -->
+    <!--           TAB CONTENT: PENDIENTES DEL SISTEMA      -->
     <!-- ═══════════════════════════════════════════════════ -->
-    <div class="tasks-container">
-
-        <!-- ────────── EN PROGRESO (9) ────────── -->
-        <div class="section-header">
-            <h2>En Progreso</h2>
-            <span class="section-badge progreso">9 Tareas</span>
+    <div class="tab-content-pendientes">
+        <div class="tasks-container">
+ 
+            <!-- ────────── COMPLETADOS (1) ────────── -->
+            <div class="section-header">
+                <h2>Completado</h2>
+                <span class="section-badge completado">1 Tarea</span>
+            </div>
+ 
+            <div class="cards-grid" style="margin-bottom: 24px;">
+                <!-- TAREA 17 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-sys">💻 Sistemas</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-complete">✓ Completado</span>
+                        </div>
+                        <h3 class="task-title">17. Módulo de Rendimiento y Telemetría de Drive-Thru (HME Zoom Nitro)</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box green-box">
+                                <strong>Completado e Integrado.</strong> Se vinculó exitosamente el sistema con los sensores físicos de autos del Drive-Thru y las pantallas de la cocina (KDS). El tablero administrativo cuenta con 4 pestañas interactivas para ver rankings de velocidad por tienda, promedios por media hora, reportes exportables en Excel (CSV) y visor directo de tickets para auditar órdenes lentas.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos concluidos
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number green-num">✓</span>
+                                <span class="step-text">Configurado el proceso de descarga automática de datos de velocidad cada 2 minutos.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number green-num">✓</span>
+                                <span class="step-text">Creada la API de consulta rápida para el tablero de velocidades, reportes y búsquedas.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number green-num">✓</span>
+                                <span class="step-text">Vinculado el modal para abrir el ticket detallado de Toast al presionar órdenes con demora.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+ 
+            <!-- ────────── EN PROGRESO (9) ────────── -->
+            <div class="section-header">
+                <h2>En Progreso</h2>
+                <span class="section-badge progreso">9 Tareas</span>
+            </div>
+            
+            <div class="cards-grid">
+            
+                <!-- TAREA 1 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-inv">📦 Inventario</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">1. Inventario con reposición automática</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Muy Avanzado.</strong> El sistema calcula de manera inteligente el pedido sugerido de insumos para las tiendas restando el stock ideal contra el sobrante diario, con redondeos específicos para tortillas, papelitos y empaques.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Terminar de enlazar todos los códigos de insumos del sistema con el Excel de bodega.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Ajustar los mínimos de seguridad y redondeos para los insumos restantes.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">3</span>
+                                <span class="step-text">Habilitar la generación automática de borradores de compra directos.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 2 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-inv">📦 Inventario</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">2. Inventario para Bodega y COGS (Viele &amp; Sons)</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Estructurado.</strong> Creado el catálogo en base de datos para diferenciar los insumos de uso interno del restaurante contra la mercancía que la Bodega revende. Sincronizado con los costos reales de QuickBooks.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Subir el listado completo de mercancías del proveedor Viele & Sons.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Confirmar que la actualización de precios de QuickBooks no altere los costos de insumos externos.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 3 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-dev">📺 Dispositivos</span>
+                            <span class="badge badge-med">🟡 Media</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">3. Configuración local de TVs de Menús</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Muy Avanzado.</strong> Diseñada la pantalla de administración para subir las imágenes de menús por tienda y la pantalla receptora en las televisiones de sucursal con actualización automática cada 2 minutos.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Cargar los archivos finales de imágenes de menús para las 15 tiendas activas.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Probar la visualización en pantalla completa en el navegador nativo de las Smart TVs de las tiendas.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 4 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-com">✉️ Comunicaciones</span>
+                            <span class="badge badge-lo">🔵 Baja</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">4. Logotipo de marca en correos electrónicos</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Configuración Básica.</strong> El sistema ya envía correos institucionales utilizando el servidor de <em>tacosgavilan.com</em>, pero los mensajes se muestran en texto plano sin logotipo oficial ni imagen de marca.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Diseñar una plantilla HTML bilingüe elegante que contenga el logotipo y cabecera institucional.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Configurar llaves de verificación (SPF, DKIM, BIMI) en el servidor de correo para mostrar el logotipo automáticamente en la bandeja de entrada del empleado.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 5 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-ops">📝 Operaciones</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">5. Descripciones de procedimientos en página de ACTIVIDADES</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Estructura Concluida.</strong> El panel administrativo y móvil de Actividades de Cocina está completo. Contiene 110 procedimientos operativos precargados en el catálogo, pero la mayoría tiene la descripción y guías de elaboración pendientes.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Revisar las 110 tareas operativas cargadas en la base de datos.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Redactar el paso a paso y especificaciones técnicas de cada tarea en el panel administrativo para su visualización en las tabletas de la cocina.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 6 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-dev">📺 Dispositivos</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">6. Verificar tabletas piloto en Slauson</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>En Pruebas.</strong> Hay 4 tabletas instaladas físicamente en la cocina piloto de Slauson corriendo software especial (2 para el preparador de carne, 1 para tablero de roles y 1 para control inteligente de descansos).
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Monitorear el uso diario que dan los gerentes y taqueros a las pantallas.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Revisar la estabilidad de la red Wi-Fi y prevenir bloqueos o salidas accidentales de la aplicación.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">3</span>
+                                <span class="step-text">Recopilar retroalimentación directa del personal sobre la usabilidad de los botones.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 7 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-sys">💻 Sistemas</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">7. App de Tacos Gavilán (Imitar King Taco)</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Muy Avanzado.</strong> Creado el sistema de base de datos para la aplicación móvil (carritos de compra, puntos de recompensa, cupones y aviso de llegada). La aplicación para celulares cuenta con pantallas funcionales de login, menú de platillos, carrito y selector de ingredientes.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Vincular las pantallas del celular con la base de datos central y el sistema Toast de las sucursales.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Implementar las alertas de geolocalización para avisar a la cocina cuando el cliente se aproxima a recoger su pedido.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">3</span>
+                                <span class="step-text">Conectar la pasarela de pagos seguros de Stripe para aceptar tarjetas.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 8 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-sys">💻 Sistemas</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">8. Sincronizador y clon de Basecamp</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Altamente Avanzado.</strong> El sistema web está integrado con Basecamp. Las tablas internas sincronizan automáticamente proyectos, tableros de mensajes, listas de pendientes y comentarios bidireccionales.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Activar las actualizaciones automáticas periódicas (cron) en el servidor de internet.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Optimizar la velocidad de carga al sincronizar listas de tareas muy extensas.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 9 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-sys">💻 Sistemas</span>
+                            <span class="badge badge-med">🟡 Media</span>
+                            <span class="badge badge-progress">▶ En Progreso</span>
+                        </div>
+                        <h3 class="task-title">9. Página Web Oficial de Tacos El Gavilán</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>Avanzado.</strong> Toda la estructura visual y de contenidos del sitio web oficial está finalizada (exhibición de menú, ubicaciones de tiendas, y logotipos).
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Revisar el comportamiento visual en diferentes modelos de teléfonos celulares y optimizar buscadores.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Vincular los botones de ordenar con la app móvil y con los links de compra de Toast.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">3</span>
+                                <span class="step-text">Publicar el sitio web en su dirección de internet oficial de manera permanente.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+            </div> <!-- /grid -->
+ 
+            <!-- ────────── PENDIENTES (7) ────────── -->
+            <div class="section-header">
+                <h2>Pendientes</h2>
+                <span class="section-badge pendiente">7 Tareas</span>
+            </div>
+            
+            <div class="cards-grid">
+            
+                <!-- TAREA 10 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-inv">📦 Inventario</span>
+                            <span class="badge badge-med">🟡 Media</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">10. Determinar gasto en Salsa Bar</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado.</strong> Existe registro de mermas e ingredientes de la barra de salsas en los checklists históricos de los supervisores, pero el gasto no está cuantificado ni calculado en la fórmula financiera diaria de costo de alimentos (Food Cost).
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Crear una receta virtual para la barra de salsas (aguacates, jitomates, chiles, cebollas, condimentos y vasos desechables).</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Monitorear el consumo promedio en sucursales para cargarlo de manera automática al costo de alimentos del día.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 11 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-dev">📺 Dispositivos</span>
+                            <span class="badge badge-med">🟡 Media</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">11. Fotos y verificación Apple Business Connect (Slauson)</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado (Tarea Externa).</strong> Tarea operativa consistente en registrar la sucursal de Slauson, subir fotos del local y completar el proceso oficial para aparecer correctamente en los mapas de Apple Maps.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Tomar fotografías en alta resolución de la fachada e interiores del restaurante Slauson.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Enviar la documentación de propiedad del comercio al portal de Apple Business.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 12 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-sys">💻 Sistemas</span>
+                            <span class="badge badge-med">🟡 Media</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">12. Registro de proveedores y técnicos sin contraseña</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado.</strong> Planificado un portal simplificado de acceso rápido con códigos temporales para que técnicos de mantenimiento (refrigeración, gas, plomería) puedan subir fotos del trabajo realizado directamente al sistema sin necesidad de una cuenta permanente.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Diseñar el registro de folios de reparaciones y base de datos de proveedores independientes.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Crear el portal de acceso móvil rápido y el cargador de imágenes directo.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 13 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-inv">📦 Inventario</span>
+                            <span class="badge badge-med">🟡 Media</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">13. Control de uniformes, gorras e inventario de ropa</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado.</strong> Módulo operativo pendiente de desarrollo para controlar las existencias de uniformes, gorras, camisas y chamarras que la bodega distribuye a los empleados del grupo.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Crear el catálogo de artículos de ropa con sus respectivas tallas y existencias de almacén.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Diseñar la pantalla para registrar la entrega de ropa a cada empleado de sucursal.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 14 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-ops">📝 Operaciones</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">14. Manuales, videos y certificación de cocina</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado (Básico).</strong> El sistema cuenta con exámenes rápidos de desempeño para gerentes, pero falta crear la biblioteca digital interactiva de videos educativos con certificación oficial de cocina.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Integrar reproductores de video con instructivos prácticos sobre el uso correcto de utensilios y armado de recetas.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Crear cuestionarios breves y generación automática de certificados digitales firmados al completar los módulos.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 15 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-ops">📝 Operaciones</span>
+                            <span class="badge badge-med">🟡 Media</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">15. Sección de Cultura Empresarial</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado.</strong> Sección informativa planificada para capacitar y familiarizar a los nuevos empleados con la filosofía corporativa, misión y valores de Tacos El Gavilán.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Diseñar una sección visual atractiva para mostrar la historia de la empresa, metas grupales y filosofía de servicio.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+                <!-- TAREA 16 -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-sys">💻 Sistemas</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-pending">⏳ Pendiente</span>
+                        </div>
+                        <h3 class="task-title">16. CLONAR Cohesion (app de contabilidad)</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box">
+                                <strong>No Iniciado (Por evaluar).</strong> Desarrollo e integración de un clon contable de la plataforma Cohesión a solicitud de <em>Raquel Velázquez</em>, con vinculación y automatización hacia QuickBooks para la conciliación ágil de pólizas diarias.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Analizar el flujo de datos contables de Cohesión y mapear las transacciones y depósitos bancarios de las 15 tiendas.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Diseñar esquemas en Supabase para el almacenamiento estructurado de pólizas contables temporales.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">3</span>
+                                <span class="step-text">Crear los endpoints API de integración con el SDK de QuickBooks para empujar las conciliaciones validadas.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
+            </div> <!-- /grid -->
+ 
+        </div> <!-- /tasks-container -->
+    </div>
+ 
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--           TAB CONTENT: REPORTE MENSUAL DE HORAS    -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="tab-content-reporte">
+        <div class="tasks-container">
+            
+            <div class="report-section">
+                <div class="report-title-row">
+                    <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
+                    <span class="hours-badge-large">Total de Horas: 182.0 hrs</span>
+                </div>
+                
+                <p class="report-subtitle-text">
+                    Este desglose detallado incluye los módulos involucrados y el registro diario de actividades para la justificación técnica de las horas de desarrollo directo en código, complementado con las actividades paralelas esenciales requeridas para la implementación y estabilidad de la plataforma TEG-Modernizado.
+                </p>
+ 
+                <!-- Detailed Table -->
+                <div class="report-table-wrapper">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 100px;">Fecha / Date</th>
+                                <th style="width: 140px;">Horario / Time Slot</th>
+                                <th style="width: 70px; text-align: center;">Horas / Hrs</th>
+                                <th style="width: 180px;">Módulo Involucrado / Involved Module</th>
+                                <th>Descripción de Actividades (Español / English)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>01-Jun-2026</strong></td>
+                                <td>9:30 AM - 2:00 PM<br>6:00 PM - 11:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">9.5</td>
+                                <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Food Cost</span> <span class="table-badge-module">Procedimientos</span> <span class="table-badge-module">Asistente AI</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Planificador**: Se configuró la pantalla para mostrar códigos de acceso y sueldos al pasar el cursor sobre los nombres.<br>- **Planificador**: Se agregó el botón para clonar turnos de semanas previas en un popup informativo.<br>- **Costos**: Corrección del cálculo de costos de empaques en recetas (papelitos/platos) para reflejar márgenes reales.<br>- **Celular**: Corrección de pantalla de carga infinita en el módulo móvil de ventas.<br>- **Impresión**: Botón y vista previa para exportar e imprimir manuales en formato PDF.<br>- **Documentos**: Comentarios y explicaciones agregadas al código principal para simplificar desarrollos futuros.</div>
+                                        <div class="en-desc">- Planner: display access codes/employee wages on hover.<br>- Planner: week cloning button inside information modal.<br>- Costs: fixed packaging costs calculation in recipes to reflect correct profit margins.<br>- Mobile: solved infinite loop bug on mobile sales views.<br>- Print: added print button and iframe PDF preview layout in Procedures.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>02-Jun-2026</strong></td>
+                                <td>1:30 PM - 4:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">2.5</td>
+                                <td><span class="table-badge-module">Procedimientos</span> <span class="table-badge-module">Basecamp</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Procedimientos**: Se removió la columna de firma del PDF para dar más espacio a los textos de las recetas.<br>- **Basecamp**: Planeación inicial y diagramas para vincular tareas con Basecamp.</div>
+                                        <div class="en-desc">- Procedures: removed "Signature" column from PDF and rebalanced columns.<br>- Basecamp: conducted database scoping and initial layout planning.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>03-Jun-2026</strong></td>
+                                <td>1:00 PM - 6:30 PM<br>9:30 PM - 12:00 AM</td>
+                                <td style="text-align: center; font-weight: 700;">10.5</td>
+                                <td><span class="table-badge-module">Basecamp</span> <span class="table-badge-module">Ventas</span> <span class="table-badge-module">Soporte Chat</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Basecamp**: Conexión con Basecamp para sincronizar empleados, mensajes y pendientes de manera automática.<br>- **Tareas**: Rediseño visual del tablero de pendientes a estética premium (tarjetas con fotos de perfil).<br>- **Soporte**: Mejoras al chat de asistencia interno para resolver dudas operativas de las sucursales.<br>- **Seguridad**: Se actualizó el inicio de sesión en 11 pantallas para validar siempre la identidad del usuario.</div>
+                                        <div class="en-desc">- Basecamp: auto-sync employees, messages, and tasks.<br>- Tasks: redesigned the task dashboard (clean cards with profile pictures).<br>- Support: upgraded help chat to assist stores with operational issues.<br>- Security: updated logins checking on 11 screens.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>04-Jun-2026</strong></td>
+                                <td>9:00 AM - 1:00 PM<br>4:30 PM - 8:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">7.5</td>
+                                <td><span class="table-badge-module">Basecamp</span> <span class="table-badge-module">Buscador</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Basecamp**: Se habilitó la barra de formato (negritas, listas) para redactar notas y sub-tareas para varios empleados.<br>- **Basecamp**: Descarga directa de archivos adjuntos y optimización del tráfico de datos en servidor.<br>- **Buscador**: Atajos de teclado rápidos (Shift+J) y vista previa detallada de resultados.<br>- **Sincronización**: Envío bidireccional automático de comentarios de tareas de ida y vuelta.</div>
+                                        <div class="en-desc">- Basecamp: added rich-text toolbar, subtasks, and multi-assignee autocompletes.<br>- Basecamp: optimized attachments downloads speed. Search: added shortcuts.<br>- Sync: enabled comments to sync back and forth between platforms.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>05-Jun-2026</strong></td>
+                                <td>3:00 PM - 6:30 PM<br>11:30 PM - 12:30 AM</td>
+                                <td style="text-align: center; font-weight: 700;">4.5</td>
+                                <td><span class="table-badge-module">Basecamp</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Basecamp**: Descarga asíncrona de archivos pesados en segundo plano para no alentar la navegación del usuario.<br>- **Basecamp**: Se aumentó el tiempo de espera de sincronización a 15 minutos para evitar bloqueos del sistema.<br>- **Tareas**: Organización automática de pendientes ordenados cronológicamente.</div>
+                                        <div class="en-desc">- Basecamp: background downloads for attachments to prevent timeouts.<br>- Basecamp: extended sync mutex lock to 15m to avoid sync blockages.<br>- Tasks: sorted and ordered task entries by creation date.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>06-Jun-2026</strong></td>
+                                <td>1:30 PM - 3:30 PM</td>
+                                <td style="text-align: center; font-weight: 700;">2.0</td>
+                                <td><span class="table-badge-module">Basecamp</span> <span class="table-badge-module">Preparador</span> <span class="table-badge-module">Asistente AI</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Basecamp**: Corrección de ordenamiento de tareas y diseño visual del podio de posiciones.<br>- **Asistente**: Ajustes lógicos al chat inteligente para dar proyecciones de carne más exactas.</div>
+                                        <div class="en-desc">- Basecamp: debugged tasks list ordering and podium UI elements.<br>- Assistant: refined AI database querying rules for cooking pace history.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>07-Jun-2026</strong></td>
+                                <td>9:30 AM - 2:00 PM<br>4:00 PM - 6:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">6.5</td>
+                                <td><span class="table-badge-module">Actividades (Config)</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Actividades**: Re-diseño del módulo de tareas diarias. Ahora los pendientes se organizan por estación física de cocina (ej. Parrilla, Limpieza, Caja) y no por nombre de empleado, facilitando la rotación de turnos.<br>- **Migración**: Reorganización total de base de datos para migrar actividades pasadas al nuevo formato.</div>
+                                        <div class="en-desc">- Activities: redesigned the daily task module by kitchen work stations (e.g., Grill, Cleaning, Cashier) instead of individual names.<br>- Database: migrated old position-based tasks.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>08-Jun-2026</strong></td>
+                                <td>11:30 AM - 4:00 PM<br>9:30 PM - 11:30 PM</td>
+                                <td style="text-align: center; font-weight: 700;">6.5</td>
+                                <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Actividades</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Planificador**: Se corrigió un error técnico que congelaba la pantalla al editar los roles diarios.<br>- **Horarios**: Creación de scripts de diagnóstico para solucionar diferencias de horas en los registros.</div>
+                                        <div class="en-desc">- Planner: fixed freeze error on Roles tab.<br>- Schedules: ran diagnostics for timezone offsets.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>12-Jun-2026</strong></td>
+                                <td>2:00 PM - 5:30 PM<br>11:30 PM - 12:30 AM</td>
+                                <td style="text-align: center; font-weight: 700;">4.5</td>
+                                <td><span class="table-badge-module">Actividades</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Actividades**: Fusión manual de archivos de diseño móvil para que el checklist se vea perfecto en celulares.<br>- **UI**: Limpieza del código fuente de importaciones redundantes para acelerar la carga de la página.</div>
+                                        <div class="en-desc">- Activities: merged unresolved layout files manually for mobile views.<br>- UI: cleaned up code imports to speed up loading times.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>13-Jun-2026</strong></td>
+                                <td>11:00 AM - 4:30 PM<br>10:30 PM - 12:30 AM</td>
+                                <td style="text-align: center; font-weight: 700;">8.5</td>
+                                <td><span class="table-badge-module">Procedimientos</span> <span class="table-badge-module">Actividades</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Procedimientos**: Se enumeraron de manera consecutiva todas las tareas y se agregaron tags para auditorías.<br>- **Seguridad**: Se restringió la opción de borrar tareas del catálogo únicamente al perfil del Administrador.<br>- **Actividades**: Desarrollo del panel lateral interactivo con contadores de empleados por estación de cocina.</div>
+                                        <div class="en-desc">- Procedures: added sequential numbering and visual audit tags.<br>- Security: restricted catalog task deletion to admins.<br>- Activities: designed the sidebar setup screen with drag counts.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>14-Jun-2026</strong></td>
+                                <td>11:30 AM - 5:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">5.5</td>
+                                <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Actividades</span> <span class="table-badge-module">Emails</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Notificaciones**: Al publicar el horario, el sistema ahora incluye el checklist de tareas diarias en el email del personal.<br>- **Filtro**: Se desactivó el cron de notificaciones automáticas para tiendas en producción (evita spam en el piloto).<br>- **Horarios**: Se regresaron a borrador los turnos publicados por error en Lynwood para permitir ajustes.</div>
+                                        <div class="en-desc">- Notifications: linked schedules publication emails with assigned activities.<br>- Filter: blocked auto-emails for production stores during pilots.<br>- Schedules: rollbacked published shifts to drafts in Lynwood.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>15-Jun-2026</strong></td>
+                                <td>1:00 PM - 7:00 PM<br>8:00 PM - 10:30 PM</td>
+                                <td style="text-align: center; font-weight: 700;">8.5</td>
+                                <td><span class="table-badge-module">Descansos</span> <span class="table-badge-module">Inspecciones</span> <span class="table-badge-module">iOS compatibility</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Descansos**: Reporte automático semanal para supervisores detallando faltas en lunches de 2026.<br>- **Seguridad**: Se obligó a usar la cámara en vivo en los checklists de supervisores (bloquea la carga desde la galería).<br>- **iOS**: Ajustes de compatibilidad visual y solución de bloqueos de cámara en iPhone y iPad.</div>
+                                        <div class="en-desc">- Breaks: weekly cron alerts for supervisors and 2026 break infractions logs.<br>- Security: enforced live camera capture for checklists (blocked file uploads).<br>- iOS: solved Safari standalone layout and camera bugs on iPads.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>19-Jun-2026</strong></td>
+                                <td>10:30 AM - 3:00 PM<br>6:00 PM - 7:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">5.5</td>
+                                <td><span class="table-badge-module">QuickBooks</span> <span class="table-badge-module">Food Cost</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Precios**: Alerta de seguridad si los precios de QuickBooks varían más del 50% de golpe para evitar datos corruptos.<br>- **Costo de Comida**: Se corrigió la fórmula para usar el precio de venta de bodega en lugar de costo de compra (esto restableció el costo de comida al 33-35% real).<br>- **Historial**: Actualización en lote del historial de precios de semanas previas en la base de datos.</div>
+                                        <div class="en-desc">- Prices: created a 50% price protection ceiling to avoid data corruption.<br>- Food Cost: corrected formulas using warehouse sale prices (restored FC to 33-35%).<br>- History: ran database price updates for past logs.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>20-Jun-2026</strong></td>
+                                <td>6:00 PM - 8:00 PM<br>11:30 PM - 12:30 AM</td>
+                                <td style="text-align: center; font-weight: 700;">3.0</td>
+                                <td><span class="table-badge-module">Procedimientos</span> <span class="table-badge-module">Actividades</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Procedimientos**: Se habilitó el permiso para que los Gerentes de Tienda editen o agreguen tareas al catálogo.<br>- **UI**: Corrección en las vistas del panel de control para ocultar puestos de trabajo inactivos.</div>
+                                        <div class="en-desc">- Procedures: enabled CRUD catalog permissions for Manager roles.<br>- UI: optimized scheduling layouts by filtering out inactive positions.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>21-Jun-2026</strong></td>
+                                <td>3:00 PM - 4:30 PM<br>7:30 PM - 10:30 PM</td>
+                                <td style="text-align: center; font-weight: 700;">4.5</td>
+                                <td><span class="table-badge-module">Food Cost</span> <span class="table-badge-module">Checklist</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Costo de Comida**: Diagnóstico y corrección de registros de costos diarios vacíos en Supabase.<br>- **Checklist**: Diseño de pantalla completa para tabletas montadas en pared de cocina (reinicio automático diario).</div>
+                                        <div class="en-desc">- Food Cost: repaired empty daily cost caches on Supabase.<br>- Checklist: designed fullscreen checklist screen for kitchen tablets (resets daily).</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>22-Jun-2026</strong></td>
+                                <td>1:00 AM - 4:00 AM</td>
+                                <td style="text-align: center; font-weight: 700;">3.0</td>
+                                <td><span class="table-badge-module">Checklist</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Checklist**: Corrección de error de claves duplicadas al cambiar de día (00:00:00) y de clicks del botón verde.<br>- **Reloj**: Sincronización del temporizador del checklist con la hora local real de la sucursal.</div>
+                                        <div class="en-desc">- Checklist: fixed duplicate keys error (00:00:00) and click fill bugs.<br>- Clock: synchronized checklist timing with each store's local time.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>23-Jun-2026</strong></td>
+                                <td>10:45 PM - 12:15 AM</td>
+                                <td style="text-align: center; font-weight: 700;">4.5</td>
+                                <td><span class="table-badge-module">Checklist (Reportes)</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Reportes**: Creación del registro en base de datos para guardar checklists completados a tiempo por tienda.<br>- **Administración**: Se añadió la pestaña de "Reportes" al panel para facilitar el monitoreo a supervisores.</div>
+                                        <div class="en-desc">- Reports: created completion logs database tables for checklists.<br>- Administration: added a "Reports" tab to the administrative dashboard.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>24-Jun-2026</strong></td>
+                                <td>3:50 AM - 4:45 AM<br>11:30 AM - 6:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">7.5</td>
+                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Pedidos Bodega</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Pedidos**: Desarrollo del sistema de reordenamiento automático basado en mínimos de stock (PAR) e historial de ventas.<br>- **Excel**: Lector e importador automático de archivos de compras (`Lynwood Order.xlsx`).<br>- **Traducciones**: Se agregaron las traducciones bilingües a inglés y español para todas las pantallas de pedidos.<br>- **Servidor**: Corrección de Server Actions en el servidor para evitar fallas al publicar actualizaciones.</div>
+                                        <div class="en-desc">- Orders: developed automated replenishment algorithms using PAR and sales data.<br>- Excel: imported and mapped Lynwood Order.xlsx sheets.<br>- Translations: wrote bilingual keys. Patched Server Actions compilation issues.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>25-Jun-2026</strong></td>
+                                <td>10:00 AM - 3:30 PM<br>4:00 PM - 7:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">8.5</td>
+                                <td><span class="table-badge-module">Drive-Thru</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Drive-Thru**: Creación del tablero que mide la velocidad de autos (HME Zoom Nitro) con ranking de tiendas, promedios y reportes.<br>- **Recibos**: Ventana emergente para abrir el ticket Toast completo (platillos/precios) al dar click a órdenes con retrasos.<br>- **UI**: Ajustes visuales para que la barra superior no tape el selector de fechas al hacer scroll en teléfonos.</div>
+                                        <div class="en-desc">- Drive-Thru: built 4-tabs Zoom Nitro dashboard for speed performance.<br>- Receipts: integrated Toast ticket detail modal when clicking on slow orders.<br>- UI: fixed header view scroll overlaps on mobile screens.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>26-Jun-2026</strong></td>
+                                <td>5:30 PM - 11:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">5.5</td>
+                                <td><span class="table-badge-module">Drive-Thru</span> <span class="table-badge-module">KDS</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Drive-Thru**: Integración con las pantallas de cocina (KDS) para medir el tiempo real desde que el auto pide hasta la entrega.<br>- **Búsquedas**: Optimización para ordenar y buscar órdenes rápidamente en listas de miles de registros.</div>
+                                        <div class="en-desc">- Drive-Thru: combined KDS prep timestamps to measure kitchen screen clear times.<br>- Sorting: optimized server-side sorting for lookup queries.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>27-Jun-2026</strong></td>
+                                <td>6:00 PM - 12:00 AM</td>
+                                <td style="text-align: center; font-weight: 700;">6.0</td>
+                                <td><span class="table-badge-module">Actividades</span> <span class="table-badge-module">Descansos</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Actividades**: Creadas las posiciones de "Cierre 1" y "Cierre 2" en la cocina con soporte para asignación múltiple de empleados.<br>- **Descansos**: Se mejoró el cálculo de descansos por Inteligencia Artificial para que al mover el descanso de un empleado no se modifique el de los demás.</div>
+                                        <div class="en-desc">- Activities: created closing stations (Cierre 1 & 2) with double staff assignments.<br>- Breaks: developed targeted AI recalculations to prevent shifts shuffling.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>28-Jun-2026</strong></td>
+                                <td>1:45 AM - 4:45 AM</td>
+                                <td style="text-align: center; font-weight: 700;">3.0</td>
+                                <td><span class="table-badge-module">Actividades (Notif)</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Actividades**: Sincronización horaria entre las tareas que llegan en los correos y las listas del panel de control de la tienda.<br>- **Permisos**: Ajustes de permisos para que los supervisores puedan entrar a ver los datos de todas sus sucursales.</div>
+                                        <div class="en-desc">- Activities: integrated published schedule emails with station daily tasks.<br>- Permissions: resolved cross-station authorization locks on supervisor roles.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>29-Jun-2026</strong></td>
+                                <td>10:00 AM - 4:00 PM<br>7:30 PM - 9:00 PM</td>
+                                <td style="text-align: center; font-weight: 700;">7.5</td>
+                                <td><span class="table-badge-module">Preparador</span> <span class="table-badge-module">Planificador</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Turnos**: Solución visual para que los empleados en turnos dobles AM/PM no se encimen en la pantalla del planificador.<br>- **Preparador**: Se agregaron la Cebolla Asada y el Queso Fresco al catálogo de carnes y quesos de la mesa de preparación.<br>- **Preparador**: Se limitó el cálculo histórico de proyección a los últimos 3 meses (hace la proyección de carne mucho más exacta).<br>- **Preparador**: Se añadieron alertas con vibración (hápticas) en las tabletas de cocina y un tablero de merma por fecha.</div>
+                                        <div class="en-desc">- Shifts: fixed AM/PM shift overlap controls visibility in Planner.<br>- Prep Line: added Jack Cheese/Queso Fresco. Limited history projections to 3 months.<br>- Prep Line: programmed tablet haptic alert vibrations and waste dashboards.</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+ 
+                <!-- Parallel Activities -->
+                <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                    Actividades Paralelas Esenciales / Parallel Essential Activities
+                </h3>
+                <div class="parallel-grid">
+                    <div class="parallel-card">
+                        <h4>
+                            <span>Pruebas en Sucursal/Local</span>
+                            <span class="hours">22.0 hrs</span>
+                        </h4>
+                        <p>
+                            Ejecución de servidores de desarrollo locales y emuladores móviles de la app. Pruebas táctiles y de arrastre (drag-and-drop) en tiempo real para asegurar que todo sea fácil de usar en las tabletas e iPhones.
+                            <span class="en-text">Launching local testing servers and mobile emulators to validate touch layouts, animations, and drag-and-drop simplicity on physical devices.</span>
+                        </p>
+                    </div>
+                    <div class="parallel-card">
+                        <h4>
+                            <span>Monitoreo DB y Toast</span>
+                            <span class="hours">15.0 hrs</span>
+                        </h4>
+                        <p>
+                            Monitoreo de bases de datos de inventario y respuestas de la API de Toast. Diseño de scripts de sincronización de ventas, marcas horarias diarias y corrección de discrepancias en costos.
+                            <span class="en-text">Monitoring databases and Toast API logs. Writing manual scripts to synchronize sales history, daily work hours, and correct price discrepancies.</span>
+                        </p>
+                    </div>
+                    <div class="parallel-card">
+                        <h4>
+                            <span>Planificación y Diseño</span>
+                            <span class="hours">10.0 hrs</span>
+                        </h4>
+                        <p>
+                            Investigación técnica para conectar sistemas externos (plataforma de Basecamp, sensores de velocidad del Drive-Thru y traductor de menús de Toast) y diagramado de interfaces.
+                            <span class="en-text">Technical research to connect third-party platforms (Basecamp OAuth, Drive-Thru speed sensors, and Toast menus) and planning layouts.</span>
+                        </p>
+                    </div>
+                </div>
+ 
+                <!-- Modules hours summary -->
+                <h3 style="font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                    Resumen de Esfuerzo / Summary of Effort
+                </h3>
+                <div class="modules-summary">
+                    <div class="module-summary-item">
+                        <span>Actividades, Planificador y Horarios / Activities & Scheduling</span>
+                        <span class="hours">51.5 hrs</span>
+                    </div>
+                    <div class="module-summary-item">
+                        <span>Clon y Sincronizador de Basecamp / Basecamp Integration</span>
+                        <span class="hours">30.5 hrs</span>
+                    </div>
+                    <div class="module-summary-item">
+                        <span>Procedimientos, Fotos e Inspecciones / Procedures & Camera Inspections</span>
+                        <span class="hours">23.0 hrs</span>
+                    </div>
+                    <div class="module-summary-item">
+                        <span>Rendimiento de Drive-Thru e Integración KDS / Drive-Thru Telemetry</span>
+                        <span class="hours">19.0 hrs</span>
+                    </div>
+                    <div class="module-summary-item">
+                        <span>Inventario, Pedidos y Sincronización QuickBooks / Inventory & QuickBooks</span>
+                        <span class="hours">21.0 hrs</span>
+                    </div>
+                    <div class="module-summary-item">
+                        <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
+                        <span class="hours">37.0 hrs</span>
+                    </div>
+                </div>
+ 
+            </div>
+            
         </div>
-        
-        <div class="cards-grid">
-        
-            <!-- TAREA 1 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-inv">📦 Inventario</span>
-                        <span class="badge badge-hi">🔴 Alta</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">1. Inventario con reposición automática</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Muy Avanzado.</strong> Existe el esquema SQL de inventario semanal y conteos. La página <em>app/inventory/orders/page.tsx</em> calcula el pedido automático: <strong>Pedido = PAR de mañana − Sobrante de hoy</strong> con reglas de redondeo específicas para Papelitos, Mulitas y Quesadillas.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Terminar la vinculación manual de todos los insumos con las referencias del Excel.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Calibrar las reglas de redondeo para otros insumos de alto volumen.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">3</span>
-                            <span class="step-text">Automatizar la generación de borradores de compras.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 2 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-inv">📦 Inventario</span>
-                        <span class="badge badge-hi">🔴 Alta</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">2. Inventario para Bodega y COGS (Viele &amp; Sons)</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Estructurado.</strong> La categoría VIELE AND SONS existe en la base de datos. El catálogo de insumos (<em>app/inventory/items/page.tsx</em>) soporta diferenciar entre artículos de bodega y restaurante mediante la columna <strong>is_bodega</strong> vinculada con QuickBooks.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Completar la carga de todos los insumos de Viele &amp; Sons en la base de datos.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Validar que la sincronización de QuickBooks aplique correctamente los costos para productos externos.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 3 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-dev">📺 Dispositivos</span>
-                        <span class="badge badge-med">🟡 Media</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">3. Configuración local de TVs de Menús</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Muy Avanzado.</strong> Pantalla de visualización en <em>/tv</em> con auto-actualizador API cada 2 minutos. La pantalla de administración <em>/admin/tv-menus</em> permite subir imágenes y asignarlas a tiendas/pantallas específicas, diferenciando imágenes universales y excepciones.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Cargar las imágenes finales de los menús para las 15 sucursales.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Probar el botón de pantalla completa en los navegadores de las Smart TVs de las tiendas.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 4 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-com">✉️ Comunicaciones</span>
-                        <span class="badge badge-lo">🔵 Baja</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">4. Logotipo de marca en correos electrónicos</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Configuración Básica.</strong> Las credenciales SMTP de <em>tacosgavilan.com</em> están configuradas en <em>.env.local</em> y los scripts de envío funcionan, pero el remitente no muestra el avatar oficial ni plantillas HTML visuales de marca.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Diseñar una plantilla HTML bilingüe para correos del sistema con el logo oficial.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Configurar registros SPF, DKIM e implementar BIMI para que los gestores de correo muestren el logo.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 5 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-ops">📝 Operaciones</span>
-                        <span class="badge badge-hi">🔴 Alta</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">5. Descripciones de procedimientos en página de ACTIVIDADES</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Estructura Concluida.</strong> Módulo <em>app/actividades</em> terminado con tres pestañas (Catálogo, Configurar, Asignación Diaria). El catálogo usa <em>ProceduresTimeline</em> con <strong>110 tareas precargadas</strong> en la base de datos. Sin embargo, muchas tareas tienen la descripción en NULL.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Revisar los 110 procedimientos precargados en la base de datos.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Redactar y actualizar las descripciones de procedimientos clave desde la interfaz administrativa para que los empleados las visualicen en las tabletas.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 6 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-dev">📺 Dispositivos</span>
-                        <span class="badge badge-hi">🔴 Alta</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">6. Verificar tabletas piloto en Slauson</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>En Pruebas.</strong> Hay <strong>4 tabletas</strong> asignadas físicamente en Slauson corriendo software piloto: 2 para el Preparador de Bodega, 1 para el Tablero de Roles y 1 para Breaks &amp; Lunches AI.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Monitorear diariamente el uso de las tabletas por gerentes y personal.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Verificar la estabilidad del Wi-Fi y la persistencia de las aplicaciones.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">3</span>
-                            <span class="step-text">Recopilar comentarios sobre usabilidad.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 7 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-sys">💻 Sistemas</span>
-                        <span class="badge badge-hi">🔴 Alta</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">7. App de Tacos Gavilán (Imitar King Taco)</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Muy Avanzado.</strong> Backend con esquema en Supabase para carritos, recompensas y geofencing. Frontend móvil en React Native/TypeScript (Expo Router) con: menú (56KB), carrito (46KB), login (9KB) y componentes como CustomizerModal y OrderStatusWidget.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Integrar el frontend de Expo con las APIs reales de Supabase y Toast.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Implementar notificaciones push y geofencing para avisar a la cocina al aproximarse.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">3</span>
-                            <span class="step-text">Configurar y testear Stripe para pagos móviles.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 8 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-sys">💻 Sistemas</span>
-                        <span class="badge badge-hi">🔴 Alta</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">8. Sincronizador y clon de Basecamp</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Altamente Avanzado.</strong> Interfaz web completa en <em>app/basecamp/page.tsx</em> con integración OAuth2. Las tablas <em>bc_*</em> (proyectos, listas, tareas, asignados, mensajes, comentarios) están creadas. El endpoint <em>/api/basecamp/sync</em> realiza la sincronización total en segundo plano.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Habilitar la sincronización automática periódica (cron jobs) de Basecamp en Vercel.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Depurar y optimizar el rendimiento al sincronizar proyectos grandes.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 9 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-sys">💻 Sistemas</span>
-                        <span class="badge badge-med">🟡 Media</span>
-                        <span class="badge badge-progress">▶ En Progreso</span>
-                    </div>
-                    <h3 class="task-title">9. Página Web Oficial de Tacos El Gavilán</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>Avanzado.</strong> Construida en el directorio <em>tacosgavilan-web</em> con un <em>index.html</em> completo (54KB) y una hoja de estilos <em>css/style.css</em> altamente detallada (70KB) con diseños y logotipos integrados.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Validar responsividad y optimización SEO de la landing page.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Conectar enlaces de menú con el sistema de pedidos de Toast o la app móvil.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">3</span>
-                            <span class="step-text">Desplegar el sitio público (Hosting Vercel/Netlify).</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-        </div> <!-- /grid -->
-
-        <!-- ────────── PENDIENTES (6) ────────── -->
-        <div class="section-header">
-            <h2>Pendientes</h2>
-            <span class="section-badge pendiente">6 Tareas</span>
-        </div>
-        
-        <div class="cards-grid">
-        
-            <!-- TAREA 10 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-inv">📦 Inventario</span>
-                        <span class="badge badge-med">🟡 Media</span>
-                        <span class="badge badge-pending">⏳ Pendiente</span>
-                    </div>
-                    <h3 class="task-title">10. Determinar gasto en Salsa Bar</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>No Iniciado.</strong> Hay menciones a la barra de salsas en inspecciones históricas de supervisores, pero no existe ninguna receta, fórmula o medición de costo integrada en el pipeline de Food Cost.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Crear una receta virtual para la barra de salsas (aguacates, tomates, chiles, cebollas, recipientes desechables).</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Medir el consumo promedio diario por tienda e integrarlo al costo diario de alimentos.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 11 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-dev">📺 Dispositivos</span>
-                        <span class="badge badge-med">🟡 Media</span>
-                        <span class="badge badge-pending">⏳ Pendiente</span>
-                    </div>
-                    <h3 class="task-title">11. Fotos y verificación Apple Business Connect (Slauson)</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>No Iniciado (Tarea Externa).</strong> Requiere subir fotos profesionales y realizar la verificación oficial de propiedad e identidad comercial de la sucursal de SLAUSON directamente en el portal de Apple.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Tomar fotos de alta resolución de la tienda Slauson (interior y fachada).</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Subir las fotos a Apple Business Connect y enviar los documentos de verificación.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 12 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-sys">💻 Sistemas</span>
-                        <span class="badge badge-med">🟡 Media</span>
-                        <span class="badge badge-pending">⏳ Pendiente</span>
-                    </div>
-                    <h3 class="task-title">12. Registro de proveedores y técnicos sin contraseña</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>No Iniciado.</strong> Se requiere un portal público con magic links para que proveedores y técnicos externos reporten mantenimientos, carguen evidencias fotográficas y comentarios sin límite.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Diseñar el esquema de BD para tickets de mantenimiento y registro de proveedores.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Crear la ruta pública de acceso con token y la interfaz de carga de fotos conectada a Supabase Storage.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 13 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-inv">📦 Inventario</span>
-                        <span class="badge badge-med">🟡 Media</span>
-                        <span class="badge badge-pending">⏳ Pendiente</span>
-                    </div>
-                    <h3 class="task-title">13. Control de uniformes, gorras e inventario de ropa</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>No Iniciado.</strong> No se cuenta con tablas ni módulos específicos para registrar stock, gestionar intercambios de empleados ni ventas de chamarras/gorras.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Crear la tabla de inventario de uniformes y ropa en la base de datos.</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Diseñar un dashboard para registrar entradas, salidas por empleado y ventas internas.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 14 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-ops">📝 Operaciones</span>
-                        <span class="badge badge-hi">🔴 Alta</span>
-                        <span class="badge badge-pending">⏳ Pendiente</span>
-                    </div>
-                    <h3 class="task-title">14. Manuales, videos y certificación de cocina</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>No Iniciado (Básico).</strong> Solo existe el módulo de evaluación de personal para managers en <em>app/evaluacion/page.tsx</em>, pero no tiene contenido de capacitación en video ni pruebas con emisión de certificados digitales.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Desarrollar módulo de e-learning con videos de preparación (envolver burritos, freír, etc.).</span>
-                        </div>
-                        <div class="step-item">
-                            <span class="step-number">2</span>
-                            <span class="step-text">Crear cuestionarios interactivos y generación automática de PDFs de certificados oficiales.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TAREA 15 -->
-            <div class="task-card">
-                <div>
-                    <div class="card-tags">
-                        <span class="badge badge-ops">📝 Operaciones</span>
-                        <span class="badge badge-med">🟡 Media</span>
-                        <span class="badge badge-pending">⏳ Pendiente</span>
-                    </div>
-                    <h3 class="task-title">15. Sección de Cultura Empresarial</h3>
-                    
-                    <div class="card-section">
-                        <span class="card-section-title">
-                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
-                            Estatus del código / BD
-                        </span>
-                        <div class="audit-box">
-                            <strong>No Iniciado.</strong> Catalogado en la hoja de ruta para alinear a los nuevos colaboradores con la visión, metas y valores corporativos de la marca.
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-section" style="margin-top: 14px;">
-                    <span class="card-section-title">
-                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
-                        Pasos recomendados
-                    </span>
-                    <div class="steps-list">
-                        <div class="step-item">
-                            <span class="step-number">1</span>
-                            <span class="step-text">Diseñar una vista atractiva que presente la misión, visión, metas y filosofía de servicio al cliente de Tacos El Gavilán.</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-        </div> <!-- /grid -->
-
-    </div> <!-- /tasks-container -->
-
+    </div>
+ 
     <!-- ═══════════════════════════════════════════════════ -->
     <!--                      FOOTER                         -->
     <!-- ═══════════════════════════════════════════════════ -->
     <div class="footer">
-        🦅 Tacos El Gavilan · Informe de Auditoría Tecnológica 2026 · Departamento de Sistemas
+        🦅 Tacos El Gavilan · Informe Tecnológico Consolidado 2026 · Departamento de Sistemas
     </div>
-
+ 
 </body>
 </html>

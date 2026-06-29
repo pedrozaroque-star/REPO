@@ -61,6 +61,7 @@ BEGIN
     FROM public.meat_consumption_history m
     WHERE m.store_id = p_store_id
       AND EXTRACT(ISODOW FROM m.business_date) = p_dow
+      AND m.business_date >= CURRENT_DATE - INTERVAL '3 months'
     GROUP BY m.interval_start, m.meat_type
     ORDER BY m.interval_start, m.meat_type;
 END;
