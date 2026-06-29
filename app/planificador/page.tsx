@@ -84,6 +84,7 @@ function SurpriseLoader({ loadingText, syncingText }: { loadingText: string, syn
 }
 
 export default function SchedulePlanner() {
+    'use no memo' // OPT-OUT: React Compiler can't safely optimize this 1800+ line component
     const { user, loading: authLoading } = useAuth()
     const { t, language } = useLanguage()
     const [loading, setLoading] = useState(true)
