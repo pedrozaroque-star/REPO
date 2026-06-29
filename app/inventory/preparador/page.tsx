@@ -25,8 +25,8 @@ const C5 = 'bg-amber-200 border-amber-300 text-amber-900 hover:bg-amber-300 dark
 const ALIMENTOS = [
     { name: 'Guacamole', color: C1 }, { name: 'Crema', color: C1 }, { name: 'Mayonesa', color: C1 }, { name: 'Mulitas', color: C1 }, { name: 'Quesadillas', color: C1 },
     { name: 'Arroz', color: C2 }, { name: 'Cabeza', color: C2 }, { name: 'Lengua', color: C2 }, { name: 'Frijol molido', color: C2 },
-    { name: 'Milaneza', color: C3 }, { name: 'Salchicha', color: C3 }, { name: 'Jamon', color: C3 }, { name: 'Huevos', color: C3 }, { name: 'Papelitos', color: C3 }, { name: 'Queso Jack', color: C3 }, { name: 'Queso cotija', color: C3 }, { name: 'Queso Nachos', color: C3 }, { name: 'Cebolla y cilantro', color: C3 }, { name: 'Salsa verde', color: C3 }, { name: 'Salsa roja', color: C3 },
-    { name: 'Asada', color: C4 }, { name: 'Pastor', color: C4 }, { name: 'Pollo', color: C4 }, { name: 'Carnitas', color: C4 }, { name: 'Chorizo', color: C4 }, { name: 'Buche', color: C4 }, { name: 'Frijoles de la Olla', color: C4 },
+    { name: 'Milaneza', color: C3 }, { name: 'Salchicha', color: C3 }, { name: 'Jamon', color: C3 }, { name: 'Huevos', color: C3 }, { name: 'Papelitos', color: C3 }, { name: 'Queso Jack', color: C3 }, { name: 'Queso Fresco', color: C3 }, { name: 'Queso cotija', color: C3 }, { name: 'Queso Nachos', color: C3 }, { name: 'Cebolla y cilantro', color: C3 }, { name: 'Salsa verde', color: C3 }, { name: 'Salsa roja', color: C3 },
+    { name: 'Asada', color: C4 }, { name: 'Pastor', color: C4 }, { name: 'Pollo', color: C4 }, { name: 'Carnitas', color: C4 }, { name: 'Chorizo', color: C4 }, { name: 'Buche', color: C4 }, { name: 'Cebolla Asada', color: C4 }, { name: 'Frijoles de la Olla', color: C4 },
     { name: 'Tortillas de maiz', color: C5 }, { name: 'Tortillas Burritos', color: C5 }, { name: 'Teleras', color: C5 }, { name: 'Chips', color: C5 }, { name: 'Manteca', color: C5 }
 ]
 
