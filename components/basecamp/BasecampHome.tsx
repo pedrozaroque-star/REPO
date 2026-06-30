@@ -300,33 +300,6 @@ export default function BasecampHome({ projects, saveProjects, navigateTo, userN
                 </button>
                 
                 <button
-                    title={t('basecamp.folder_soon')}
-                    onClick={() => {}}
-                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-55 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-300"
-                >
-                    <FolderPlus size={14} className="text-blue-500" />
-                    <span>{t('basecamp.add_folder')}</span>
-                </button>
-
-                <button
-                    title={t('basecamp.invite_soon')}
-                    onClick={() => {}}
-                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-55 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-400"
-                >
-                    <UserPlus size={14} className="text-blue-500" />
-                    <span>{t('basecamp.invite_people')}</span>
-                </button>
-
-                <button
-                    title={t('basecamp.adminland_soon')}
-                    onClick={() => {}}
-                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-55 dark:hover:bg-slate-800 border border-slate-250 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-500"
-                >
-                    <ShieldAlert size={14} className="text-blue-500" />
-                    <span>{t('basecamp.adminland')}</span>
-                </button>
-
-                <button
                     onClick={handleSyncBasecamp}
                     disabled={isSyncing}
                     className={`flex items-center gap-2 px-4 py-2 border rounded-xl font-bold text-xs shadow-sm transition-all animate-in fade-in slide-in-from-bottom-2 duration-600 ${

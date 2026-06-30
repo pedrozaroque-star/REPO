@@ -97,6 +97,7 @@ export default function InventoryOrdersPage() {
 
     // QB sending state
     const [sendingToQb, setSendingToQb] = useState(false)
+    const [orderNotes, setOrderNotes] = useState('')
 
     // Computed
     const todayStr = new Date().toISOString().split('T')[0]
@@ -143,6 +144,11 @@ export default function InventoryOrdersPage() {
             setParIdeal(weekData.parIdeal)
             setCounts(weekData.counts)
             setOrders(weekData.orders)
+
+            // Pre-cargar notas de la orden existente de hoy
+            const todayOrder = weekData.orders?.find((o: any) => o.order_date === new Date().toISOString().split('T')[0])
+            if (todayOrder?.notes) setOrderNotes(todayOrder.notes)
+            else setOrderNotes('')
 
             // Calculate today's order
             if (isCurrentWeek) {
@@ -235,7 +241,7 @@ export default function InventoryOrdersPage() {
             leftover_value: l.leftover_value ?? 0
         }))
 
-        const res = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name)
+        const res = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
         if (res.error) alert(res.error)
         else { alert(t('bodegaOrders.saved')); await loadData() }
         setSaving(false)
@@ -261,7 +267,7 @@ export default function InventoryOrdersPage() {
                 par_value: l.par_value,
                 leftover_value: l.leftover_value ?? 0
             }))
-            const saveRes = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name)
+            const saveRes = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
             if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
             orderId = saveRes.orderId
             setSaving(false)
@@ -750,6 +756,20 @@ export default function InventoryOrdersPage() {
                                             })}
                                         </tbody>
                                     </table>
+                                </div>
+
+                                {/* Observaciones */}
+                                <div className="px-5 pt-4">
+                                    <label className="block text-sm font-bold text-slate-600 mb-1.5">
+                                        📝 {t('bodegaOrders.observations')}
+                                    </label>
+                                    <textarea
+                                        value={orderNotes}
+                                        onChange={e => setOrderNotes(e.target.value)}
+                                        placeholder={t('bodegaOrders.observationsPlaceholder')}
+                                        rows={2}
+                                        className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none bg-white placeholder:text-slate-400"
+                                    />
                                 </div>
 
                                 {/* Action buttons */}

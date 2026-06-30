@@ -349,6 +349,23 @@ async function resolveOrCreatePerson(
   return null
 }
 
+export async function GET(request: Request) {
+  const authHeader = request.headers.get('authorization')
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (process.env.CRON_SECRET) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
+  const mockRequest = new Request(request.url, {
+    method: 'POST',
+    body: JSON.stringify({ full: false }),
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+  return POST(mockRequest)
+}
+
 export async function POST(request: Request) {
   const supabase = getSyncClient()
   const counters = createCounters()
@@ -511,17 +528,37 @@ export async function POST(request: Request) {
         projectApiUpdatedAt[p.id] = p.updated_at || ''
       }
 
+      // Fetch existing projects to preserve user custom colors and pins
+      const { data: existingProjects } = await supabase
+        .from('bc_projects')
+        .select('bc_id, color, is_pinned')
+
+      const existingColorMap = new Map<number, string>()
+      const existingPinMap = new Map<number, boolean>()
+      if (existingProjects) {
+        for (const ep of existingProjects) {
+          existingColorMap.set(Number(ep.bc_id), ep.color || 'white')
+          existingPinMap.set(Number(ep.bc_id), ep.is_pinned || false)
+        }
+      }
+
       if (projects.length > 0) {
-        const projectRows = projects.map((p) => ({
-          bc_id: p.id,
-          name: p.name,
-          description: p.description || '',
-          color: 'white',
-          is_pinned: p.bookmarked || false,
-          is_archived: p.status === 'archived',
-          member_count: 0, // Will be computed or updated later
-          updated_at: new Date().toISOString(),
-        }))
+        const projectRows = projects.map((p) => {
+          const epId = Number(p.id)
+          const existingColor = existingColorMap.get(epId) || 'white'
+          const existingPin = existingPinMap.has(epId) ? existingPinMap.get(epId) : (p.bookmarked || false)
+
+          return {
+            bc_id: p.id,
+            name: p.name,
+            description: p.description || '',
+            color: existingColor,
+            is_pinned: existingPin,
+            is_archived: p.status === 'archived',
+            member_count: 0, // Will be computed or updated later
+            updated_at: new Date().toISOString(),
+          }
+        })
 
         const { data: insertedProjects, error: upsertErr } = await supabase
           .from('bc_projects')

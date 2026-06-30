@@ -69,10 +69,10 @@ export async function POST(request: NextRequest) {
         const qbMap = new Map<string, string>()
         mappings?.forEach(m => qbMap.set(m.inventory_item_id, m.qb_item_id))
 
-        // 4. Obtener store info
+        // 4. Obtener store info (incluye qb_customer_id para Estimate)
         const { data: store } = await supabase
             .from('stores')
-            .select('id, name')
+            .select('id, name, qb_customer_id')
             .eq('id', order.store_id)
             .single()
 
@@ -149,15 +149,59 @@ export async function POST(request: NextRequest) {
             }, { status: 400 })
         }
 
-        // Customer ID para la tienda (almacenar en env var o en la tabla stores)
-        const customerId = process.env.QB_LYNWOOD_CUSTOMER_ID || '1'
+        // Customer ID dinámico desde la tabla stores (mapeado de QB)
+        const customerId = store?.qb_customer_id
+        if (!customerId) {
+            return NextResponse.json({
+                error: `La tienda ${store?.name || order.store_id} no tiene QB Customer ID configurado. Contacta al admin.`
+            }, { status: 400 })
+        }
 
-        const estimateData = {
+        // Construir el memo con observaciones si las hay
+        const memoBase = `Pedido ${store?.name || 'Tienda'} - ${order.order_date}`;
+        const memo = order.notes ? `${memoBase}\n📝 ${order.notes}` : memoBase;
+
+        // Obtener el siguiente DocNumber (la empresa usa numeración custom tipo 258964783306)
+        // QB ordena DocNumber como string, así que buscamos los más recientes y sacamos el max numérico
+        let nextDocNumber: string | undefined;
+        try {
+            const recentEstimates = await new Promise<any[]>((resolve, reject) => {
+                qbo.findEstimates({
+                    fetchAll: false,
+                    limit: 20,
+                    desc: 'MetaData.LastUpdatedTime',
+                }, (err: any, result: any) => {
+                    if (err) reject(err);
+                    else resolve(result?.QueryResponse?.Estimate || []);
+                });
+            });
+            
+            // Encontrar el DocNumber numérico más alto entre los recientes
+            let maxNum = 0;
+            for (const est of recentEstimates) {
+                if (est.DocNumber) {
+                    const num = parseInt(est.DocNumber, 10);
+                    if (!isNaN(num) && num > maxNum) maxNum = num;
+                }
+            }
+            if (maxNum > 0) {
+                nextDocNumber = String(maxNum + 1);
+                console.log(`[QB] Max DocNumber: ${maxNum}, asignando #${nextDocNumber}`);
+            }
+        } catch (numErr) {
+            console.warn('[QB] No se pudo obtener DocNumber, QB lo asignará automáticamente');
+        }
+
+        const estimateData: any = {
             CustomerRef: { value: customerId },
             TxnDate: order.order_date,
             ShipDate: order.order_date,
-            CustomerMemo: { value: `Pedido ${store?.name || 'Tienda'} - ${order.order_date}` },
+            CustomerMemo: { value: memo },
+            PrivateNote: order.notes || undefined,
             Line: estimateLines,
+        }
+        if (nextDocNumber) {
+            estimateData.DocNumber = nextDocNumber;
         }
 
         // 7. Crear el Estimate en QB

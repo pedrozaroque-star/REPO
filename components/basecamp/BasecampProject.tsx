@@ -140,9 +140,10 @@ interface BasecampProjectProps {
     saveProjects: (projects: any[]) => void
     projects: any[]
     currentUserName: string
+    onOpenSearch?: () => void
 }
 
-export default function BasecampProject({ project, navigateTo, saveProjects, projects, currentUserName }: BasecampProjectProps) {
+export default function BasecampProject({ project, navigateTo, saveProjects, projects, currentUserName, onOpenSearch }: BasecampProjectProps) {
     const supabase = getSupabaseWithAuth()
     const { t } = useLanguage()
 
@@ -170,81 +171,103 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
             if (!project.db_id) return
 
             try {
-                // ═══════════════════════════════════════════════════
-                // 1. Calculate Real Progress from To-do lists
-                // ═══════════════════════════════════════════════════
-                const { data: dbLists } = await supabase
-                    .from('bc_todolists')
-                    .select('completed_count, total_count')
-                    .eq('project_id', project.db_id)
+                const sevenDaysAgo = new Date()
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
+                const startOfMonth = new Date()
+                startOfMonth.setDate(1)
+                startOfMonth.setHours(0, 0, 0, 0)
+                const endOfMonth = new Date(startOfMonth)
+                endOfMonth.setMonth(endOfMonth.getMonth() + 1)
+
+                // ═══════════════════════════════════════════════════
+                // Execute all primary dashboard queries in parallel (No waterfall)
+                // ═══════════════════════════════════════════════════
+                const [
+                    resLists,
+                    resComments,
+                    resActivePeople,
+                    resFirstList,
+                    resMessages,
+                    resDocs,
+                    resUploads,
+                    resChatLines,
+                    resEvents,
+                    resMembers
+                ] = await Promise.all([
+                    // 1. Progress count
+                    supabase.from('bc_todolists').select('completed_count, total_count').eq('project_id', project.db_id),
+                    // 2. Activity Feed
+                    supabase.from('bc_comments').select('id, content, created_at, parent_type, parent_id, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(3),
+                    // 3. Active people count
+                    supabase.from('bc_comments').select('author_person_id, author:bc_people(name)').eq('project_id', project.db_id).gte('created_at', sevenDaysAgo.toISOString()),
+                    // 4. First list info
+                    supabase.from('bc_todolists').select('id, name, bc_id').eq('project_id', project.db_id).order('position', { ascending: true }).limit(1).maybeSingle(),
+                    // 5. Messages
+                    supabase.from('bc_messages').select('id, title, content, created_at, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
+                    // 6. Docs
+                    supabase.from('bc_documents').select('id, title, created_at, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
+                    // 7. Uploads (Safely handled in case table is missing)
+                    supabase.from('bc_uploads').select('id, filename, content_type, byte_size, created_at, author:bc_people(name), download_url').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
+                    // 8. Campfire
+                    supabase.from('bc_campfire_lines').select('id, content, created_at, author:bc_people(name)').eq('project_id', project.db_id).order('created_at', { ascending: false }).limit(5),
+                    // 9. Schedule Entries
+                    supabase.from('bc_schedule_entries').select('id, title, starts_at, ends_at, all_day').eq('project_id', project.db_id).gte('starts_at', startOfMonth.toISOString()).lt('starts_at', endOfMonth.toISOString()),
+                    // 10. Memberships
+                    supabase.from('bc_memberships').select('person:bc_people(id, name, role)').eq('project_id', project.db_id)
+                ])
+
+                // ═══════════════════════════════════════════════════
+                // Process results
+                // ═══════════════════════════════════════════════════
+
+                // 1. Process Progress
                 let totalCompleted = 0
                 let totalTasks = 0
-                if (dbLists && dbLists.length > 0) {
-                    dbLists.forEach((l) => {
+                if (resLists.data && resLists.data.length > 0) {
+                    resLists.data.forEach((l: any) => {
                         totalCompleted += l.completed_count || 0
                         totalTasks += l.total_count || 0
                     })
                 }
-
                 const pct = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0
                 setProgressPercent(pct)
                 setManualProgress(pct)
 
-                // ═══════════════════════════════════════════════════
-                // 2. Activity Feed — last 3 comments with author & parent info
-                // ═══════════════════════════════════════════════════
-                const { data: rawComments } = await supabase
-                    .from('bc_comments')
-                    .select('id, content, created_at, parent_type, parent_id, author:bc_people(name)')
-                    .eq('project_id', project.db_id)
-                    .order('created_at', { ascending: false })
-                    .limit(3)
-
-                if (rawComments && rawComments.length > 0) {
-                    // Resolve parent titles
-                    const activityItems: ActivityItem[] = []
-                    for (const c of rawComments) {
+                // 2. Process Activity Comments & Resolve Parent Titles in Parallel (No loop queries)
+                if (resComments.data && resComments.data.length > 0) {
+                    const activityItems = await Promise.all(resComments.data.map(async (c: any) => {
                         let parentTitle = ''
                         try {
                             if (c.parent_type === 'todo' && c.parent_id) {
-                                const { data: parentTodo } = await supabase.from('bc_todos').select('title').eq('id', c.parent_id).single()
+                                const { data: parentTodo } = await supabase.from('bc_todos').select('title').eq('id', c.parent_id).maybeSingle()
                                 parentTitle = parentTodo?.title || ''
                             } else if (c.parent_type === 'message' && c.parent_id) {
-                                const { data: parentMsg } = await supabase.from('bc_messages').select('title').eq('id', c.parent_id).single()
+                                const { data: parentMsg } = await supabase.from('bc_messages').select('title').eq('id', c.parent_id).maybeSingle()
                                 parentTitle = parentMsg?.title || ''
                             } else if (c.parent_type === 'document' && c.parent_id) {
-                                const { data: parentDoc } = await supabase.from('bc_documents').select('title').eq('id', c.parent_id).single()
+                                const { data: parentDoc } = await supabase.from('bc_documents').select('title').eq('id', c.parent_id).maybeSingle()
                                 parentTitle = parentDoc?.title || ''
                             }
                         } catch { /* ignore parent resolve errors */ }
-
-                        activityItems.push({
+                        return {
                             id: c.id,
                             content: c.content || '',
                             created_at: c.created_at,
                             parent_type: c.parent_type || 'unknown',
                             parent_title: parentTitle,
                             author_name: (c.author as any)?.name || 'Unknown'
-                        })
-                    }
+                        }
+                    }))
                     setRecentActivity(activityItems)
+                } else {
+                    setRecentActivity([])
                 }
 
-                // ═══════════════════════════════════════════════════
-                // 3. Active people count (distinct authors) in last 7 days
-                // ═══════════════════════════════════════════════════
-                const sevenDaysAgo = new Date()
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-                const { data: activePeople } = await supabase
-                    .from('bc_comments')
-                    .select('author_person_id, author:bc_people(name)')
-                    .eq('project_id', project.db_id)
-                    .gte('created_at', sevenDaysAgo.toISOString())
-
-                if (activePeople) {
+                // 3. Process Active People Count
+                if (resActivePeople.data) {
                     const uniqueAuthors = new Map<string, string>()
-                    activePeople.forEach(ap => {
+                    resActivePeople.data.forEach((ap: any) => {
                         if (ap.author_person_id && !uniqueAuthors.has(ap.author_person_id)) {
                             uniqueAuthors.set(ap.author_person_id, (ap.author as any)?.name || 'U')
                         }
@@ -253,64 +276,40 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     setActivePeopleAvatars(Array.from(uniqueAuthors.values()).slice(0, 8))
                 }
 
-                // ═══════════════════════════════════════════════════
-                // 4. First todo list with tasks (up to 10)
-                // ═══════════════════════════════════════════════════
-                const { data: firstListData } = await supabase
-                    .from('bc_todolists')
-                    .select('id, name, bc_id')
-                    .eq('project_id', project.db_id)
-                    .order('position', { ascending: true })
-                    .limit(1)
-                    .single()
-
-                if (firstListData) {
+                // 4. Process First List and fetch tasks
+                if (resFirstList.data) {
                     const { data: listTasks } = await supabase
                         .from('bc_todos')
                         .select('id, title, is_completed')
-                        .eq('todolist_id', firstListData.id)
+                        .eq('todolist_id', resFirstList.data.id)
                         .order('position', { ascending: true })
                         .limit(10)
 
                     setFirstTodoList({
-                        name: firstListData.name || 'To-dos',
+                        name: resFirstList.data.name || 'To-dos',
                         tasks: listTasks || []
                     })
+                } else {
+                    setFirstTodoList(null)
                 }
 
-                // ═══════════════════════════════════════════════════
-                // 5. Messages with detail (5 messages)
-                // ═══════════════════════════════════════════════════
-                const { data: dbMessages } = await supabase
-                    .from('bc_messages')
-                    .select('id, title, content, created_at, author:bc_people(name)')
-                    .eq('project_id', project.db_id)
-                    .order('created_at', { ascending: false })
-                    .limit(5)
-
-                if (dbMessages) {
-                    setLastMessages(dbMessages.map((m) => ({
+                // 5. Process Messages
+                if (resMessages.data) {
+                    setLastMessages(resMessages.data.map((m: any) => ({
                         id: m.id,
                         title: m.title,
                         content: m.content,
                         created_at: m.created_at,
                         author: (m.author as any)?.name || 'Unknown'
                     })))
+                } else {
+                    setLastMessages([])
                 }
 
-                // ═══════════════════════════════════════════════════
-                // 6. Docs & Files with detail (documents + uploads merged)
-                // ═══════════════════════════════════════════════════
-                const { data: dbDocs } = await supabase
-                    .from('bc_documents')
-                    .select('id, title, created_at, author:bc_people(name)')
-                    .eq('project_id', project.db_id)
-                    .order('created_at', { ascending: false })
-                    .limit(5)
-
+                // 6 & 7. Process Docs & Uploads
                 const allDocsFiles: any[] = []
-                if (dbDocs) {
-                    dbDocs.forEach(d => {
+                if (resDocs.data) {
+                    resDocs.data.forEach((d: any) => {
                         allDocsFiles.push({
                             id: d.id,
                             title: d.title,
@@ -320,95 +319,54 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                         })
                     })
                 }
+                if (resUploads.data) {
+                    resUploads.data.forEach((u: any) => {
+                        const isGoogle = u.download_url?.includes('docs.google.com') || u.download_url?.includes('drive.google.com') ||
+                            u.content_type?.endsWith('.document') || u.content_type?.endsWith('.spreadsheet')
+                        const ext = u.filename?.split('.').pop()?.toLowerCase() || ''
+                        let fileType = 'file'
+                        if (isGoogle) fileType = 'google_doc'
+                        else if (ext === 'pdf') fileType = 'pdf'
+                        else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) fileType = 'screenshot'
 
-                // Uploads (wrapped in try/catch in case table doesn't exist)
-                try {
-                    const { data: dbUploads } = await supabase
-                        .from('bc_uploads')
-                        .select('id, filename, content_type, byte_size, created_at, author:bc_people(name), download_url')
-                        .eq('project_id', project.db_id)
-                        .order('created_at', { ascending: false })
-                        .limit(5)
-
-                    if (dbUploads) {
-                        dbUploads.forEach(u => {
-                            const isGoogle = u.download_url?.includes('docs.google.com') || u.download_url?.includes('drive.google.com') ||
-                                u.content_type?.endsWith('.document') || u.content_type?.endsWith('.spreadsheet')
-                            const ext = u.filename?.split('.').pop()?.toLowerCase() || ''
-                            let fileType = 'file'
-                            if (isGoogle) fileType = 'google_doc'
-                            else if (ext === 'pdf') fileType = 'pdf'
-                            else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) fileType = 'screenshot'
-
-                            allDocsFiles.push({
-                                id: u.id,
-                                title: u.filename || 'File',
-                                created_at: u.created_at,
-                                author: (u.author as any)?.name || 'Unknown',
-                                file_type: fileType
-                            })
+                        allDocsFiles.push({
+                            id: u.id,
+                            title: u.filename || 'File',
+                            created_at: u.created_at,
+                            author: (u.author as any)?.name || 'Unknown',
+                            file_type: fileType
                         })
-                    }
-                } catch {
-                    // bc_uploads table may not exist
+                    })
                 }
-
-                // Sort by date and take top 7
                 allDocsFiles.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                 setDocsAndFiles(allDocsFiles.slice(0, 7))
 
-                // ═══════════════════════════════════════════════════
-                // 7. Campfire with more detail (5 lines)
-                // ═══════════════════════════════════════════════════
-                const { data: dbChatLines } = await supabase
-                    .from('bc_campfire_lines')
-                    .select('id, content, created_at, author:bc_people(name)')
-                    .eq('project_id', project.db_id)
-                    .order('created_at', { ascending: false })
-                    .limit(5)
-
-                if (dbChatLines) {
-                    const mappedChat = dbChatLines.map((c) => ({
+                // 8. Process Campfire Lines
+                if (resChatLines.data) {
+                    const mappedChat = resChatLines.data.map((c: any) => ({
                         id: c.id,
                         author: (c.author as any)?.name || 'Unknown',
                         message: c.content,
                         created_at: c.created_at
                     })).reverse()
                     setLastChat(mappedChat)
+                } else {
+                    setLastChat([])
                 }
 
-                // ═══════════════════════════════════════════════════
-                // 8. Schedule entries for current month
-                // ═══════════════════════════════════════════════════
-                const startOfMonth = new Date()
-                startOfMonth.setDate(1)
-                startOfMonth.setHours(0, 0, 0, 0)
-                const endOfMonth = new Date(startOfMonth)
-                endOfMonth.setMonth(endOfMonth.getMonth() + 1)
+                // 9. Process Calendar Events
+                setCalendarEvents(resEvents.data || [])
 
-                const { data: dbEvents } = await supabase
-                    .from('bc_schedule_entries')
-                    .select('id, title, starts_at, ends_at, all_day')
-                    .eq('project_id', project.db_id)
-                    .gte('starts_at', startOfMonth.toISOString())
-                    .lt('starts_at', endOfMonth.toISOString())
-
-                setCalendarEvents(dbEvents || [])
-
-                // ═══════════════════════════════════════════════════
-                // 9. Project members via bc_memberships
-                // ═══════════════════════════════════════════════════
-                const { data: dbMembers } = await supabase
-                    .from('bc_memberships')
-                    .select('person:bc_people(id, name, role)')
-                    .eq('project_id', project.db_id)
-
-                if (dbMembers) {
-                    setProjectMembers(dbMembers.map(m => ({
+                // 10. Process Members
+                if (resMembers.data) {
+                    setProjectMembers(resMembers.data.map((m: any) => ({
                         name: (m.person as any)?.name || 'Unknown',
                         role: (m.person as any)?.role || 'user'
                     })))
+                } else {
+                    setProjectMembers([])
                 }
+
             } catch (err: any) {
                 console.error('Error loading project dashboard:', err.message)
             }
@@ -500,28 +458,42 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                    <div className="flex -space-x-2">
-                        {membersToShow.slice(0, 5).map((m: any, idx: number) => (
-                            <div
-                                key={idx}
-                                className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[10px] font-black text-white"
-                                style={{ backgroundColor: getAvatarColor(m.name) }}
-                                title={m.name}
-                            >
-                                {getInitials(m.name)}
-                            </div>
-                        ))}
-                        {memberCount > 5 && (
-                            <div className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300">
-                                +{memberCount - 5}
-                            </div>
-                        )}
+                <div className="flex flex-col md:items-end gap-2.5">
+                    <div className="flex items-center gap-4">
+                        <div className="flex -space-x-2">
+                            {membersToShow.slice(0, 5).map((m: any, idx: number) => (
+                                <div
+                                    key={idx}
+                                    className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[10px] font-black text-white"
+                                    style={{ backgroundColor: getAvatarColor(m.name) }}
+                                    title={m.name}
+                                >
+                                    {getInitials(m.name)}
+                                </div>
+                            ))}
+                            {memberCount > 5 && (
+                                <div className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                                    +{memberCount - 5}
+                                </div>
+                            )}
+                        </div>
+                        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300 text-xs font-bold">
+                            <Users size={14} />
+                            {t('basecamp.invite')}
+                        </button>
                     </div>
-                    <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300 text-xs font-bold">
-                        <Users size={14} />
-                        {t('basecamp.invite')}
-                    </button>
+                    {onOpenSearch && (
+                        <div 
+                            onClick={onOpenSearch}
+                            className="border border-slate-200/60 dark:border-slate-800 bg-[#fffdf9] dark:bg-slate-900 px-3 py-1 rounded-lg text-[11px] font-semibold text-slate-500 dark:text-slate-400 shadow-inner cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all flex items-center gap-1.5"
+                        >
+                            {t('language') === 'es' ? (
+                                <span>Presione <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">J</kbd> para buscar</span>
+                            ) : (
+                                <span>Press <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">Shift</kbd> + <kbd className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border text-[9px] mx-0.5 font-bold">J</kbd> to search</span>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -788,110 +760,6 @@ export default function BasecampProject({ project, navigateTo, saveProjects, pro
                     <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.explore_docs')} →</span>
                 </div>
 
-                {/* ─────── Card 4: CAMPFIRE (with avatar bubbles) ─────── */}
-                <div
-                    onClick={() => navigateTo({ project: project.id, tool: 'campfire' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
-                >
-                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                            <MessageSquare size={18} />
-                            {t('basecamp.campfire')}
-                        </h2>
-                    </div>
-
-                    <div className="space-y-3 flex-1">
-                        {lastChat.length > 0 ? (
-                            lastChat.map((c, idx) => (
-                                <div key={idx} className="flex items-start gap-2.5">
-                                    <div
-                                        className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-black text-white flex-shrink-0 mt-0.5 shadow-sm"
-                                        style={{ backgroundColor: getAvatarColor(c.author) }}
-                                    >
-                                        {getInitials(c.author)}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-baseline gap-1.5">
-                                            <span className="text-xs font-bold text-slate-650 dark:text-slate-400">{c.author.split(' ')[0]}</span>
-                                            {c.created_at && (
-                                                <span className="text-[9px] text-slate-400">{formatActivityTime(c.created_at)}</span>
-                                            )}
-                                        </div>
-                                        <p className="text-xs text-slate-650 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                                            {stripHtml(c.message || '')}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <p className="text-sm text-slate-400 dark:text-slate-500 italic mt-4 text-center">
-                                {t('basecamp.welcome_campfire')}
-                            </p>
-                        )}
-                    </div>
-                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.campfire_sub')} →</span>
-                </div>
-
-                {/* ─────── Card 5: SCHEDULE (with mini calendar) ─────── */}
-                <div
-                    onClick={() => navigateTo({ project: project.id, tool: 'schedule' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
-                >
-                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                            <Calendar size={18} />
-                            {t('basecamp.schedule')}
-                        </h2>
-                    </div>
-
-                    <div className="flex-1">
-                        <MiniCalendar events={calendarEvents} t={t} />
-                        <div className="mt-3">
-                            {calendarEvents.length > 0 ? (
-                                <div className="space-y-1.5">
-                                    {calendarEvents.slice(0, 2).map(ev => (
-                                        <div key={ev.id} className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                                            <span className="truncate">{ev.title}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-xs text-slate-400 dark:text-slate-500 italic text-center">
-                                    {t('basecamp.no_upcoming_events')}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.view_calendar')} →</span>
-                </div>
-
-                {/* ─────── Card 6: AUTOMATIC CHECK-INS ─────── */}
-                <div
-                    onClick={() => navigateTo({ project: project.id, tool: 'checkins' })}
-                    className="bg-white dark:bg-slate-900 border-2 border-slate-300/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-md hover:shadow-xl hover:border-slate-400 dark:hover:border-slate-600 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
-                >
-                    <div className="border-b border-slate-100 dark:border-slate-800/85 pb-2 mb-3">
-                        <h2 className="text-base font-extrabold text-red-600 flex items-center gap-2">
-                            <HelpCircle size={18} />
-                            {t('basecamp.checkins')}
-                        </h2>
-                    </div>
-
-                    <div className="flex-1 flex flex-col items-center justify-center text-center py-4">
-                        {/* Illustration placeholder: question prompt */}
-                        <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex items-center justify-center mb-3.5 shadow-sm">
-                            <HelpCircle size={28} className="text-amber-600" />
-                        </div>
-                        <p className="text-sm font-black text-slate-700 dark:text-slate-200">
-                            {t('basecamp.checkin_question_title')}
-                        </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                            {t('basecamp.checkin_question_desc')}
-                        </p>
-                    </div>
-                    <span className="text-xs font-black text-[#1D7DB5] mt-3 uppercase tracking-wider">{t('basecamp.view_answers')} →</span>
-                </div>
             </div>
 
             {/* ════════════════════════════════════════════════

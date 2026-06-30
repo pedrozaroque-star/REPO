@@ -7,7 +7,7 @@
   3. No depende de redes CDN externas para fuentes o íconos. Todo es nativo o usa vectores SVG embebidos.
   4. Soporta modo de impresión optimizado (@media print) que oculta controles de interfaz y adapta el contraste para papel.
 @notes
-  - Integrado el reporte mensual de horas trabajadas de junio 2026 (182.0 horas totales).
+  - Integrado el reporte mensual de horas trabajadas de junio 2026 (190.5 horas totales).
   - Traducido todo el lenguaje técnico a términos sencillos y operativos entendibles por gerentes y directivos.
   - Añadida la tarea pendiente número 16: "CLONAR Cohesion (app de contabilidad) solicitado por raquel velazquez".
   - Añadida la tarea número 17: "Módulo de Rendimiento y Telemetría de Drive-Thru (HME Zoom Nitro)" como COMPLETADO.
@@ -772,8 +772,8 @@
 <body>
  
     <!-- Radio Button Controls for Switcher -->
-    <input type="radio" id="tab-pendientes" name="main-tabs" checked style="display:none;">
-    <input type="radio" id="tab-reporte" name="main-tabs" style="display:none;">
+    <input type="radio" id="tab-pendientes" name="main-tabs" style="display:none;">
+    <input type="radio" id="tab-reporte" name="main-tabs" checked style="display:none;">
  
     <!-- ═══════════════════════════════════════════════════ -->
     <!--                  TOP BRAND BAR                     -->
@@ -868,7 +868,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">182.0</div>
+                <div class="stat-number" style="color: #e05638;">190.5</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1634,7 +1634,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 182.0 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 190.5 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1930,6 +1930,18 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr>
+                                <td><strong>30-Jun-2026</strong></td>
+                                <td>9:00 AM - 5:30 PM</td>
+                                <td style="text-align: center; font-weight: 700;">8.5</td>
+                                <td><span class="table-badge-module">QuickBooks</span> <span class="table-badge-module">Basecamp</span> <span class="table-badge-module">Sidebar</span> <span class="table-badge-module">i18n</span></td>
+                                <td>
+                                    <div class="lang-split">
+                                        <div class="es-desc">- **Basecamp**: Refactorización del inicio de sesión y renovación de tokens OAuth en POST body. Agregado visor multimedia de fotos/videos adjuntos con miniaturas y contadores (+N) en búsquedas. Acceso en menú principal (`AppSidebar`) estilizado con logotipo SVG animado y etiqueta "NEW" interactiva. Cron job automático `/api/basecamp/sync` configurado cada hora en `vercel.json`.<br>- **QuickBooks**: Sincronización de pedidos de bodega con creación de Estimates. Corrección de folios consecutivos (obtiene máximo histórico e incrementa secuencialmente). Creación de scripts de prueba, exclusión de proveedores externos (flanes/cheesecakes) y campo de observaciones extraordinarias.<br>- **Dashboard**: Diseño e integración de panel consolidado HTML (`pendientes.html`) unificando reportes y tareas para uso sin conexión.<br>- **Traducción**: Adición de llaves bilingües en `lib/i18n.tsx` para notas de pedido y simplificación de términos técnicos a comerciales para directivos.</div>
+                                        <div class="en-desc">- Basecamp: refactored OAuth token exchange/refresh flow to use POST body params. Added media thumbnail previews and file attachment counters to search results. Integrated Basecamp shortcut in AppSidebar with animated custom SVG logo, pulsing effects, and animated "NEW" badge. Added hourly Vercel cron job configuration.<br>- QuickBooks: connected warehouse orders with QB Estimates. Fixed duplicate document numbering (checks max DocNumber and increments). Built test scripts, excluded external suppliers, added order notes/memos.<br>- Dashboard: designed and integrated a unified HTML dashboard (`pendientes.html`) for offline/WhatsApp reporting.<br>- Simplification: translated complex coding jargon to standard business vocabulary, and added bilingual observations translations in i18n.</div>
+                                    </div>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1982,7 +1994,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Clon y Sincronizador de Basecamp / Basecamp Integration</span>
-                        <span class="hours">30.5 hrs</span>
+                        <span class="hours">34.5 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Procedimientos, Fotos e Inspecciones / Procedures & Camera Inspections</span>
@@ -1998,7 +2010,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
-                        <span class="hours">37.0 hrs</span>
+                        <span class="hours">41.5 hrs</span>
                     </div>
                 </div>
  

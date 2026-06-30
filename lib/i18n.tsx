@@ -1860,6 +1860,8 @@ const dictionaries: Record<Language, Dictionary> = {
             notLinked: 'Sin Vincular',
             forceSync: 'Sincronizar con Excel',
             qbEstimate: 'Estimate QB',
+            observations: 'Observaciones',
+            observationsPlaceholder: 'Ej: Hoy necesitamos más asada por evento especial, no mandar champurrado...',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {
@@ -3842,6 +3844,8 @@ const dictionaries: Record<Language, Dictionary> = {
             notLinked: 'Not Linked',
             forceSync: 'Sync with Excel',
             qbEstimate: 'QB Estimate',
+            observations: 'Observations',
+            observationsPlaceholder: 'E.g.: Need extra asada today for special event, skip champurrado...',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {

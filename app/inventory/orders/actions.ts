@@ -350,7 +350,8 @@ export async function saveOrderDraft(
     orderDate: string,
     weekStartDate: string,
     lines: { inventory_item_id: string; calculated_qty: number; adjusted_qty?: number; par_value: number; leftover_value: number }[],
-    createdBy?: string
+    createdBy?: string,
+    notes?: string
 ) {
     // Upsert la orden
     const { data: order, error: orderError } = await supabase
@@ -361,6 +362,7 @@ export async function saveOrderDraft(
             week_start_date: weekStartDate,
             status: 'draft',
             created_by: createdBy || 'Manager',
+            notes: notes || null,
             updated_at: new Date().toISOString()
         }, { onConflict: 'store_id, order_date' })
         .select()

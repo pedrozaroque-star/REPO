@@ -270,8 +270,179 @@ export async function POST() {
             updatedCount++;
         }
 
+        // ====================================================================
+        // AUTO-SYNC: Vincular tiendas sin qb_customer_id con clientes de QB
+        // Patrón de matching: store.name "Compton" → QB customer "Compton-TEG"
+        // ====================================================================
+        let storesLinked = 0;
+        try {
+            const { data: unlinkedStores } = await supabase
+                .from('stores')
+                .select('id, name')
+                .eq('is_active', true)
+                .is('qb_customer_id', null);
+
+            if (unlinkedStores && unlinkedStores.length > 0) {
+                console.log(`[QB-Sync] 🔗 ${unlinkedStores.length} tienda(s) sin QB Customer ID. Buscando match...`);
+
+                const qbCustomers = await new Promise<any[]>((resolve, reject) => {
+                    qbo.findCustomers({ fetchAll: true }, (err: any, result: any) => {
+                        if (err) reject(err);
+                        else resolve(result?.QueryResponse?.Customer || []);
+                    });
+                });
+
+                // Normaliza un nombre: quita espacios, guiones, puntos, todo lowercase
+                // "LA Broadway" → "labroadway", "Compton - TEG" → "comptonteg"
+                const normalize = (s: string) => s.toLowerCase().replace(/[\s\-_.,']/g, '');
+
+                // Extrae la parte de ciudad del nombre QB: "Broadway-TEG" → "broadway"
+                const extractCity = (qbName: string) => {
+                    const clean = qbName.replace(/[-\s]*(teg|coh)$/i, '').trim();
+                    return normalize(clean);
+                };
+
+                for (const store of unlinkedStores) {
+                    const storeNorm = normalize(store.name);
+
+                    // Buscar match flexible entre store y QB customers con sufijo -TEG
+                    const match = qbCustomers.find(c => {
+                        const dn = (c.DisplayName || '');
+                        // Solo matchear customers que terminen en TEG (no COH u otros)
+                        if (!/teg$/i.test(normalize(dn))) return false;
+
+                        const qbCity = extractCity(dn);
+
+                        // Match directo normalizado: "huntingtonpark" === "huntingtonpark"
+                        if (storeNorm === qbCity) return true;
+
+                        // Match por contención: "labroadway".includes("broadway") ✅
+                        if (storeNorm.includes(qbCity) || qbCity.includes(storeNorm)) return true;
+
+                        return false;
+                    });
+
+                    if (match) {
+                        await supabase
+                            .from('stores')
+                            .update({ qb_customer_id: match.Id })
+                            .eq('id', store.id);
+                        console.log(`[QB-Sync] ✅ Linked: ${store.name} → ${match.DisplayName} (QB ID: ${match.Id})`);
+                        storesLinked++;
+                    } else {
+                        console.log(`[QB-Sync] ⚠️ No QB customer match for store: ${store.name} (buscando "${store.name}-TEG")`);
+                    }
+                }
+            }
+        } catch (custError: any) {
+            console.error('[QB-Sync] Error en auto-link de stores:', custError.message);
+        }
+
+        // ====================================================================
+        // AUTO-SYNC: Template de QB → Items Ordenables en nuestro sistema
+        // QB Estimate template es la FUENTE DE VERDAD para qué items se piden
+        // Si QB agrega un item nuevo → lo agregamos como ordenable
+        // Si QB quita un item → lo removemos de ordenables (descontinuado)
+        // ====================================================================
+        let itemsAdded = 0;
+        let itemsRemoved = 0;
+        try {
+            // Leer el Estimate más reciente para obtener la lista de items del template
+            const recentEstimate = await new Promise<any>((resolve, reject) => {
+                qbo.findEstimates({
+                    fetchAll: false,
+                    limit: 1,
+                    desc: 'MetaData.LastUpdatedTime',
+                }, (err: any, result: any) => {
+                    if (err) reject(err);
+                    else {
+                        const estimates = result?.QueryResponse?.Estimate || [];
+                        resolve(estimates[0] || null);
+                    }
+                });
+            });
+
+            if (recentEstimate?.Line) {
+                // Extraer QB Item IDs del template (solo SalesItemLineDetail, no subtotales)
+                const templateQbIds = new Set<string>();
+                recentEstimate.Line.forEach((line: any) => {
+                    if (line.DetailType === 'SalesItemLineDetail' && line.SalesItemLineDetail?.ItemRef?.value) {
+                        templateQbIds.add(line.SalesItemLineDetail.ItemRef.value);
+                    }
+                });
+                console.log(`[QB-Sync] 📋 Template tiene ${templateQbIds.size} items (del Estimate #${recentEstimate.DocNumber})`);
+
+                // Obtener todos los mappings QB → inventory_item
+                const { data: allMappings } = await supabase
+                    .from('quickbooks_mappings')
+                    .select('qb_item_id, inventory_item_id');
+                const qbToInternal = new Map<string, string>();
+                allMappings?.forEach(m => qbToInternal.set(m.qb_item_id, m.inventory_item_id));
+
+                // Obtener items ordenables actuales (los que tienen excel_reference)
+                const { data: currentOrderable } = await supabase
+                    .from('inventory_items')
+                    .select('id, name, excel_reference, order_sort_position')
+                    .not('excel_reference', 'is', null);
+                const orderableIds = new Set(currentOrderable?.map(i => i.id) || []);
+
+                // 1. Items en template QB pero NO ordenables → AGREGAR
+                const maxSort = Math.max(...(currentOrderable?.map(i => i.order_sort_position || 0) || [0]));
+                let nextSort = maxSort + 1;
+
+                for (const qbId of templateQbIds) {
+                    const internalId = qbToInternal.get(qbId);
+                    if (!internalId) continue; // No tiene mapping, el sync de items lo creará
+
+                    if (!orderableIds.has(internalId)) {
+                        // Este item está en QB pero no es ordenable → agregarlo
+                        const { data: item } = await supabase
+                            .from('inventory_items')
+                            .select('name')
+                            .eq('id', internalId)
+                            .single();
+
+                        await supabase
+                            .from('inventory_items')
+                            .update({
+                                excel_reference: item?.name || 'Nuevo Item',
+                                order_sort_position: nextSort++
+                            })
+                            .eq('id', internalId);
+
+                        console.log(`[QB-Sync] ➕ Nuevo item ordenable: ${item?.name} (QB ID: ${qbId})`);
+                        itemsAdded++;
+                    }
+                }
+
+                // 2. Items ordenables pero NO en template QB → REMOVER (descontinuados)
+                for (const item of (currentOrderable || [])) {
+                    // Buscar el qb_item_id de este item
+                    const mapping = allMappings?.find(m => m.inventory_item_id === item.id);
+                    if (!mapping) continue; // Sin mapping, no podemos comparar
+
+                    if (!templateQbIds.has(mapping.qb_item_id)) {
+                        // Este item ya no está en el template de QB → descontinuado
+                        await supabase
+                            .from('inventory_items')
+                            .update({ excel_reference: null, order_sort_position: null })
+                            .eq('id', item.id);
+
+                        console.log(`[QB-Sync] ➖ Item descontinuado: ${item.name} (QB ID: ${mapping.qb_item_id})`);
+                        itemsRemoved++;
+                    }
+                }
+
+                if (itemsAdded === 0 && itemsRemoved === 0) {
+                    console.log(`[QB-Sync] ✅ Items ordenables sincronizados con template QB (${templateQbIds.size} items)`);
+                }
+            }
+        } catch (templateError: any) {
+            console.error('[QB-Sync] Error en template sync:', templateError.message);
+        }
+
         // Log summary with protection details
-        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked`);
+        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked, ${storesLinked} stores linked, ${itemsAdded} items added, ${itemsRemoved} items removed`);
         if (blockedItems.length > 0) {
             console.log(`[QB-Sync] 🛡️ Blocked items:`);
             blockedItems.forEach(b => console.log(`  - ${b}`));
@@ -283,7 +454,9 @@ export async function POST() {
             createdCount,
             priceChanges,
             blockedCount,
-            blockedItems: blockedItems.length > 0 ? blockedItems : undefined
+            blockedItems: blockedItems.length > 0 ? blockedItems : undefined,
+            storesLinked,
+            templateSync: { itemsAdded, itemsRemoved }
         });
 
     } catch (error: any) {

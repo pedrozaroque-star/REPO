@@ -427,10 +427,6 @@ export async function getAuthorizationUrl(): Promise<string> {
   return `${BASECAMP_AUTH_BASE}/authorization/new?${params.toString()}`
 }
 
-/**
- * Intercambia el código de autorización por tokens (access + refresh).
- * Se invoca desde el callback OAuth después de que el usuario autoriza.
- */
 export async function exchangeCodeForToken(code: string): Promise<TokenResponse> {
   const params = new URLSearchParams({
     type: 'web_server',
@@ -440,12 +436,13 @@ export async function exchangeCodeForToken(code: string): Promise<TokenResponse>
     code,
   })
 
-  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token?${params.toString()}`, {
+  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'User-Agent': BASECAMP_USER_AGENT,
     },
+    body: params.toString(),
   })
 
   if (!res.ok) {
@@ -469,12 +466,13 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenRes
     refresh_token: refreshToken,
   })
 
-  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token?${params.toString()}`, {
+  const res = await fetch(`${BASECAMP_AUTH_BASE}/authorization/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'User-Agent': BASECAMP_USER_AGENT,
     },
+    body: params.toString(),
   })
 
   if (!res.ok) {

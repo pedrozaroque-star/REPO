@@ -34,9 +34,23 @@ import ToolCheckins from '@/components/basecamp/ToolCheckins'
 import NewForYouDrawer from '@/components/basecamp/NewForYouDrawer'
 import {
     Home, MessageSquare, Bell, User, Search, ArrowLeft, Users, Briefcase, KeyRound, RefreshCw, HelpCircle,
-    CheckSquare, FileText, Mail, Loader2
+    CheckSquare, FileText, Mail, Loader2, Play, FolderOpen
 } from 'lucide-react'
 import { getSupabaseWithAuth } from '@/lib/supabase'
+
+const formatSearchDateTime = (dateStr: string, language: string) => {
+    if (!dateStr) return ''
+    try {
+        const d = new Date(dateStr)
+        const optionsDate: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
+        const optionsTime: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true }
+        const datePart = d.toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', optionsDate)
+        const timePart = d.toLocaleTimeString(language === 'es' ? 'es-ES' : 'en-US', optionsTime).toLowerCase()
+        return `${datePart} ${timePart}`
+    } catch {
+        return ''
+    }
+}
 
 function BasecampWorkspace() {
     const router = useRouter()
@@ -152,18 +166,27 @@ function BasecampWorkspace() {
 
     const saveProjects = async (updated: any[]) => {
         const supabase = getSupabaseWithAuth()
-        // Find which project color or pin changed and update Supabase
-        for (const up of updated) {
-            const orig = projects.find(p => p.id === up.id)
-            if (orig && (orig.color !== up.color || orig.is_pinned !== up.is_pinned)) {
-                await supabase
-                    .from('bc_projects')
-                    .update({
-                        color: up.color,
-                        is_pinned: up.is_pinned
-                    })
-                    .eq('bc_id', Number(up.id))
+        try {
+            // Find which project color or pin changed and update Supabase
+            for (const up of updated) {
+                const orig = projects.find(p => p.id === up.id)
+                if (orig && (orig.color !== up.color || orig.is_pinned !== up.is_pinned)) {
+                    console.log(`💾 Saving project ${up.name} color/pin to Supabase...`, { color: up.color, is_pinned: up.is_pinned })
+                    const { error } = await supabase
+                        .from('bc_projects')
+                        .update({
+                            color: up.color,
+                            is_pinned: up.is_pinned
+                        })
+                        .eq('bc_id', Number(up.id))
+
+                    if (error) {
+                        console.error(`❌ Error updating project ${up.name}:`, error.message)
+                    }
+                }
             }
+        } catch (err: any) {
+            console.error('Error in saveProjects:', err.message)
         }
         setProjects(updated)
     }
@@ -203,6 +226,40 @@ function BasecampWorkspace() {
 
     const currentProject = projects.find(p => p.id === projectId)
 
+    // Helper to strip HTML tags for search previews
+    const stripHtml = (html: string) => {
+        if (!html) return ''
+        return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
+    }
+
+    // Helper to extract image and video URLs from HTML content
+    const extractMediaUrls = (html: string) => {
+        const media: { type: 'image' | 'video'; url: string }[] = []
+        if (!html) return media
+
+        // Extract <img> tags
+        const imgRegex = /<img[^>]+src="([^">]+)"/gi
+        let match
+        while ((match = imgRegex.exec(html)) !== null) {
+            const url = match[1]
+            if (!url.includes('attachment-icon')) {
+                media.push({ type: 'image', url })
+            }
+        }
+
+        // Extract <video> or <source> tags
+        const videoRegex = /<video[^>]+src="([^">]+)"/gi
+        while ((match = videoRegex.exec(html)) !== null) {
+            media.push({ type: 'video', url: match[1] })
+        }
+        const sourceRegex = /<source[^>]+src="([^">]+)"/gi
+        while ((match = sourceRegex.exec(html)) !== null) {
+            media.push({ type: 'video', url: match[1] })
+        }
+
+        return media
+    }
+
     // ── Global search across Supabase tables with debounce ──
     const executeSearch = useCallback(async (query: string) => {
         if (query.trim().length < 3) {
@@ -216,10 +273,29 @@ function BasecampWorkspace() {
             const pattern = `%${query}%`
 
             const [todosRes, messagesRes, docsRes, peopleRes] = await Promise.all([
-                supabase.from('bc_todos').select('id, title, project_id').ilike('title', pattern).limit(10),
-                supabase.from('bc_messages').select('id, subject, project_id').ilike('subject', pattern).limit(10),
-                supabase.from('bc_documents').select('id, title, project_id').ilike('title', pattern).limit(10),
-                supabase.from('bc_people').select('id, name, email').ilike('name', pattern).limit(10),
+                supabase
+                    .from('bc_todos')
+                    .select('id, title, description, created_at, project_id')
+                    .or(`title.ilike.${pattern},description.ilike.${pattern}`)
+                    .order('created_at', { ascending: false })
+                    .limit(10),
+                supabase
+                    .from('bc_messages')
+                    .select('id, title, content, created_at, project_id')
+                    .or(`title.ilike.${pattern},content.ilike.${pattern}`)
+                    .order('created_at', { ascending: false })
+                    .limit(10),
+                supabase
+                    .from('bc_documents')
+                    .select('id, title, content, created_at, project_id')
+                    .or(`title.ilike.${pattern},content.ilike.${pattern}`)
+                    .order('created_at', { ascending: false })
+                    .limit(10),
+                supabase
+                    .from('bc_people')
+                    .select('id, name, email')
+                    .ilike('name', pattern)
+                    .limit(10),
             ])
 
             const results: any[] = []
@@ -237,7 +313,16 @@ function BasecampWorkspace() {
                 todosRes.data.forEach((row: any) => {
                     const proj = projects.find(p => p.db_id === row.project_id)
                     if (proj) {
-                        results.push({ type: 'todo', id: row.id, label: row.title, projectId: proj.id, projectName: proj.name })
+                        results.push({
+                            type: 'todo',
+                            id: row.id,
+                            label: row.title,
+                            projectId: proj.id,
+                            projectName: proj.name,
+                            createdAt: row.created_at,
+                            description: row.description,
+                            media: extractMediaUrls(row.description),
+                        })
                     }
                 })
             }
@@ -247,7 +332,16 @@ function BasecampWorkspace() {
                 messagesRes.data.forEach((row: any) => {
                     const proj = projects.find(p => p.db_id === row.project_id)
                     if (proj) {
-                        results.push({ type: 'message', id: row.id, label: row.subject, projectId: proj.id, projectName: proj.name })
+                        results.push({
+                            type: 'message',
+                            id: row.id,
+                            label: row.title,
+                            projectId: proj.id,
+                            projectName: proj.name,
+                            createdAt: row.created_at,
+                            description: row.content,
+                            media: extractMediaUrls(row.content),
+                        })
                     }
                 })
             }
@@ -257,7 +351,16 @@ function BasecampWorkspace() {
                 docsRes.data.forEach((row: any) => {
                     const proj = projects.find(p => p.db_id === row.project_id)
                     if (proj) {
-                        results.push({ type: 'document', id: row.id, label: row.title, projectId: proj.id, projectName: proj.name })
+                        results.push({
+                            type: 'document',
+                            id: row.id,
+                            label: row.title,
+                            projectId: proj.id,
+                            projectName: proj.name,
+                            createdAt: row.created_at,
+                            description: row.content,
+                            media: extractMediaUrls(row.content),
+                        })
                     }
                 })
             }
@@ -289,7 +392,7 @@ function BasecampWorkspace() {
         setSearchLoading(true)
         searchTimerRef.current = setTimeout(() => {
             executeSearch(value)
-        }, 350)
+        }, 250)
     }, [executeSearch])
 
     // Keyboard shortcut Shift + J / Escape
@@ -414,47 +517,6 @@ function BasecampWorkspace() {
 
                 <div className="flex items-center justify-end gap-1 overflow-x-auto no-scrollbar py-0.5 flex-1">
                     <button
-                        onClick={() => navigateTo({ section: 'hey' })}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all relative shrink-0 ${
-                            section === 'hey'
-                                ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }`}
-                    >
-                        <Bell size={13} />
-                        <span>{t('basecamp.hey')}</span>
-                        {unreadHeyCount > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-red-500 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center">
-                                {unreadHeyCount}
-                            </span>
-                        )}
-                    </button>
-
-                    <button
-                        onClick={() => navigateTo({ section: 'pings' })}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
-                            section === 'pings' || pingUser
-                                ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }`}
-                    >
-                        <MessageSquare size={13} />
-                        <span>{t('basecamp.pings')}</span>
-                    </button>
-
-                    <button
-                        onClick={() => navigateTo({ section: 'mystuff' })}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
-                            section === 'mystuff'
-                                ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }`}
-                    >
-                        <User size={13} />
-                        <span>{t('basecamp.my_stuff')}</span>
-                    </button>
-
-                    <button
                         onClick={() => setShowSearchModal(true)}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shrink-0"
                     >
@@ -554,10 +616,10 @@ function BasecampWorkspace() {
                     case 'answers':
                         return <ToolCheckins project={currentProject} currentUserName={currentUserName} />
                     default:
-                        return <BasecampProject project={currentProject} navigateTo={navigateTo} saveProjects={saveProjects} projects={projects} currentUserName={currentUserName} />
+                        return <BasecampProject project={currentProject} navigateTo={navigateTo} saveProjects={saveProjects} projects={projects} currentUserName={currentUserName} onOpenSearch={() => setShowSearchModal(true)} />
                 }
             }
-            return <BasecampProject project={currentProject} navigateTo={navigateTo} saveProjects={saveProjects} projects={projects} currentUserName={currentUserName} />
+            return <BasecampProject project={currentProject} navigateTo={navigateTo} saveProjects={saveProjects} projects={projects} currentUserName={currentUserName} onOpenSearch={() => setShowSearchModal(true)} />
         }
 
         return <BasecampHome projects={projects} saveProjects={saveProjects} navigateTo={navigateTo} userName={currentUserName} onOpenSearch={() => setShowSearchModal(true)} />
@@ -573,77 +635,6 @@ function BasecampWorkspace() {
                 {renderWorkspaceContent()}
             </main>
 
-            {/* Bottom Floating Bar: Dock, Support & Help, and New for you notification badge */}
-            <div className="absolute bottom-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none">
-                {/* Bottom Left: User avatar & Support */}
-                <div className="flex flex-col items-center gap-1 pointer-events-auto">
-                    <button 
-                        onClick={() => window.open('mailto:soporte@tacosgavilan.com', '_blank')} 
-                        className="text-[9px] text-slate-400 dark:text-slate-500 hover:text-slate-655 dark:hover:text-slate-300 font-bold hidden sm:flex items-center gap-0.5"
-                        title={t('basecamp.support_contact')}
-                    >
-                        <HelpCircle size={10} />
-                        <span>{t('language') === 'es' ? 'Soporte' : 'Support'}</span>
-                    </button>
-                    <div className="w-8 h-8 rounded-full bg-[#1D7DB5] text-white font-black flex items-center justify-center text-xs shadow-md border-2 border-white dark:border-slate-800 uppercase">
-                        {currentUserName[0]}
-                    </div>
-                </div>
-
-                {/* Bottom Center: Pills Menu Dock */}
-                <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200/80 dark:border-slate-800/80 rounded-full py-2 px-4 sm:px-6 shadow-xl flex items-center gap-3 sm:gap-5 pointer-events-auto">
-                    <button 
-                        onClick={() => navigateTo({ section: 'mystuff' })}
-                        className={`text-xs font-bold transition-colors ${section === 'mystuff' ? 'text-[#1D7DB5] dark:text-blue-400' : 'text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5]'}`}
-                    >
-                        {t('language') === 'es' ? 'Mis Tareas' : 'My Tasks'}
-                    </button>
-                    <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
-                    <button 
-                        onClick={() => navigateTo({ section: 'mystuff' })}
-                        className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
-                    >
-                        {t('language') === 'es' ? 'Mi Agenda' : 'My Events'}
-                    </button>
-                    <span className="hidden md:inline w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
-                    <button 
-                        onClick={() => navigateTo({ section: 'mystuff' })}
-                        className="hidden md:inline text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
-                        title={t('basecamp.bookmarks_soon')}
-                    >
-                        {t('language') === 'es' ? 'Marcadores' : 'My Bookmarks'}
-                    </button>
-                    <span className="hidden md:inline w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
-                    <button 
-                        onClick={() => navigateTo({ section: 'mystuff' })}
-                        className="hidden md:inline text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-[#1D7DB5] transition-colors"
-                        title={t('basecamp.notes_soon')}
-                    >
-                        {t('language') === 'es' ? 'Mis Notas' : 'My Notes'}
-                    </button>
-                </div>
-
-                {/* Bottom Right: New for you Badge */}
-                <button 
-                    onClick={() => setHeyDrawerOpen(true)}
-                    className="flex items-center gap-1 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full bg-[#ffe8e0] dark:bg-[#472215]/40 hover:bg-[#ffd5c7] dark:hover:bg-[#472215]/60 text-[#a03e1a] dark:text-[#f27441] border border-[#ffcdbd] dark:border-[#5c2a1a] transition-all shadow-md focus:outline-none pointer-events-auto"
-                >
-                    <span className="text-[10px] font-black uppercase tracking-wider hidden sm:inline">{t('language') === 'es' ? 'Novedades' : 'New for you'}</span>
-                    <span className="text-[10px] font-black uppercase tracking-wider inline sm:hidden">Hey</span>
-                    {unreadHeyCount > 0 ? (
-                        <span className="w-2 h-2 rounded-full bg-[#f27441] animate-pulse" />
-                    ) : (
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#a03e1a] opacity-40" />
-                    )}
-                </button>
-            </div>
-
-            {/* Sliding Drawer for Hey/Notifications */}
-            <NewForYouDrawer 
-                isOpen={heyDrawerOpen} 
-                onClose={() => setHeyDrawerOpen(false)} 
-                navigateTo={navigateTo} 
-            />
 
             {/* Modal de Búsqueda global (Find) */}
             {showSearchModal && (
@@ -689,9 +680,8 @@ function BasecampWorkspace() {
                             </div>
                         )}
 
-                        {/* Search results */}
-                        {!searchLoading && searchQuery.trim().length >= 3 && (
-                            <div className="mt-4 max-h-[360px] overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                       {!searchLoading && searchQuery.trim().length >= 3 && (
+                            <div className="mt-4 max-h-[480px] overflow-y-auto flex flex-col gap-4">
                                 {searchResults.length === 0 ? (
                                     <div style={{ textAlign: 'center', padding: '24px 0' }}>
                                         <Search size={32} style={{ margin: '0 auto 8px', color: '#94a3b8' }} />
@@ -703,7 +693,7 @@ function BasecampWorkspace() {
                                     <>
                                         {/* Group: Projects */}
                                         {searchResults.filter(r => r.type === 'project').length > 0 && (
-                                            <>
+                                            <div className="flex flex-col gap-1">
                                                 <p style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', padding: '6px 4px 2px' }}>
                                                     {t('basecamp.search_type_projects')}
                                                 </p>
@@ -720,89 +710,238 @@ function BasecampWorkspace() {
                                                         </div>
                                                     </button>
                                                 ))}
-                                            </>
+                                            </div>
                                         )}
 
-                                        {/* Group: Todos */}
+                                        {/* Group: Todos (Sorted newest to oldest) */}
                                         {searchResults.filter(r => r.type === 'todo').length > 0 && (
-                                            <>
+                                            <div className="flex flex-col gap-2.5">
                                                 <p style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', padding: '6px 4px 2px' }}>
                                                     {t('basecamp.search_type_tasks')}
                                                 </p>
-                                                {searchResults.filter(r => r.type === 'todo').map(r => (
-                                                    <button
-                                                        key={`todo-${r.id}`}
-                                                        onClick={() => { navigateTo({ project: r.projectId, tool: 'todos', todoId: r.id }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
-                                                        className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-left transition-colors"
-                                                        style={{ border: '1px solid transparent' }}
-                                                    >
-                                                        <CheckSquare size={16} style={{ color: '#22c55e', flexShrink: 0 }} />
-                                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</p>
-                                                            <p style={{ fontSize: 10, color: '#94a3b8' }}>{t('basecamp.search_in_project')} {r.projectName}</p>
-                                                        </div>
-                                                    </button>
-                                                ))}
-                                            </>
+                                                {searchResults
+                                                    .filter(r => r.type === 'todo')
+                                                    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                                                    .map(r => (
+                                                        <button
+                                                            key={`todo-${r.id}`}
+                                                            onClick={() => { navigateTo({ project: r.projectId, tool: 'todos', todoId: r.id }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
+                                                            className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-150 dark:border-slate-800 text-left transition-all duration-200 shadow-sm"
+                                                        >
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <CheckSquare size={16} className="text-green-600 flex-shrink-0" />
+                                                                <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 flex-1 truncate">
+                                                                    {r.label}
+                                                                </span>
+                                                                {r.createdAt && (
+                                                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 flex-shrink-0">
+                                                                        {formatSearchDateTime(r.createdAt, language)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#1D7DB5] uppercase tracking-wider">
+                                                                <span>{t('basecamp.search_in_project')}:</span>
+                                                                <span className="bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded">
+                                                                    {r.projectName}
+                                                                </span>
+                                                            </div>
+                                                            {r.description && (
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                                                                    {stripHtml(r.description)}
+                                                                </p>
+                                                            )}
+                                                            {r.media && r.media.length > 0 && (
+                                                                <div className="flex flex-wrap gap-2 mt-1">
+                                                                    {r.media.slice(0, 5).map((m: any, idx: number) => {
+                                                                        if (m.type === 'image') {
+                                                                            return (
+                                                                                <img 
+                                                                                    key={idx}
+                                                                                    src={m.url} 
+                                                                                    alt="Preview thumbnail" 
+                                                                                    className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white"
+                                                                                />
+                                                                            )
+                                                                        } else if (m.type === 'video') {
+                                                                            return (
+                                                                                <div key={idx} className="relative w-12 h-12 rounded-lg bg-slate-950 border border-slate-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                                                    <video src={m.url} className="w-full h-full object-cover opacity-80" muted preload="metadata" />
+                                                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                                                                        <Play size={10} className="text-white fill-white" />
+                                                                                    </div>
+                                                                                </div>
+                                                                            )
+                                                                        }
+                                                                        return null
+                                                                    })}
+                                                                    {r.media.length > 5 && (
+                                                                        <div className="w-12 h-12 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                                                            +{r.media.length - 5}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    ))}
+                                            </div>
                                         )}
 
-                                        {/* Group: Messages */}
+                                        {/* Group: Messages (Sorted newest to oldest) */}
                                         {searchResults.filter(r => r.type === 'message').length > 0 && (
-                                            <>
+                                            <div className="flex flex-col gap-2.5">
                                                 <p style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', padding: '6px 4px 2px' }}>
                                                     {t('basecamp.search_type_messages')}
                                                 </p>
-                                                {searchResults.filter(r => r.type === 'message').map(r => (
-                                                    <button
-                                                        key={`msg-${r.id}`}
-                                                        onClick={() => { navigateTo({ project: r.projectId, tool: 'messages' }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
-                                                        className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-left transition-colors"
-                                                        style={{ border: '1px solid transparent' }}
-                                                    >
-                                                        <Mail size={16} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</p>
-                                                            <p style={{ fontSize: 10, color: '#94a3b8' }}>{t('basecamp.search_in_project')} {r.projectName}</p>
-                                                        </div>
-                                                    </button>
-                                                ))}
-                                            </>
+                                                {searchResults
+                                                    .filter(r => r.type === 'message')
+                                                    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                                                    .map(r => (
+                                                        <button
+                                                            key={`msg-${r.id}`}
+                                                            onClick={() => { navigateTo({ project: r.projectId, tool: 'messages' }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
+                                                            className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-150 dark:border-slate-800 text-left transition-all duration-200 shadow-sm"
+                                                        >
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <Mail size={16} className="text-amber-500 flex-shrink-0" />
+                                                                <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 flex-1 truncate">
+                                                                    {r.label}
+                                                                </span>
+                                                                {r.createdAt && (
+                                                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 flex-shrink-0">
+                                                                        {formatSearchDateTime(r.createdAt, language)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#1D7DB5] uppercase tracking-wider">
+                                                                <span>{t('basecamp.search_in_project')}:</span>
+                                                                <span className="bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded">
+                                                                    {r.projectName}
+                                                                </span>
+                                                            </div>
+                                                            {r.description && (
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                                                                    {stripHtml(r.description)}
+                                                                </p>
+                                                            )}
+                                                            {r.media && r.media.length > 0 && (
+                                                                <div className="flex flex-wrap gap-2 mt-1">
+                                                                    {r.media.slice(0, 5).map((m: any, idx: number) => {
+                                                                        if (m.type === 'image') {
+                                                                            return (
+                                                                                <img 
+                                                                                    key={idx}
+                                                                                    src={m.url} 
+                                                                                    alt="Preview thumbnail" 
+                                                                                    className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white"
+                                                                                />
+                                                                            )
+                                                                        } else if (m.type === 'video') {
+                                                                            return (
+                                                                                <div key={idx} className="relative w-12 h-12 rounded-lg bg-slate-950 border border-slate-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                                                    <video src={m.url} className="w-full h-full object-cover opacity-80" muted preload="metadata" />
+                                                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                                                                        <Play size={10} className="text-white fill-white" />
+                                                                                    </div>
+                                                                                </div>
+                                                                            )
+                                                                        }
+                                                                        return null
+                                                                    })}
+                                                                    {r.media.length > 5 && (
+                                                                        <div className="w-12 h-12 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                                                            +{r.media.length - 5}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    ))}
+                                            </div>
                                         )}
 
-                                        {/* Group: Documents */}
+                                        {/* Group: Documents (Sorted newest to oldest) */}
                                         {searchResults.filter(r => r.type === 'document').length > 0 && (
-                                            <>
+                                            <div className="flex flex-col gap-2.5">
                                                 <p style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', padding: '6px 4px 2px' }}>
                                                     {t('basecamp.search_type_documents')}
                                                 </p>
-                                                {searchResults.filter(r => r.type === 'document').map(r => (
-                                                    <button
-                                                        key={`doc-${r.id}`}
-                                                        onClick={() => { navigateTo({ project: r.projectId, tool: 'docs' }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
-                                                        className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-left transition-colors"
-                                                        style={{ border: '1px solid transparent' }}
-                                                    >
-                                                        <FileText size={16} style={{ color: '#8b5cf6', flexShrink: 0 }} />
-                                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</p>
-                                                            <p style={{ fontSize: 10, color: '#94a3b8' }}>{t('basecamp.search_in_project')} {r.projectName}</p>
-                                                        </div>
-                                                    </button>
-                                                ))}
-                                            </>
+                                                {searchResults
+                                                    .filter(r => r.type === 'document')
+                                                    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                                                    .map(r => (
+                                                        <button
+                                                            key={`doc-${r.id}`}
+                                                            onClick={() => { navigateTo({ project: r.projectId, tool: 'docs' }); setSearchQuery(''); setSearchResults([]); setShowSearchModal(false) }}
+                                                            className="w-full flex flex-col gap-2 p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-100 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-150 dark:border-slate-800 text-left transition-all duration-200 shadow-sm"
+                                                        >
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <FolderOpen size={16} className="text-blue-500 flex-shrink-0" />
+                                                                <span className="text-sm font-extrabold text-slate-800 dark:text-slate-200 flex-1 truncate">
+                                                                    {r.label}
+                                                                </span>
+                                                                {r.createdAt && (
+                                                                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 flex-shrink-0">
+                                                                        {formatSearchDateTime(r.createdAt, language)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#1D7DB5] uppercase tracking-wider">
+                                                                <span>{t('basecamp.search_in_project')}:</span>
+                                                                <span className="bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded">
+                                                                    {r.projectName}
+                                                                </span>
+                                                            </div>
+                                                            {r.description && (
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                                                                    {stripHtml(r.description)}
+                                                                </p>
+                                                            )}
+                                                            {r.media && r.media.length > 0 && (
+                                                                <div className="flex flex-wrap gap-2 mt-1">
+                                                                    {r.media.slice(0, 5).map((m: any, idx: number) => {
+                                                                        if (m.type === 'image') {
+                                                                            return (
+                                                                                <img 
+                                                                                    key={idx}
+                                                                                    src={m.url} 
+                                                                                    alt="Preview thumbnail" 
+                                                                                    className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white"
+                                                                                />
+                                                                            )
+                                                                        } else if (m.type === 'video') {
+                                                                            return (
+                                                                                <div key={idx} className="relative w-12 h-12 rounded-lg bg-slate-950 border border-slate-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                                                    <video src={m.url} className="w-full h-full object-cover opacity-80" muted preload="metadata" />
+                                                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                                                                        <Play size={10} className="text-white fill-white" />
+                                                                                    </div>
+                                                                                </div>
+                                                                            )
+                                                                        }
+                                                                        return null
+                                                                    })}
+                                                                    {r.media.length > 5 && (
+                                                                        <div className="w-12 h-12 rounded-lg bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                                                            +{r.media.length - 5}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    ))}
+                                            </div>
                                         )}
 
                                         {/* Group: People */}
                                         {searchResults.filter(r => r.type === 'person').length > 0 && (
-                                            <>
+                                            <div className="flex flex-col gap-1">
                                                 <p style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', padding: '6px 4px 2px' }}>
                                                     {t('basecamp.search_type_people')}
                                                 </p>
                                                 {searchResults.filter(r => r.type === 'person').map(r => (
                                                     <div
                                                         key={`person-${r.id}`}
-                                                        className="w-full flex items-center gap-3 p-2.5 rounded-lg text-left"
-                                                        style={{ border: '1px solid transparent' }}
+                                                        className="w-full flex items-center gap-3 p-2.5 rounded-lg text-left bg-slate-50/30 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800"
                                                     >
                                                         <User size={16} style={{ color: '#ec4899', flexShrink: 0 }} />
                                                         <div style={{ minWidth: 0, flex: 1 }}>
@@ -811,7 +950,7 @@ function BasecampWorkspace() {
                                                         </div>
                                                     </div>
                                                 ))}
-                                            </>
+                                            </div>
                                         )}
                                     </>
                                 )}

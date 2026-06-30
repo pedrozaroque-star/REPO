@@ -18,6 +18,22 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
 
+const BasecampIcon = ({ size = 20 }: { size?: number }) => (
+    <svg 
+        viewBox="0 0 512 512" 
+        width={size} 
+        height={size} 
+        fill="currentColor" 
+        style={{ flexShrink: 0 }}
+    >
+        <path 
+            fillRule="evenodd" 
+            clipRule="evenodd" 
+            d="M111.962 57.729C155.189 19.34 206.449 0 265.307 0c77.361 0 133.713 49.448 171.582 113.692 37.866 64.24 57.6 143.773 61.686 205.326a26.662 26.662 0 01-3.283 14.894l-.012.028-.016.025c-36.169 62.105-118.272 96.008-229.939 96.011-80.188 1.053-156.884-32.74-210.199-92.613a25.471 25.471 0 01-4.943-25.924c7.15-19.237 20.547-51.324 38.335-78.688 8.892-13.679 18.959-26.299 29.988-35.543 11.026-9.24 23.224-15.276 36.306-15.348h.016c13.181 0 24.573 5.25 34.449 12.345 9.657 6.937 18.057 15.784 25.377 23.491l.444.471.025.024a169.12 169.12 0 0013.322 13.212 392.206 392.206 0 0049.68-83.351l.039-.092.05-.091c6.327-12.016 20.971-16.961 33.293-11.242 12.324 5.718 17.991 20.089 12.892 32.673l-.026.07-.032.066c-26.677 57.123-47.287 86.004-62.615 100.621-7.688 7.334-14.109 11.141-19.363 13.083-5.294 1.959-9.228 1.959-11.664 1.959-11.174 0-20.703-4.308-29.181-10.435-8.312-6.007-15.793-13.897-22.916-21.409l-.301-.317c-3.271-3.468-8.227-8.715-12.998-13.091-2.39-2.194-4.666-4.105-6.614-5.45-.973-.673-1.807-1.166-2.486-1.478a5.54 5.54 0 00-.806-.31c-.048-.013-.091-.022-.128-.03-.8.211-1.931.762-3.402 1.858-1.635 1.218-3.501 2.964-5.563 5.229-4.12 4.526-8.817 10.903-13.77 18.655-9.628 15.064-20.054 35.063-28.896 56.107a223.491 223.491 0 00161.61 64.325h.059c88.439 0 153.567-23.975 181.811-64.431-5.026-55.783-22.994-121.651-53.471-173.599-30.694-52.325-73.656-89.898-128.34-89.898-93.402 0-164.264 65.12-210.272 194.986l-.029.08-.034.079c-5.254 12.403-19.257 18.576-31.962 14.093-12.706-4.487-19.726-18.08-16.023-31.026l.024-.086.029-.084c26.723-75.584 61.75-132.8 104.922-171.138z" 
+        />
+    </svg>
+)
+
 interface AppSidebarProps {
     isCollapsed: boolean
     setIsCollapsed: (value: boolean) => void
@@ -141,7 +157,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.schedules'), plainName: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.procedures'), plainName: 'Procedimientos', path: '/procedimientos', icon: <CheckSquare size={20} />, roles: [] },
                 { name: t('items.dashboard'), plainName: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
-                { name: t('items.basecamp'), plainName: 'Basecamp', path: '/basecamp', icon: <Folder size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
+                { name: t('items.basecamp'), plainName: 'Basecamp', path: '/basecamp', icon: <BasecampIcon size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
             ]
         },
         {
@@ -271,6 +287,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavItem = (item: MenuItem, groupId: string, isMobile: boolean = false) => {
         const isActive = pathname === item.path || (item.path !== '/dashboard' && pathname.startsWith(item.path + '/'))
         const colors = GROUP_COLORS[groupId] || GROUP_COLORS.operaciones
+        const isBasecamp = item.plainName === 'Basecamp'
 
         return (
             <Link
@@ -280,15 +297,30 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 title={isCollapsed && !isMobile ? (item.plainName || '') : undefined}
                 className={`group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] ${
                     isActive
-                        ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white`
-                        : 'border-l-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'
+                        ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white ${isBasecamp ? 'basecamp-animated-item-active' : ''}`
+                        : `${isBasecamp ? 'basecamp-animated-item border-l-[3px]' : 'border-l-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'}`
                 } ${isCollapsed && !isMobile ? 'justify-center px-2' : ''}`}
             >
-                <div className={`flex-shrink-0 transition-transform duration-200 ${isActive ? `${colors.icon} scale-110` : `${colors.icon} opacity-70 group-hover/item:opacity-100`}`}>
-                    {React.cloneElement(item.icon as any, { size: 18, strokeWidth: isActive ? 2.5 : 2 })}
+                <div className={`flex-shrink-0 transition-transform duration-200 ${
+                    isBasecamp 
+                        ? 'basecamp-animated-icon scale-105' 
+                        : (isActive ? `${colors.icon} scale-110` : `${colors.icon} opacity-70 group-hover/item:opacity-100`)
+                }`}>
+                    {React.cloneElement(item.icon as any, { size: 18, strokeWidth: (isActive || isBasecamp) ? 2.5 : 2 })}
                 </div>
-                {(!isCollapsed || isMobile) && (
-                    <span className="truncate">{item.name}</span>
+                {(!isCollapsed || isMobile) ? (
+                    <div className="flex items-center justify-between w-full min-w-0">
+                        <span className={`truncate ${isBasecamp ? 'font-semibold text-slate-800 dark:text-slate-200' : ''}`}>{item.name}</span>
+                        {isBasecamp && (
+                            <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm ml-1.5 shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
+                                new
+                            </span>
+                        )}
+                    </div>
+                ) : (
+                    isBasecamp && (
+                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm animate-ping new-badge-animated" />
+                    )
                 )}
 
             </Link>
@@ -483,6 +515,37 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
 
     return (
         <>
+            <style>{`
+                @keyframes basecamp-pulse {
+                    0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(29, 125, 181, 0)); }
+                    50% { transform: scale(1.02); filter: drop-shadow(0 0 6px rgba(29, 125, 181, 0.3)); }
+                    100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(29, 125, 181, 0)); }
+                }
+                @keyframes basecamp-icon-pulse {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.1) rotate(2deg); }
+                    100% { transform: scale(1); }
+                }
+                @keyframes new-badge-pulse {
+                    0%, 100% { opacity: 0.95; transform: scale(1); }
+                    50% { opacity: 1; transform: scale(1.08); }
+                }
+                .basecamp-animated-item {
+                    animation: basecamp-pulse 2.5s infinite ease-in-out;
+                    border-left-color: rgba(29, 125, 181, 0.7) !important;
+                    background: rgba(29, 125, 181, 0.05) !important;
+                }
+                .basecamp-animated-item-active {
+                    animation: basecamp-pulse 2.5s infinite ease-in-out;
+                }
+                .basecamp-animated-icon {
+                    animation: basecamp-icon-pulse 2.5s infinite ease-in-out;
+                    color: #1d7db5 !important;
+                }
+                .new-badge-animated {
+                    animation: new-badge-pulse 1.5s infinite ease-in-out;
+                }
+            `}</style>
             {/* ============ DESKTOP SIDEBAR ============ */}
             <aside
                 className={`hidden lg:flex flex-col fixed inset-y-0 left-0 z-40 bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 ease-in-out overflow-visible ${
