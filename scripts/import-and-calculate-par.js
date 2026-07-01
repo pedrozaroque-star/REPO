@@ -40,6 +40,10 @@ async function getItemMap() {
             map.set(item.excel_reference.trim().toLowerCase(), item.id);
         }
     });
+
+    // Alias especial: Mapear 'Tortillas, Tacos y Platos' (Excel) al item id activo (excel_reference: 'Tortillas para Tacos y Platos')
+    map.set('tortillas, tacos y platos', 'dcd79433-e97c-46dc-80c0-8429401e0fa0');
+
     return map;
 }
 
