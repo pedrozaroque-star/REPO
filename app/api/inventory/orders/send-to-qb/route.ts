@@ -59,13 +59,16 @@ export async function POST(request: NextRequest) {
         const itemMap = new Map<string, any>()
         items?.forEach(i => itemMap.set(i.id, i))
 
-        // 3. Obtener QB mappings
+        // 3. Obtener QB mappings (incluye costo para calcular Amount del Estimate)
         const { data: mappings } = await supabase
             .from('quickbooks_mappings')
-            .select('qb_item_id, inventory_item_id')
+            .select('qb_item_id, inventory_item_id, last_fetch_cost')
 
-        const qbMap = new Map<string, string>()
-        mappings?.forEach(m => qbMap.set(m.inventory_item_id, m.qb_item_id))
+        const qbMap = new Map<string, { qbItemId: string; cost: number }>()
+        mappings?.forEach(m => qbMap.set(m.inventory_item_id, {
+            qbItemId: m.qb_item_id,
+            cost: m.last_fetch_cost || 0
+        }))
 
         // 4. Obtener store info (incluye qb_customer_id para Estimate)
         const { data: store } = await supabase
@@ -134,19 +137,23 @@ export async function POST(request: NextRequest) {
             const finalQty = line.adjusted_qty ?? line.final_qty ?? line.calculated_qty
             if (finalQty <= 0) continue // No enviar items negativos o cero
 
-            const qbItemId = qbMap.get(line.inventory_item_id)
-            if (!qbItemId) {
+            const qbMapping = qbMap.get(line.inventory_item_id)
+            if (!qbMapping) {
                 const item = itemMap.get(line.inventory_item_id)
                 skippedItems.push(item?.name || line.inventory_item_id)
                 continue
             }
 
+            const unitPrice = qbMapping.cost
+            const amount = Math.round(finalQty * unitPrice * 100) / 100 // Redondear a 2 decimales
+
             estimateLines.push({
                 DetailType: 'SalesItemLineDetail',
-                Amount: 0, // QB calcula el amount basado en el precio del item
+                Amount: amount,
                 SalesItemLineDetail: {
-                    ItemRef: { value: qbItemId },
+                    ItemRef: { value: qbMapping.qbItemId },
                     Qty: finalQty,
+                    UnitPrice: unitPrice,
                 }
             })
         }
