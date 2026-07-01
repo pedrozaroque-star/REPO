@@ -287,28 +287,31 @@ export default function InventoryOrdersPage() {
     async function handleSendToQb() {
         if (!confirm(t('bodegaOrders.confirmSend'))) return
 
-        // First save/generate the order if not already
-        const existingOrder = orders.find((o: any) => o.order_date === todayStr)
-        let orderId = existingOrder?.id
+        // SIEMPRE re-guardar las líneas antes de enviar a QB,
+        // incluso si la orden ya existe (podría tener 0 líneas de un guardado parcial previo)
+        setSaving(true)
+        const lines = orderLines.filter(l => {
+            const adj = adjustments[l.inventory_item_id]
+            const finalQty = adj !== undefined ? adj : l.calculated_qty
+            return finalQty > 0
+        }).map(l => ({
+            inventory_item_id: l.inventory_item_id,
+            calculated_qty: l.calculated_qty,
+            adjusted_qty: adjustments[l.inventory_item_id],
+            par_value: l.par_value,
+            leftover_value: l.leftover_value ?? 0
+        }))
 
-        if (!orderId) {
-            setSaving(true)
-            const lines = orderLines.filter(l => {
-                const adj = adjustments[l.inventory_item_id]
-                const finalQty = adj !== undefined ? adj : l.calculated_qty
-                return finalQty > 0
-            }).map(l => ({
-                inventory_item_id: l.inventory_item_id,
-                calculated_qty: l.calculated_qty,
-                adjusted_qty: adjustments[l.inventory_item_id],
-                par_value: l.par_value,
-                leftover_value: l.leftover_value ?? 0
-            }))
-            const saveRes = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
-            if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
-            orderId = saveRes.orderId
+        if (lines.length === 0) {
+            alert('No hay items con cantidad > 0 para enviar. Verifica los sobrantes y la base del día.')
             setSaving(false)
+            return
         }
+
+        const saveRes = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
+        if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
+        const orderId = saveRes.orderId
+        setSaving(false)
 
         setSendingToQb(true)
         try {
