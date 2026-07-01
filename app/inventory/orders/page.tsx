@@ -700,16 +700,29 @@ export default function InventoryOrdersPage() {
                                                     {/* BASE inputs */}
                                                     {weekDays.map((d, colIndex) => {
                                                         const val = b ? (b as any)[d.baseField] : undefined
+                                                        const pVal = Number(val) || 0
                                                         const piVal = pi ? (pi as any)[d.baseField] : undefined
-                                                        // Alert color based on leftover percentage
-                                                        const leftover = itemC[d.dateStr]
-                                                        const pVal = val || 0
+                                                        // Alert color based on leftover percentage (Excel rules)
                                                         let alertColor = ''
-                                                        if (pVal > 0 && leftover !== undefined) {
-                                                            const pct = (leftover / pVal) * 100
-                                                            const isWeekend = ['fri', 'sat', 'sun'].includes(d.key)
-                                                            if ((!isWeekend && pVal >= 9 && (pct < 10 || pct > 50)) || (isWeekend && pVal >= 8 && (pct < 10 || pct > 30))) {
-                                                                alertColor = 'bg-yellow-50 border-yellow-300'
+                                                        if (pVal > 0) {
+                                                            if (['mon', 'tue', 'wed', 'thu', 'fri'].includes(d.key)) {
+                                                                const leftover = itemC[d.dateStr]
+                                                                if (leftover !== undefined && pVal >= 10) {
+                                                                    const pct = (leftover / pVal) * 100
+                                                                    if (pct < 20 || pct > 60) {
+                                                                        alertColor = 'bg-yellow-50 border-yellow-300'
+                                                                    }
+                                                                }
+                                                            } else if (d.key === 'sat') {
+                                                                // Sábado se valida con el sobrante del Domingo (que es d.dateStr + 1 día)
+                                                                const sundayDateStr = addDays(d.dateStr, 1)
+                                                                const sundayLeftover = itemC[sundayDateStr]
+                                                                if (sundayLeftover !== undefined && pVal >= 8) {
+                                                                    const pct = (sundayLeftover / pVal) * 100
+                                                                    if (pct < 10 || pct > 30) {
+                                                                        alertColor = 'bg-yellow-50 border-yellow-300'
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                         return (

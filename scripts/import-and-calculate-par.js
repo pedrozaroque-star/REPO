@@ -209,24 +209,48 @@ async function calculateMathematicalParIdeal() {
         // Para cada día de la semana (Lunes a Sábado)
         daysOfWeek.forEach((day, index) => {
             const parVal = Number(b[`${day}_par`]) || 0;
-            const dateStr = addDays(b.week_start_date, index);
-            const leftoverVal = leftoverMap.get(`${itemId}_${dateStr}`);
-
             let adjPar = parVal;
 
-            // Fórmula matemática exacta del Excel
-            if (leftoverVal !== undefined && parVal >= 6) {
-                const leftoverPct = (leftoverVal / parVal) * 100;
+            if (day === 'sat') {
+                // Sábado se valida con el sobrante del Domingo (índice 6)
+                const sundayDateStr = addDays(b.week_start_date, 6);
+                const sundayLeftoverVal = leftoverMap.get(`${itemId}_${sundayDateStr}`);
                 
-                if (leftoverPct >= 70) {
-                    adjPar = parVal - Math.round(parVal * 0.15);
-                } else if (leftoverPct >= 60) {
-                    adjPar = parVal - Math.round(parVal * 0.10);
-                } else if (leftoverPct < 10) {
-                    if (parVal >= 40) {
-                        adjPar = parVal + Math.round(parVal * 0.10);
-                    } else {
-                        adjPar = parVal + Math.round(parVal * 0.20);
+                if (sundayLeftoverVal !== undefined && parVal >= 8) {
+                    const leftoverPct = (sundayLeftoverVal / parVal) * 100;
+                    if (leftoverPct > 30) {
+                        if (leftoverPct >= 50) {
+                            adjPar = parVal - Math.round(parVal * 0.15);
+                        } else {
+                            adjPar = parVal - Math.round(parVal * 0.10);
+                        }
+                    } else if (leftoverPct < 10) {
+                        if (parVal >= 40) {
+                            adjPar = parVal + Math.round(parVal * 0.10);
+                        } else {
+                            adjPar = parVal + Math.round(parVal * 0.20);
+                        }
+                    }
+                }
+            } else {
+                // Lunes a Viernes se valida con el sobrante del mismo día
+                const dateStr = addDays(b.week_start_date, index);
+                const leftoverVal = leftoverMap.get(`${itemId}_${dateStr}`);
+                
+                if (leftoverVal !== undefined && parVal >= 10) {
+                    const leftoverPct = (leftoverVal / parVal) * 100;
+                    if (leftoverPct > 60) {
+                        if (leftoverPct >= 70) {
+                            adjPar = parVal - Math.round(parVal * 0.15);
+                        } else {
+                            adjPar = parVal - Math.round(parVal * 0.10);
+                        }
+                    } else if (leftoverPct < 20) {
+                        if (parVal >= 40) {
+                            adjPar = parVal + Math.round(parVal * 0.10);
+                        } else {
+                            adjPar = parVal + Math.round(parVal * 0.20);
+                        }
                     }
                 }
             }
@@ -274,7 +298,18 @@ async function calculateMathematicalParIdeal() {
 async function main() {
     console.log(`🔄 Iniciando procesamiento del Excel "${EXCEL_FILE}" para la tienda ID: ${STORE_ID}...\n`);
     
-    const workbook = XLSX.readFile(EXCEL_FILE);
+    const fs = require('fs');
+    const tempFile = 'temp_import_' + Date.now() + '.xlsx';
+    fs.copyFileSync(EXCEL_FILE, tempFile);
+    
+    const workbook = XLSX.readFile(tempFile);
+    
+    try {
+        fs.unlinkSync(tempFile);
+    } catch (err) {
+        console.error('Warning: could not delete temp file:', err.message);
+    }
+    
     const itemMap = await getItemMap();
     console.log(`📦 ${itemMap.size} items mapeados en la base de datos.`);
     
