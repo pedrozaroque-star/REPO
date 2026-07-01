@@ -1,9 +1,12 @@
 /**
  * @module inventory/orders/page
  * @description Página principal del módulo de Pedidos Automáticos a Bodega.
- *              Replica y mejora el flujo del Excel "Lynwood Order" con 4 pestañas:
- *              BASE (PAR semanal), SOBRANTES (conteo diario), ORDEN DEL DÍA (cálculo
- *              automático + envío a QB), y ANÁLISIS (tendencias y porcentajes).
+ *              Diseño de 2 pestañas:
+ *              - PEDIDO DEL DÍA: Vista unificada que combina sobrantes + orden calculada
+ *                en una sola tabla. El manager ingresa el sobrante inline y ve el pedido
+ *                auto-calculado al instante.
+ *              - CONFIG SEMANAL: Configuración de BASE (PAR) semanal con tabla de 7 días
+ *                editables + PAR Ideal de referencia.
  *
  * @businessRules
  * - FÓRMULA CORE: ORDER = PAR_mañana − Sobrante_hoy
@@ -12,6 +15,7 @@
  * - Lunes usa Sobrante_Domingo de la semana anterior
  * - Rollover solo si TODOS los items tienen sobrante de Domingo
  * - El día laboral empieza a las 6:00 AM
+ * - Items con qb_item_id === 'TRACK_ONLY' aparecen en sección de solo rastreo
  *
  * @dataFlow
  * - inventory_items (con excel_reference) → items del pedido
@@ -24,6 +28,8 @@
  * @notes
  * - [2026-06-24] Reescritura total. Eliminados todos los datos hardcodeados.
  *   Ahora todo viene de la BD. Integración con QuickBooks para Estimates.
+ * - [2026-07-01] Rediseño a 2 pestañas (daily_order + weekly_config).
+ *   Sobrante inline editable en la tabla del pedido diario.
  */
 'use client'
 
@@ -52,7 +58,7 @@ import { useLanguage } from '@/lib/i18n'
 // ============================================================================
 // TYPES
 // ============================================================================
-type TabId = 'base' | 'leftovers' | 'order' | 'analysis'
+type TabId = 'daily_order' | 'weekly_config'
 
 const WEEK_DAYS = [
     { key: 'mon', baseField: 'mon_par', offset: 0 },
@@ -76,7 +82,7 @@ export default function InventoryOrdersPage() {
     const [activeMonday, setActiveMonday] = useState<string>(getMonday(new Date()))
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
-    const [activeTab, setActiveTab] = useState<TabId>('base')
+    const [activeTab, setActiveTab] = useState<TabId>('daily_order')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [hasBaseChanges, setHasBaseChanges] = useState(false)
@@ -174,7 +180,7 @@ export default function InventoryOrdersPage() {
 
     // Load analysis data when tab switches
     useEffect(() => {
-        if (activeTab === 'analysis' && storeId && !analysisData) {
+        if (activeTab === 'analysis' as any && storeId && !analysisData) {
             fetchAnalysisData(storeId).then(setAnalysisData)
         }
     }, [activeTab, storeId])
@@ -234,6 +240,22 @@ export default function InventoryOrdersPage() {
         const itemCounts = counts[itemId] || {}
         setCounts({ ...counts, [itemId]: { ...itemCounts, [dateStr]: numVal } })
         await updateDailyLeftover(storeId, itemId, dateStr, numVal)
+    }
+
+    /** Handler para edición inline de sobrantes en la tabla del pedido diario.
+     *  Guarda en DB + recalcula la línea de orden en tiempo real. */
+    async function handleInlineLeftoverChange(itemId: string, value: string) {
+        // 1. Update counts state + save to DB
+        await handleLeftoverChange(itemId, todayStr, value)
+
+        // 2. Recalculate that specific order line
+        const numVal = value === '' ? null : (parseFloat(value) || 0)
+        setOrderLines(prev => prev.map(line => {
+            if (line.inventory_item_id !== itemId) return line
+            const effectiveLeftover = numVal ?? 0
+            const newCalc = line.par_value - effectiveLeftover
+            return { ...line, leftover_value: numVal, calculated_qty: newCalc }
+        }))
     }
 
     async function handleCopyPreviousWeek() {
@@ -487,21 +509,30 @@ export default function InventoryOrdersPage() {
     }).length
     const excessItems = orderLines.filter(l => l.calculated_qty < 0).length
 
-    // ============================================================================
-    // TABS CONFIG
-    // ============================================================================
-    const tabs: { id: TabId; icon: any; labelKey: string; badge?: string }[] = [
-        { id: 'base', icon: Package, labelKey: 'bodegaOrders.tabBase' },
-        { id: 'leftovers', icon: ClipboardList, labelKey: 'bodegaOrders.tabLeftovers', badge: isCurrentWeek ? `${capturedToday}/${items.length}` : undefined },
-        { id: 'order', icon: ShoppingCart, labelKey: 'bodegaOrders.tabOrder', badge: itemsToOrder > 0 ? `${itemsToOrder}` : undefined },
-        { id: 'analysis', icon: BarChart3, labelKey: 'bodegaOrders.tabAnalysis' },
-    ]
+    // Compute the next day name + date for daily order header
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const dayNames: Record<string, { es: string; en: string }> = {
+        '0': { es: 'Domingo', en: 'Sunday' },
+        '1': { es: 'Lunes', en: 'Monday' },
+        '2': { es: 'Martes', en: 'Tuesday' },
+        '3': { es: 'Miércoles', en: 'Wednesday' },
+        '4': { es: 'Jueves', en: 'Thursday' },
+        '5': { es: 'Viernes', en: 'Friday' },
+        '6': { es: 'Sábado', en: 'Saturday' },
+    }
+    const tomorrowDayName = dayNames[String(tomorrow.getDay())]
+    const tomorrowFormatted = `${String(tomorrow.getMonth() + 1).padStart(2, '0')}/${String(tomorrow.getDate()).padStart(2, '0')}/${tomorrow.getFullYear()}`
+
+    // Separate orderable vs tracking-only lines
+    const orderableLines = orderLines.filter(l => l.qb_item_id && l.qb_item_id !== 'TRACK_ONLY')
+    const trackingLines = orderLines.filter(l => !l.qb_item_id || l.qb_item_id === 'TRACK_ONLY')
 
     // ============================================================================
     // RENDER
     // ============================================================================
     return (
-        <div className="p-4 md:p-6 max-w-[100vw] min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 text-slate-800">
+        <div className="p-4 md:p-6 max-w-[100vw] min-h-screen bg-slate-50 text-slate-800">
             {/* ============ LINK MODAL ============ */}
             {linkModal.open && (
                 <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
@@ -547,13 +578,13 @@ export default function InventoryOrdersPage() {
                 </div>
             )}
 
-            {/* ============ HEADER ============ */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
+            {/* ============ HEADER BAR ============ */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 gap-4">
                 <div>
-                    <h1 className="text-2xl font-black bg-gradient-to-r from-blue-900 to-indigo-700 bg-clip-text text-transparent">
-                        {t('bodegaOrders.title')}
+                    <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                        📦 {t('bodegaOrders.title')}
                     </h1>
-                    <p className="text-slate-500 text-sm mt-1">{t('bodegaOrders.subtitle')}</p>
+                    <p className="text-slate-500 text-sm mt-0.5">{t('bodegaOrders.subtitle')}</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -564,90 +595,71 @@ export default function InventoryOrdersPage() {
                             setStoreId(e.target.value)
                             localStorage.setItem('teg_preparador_store', e.target.value)
                         }}
-                        className="bg-white border-2 border-slate-200 text-slate-700 rounded-xl px-4 py-2 font-bold focus:border-blue-500 outline-none shadow-sm"
+                        className="bg-white border border-slate-200 text-slate-700 rounded-xl px-4 py-2.5 font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none shadow-sm text-sm"
                     >
                         {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
 
-                    {/* Week navigator */}
-                    <div className="flex items-center gap-1 bg-white border-2 border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                        <button className="px-3 py-2 hover:bg-slate-100 transition-colors" onClick={() => setActiveMonday(addDays(activeMonday, -7))}>
-                            <ArrowLeft className="w-4 h-4" />
-                        </button>
-                        <div className="px-3 py-2 font-bold text-sm border-x border-slate-200 min-w-[110px] text-center">
-                            {isCurrentWeek && <span className="text-xs text-emerald-600 block font-medium">{t('bodegaOrders.currentWeek')}</span>}
-                            {activeMonday}
+                    {/* Week navigator — only visible on weekly_config tab */}
+                    {activeTab === 'weekly_config' && (
+                        <div className="flex items-center gap-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                            <button className="px-3 py-2.5 hover:bg-slate-100 transition-colors" onClick={() => setActiveMonday(addDays(activeMonday, -7))}>
+                                <ArrowLeft className="w-4 h-4 text-slate-500" />
+                            </button>
+                            <div className="px-3 py-2 font-bold text-sm border-x border-slate-200 min-w-[120px] text-center">
+                                {isCurrentWeek && <span className="text-xs text-emerald-600 block font-medium">{t('bodegaOrders.currentWeek')}</span>}
+                                {activeMonday}
+                            </div>
+                            <button className="px-3 py-2.5 hover:bg-slate-100 transition-colors" onClick={() => setActiveMonday(addDays(activeMonday, 7))}>
+                                <ArrowRight className="w-4 h-4 text-slate-500" />
+                            </button>
                         </div>
-                        <button className="px-3 py-2 hover:bg-slate-100 transition-colors" onClick={() => setActiveMonday(addDays(activeMonday, 7))}>
-                            <ArrowRight className="w-4 h-4" />
-                        </button>
-                    </div>
+                    )}
 
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-2">
-                        {activeTab === 'base' && (
-                            <button onClick={handleSavePar} disabled={savingPar || !hasBaseChanges}
-                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-all duration-200 ${
-                                    hasBaseChanges 
-                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-400 ring-offset-1' 
-                                        : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                                }`}>
-                                <Save size={14} /> {savingPar ? t('bodegaOrders.savingPar') : t('bodegaOrders.savePar')}
-                            </button>
-                        )}
-                        <button onClick={handleCopyPreviousWeek} disabled={loading}
-                            className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
-                            <Copy size={14} /> {t('bodegaOrders.copyPrevWeek')}
-                        </button>
-                        <button onClick={handleCopyParIdeal} disabled={loading}
-                            className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
-                            <RefreshCcw size={14} /> {t('bodegaOrders.copyFromParIdeal')}
-                        </button>
-                        <button onClick={handleForceQbSync} disabled={syncingQb || loading}
-                            className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
-                            <RefreshCcw size={14} className={syncingQb ? 'animate-spin' : ''} /> {syncingQb ? 'Sincronizando...' : t('bodegaOrders.forceSync')}
-                        </button>
-                        {isCurrentWeek && capturedSunday === items.length && items.length > 0 && (
-                            <button onClick={handleCloseWeek} disabled={loading}
-                                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-colors">
-                                <Check size={14} /> {t('bodegaOrders.closeWeek')}
-                            </button>
-                        )}
-                    </div>
+                    {/* QB Sync button */}
+                    <button onClick={handleForceQbSync} disabled={syncingQb || loading}
+                        className="flex items-center gap-1.5 bg-white border border-amber-200 hover:bg-amber-50 text-amber-700 px-3 py-2.5 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
+                        <RefreshCcw size={14} className={syncingQb ? 'animate-spin' : ''} /> {syncingQb ? 'Sincronizando...' : t('bodegaOrders.forceSync')}
+                    </button>
                 </div>
             </div>
 
-            {/* ============ TABS ============ */}
-            <div className="flex gap-1 mb-0 border-b-0">
-                {tabs.map(tab => {
-                    const Icon = tab.icon
-                    const isActive = activeTab === tab.id
-                    return (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-2 px-5 py-3 rounded-t-xl font-bold text-sm border-t-4 transition-all duration-200 ${
-                                isActive
-                                    ? 'bg-white border-t-blue-600 text-blue-800 shadow-sm'
-                                    : 'bg-slate-100 border-t-transparent text-slate-500 hover:bg-slate-200 hover:text-slate-700'
-                            }`}
-                        >
-                            <Icon size={16} />
-                            {t(tab.labelKey)}
-                            {tab.badge && (
-                                <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                                    isActive ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
-                                }`}>
-                                    {tab.badge}
-                                </span>
-                            )}
-                        </button>
-                    )
-                })}
+            {/* ============ TAB BAR ============ */}
+            <div className="flex gap-2 mb-0">
+                {/* Tab: Pedido del Día */}
+                <button
+                    onClick={() => setActiveTab('daily_order')}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-t-2xl font-bold text-sm transition-all duration-200 border-t-[3px] ${
+                        activeTab === 'daily_order'
+                            ? 'bg-white border-t-blue-600 text-blue-800 shadow-sm'
+                            : 'bg-slate-100 border-t-transparent text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                    }`}
+                >
+                    📋 {t('bodegaOrders.dailyOrderTab')}
+                    {itemsToOrder > 0 && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                            activeTab === 'daily_order' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                            {itemsToOrder}
+                        </span>
+                    )}
+                </button>
+
+                {/* Tab: Config Semanal */}
+                <button
+                    onClick={() => setActiveTab('weekly_config')}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-t-2xl font-bold text-sm transition-all duration-200 border-t-[3px] ${
+                        activeTab === 'weekly_config'
+                            ? 'bg-white border-t-indigo-600 text-indigo-800 shadow-sm'
+                            : 'bg-slate-100 border-t-transparent text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                    }`}
+                >
+                    ⚙️ {t('bodegaOrders.weeklyConfigTab')}
+                </button>
             </div>
 
             {/* ============ CONTENT ============ */}
-            <div className="bg-white border border-slate-200 shadow-sm rounded-b-xl rounded-tr-xl min-h-[500px]">
+            <div className="bg-white border border-slate-200 shadow-sm rounded-b-2xl rounded-tr-2xl min-h-[500px]">
                 {loading ? (
                     <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
                         <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
@@ -655,211 +667,33 @@ export default function InventoryOrdersPage() {
                     </div>
                 ) : (
                     <>
-                        {/* ---- TAB: BASE ---- */}
-                        {activeTab === 'base' && (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
-                                    <thead>
-                                        <tr>
-                                            <th className="bg-slate-100 border p-3 border-slate-300 sticky left-0 z-10 font-black min-w-[200px]"></th>
-                                            <th colSpan={7} className="bg-emerald-100/80 text-emerald-900 border p-3 text-center border-emerald-200 font-black text-sm">
-                                                {t('bodegaOrders.baseHeader')}
-                                            </th>
-                                            <th className="w-2 bg-slate-50"></th>
-                                            <th colSpan={7} className="bg-orange-100/80 text-orange-900 border p-3 text-center border-orange-200 font-black text-sm">
-                                                {t('bodegaOrders.leftoverHeader')}
-                                            </th>
-                                            <th className="w-2 bg-slate-50"></th>
-                                            <th colSpan={7} className="bg-violet-100/80 text-violet-900 border p-3 text-center border-violet-200 font-black text-sm">
-                                                {t('bodegaOrders.parIdealHeader')}
-                                            </th>
-                                        </tr>
-                                        <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300">
-                                            <th className="sticky left-0 bg-slate-50 border p-3 min-w-[200px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">{t('bodegaOrders.item')}</th>
-                                            {/* Base columns */}
-                                            {weekDays.map(d => <th key={`bh_${d.key}`} className="border p-2 text-center w-20 text-xs">{d.label}<br/><span className="font-normal text-slate-400">{d.dateStr.slice(5)}</span></th>)}
-                                            <th className="w-2 bg-slate-100 border-none"></th>
-                                            {/* Leftover columns */}
-                                            {weekDays.map(d => <th key={`sh_${d.key}`} className="border p-2 text-center w-20 text-xs">{d.label}<br/><span className="font-normal text-slate-400">{d.dateStr.slice(5)}</span></th>)}
-                                            <th className="w-2 bg-slate-100 border-none"></th>
-                                            {/* PAR Ideal columns */}
-                                            {weekDays.map(d => <th key={`ph_${d.key}`} className="border p-2 text-center w-20 text-xs text-violet-500">{d.label}</th>)}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {items.map((item, rowIndex) => {
-                                            const b = bases[item.id]
-                                            const pi = parIdeal[item.id]
-                                            const itemC = counts[item.id] || {}
+                        {/* ======================================================== */}
+                        {/* TAB 1: DAILY ORDER                                       */}
+                        {/* ======================================================== */}
+                        {activeTab === 'daily_order' && (() => {
+                            const existingOrder = orders.find((o: any) => o.order_date === todayStr)
 
-                                            return (
-                                                <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
-                                                    <td className="sticky left-0 bg-white border border-slate-200 p-2 font-semibold text-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.02)] z-10">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-xs text-slate-500">{item.order_unit_description || ''}</span>
-                                                            <span>{item.excel_reference || item.name}</span>
-                                                        </div>
-                                                    </td>
-                                                    {/* BASE inputs */}
-                                                    {weekDays.map((d, colIndex) => {
-                                                        const val = b ? (b as any)[d.baseField] : undefined
-                                                        const pVal = Number(val) || 0
-                                                        const piVal = pi ? (pi as any)[d.baseField] : undefined
-                                                        // Alert color based on leftover percentage (Excel rules)
-                                                        let alertColor = ''
-                                                        if (pVal > 0) {
-                                                            if (['mon', 'tue', 'wed', 'thu', 'fri'].includes(d.key)) {
-                                                                const leftover = itemC[d.dateStr]
-                                                                if (leftover !== undefined && pVal >= 10) {
-                                                                    const pct = (leftover / pVal) * 100
-                                                                    if (pct < 20 || pct > 60) {
-                                                                        alertColor = 'bg-yellow-50 border-yellow-300'
-                                                                    }
-                                                                }
-                                                            } else if (d.key === 'sat') {
-                                                                // Sábado se valida con el sobrante del Domingo (que es d.dateStr + 1 día)
-                                                                const sundayDateStr = addDays(d.dateStr, 1)
-                                                                const sundayLeftover = itemC[sundayDateStr]
-                                                                if (sundayLeftover !== undefined && pVal >= 8) {
-                                                                    const pct = (sundayLeftover / pVal) * 100
-                                                                    if (pct < 10 || pct > 30) {
-                                                                        alertColor = 'bg-yellow-50 border-yellow-300'
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        return (
-                                                            <td key={`bc_${item.id}_${d.key}`} className={`border p-0 ${alertColor || 'border-emerald-100 bg-emerald-50/20'}`}>
-                                                                <input
-                                                                    id={`input_${rowIndex}_${colIndex}`}
-                                                                    type="number"
-                                                                    placeholder={piVal ? String(piVal) : '-'}
-                                                                    className="w-full h-full p-2 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300 text-sm"
-                                                                    value={val !== undefined && val !== null ? val : ''}
-                                                                    onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
-                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
-                                                                />
-                                                            </td>
-                                                        )
-                                                    })}
-                                                    <td className="bg-slate-50 border-y"></td>
-                                                    {/* LEFTOVER inputs */}
-                                                    {weekDays.map((d, colOffset) => {
-                                                        const sVal = itemC[d.dateStr]
-                                                        const colIndex = 7 + colOffset
-                                                        const isToday = d.dateStr === todayStr
-                                                        return (
-                                                            <td key={`sc_${item.id}_${d.key}`} className={`border p-0 ${isToday ? 'border-orange-400 bg-orange-100/50' : 'border-orange-100 bg-orange-50/20'}`}>
-                                                                <input
-                                                                    id={`input_${rowIndex}_${colIndex}`}
-                                                                    type="number"
-                                                                    placeholder="-"
-                                                                    className="w-full h-full p-2 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-900 placeholder:text-orange-900/20 text-sm"
-                                                                    value={sVal !== undefined ? sVal : ''}
-                                                                    onChange={e => handleLeftoverChange(item.id, d.dateStr, e.target.value)}
-                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
-                                                                />
-                                                            </td>
-                                                        )
-                                                    })}
-                                                    <td className="bg-slate-50 border-y"></td>
-                                                    {/* PAR IDEAL (read-only) */}
-                                                    {weekDays.map(d => {
-                                                        const piVal = pi ? (pi as any)[d.baseField] : null
-                                                        return (
-                                                            <td key={`pi_${item.id}_${d.key}`} className="border border-violet-100 bg-violet-50/20 p-2 text-center text-violet-600 font-medium text-sm">
-                                                                {piVal || '-'}
-                                                            </td>
-                                                        )
-                                                    })}
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-
-                        {/* ---- TAB: LEFTOVERS ---- */}
-                        {activeTab === 'leftovers' && (
-                            <div className="overflow-x-auto">
-                                {/* Progress bar */}
-                                <div className="p-4 border-b border-slate-200 bg-slate-50/50">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-sm font-bold text-slate-700">
-                                            {t('bodegaOrders.itemsCaptured', { count: capturedToday, total: items.length })}
-                                        </span>
-                                        {capturedToday === items.length && items.length > 0 && (
-                                            <span className="text-xs font-bold text-emerald-600 bg-emerald-100 px-3 py-1 rounded-full flex items-center gap-1">
-                                                <Check size={12} /> {t('bodegaOrders.allItemsCaptured')}
-                                            </span>
-                                        )}
+                            if (!isCurrentWeek) {
+                                return (
+                                    <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
+                                        <AlertTriangle className="w-10 h-10 text-amber-400" />
+                                        <span className="text-lg font-bold text-slate-500">{t('bodegaOrders.notCurrentWeek')}</span>
                                     </div>
-                                    <div className="w-full bg-slate-200 rounded-full h-2">
-                                        <div className="bg-emerald-500 h-2 rounded-full transition-all duration-500" style={{ width: `${items.length ? (capturedToday / items.length) * 100 : 0}%` }} />
-                                    </div>
-                                </div>
-                                <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
-                                    <thead>
-                                        <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300">
-                                            <th className="sticky left-0 bg-slate-50 border p-3 min-w-[200px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">{t('bodegaOrders.item')}</th>
-                                            <th className="border p-3 text-center w-24 text-xs">{t('bodegaOrders.unit')}</th>
-                                            {weekDays.map(d => {
-                                                const isToday = d.dateStr === todayStr
-                                                return (
-                                                    <th key={`lh_${d.key}`} className={`border p-2 text-center w-24 ${isToday ? 'bg-orange-100 text-orange-800' : ''}`}>
-                                                        <span className="text-xs">{d.label}</span>
-                                                        <br/><span className="font-normal text-slate-400 text-xs">{d.dateStr.slice(5)}</span>
-                                                        {isToday && <div className="text-[10px] text-orange-600 font-bold mt-0.5">{t('bodegaOrders.today')}</div>}
-                                                    </th>
-                                                )
-                                            })}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {items.map((item, rowIndex) => {
-                                            const itemC = counts[item.id] || {}
-                                            return (
-                                                <tr key={item.id} className="hover:bg-orange-50/30 transition-colors">
-                                                    <td className="sticky left-0 bg-white border border-slate-200 p-2 font-semibold text-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.02)] z-10">
-                                                        {item.excel_reference || item.name}
-                                                    </td>
-                                                    <td className="border border-slate-200 p-2 text-center text-xs text-slate-500">
-                                                        {item.order_unit_description || item.unit_type}
-                                                    </td>
-                                                    {weekDays.map((d, colIndex) => {
-                                                        const sVal = itemC[d.dateStr]
-                                                        const isToday = d.dateStr === todayStr
-                                                        return (
-                                                            <td key={`lc_${item.id}_${d.key}`} className={`border p-0 ${isToday ? 'border-orange-400 bg-orange-100/40' : 'border-slate-200'}`}>
-                                                                <input
-                                                                    id={`input_${rowIndex}_${colIndex}`}
-                                                                    type="number"
-                                                                    placeholder="-"
-                                                                    className={`w-full h-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-sm ${isToday ? 'text-orange-900' : 'text-slate-700'} placeholder:text-slate-300`}
-                                                                    value={sVal !== undefined ? sVal : ''}
-                                                                    onChange={e => handleLeftoverChange(item.id, d.dateStr, e.target.value)}
-                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
-                                                                />
-                                                            </td>
-                                                        )
-                                                    })}
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                                )
+                            }
 
-                        {/* ---- TAB: ORDER ---- */}
-                        {activeTab === 'order' && (() => {
-                            const existingOrder = orders.find((o: any) => o.order_date === todayStr);
                             return (
                                 <div>
-                                    {/* Success banner if already sent to QBO */}
+                                    {/* ---- Header: Pedido para [TOMORROW] ---- */}
+                                    <div className="px-5 pt-5 pb-3">
+                                        <h2 className="text-xl font-black text-slate-800">
+                                            📦 {t('bodegaOrders.orderForDate')} {tomorrowDayName?.es || ''} {tomorrowFormatted}
+                                        </h2>
+                                    </div>
+
+                                    {/* ---- Success banner if already sent to QB ---- */}
                                     {existingOrder?.qb_estimate_number && (
-                                        <div className="mx-5 mt-5 bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex flex-wrap gap-4 items-center justify-between shadow-sm">
+                                        <div className="mx-5 mb-4 bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex flex-wrap gap-4 items-center justify-between shadow-sm">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
                                                     <Check className="w-5 h-5" />
@@ -884,17 +718,17 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     )}
 
-                                    {/* Summary cards */}
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 border-b border-slate-200 bg-gradient-to-r from-blue-50/50 to-indigo-50/50">
-                                        <div className="bg-white rounded-xl p-4 border border-blue-200 shadow-sm">
+                                    {/* ---- Summary cards ---- */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-5 pb-4">
+                                        <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
                                             <div className="text-xs text-blue-500 font-bold uppercase tracking-wider">{t('bodegaOrders.totalItemsToOrder')}</div>
                                             <div className="text-3xl font-black text-blue-700 mt-1">{itemsToOrder}</div>
                                         </div>
-                                        <div className="bg-white rounded-xl p-4 border border-amber-200 shadow-sm">
+                                        <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
                                             <div className="text-xs text-amber-500 font-bold uppercase tracking-wider">{t('bodegaOrders.excessItems')}</div>
                                             <div className="text-3xl font-black text-amber-600 mt-1">{excessItems}</div>
                                         </div>
-                                        <div className="bg-white rounded-xl p-4 border border-emerald-200 shadow-sm">
+                                        <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
                                             <div className="text-xs text-emerald-500 font-bold uppercase tracking-wider">{t('bodegaOrders.qbEstimate')}</div>
                                             <div className="text-lg font-black text-emerald-700 mt-1">
                                                 {existingOrder?.qb_estimate_number
@@ -904,46 +738,100 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     </div>
 
-                                    {/* Order table */}
+                                    {/* ---- Progress bar ---- */}
+                                    <div className="px-5 pb-3">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-xs font-bold text-slate-500">
+                                                {t('bodegaOrders.itemsCaptured', { count: capturedToday, total: items.length })}
+                                            </span>
+                                            {capturedToday === items.length && items.length > 0 && (
+                                                <span className="text-xs font-bold text-emerald-600 bg-emerald-100 px-3 py-0.5 rounded-full flex items-center gap-1">
+                                                    <Check size={12} /> {t('bodegaOrders.allItemsCaptured')}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="w-full bg-slate-200 rounded-full h-1.5">
+                                            <div className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${items.length ? (capturedToday / items.length) * 100 : 0}%` }} />
+                                        </div>
+                                    </div>
+
+                                    {/* ---- Unified order table ---- */}
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm border-collapse whitespace-nowrap">
                                             <thead>
-                                                <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300">
-                                                    <th className="sticky left-0 bg-slate-50 border p-3 text-left min-w-[200px] z-10">{t('bodegaOrders.item')}</th>
-                                                    <th className="border p-3 text-center w-28">{t('bodegaOrders.unit')}</th>
-                                                    <th className="border p-3 text-center w-20 bg-emerald-50 text-emerald-700">{t('bodegaOrders.parIdeal')}</th>
-                                                    <th className="border p-3 text-center w-20 bg-orange-50 text-orange-700">{t('bodegaOrders.leftover')}</th>
-                                                    <th className="border p-3 text-center w-20 bg-blue-50 text-blue-700">{t('bodegaOrders.calculated')}</th>
-                                                    <th className="border p-3 text-center w-24 bg-indigo-50 text-indigo-700">{t('bodegaOrders.adjusted')}</th>
-                                                    <th className="border p-3 text-center w-20 bg-violet-50 text-violet-700 font-black">{t('bodegaOrders.finalQty')}</th>
+                                                <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300 text-xs">
+                                                    <th className="sticky left-0 bg-slate-50 border-b-2 border-slate-300 p-3 text-left min-w-[200px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                                                        {t('bodegaOrders.item')}
+                                                    </th>
+                                                    <th className="p-3 text-center w-20 bg-emerald-50 text-emerald-700 border-b-2 border-emerald-200">
+                                                        {t('bodegaOrders.parTomorrow')}
+                                                    </th>
+                                                    <th className="p-3 text-center w-24 bg-orange-50 text-orange-700 border-b-2 border-orange-200">
+                                                        {t('bodegaOrders.leftover')}
+                                                    </th>
+                                                    <th className="p-3 text-center w-20 bg-blue-50 text-blue-700 border-b-2 border-blue-200">
+                                                        {t('bodegaOrders.orderCol')}
+                                                    </th>
+                                                    <th className="p-3 text-center w-24 bg-indigo-50 text-indigo-700 border-b-2 border-indigo-200">
+                                                        {t('bodegaOrders.adjustCol')}
+                                                    </th>
+                                                    <th className="p-3 text-center w-20 bg-slate-100 text-slate-800 border-b-2 border-slate-300 font-black">
+                                                        {t('bodegaOrders.finalQty')}
+                                                    </th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {orderLines.map((line, i) => {
+                                                {/* ---- Orderable items ---- */}
+                                                {orderableLines.map((line, rowIndex) => {
                                                     const adj = adjustments[line.inventory_item_id]
                                                     const finalQty = adj !== undefined ? adj : line.calculated_qty
                                                     const isNegative = line.calculated_qty < 0
                                                     const isZeroLeftover = line.leftover_value === null
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
 
                                                     return (
                                                         <tr key={line.inventory_item_id}
-                                                            className={`transition-colors ${isNegative ? 'bg-red-50/30' : isZeroLeftover ? 'bg-slate-50' : finalQty > 0 ? 'hover:bg-blue-50/30' : ''}`}>
-                                                            <td className="sticky left-0 bg-white border border-slate-200 p-2 font-semibold text-slate-800 z-10">
-                                                                {line.item_name}
+                                                            className={`transition-colors border-b border-slate-100 ${isNegative ? 'bg-red-50/30' : finalQty > 0 ? 'hover:bg-blue-50/20' : 'hover:bg-slate-50/50'}`}>
+                                                            {/* Producto */}
+                                                            <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+                                                                <div className="flex flex-col">
+                                                                    {line.unit_description && (
+                                                                        <span className="text-[10px] text-slate-400 font-medium leading-tight">{line.unit_description}</span>
+                                                                    )}
+                                                                    <span className="font-semibold text-slate-800">{line.item_name}</span>
+                                                                </div>
                                                             </td>
-                                                            <td className="border border-slate-200 p-2 text-center text-xs text-slate-500">{line.unit_description}</td>
-                                                            <td className="border border-emerald-100 p-2 text-center font-medium text-emerald-700 bg-emerald-50/30">{line.par_value || '-'}</td>
-                                                            <td className={`border p-2 text-center font-bold ${isZeroLeftover ? 'text-slate-300 bg-slate-50 border-slate-200' : 'text-orange-700 border-orange-100 bg-orange-50/30'}`}>
-                                                                {line.leftover_value !== null ? line.leftover_value : '-'}
+                                                            {/* PAR (readonly) */}
+                                                            <td className="p-2 text-center font-bold text-emerald-700 bg-emerald-50/40 border-b border-emerald-100">
+                                                                {line.par_value || '-'}
                                                             </td>
-                                                            <td className={`border p-2 text-center font-bold ${isNegative ? 'text-red-600 bg-red-50 border-red-200' : isZeroLeftover ? 'text-slate-300 border-slate-200 bg-slate-50' : 'text-blue-700 bg-blue-50/30 border-blue-100'}`}>
+                                                            {/* Sobrante (EDITABLE) */}
+                                                            <td className="p-0 border-b border-orange-200 bg-orange-50/30">
+                                                                <input
+                                                                    id={`input_${rowIndex}_0`}
+                                                                    type="number"
+                                                                    placeholder={t('bodegaOrders.enterLeftover')}
+                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-400"
+                                                                    value={currentLeftover !== undefined ? currentLeftover : ''}
+                                                                    onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                />
+                                                            </td>
+                                                            {/* Pedir (calculated) */}
+                                                            <td className={`p-2 text-center font-bold border-b ${
+                                                                isNegative ? 'text-red-600 bg-red-50/40 border-red-100'
+                                                                : isZeroLeftover ? 'text-slate-300 bg-slate-50 border-slate-100'
+                                                                : 'text-blue-700 bg-blue-50/30 border-blue-100'
+                                                            }`}>
                                                                 {isZeroLeftover ? '-' : line.calculated_qty}
                                                             </td>
-                                                            <td className="border border-indigo-100 p-0 bg-indigo-50/20">
+                                                            {/* Ajuste (optional override) */}
+                                                            <td className="p-0 border-b border-indigo-100 bg-indigo-50/20">
                                                                 <input
+                                                                    id={`input_${rowIndex}_1`}
                                                                     type="number"
                                                                     placeholder="-"
-                                                                    className="w-full p-2 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200"
+                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200"
                                                                     value={adj !== undefined ? adj : ''}
                                                                     onChange={e => {
                                                                         const v = e.target.value
@@ -955,11 +843,70 @@ export default function InventoryOrdersPage() {
                                                                             setAdjustments({ ...adjustments, [line.inventory_item_id]: parseFloat(v) || 0 })
                                                                         }
                                                                     }}
+                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
                                                                 />
                                                             </td>
-                                                            <td className={`border p-2 text-center font-black text-lg ${finalQty > 0 ? 'text-violet-700 bg-violet-50/30 border-violet-200' : finalQty < 0 ? 'text-red-400 bg-red-50/20 border-red-100' : 'text-slate-300 border-slate-200'}`}>
+                                                            {/* Final */}
+                                                            <td className={`p-2 text-center font-black text-base border-b ${
+                                                                finalQty > 0 ? 'text-slate-800 bg-slate-50/60 border-slate-200'
+                                                                : finalQty < 0 ? 'text-red-500 bg-red-50/30 border-red-100'
+                                                                : 'text-slate-300 border-slate-100'
+                                                            }`}>
                                                                 {isZeroLeftover ? '-' : finalQty}
                                                             </td>
+                                                        </tr>
+                                                    )
+                                                })}
+
+                                                {/* ---- Tracking Only separator ---- */}
+                                                {trackingLines.length > 0 && (
+                                                    <tr>
+                                                        <td colSpan={6} className="p-3 text-center bg-slate-100 border-y-2 border-slate-300">
+                                                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
+                                                                ── {t('bodegaOrders.trackingOnly')} / Tracking Only ──
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                )}
+
+                                                {/* ---- Tracking-only items ---- */}
+                                                {trackingLines.map((line, idx) => {
+                                                    const rowIndex = orderableLines.length + idx + 1
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
+
+                                                    return (
+                                                        <tr key={line.inventory_item_id} className="transition-colors border-b border-slate-100 hover:bg-slate-50/50">
+                                                            {/* Producto */}
+                                                            <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+                                                                <div className="flex flex-col">
+                                                                    {line.unit_description && (
+                                                                        <span className="text-[10px] text-slate-400 font-medium leading-tight">{line.unit_description}</span>
+                                                                    )}
+                                                                    <span className="font-semibold text-slate-500">{line.item_name}</span>
+                                                                </div>
+                                                            </td>
+                                                            {/* PAR */}
+                                                            <td className="p-2 text-center font-bold text-emerald-600 bg-emerald-50/30 border-b border-emerald-100">
+                                                                {line.par_value || '-'}
+                                                            </td>
+                                                            {/* Sobrante (EDITABLE for tracking too) */}
+                                                            <td className="p-0 border-b border-orange-200 bg-orange-50/20">
+                                                                <input
+                                                                    id={`input_${rowIndex}_0`}
+                                                                    type="number"
+                                                                    placeholder={t('bodegaOrders.enterLeftover')}
+                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-700 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-300"
+                                                                    value={currentLeftover !== undefined ? currentLeftover : ''}
+                                                                    onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                />
+                                                            </td>
+                                                            {/* Pedir — dash */}
+                                                            <td className="p-2 text-center text-slate-300 border-b border-slate-100">—</td>
+                                                            {/* Ajuste — dash */}
+                                                            <td className="p-2 text-center text-slate-300 border-b border-slate-100">—</td>
+                                                            {/* Final — dash */}
+                                                            <td className="p-2 text-center text-slate-300 border-b border-slate-100">—</td>
                                                         </tr>
                                                     )
                                                 })}
@@ -967,8 +914,8 @@ export default function InventoryOrdersPage() {
                                         </table>
                                     </div>
 
-                                    {/* Observations and notes */}
-                                    <div className="p-5 border-t border-slate-200 mt-6 bg-slate-50/30">
+                                    {/* ---- Observations textarea ---- */}
+                                    <div className="p-5 border-t border-slate-200 bg-slate-50/30">
                                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                                             📝 {t('bodegaOrders.observations')}
                                         </label>
@@ -977,81 +924,114 @@ export default function InventoryOrdersPage() {
                                             onChange={e => setOrderNotes(e.target.value)}
                                             placeholder={t('bodegaOrders.observationsPlaceholder')}
                                             rows={2}
-                                            className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none bg-white placeholder:text-slate-400"
+                                            className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none bg-white placeholder:text-slate-400"
                                         />
                                     </div>
 
-                                    {/* Action buttons */}
+                                    {/* ---- Action buttons ---- */}
                                     <div className="p-5 border-t border-slate-200 bg-slate-50/50 flex flex-wrap gap-3 justify-end">
                                         <button onClick={handleGenerateOrder} disabled={saving}
                                             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors disabled:opacity-50">
                                             <Save size={16} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
                                         </button>
                                         <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek}
-                                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                             <Send size={16} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
                                         </button>
                                     </div>
                                 </div>
-                            );
+                            )
                         })()}
 
-                        {/* ---- TAB: ANALYSIS ---- */}
-                        {activeTab === 'analysis' && (
-                            <div className="p-5">
-                                <h2 className="text-lg font-black text-slate-800 mb-4">{t('bodegaOrders.analysisTitle')}</h2>
+                        {/* ======================================================== */}
+                        {/* TAB 2: WEEKLY CONFIG                                     */}
+                        {/* ======================================================== */}
+                        {activeTab === 'weekly_config' && (
+                            <div>
+                                {/* ---- Header ---- */}
+                                <div className="px-5 pt-5 pb-3 border-b border-slate-200">
+                                    <h2 className="text-xl font-black text-slate-800">
+                                        ⚙️ {t('bodegaOrders.weeklyConfigTitle')}
+                                    </h2>
+                                    <p className="text-sm text-slate-500 mt-0.5">{t('bodegaOrders.weeklyConfigSubtitle')}</p>
+                                </div>
 
-                                {/* Usage percentage table */}
-                                <div className="overflow-x-auto mb-8">
-                                    <table className="w-full text-sm border-collapse whitespace-nowrap">
+                                {/* ---- Action buttons bar ---- */}
+                                <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center gap-2">
+                                    <button onClick={handleSavePar} disabled={savingPar || !hasBaseChanges}
+                                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-all duration-200 ${
+                                            hasBaseChanges 
+                                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-400 ring-offset-1' 
+                                                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                        }`}>
+                                        <Save size={14} /> {savingPar ? t('bodegaOrders.savingPar') : t('bodegaOrders.savePar')}
+                                    </button>
+                                    <button onClick={handleCopyPreviousWeek} disabled={loading}
+                                        className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
+                                        <Copy size={14} /> {t('bodegaOrders.copyPrevWeek')}
+                                    </button>
+                                    <button onClick={handleCopyParIdeal} disabled={loading}
+                                        className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
+                                        <RefreshCcw size={14} /> {t('bodegaOrders.copyFromParIdeal')}
+                                    </button>
+
+                                    <div className="flex-1" />
+
+                                    {/* Close Week button */}
+                                    {isCurrentWeek && capturedSunday === items.length && items.length > 0 && (
+                                        <button onClick={handleCloseWeek} disabled={loading}
+                                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-colors">
+                                            <Check size={14} /> {t('bodegaOrders.closeWeek')}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* ---- BASE PAR table (editable 7-day grid) ---- */}
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
                                         <thead>
-                                            <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300">
-                                                <th className="sticky left-0 bg-slate-50 border p-3 text-left min-w-[200px] z-10">{t('bodegaOrders.item')}</th>
+                                            <tr>
+                                                <th className="bg-slate-100 border-b-2 border-slate-300 p-3 sticky left-0 z-10 font-black min-w-[200px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                                                    {t('bodegaOrders.item')}
+                                                </th>
                                                 {weekDays.map(d => (
-                                                    <th key={`ah_${d.key}`} className="border p-2 text-center w-20">
-                                                        {d.label}<br/><span className="text-xs font-normal text-slate-400">{t('bodegaOrders.usagePercent')}</span>
+                                                    <th key={`bh_${d.key}`} className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold">
+                                                        {d.label}<br/>
+                                                        <span className="font-normal text-emerald-500">{d.dateStr.slice(5)}</span>
                                                     </th>
                                                 ))}
-                                                <th className="border p-2 text-center w-20 bg-slate-100 font-black">{t('bodegaOrders.total')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {items.map(item => {
+                                            {items.map((item, rowIndex) => {
                                                 const b = bases[item.id]
-                                                const itemC = counts[item.id] || {}
-                                                let totalBase = 0
-                                                let totalLeft = 0
 
                                                 return (
-                                                    <tr key={item.id} className="hover:bg-teal-50/30">
-                                                        <td className="sticky left-0 bg-white border border-slate-200 p-2 font-semibold text-slate-800 z-10">
-                                                            {item.excel_reference || item.name}
+                                                    <tr key={item.id} className="hover:bg-emerald-50/20 transition-colors border-b border-slate-100">
+                                                        <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 font-semibold text-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.03)] z-10">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-[10px] text-slate-400 font-medium leading-tight">{item.order_unit_description || ''}</span>
+                                                                <span>{item.excel_reference || item.name}</span>
+                                                            </div>
                                                         </td>
-                                                        {weekDays.map(d => {
-                                                            const base = b ? (b as any)[d.baseField] || 0 : 0
-                                                            const left = itemC[d.dateStr]
-                                                            totalBase += base
-                                                            if (left !== undefined) totalLeft += left
-
-                                                            if (base === 0 || left === undefined) {
-                                                                return <td key={`ac_${item.id}_${d.key}`} className="border border-slate-200 p-2 text-center text-slate-300">-</td>
-                                                            }
-                                                            const pct = Math.round((left / base) * 100)
-                                                            let color = 'text-slate-700'
-                                                            let bg = ''
-                                                            if (pct > 50) { color = 'text-amber-700'; bg = 'bg-amber-50' }
-                                                            else if (pct < 10) { color = 'text-red-600'; bg = 'bg-red-50' }
-                                                            else if (pct >= 20 && pct <= 35) { color = 'text-emerald-700'; bg = 'bg-emerald-50' }
+                                                        {weekDays.map((d, colIndex) => {
+                                                            const val = b ? (b as any)[d.baseField] : undefined
+                                                            const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
 
                                                             return (
-                                                                <td key={`ac_${item.id}_${d.key}`} className={`border border-slate-200 p-2 text-center font-bold text-xs ${color} ${bg}`}>
-                                                                    {pct}%
+                                                                <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
+                                                                    <input
+                                                                        id={`input_${rowIndex}_${colIndex}`}
+                                                                        type="number"
+                                                                        placeholder={piVal ? String(piVal) : '-'}
+                                                                        className="w-full h-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300 text-sm"
+                                                                        value={val !== undefined && val !== null ? val : ''}
+                                                                        onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
+                                                                        onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
+                                                                    />
                                                                 </td>
                                                             )
                                                         })}
-                                                        <td className="border border-slate-300 p-2 text-center font-black bg-slate-50">
-                                                            {totalBase > 0 ? `${Math.round((totalLeft / totalBase) * 100)}%` : '-'}
-                                                        </td>
                                                     </tr>
                                                 )
                                             })}
@@ -1059,36 +1039,50 @@ export default function InventoryOrdersPage() {
                                     </table>
                                 </div>
 
-                                {/* Order History */}
-                                {analysisData?.orderHistory && analysisData.orderHistory.length > 0 && (
-                                    <div className="mt-6">
-                                        <h3 className="text-md font-black text-slate-700 mb-3">{t('bodegaOrders.orderHistory')}</h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                            {analysisData.orderHistory.map((order: any) => (
-                                                <div key={order.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div className="font-bold text-slate-800">{order.order_date}</div>
-                                                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                                                            order.status === 'sent' ? 'bg-emerald-100 text-emerald-700' :
-                                                            order.status === 'draft' ? 'bg-slate-100 text-slate-600' :
-                                                            'bg-blue-100 text-blue-700'
-                                                        }`}>
-                                                            {t(`bodegaOrders.status.${order.status}`)}
-                                                        </span>
-                                                    </div>
-                                                    {order.qb_estimate_number && (
-                                                        <div className="text-xs text-emerald-600 font-medium">
-                                                            QB Estimate #{order.qb_estimate_number}
-                                                        </div>
-                                                    )}
-                                                    <div className="text-xs text-slate-400 mt-1">
-                                                        {t('bodegaOrders.weekOf')} {order.week_start_date}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                {/* ---- PAR Ideal reference table (readonly) ---- */}
+                                <div className="border-t-2 border-slate-200">
+                                    <div className="px-5 py-3 bg-violet-50/50 border-b border-violet-100">
+                                        <h3 className="text-sm font-black text-violet-700 uppercase tracking-wider">
+                                            {t('bodegaOrders.parIdealHeader')}
+                                        </h3>
                                     </div>
-                                )}
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
+                                            <thead>
+                                                <tr>
+                                                    <th className="bg-violet-50/30 border-b border-violet-100 p-3 sticky left-0 z-10 font-bold min-w-[200px] text-violet-700 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                                                        {t('bodegaOrders.item')}
+                                                    </th>
+                                                    {weekDays.map(d => (
+                                                        <th key={`pih_${d.key}`} className="bg-violet-50/30 border-b border-violet-100 p-2 text-center w-20 text-xs text-violet-600 font-bold">
+                                                            {d.label}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {items.map(item => {
+                                                    const pi = parIdeal[item.id]
+                                                    return (
+                                                        <tr key={item.id} className="border-b border-violet-50 hover:bg-violet-50/20 transition-colors">
+                                                            <td className="sticky left-0 bg-white border-b border-violet-50 p-2.5 font-semibold text-slate-700 shadow-[2px_0_5px_rgba(0,0,0,0.03)] z-10">
+                                                                {item.excel_reference || item.name}
+                                                            </td>
+                                                            {weekDays.map(d => {
+                                                                const piVal = pi ? (pi as any)[d.baseField] : null
+                                                                return (
+                                                                    <td key={`pi_${item.id}_${d.key}`} className="border-b border-violet-50 p-2 text-center text-violet-600 font-medium text-sm">
+                                                                        {piVal || '-'}
+                                                                    </td>
+                                                                )
+                                                            })}
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </>
