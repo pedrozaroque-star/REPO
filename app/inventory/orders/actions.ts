@@ -571,14 +571,15 @@ export async function executeWeekRollover(storeId: string | number, currentMonda
 }
 
 /**
- * Recalcula el PAR Ideal promediando las bases de las últimas N semanas.
+ * Recalcula el PAR Ideal promediando las bases de las últimas N semanas,
+ * ajustadas matemáticamente según el sobrante diario de cada día.
  */
 export async function recalculateParIdeal(storeId: string | number, weeksBack: number = 8) {
     const today = new Date()
     const currentMonday = getMonday(today)
     const startDate = addDays(currentMonday, -(weeksBack * 7))
 
-    // Obtener todas las bases de las últimas N semanas
+    // 1. Obtener todas las bases de las últimas N semanas
     const { data: allBases } = await supabase
         .from('inventory_weekly_bases')
         .select('*')
@@ -588,26 +589,61 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
 
     if (!allBases || allBases.length === 0) return
 
-    // Agrupar por item y promediar
-    const itemBases: Record<string, { count: number; sums: Record<string, number> }> = {}
+    // 2. Obtener todos los sobrantes registrados en ese mismo rango
+    const { data: leftovers } = await supabase
+        .from('inventory_counts')
+        .select('inventory_item_id, count_date, quantity_on_hand')
+        .eq('store_id', storeId.toString())
+        .gte('count_date', startDate)
+        .lt('count_date', currentMonday)
 
+    // Mapa de sobrantes para búsqueda rápida
+    const leftoverMap = new Map()
+    leftovers?.forEach(l => {
+        leftoverMap.set(`${l.inventory_item_id}_${l.count_date}`, Number(l.quantity_on_hand) || 0)
+    })
+
+    const daysOfWeek = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+    const itemAdjustedBases: Record<string, { count: number; sums: Record<string, number> }> = {}
+
+    // 3. Procesar y ajustar el PAR de cada día según la fórmula matemática
     for (const b of allBases) {
-        const key = b.inventory_item_id
-        if (!itemBases[key]) {
-            itemBases[key] = { count: 0, sums: { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 } }
+        const itemId = b.inventory_item_id
+        if (!itemAdjustedBases[itemId]) {
+            itemAdjustedBases[itemId] = { count: 0, sums: { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0 } }
         }
-        itemBases[key].count++
-        itemBases[key].sums.mon += Number(b.mon_par) || 0
-        itemBases[key].sums.tue += Number(b.tue_par) || 0
-        itemBases[key].sums.wed += Number(b.wed_par) || 0
-        itemBases[key].sums.thu += Number(b.thu_par) || 0
-        itemBases[key].sums.fri += Number(b.fri_par) || 0
-        itemBases[key].sums.sat += Number(b.sat_par) || 0
-        itemBases[key].sums.sun += Number(b.sun_par) || 0
+        itemAdjustedBases[itemId].count++
+
+        daysOfWeek.forEach((day, index) => {
+            const parVal = Number(b[`${day}_par`]) || 0
+            const dateStr = addDays(b.week_start_date, index)
+            const leftoverVal = leftoverMap.get(`${itemId}_${dateStr}`)
+
+            let adjPar = parVal
+
+            // Fórmula matemática exacta:
+            if (leftoverVal !== undefined && parVal >= 6) {
+                const leftoverPct = (leftoverVal / parVal) * 100
+                
+                if (leftoverPct >= 70) {
+                    adjPar = parVal - Math.round(parVal * 0.15)
+                } else if (leftoverPct >= 60) {
+                    adjPar = parVal - Math.round(parVal * 0.10)
+                } else if (leftoverPct < 10) {
+                    if (parVal >= 40) {
+                        adjPar = parVal + Math.round(parVal * 0.10)
+                    } else {
+                        adjPar = parVal + Math.round(parVal * 0.20)
+                    }
+                }
+            }
+
+            itemAdjustedBases[itemId].sums[day] += adjPar
+        })
     }
 
-    // Upsert PAR Ideal
-    const parRecords = Object.entries(itemBases).map(([itemId, data]) => ({
+    // 4. Promediar e insertar/actualizar en la tabla de PAR Ideal
+    const parRecords = Object.entries(itemAdjustedBases).map(([itemId, data]) => ({
         store_id: storeId,
         inventory_item_id: itemId,
         mon_par: Math.round(data.sums.mon / data.count),
@@ -616,7 +652,7 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
         thu_par: Math.round(data.sums.thu / data.count),
         fri_par: Math.round(data.sums.fri / data.count),
         sat_par: Math.round(data.sums.sat / data.count),
-        sun_par: Math.round(data.sums.sun / data.count),
+        sun_par: 0, // Domingo siempre es 0
         calculated_from_weeks: data.count,
         updated_at: new Date().toISOString()
     }))
