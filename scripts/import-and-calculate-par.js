@@ -288,8 +288,8 @@ async function main() {
     
     // Procesar cada pestaña del archivo
     for (const sheetName of workbook.SheetNames) {
-        // Ignorar pestañas de control
-        if (['base', 'orders', 'respaldo', 'copy of base', 'copy of base 1'].includes(sheetName.toLowerCase())) {
+        // Ignorar pestañas de control (procesamos 'base' porque contiene la semana actual activa)
+        if (['orders', 'respaldo', 'copy of base', 'copy of base 1'].includes(sheetName.toLowerCase())) {
             continue;
         }
 
