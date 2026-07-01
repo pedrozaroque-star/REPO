@@ -47,9 +47,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 })
         }
 
-        if (order.status === 'sent') {
-            return NextResponse.json({ error: 'Esta orden ya fue enviada a QuickBooks' }, { status: 400 })
-        }
+        // Se permite re-enviar la orden para actualizar el Estimate en QuickBooks si ya fue enviada antes.
 
         // 2. Obtener nombres de items para las líneas
         const itemIds = order.inventory_order_lines.map((l: any) => l.inventory_item_id)
@@ -87,21 +85,32 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'No se encontró la integración de QuickBooks' }, { status: 404 })
         }
 
-        // Refresh token
+        // Refresh token if expired
         let accessToken = integration.access_token
-        try {
-            const authResponse = await authClient.refreshUsingToken(integration.refresh_token)
-            const tokens = authResponse.getJson()
-            accessToken = tokens.access_token
+        const isExpired = new Date(integration.expires_at) <= new Date()
+        if (isExpired) {
+            try {
+                console.log('[QB-Order] Token de QuickBooks expirado. Intentando renovar...')
+                const authResponse = await authClient.refreshUsingToken(integration.refresh_token)
+                const tokens = authResponse.getJson()
+                accessToken = tokens.access_token
+                console.log('[QB-Order] ✅ Token renovado exitosamente.')
 
-            await supabase.from('integrations').update({
-                access_token: tokens.access_token,
-                refresh_token: tokens.refresh_token,
-                expires_at: new Date(Date.now() + tokens.expires_in * 1000),
-                updated_at: new Date(),
-            }).eq('id', integration.id)
-        } catch (refreshError) {
-            console.error('[QB-Order] Error refreshing token:', refreshError)
+                await supabase.from('integrations').update({
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token,
+                    expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+                    updated_at: new Date(),
+                }).eq('id', integration.id)
+            } catch (refreshError: any) {
+                console.error('[QB-Order] Error refreshing token:', refreshError.message || refreshError)
+                return NextResponse.json({
+                    error: 'token_expired',
+                    reauth_url: '/api/integrations/quickbooks/auth'
+                }, { status: 401 })
+            }
+        } else {
+            console.log('[QB-Order] ✅ Token de QuickBooks aún es válido. No se requiere renovación.')
         }
 
         const qbo = new QuickBooks(
@@ -204,13 +213,38 @@ export async function POST(request: NextRequest) {
             estimateData.DocNumber = nextDocNumber;
         }
 
-        // 7. Crear el Estimate en QB
-        const estimate = await new Promise<any>((resolve, reject) => {
-            qbo.createEstimate(estimateData, (err: any, result: any) => {
-                if (err) reject(err)
-                else resolve(result)
+        // 7. Crear o actualizar el Estimate en QB
+        let estimate: any;
+        if (order.qb_estimate_id) {
+            console.log(`[QB-Order] 🔄 Orden ya tiene estimate_id ${order.qb_estimate_id}. Obteniendo SyncToken para actualizar...`)
+            // Obtener el SyncToken del estimate existente de QB
+            const existingEstimate = await new Promise<any>((resolve, reject) => {
+                qbo.getEstimate(order.qb_estimate_id, (err: any, result: any) => {
+                    if (err) reject(err)
+                    else resolve(result)
+                })
             })
-        })
+
+            estimateData.Id = order.qb_estimate_id
+            estimateData.SyncToken = existingEstimate.SyncToken
+            estimateData.sparse = true // Solo actualizar los campos provistos
+
+            console.log(`[QB-Order] 🔄 Actualizando Estimate #${existingEstimate.DocNumber} en QuickBooks...`)
+            estimate = await new Promise<any>((resolve, reject) => {
+                qbo.updateEstimate(estimateData, (err: any, result: any) => {
+                    if (err) reject(err)
+                    else resolve(result)
+                })
+            })
+        } else {
+            console.log(`[QB-Order] 🆕 Creando nuevo Estimate en QuickBooks...`)
+            estimate = await new Promise<any>((resolve, reject) => {
+                qbo.createEstimate(estimateData, (err: any, result: any) => {
+                    if (err) reject(err)
+                    else resolve(result)
+                })
+            })
+        }
 
         // 8. Actualizar la orden con el ID del Estimate
         await supabase
@@ -224,7 +258,7 @@ export async function POST(request: NextRequest) {
             })
             .eq('id', orderId)
 
-        console.log(`[QB-Order] ✅ Estimate #${estimate.DocNumber} creado para ${store?.name} (${order.order_date})`)
+        console.log(`[QB-Order] ✅ Estimate #${estimate.DocNumber} creado/actualizado para ${store?.name} (${order.order_date})`)
 
         return NextResponse.json({
             success: true,
@@ -236,8 +270,27 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         console.error('[QB-Order] Error:', error)
+        
+        // Detectar si el error es de sesión expirada / invalid token en QuickBooks
+        const isAuthError = 
+            error.statusCode === 401 || 
+            (error.message && (
+                error.message.includes('401') || 
+                error.message.includes('invalid_token') || 
+                error.message.includes('token_expired') ||
+                error.message.includes('invalid_grant')
+            )) ||
+            (error.authResponse && error.authResponse.json && error.authResponse.json.error === 'invalid_grant');
+
+        if (isAuthError) {
+            return NextResponse.json({
+                error: 'token_expired',
+                reauth_url: '/api/integrations/quickbooks/auth'
+            }, { status: 401 })
+        }
+
         return NextResponse.json({
-            error: error.message || 'Error al crear el Estimate en QuickBooks'
+            error: error.message || 'Error al enviar la orden a QuickBooks'
         }, { status: 500 })
     }
 }

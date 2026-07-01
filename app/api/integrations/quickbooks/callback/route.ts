@@ -41,7 +41,32 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Failed to save tokens' }, { status: 500 });
         }
 
-        return NextResponse.json({ message: 'QuickBooks Connected Successfully! You can close this window.' });
+        return new NextResponse(
+            `<html>
+                <head>
+                    <meta charset="utf-8">
+                    <title>QuickBooks Conectado</title>
+                </head>
+                <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 50px; background: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; height: 80vh; margin: 0;">
+                    <div style="max-width: 420px; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 4px 6px -4px rgba(0,0,0,0.05); border: 1px border-slate-100;">
+                        <div style="font-size: 48px; margin-bottom: 20px;">🔌</div>
+                        <h1 style="color: #10b981; font-size: 24px; font-weight: 800; margin: 0 0 10px 0; tracking: -0.025em;">¡Conexión Exitosa!</h1>
+                        <p style="font-size: 14px; color: #64748b; line-height: 1.5; margin: 0 0 24px 0;">La sesión con QuickBooks se ha iniciado correctamente. Esta ventana se cerrará automáticamente en un momento...</p>
+                        <div style="display: inline-block; width: 20px; height: 20px; border: 3px solid #e2e8f0; border-radius: 50%; border-top-color: #10b981; animation: spin 1s ease-in-out infinite;"></div>
+                    </div>
+                    <style>
+                        @keyframes spin { to { transform: rotate(360deg); } }
+                    </style>
+                    <script>
+                        if (window.opener) {
+                            window.opener.postMessage("qb_authorized", "*");
+                        }
+                        setTimeout(() => { window.close(); }, 2000);
+                    </script>
+                </body>
+            </html>`,
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
 
     } catch (error) {
         console.error('OAuth Error:', error);

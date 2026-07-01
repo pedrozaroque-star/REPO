@@ -38,6 +38,7 @@ import {
     calculateDailyOrder, updateWeeklyBase, updateDailyLeftover,
     clonePreviousWeekBases, copyFromParIdeal, linkExcelItem,
     saveOrderDraft, executeWeekRollover, fetchAnalysisData,
+    saveWeeklyBases
 } from './actions'
 import {
     getMonday, addDays,
@@ -78,6 +79,8 @@ export default function InventoryOrdersPage() {
     const [activeTab, setActiveTab] = useState<TabId>('base')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
+    const [hasBaseChanges, setHasBaseChanges] = useState(false)
+    const [savingPar, setSavingPar] = useState(false)
 
     // Data
     const [items, setItems] = useState<OrderableItem[]>([])
@@ -97,6 +100,7 @@ export default function InventoryOrdersPage() {
 
     // QB sending state
     const [sendingToQb, setSendingToQb] = useState(false)
+    const [syncingQb, setSyncingQb] = useState(false)
     const [orderNotes, setOrderNotes] = useState('')
 
     // Computed
@@ -144,6 +148,7 @@ export default function InventoryOrdersPage() {
             setParIdeal(weekData.parIdeal)
             setCounts(weekData.counts)
             setOrders(weekData.orders)
+            setHasBaseChanges(false)
 
             // Pre-cargar notas de la orden existente de hoy
             const todayOrder = weekData.orders?.find((o: any) => o.order_date === new Date().toISOString().split('T')[0])
@@ -180,7 +185,39 @@ export default function InventoryOrdersPage() {
         const numVal = parseFloat(value) || 0
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
         setBases({ ...bases, [itemId]: { ...b, [field]: numVal } as any })
-        await updateWeeklyBase(storeId, itemId, activeMonday, field, numVal)
+        setHasBaseChanges(true)
+    }
+
+    async function handleSavePar() {
+        if (!storeId) return
+        setSavingPar(true)
+        try {
+            const basesList = Object.values(bases).map((b: any) => ({
+                inventory_item_id: b.inventory_item_id,
+                mon_par: b.mon_par || 0,
+                tue_par: b.tue_par || 0,
+                wed_par: b.wed_par || 0,
+                thu_par: b.thu_par || 0,
+                fri_par: b.fri_par || 0,
+                sat_par: b.sat_par || 0,
+                sun_par: b.sun_par || 0
+            }))
+            
+            await saveWeeklyBases(storeId, activeMonday, basesList)
+            alert(t('bodegaOrders.parSaved'))
+            setHasBaseChanges(false)
+            
+            // Recalcular orden del día
+            const lines = await calculateDailyOrder(
+                storeId, todayStr, items,
+                bases, counts, activeMonday
+            )
+            setOrderLines(lines)
+        } catch (e: any) {
+            alert('Error: ' + e.message)
+        } finally {
+            setSavingPar(false)
+        }
     }
 
     async function handleLeftoverChange(itemId: string, dateStr: string, value: string) {
@@ -281,6 +318,56 @@ export default function InventoryOrdersPage() {
                 body: JSON.stringify({ orderId })
             })
             const data = await res.json()
+
+            // Si la sesión de QuickBooks ha expirado
+            if (res.status === 401 || data.error === 'token_expired' || data.reauth_url) {
+                const width = 600, height = 700;
+                const left = (window.screen.width - width) / 2;
+                const top = (window.screen.height - height) / 2;
+                
+                alert('Sesión de QuickBooks expirada. Se abrirá una ventana emergente para iniciar sesión de nuevo. Al completarla, la orden se enviará automáticamente.');
+                
+                const popup = window.open(
+                    '/api/integrations/quickbooks/auth',
+                    'qb_auth_popup',
+                    `width=${width},height=${height},left=${left},top=${top}`
+                );
+
+                if (popup) {
+                    const handleMessage = async (e: MessageEvent) => {
+                        if (e.data === 'qb_authorized') {
+                            window.removeEventListener('message', handleMessage);
+                            // Reintentar de forma automática
+                            alert('¡Sesión iniciada! Reintentando el envío...');
+                            setSendingToQb(true);
+                            try {
+                                const retryRes = await fetch('/api/inventory/orders/send-to-qb', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ orderId })
+                                });
+                                const retryData = await retryRes.json();
+                                if (retryData.error) {
+                                    alert(`Error: ${retryData.error}`);
+                                } else {
+                                    alert(t('bodegaOrders.orderSentDesc', { number: retryData.estimateNumber }));
+                                    await loadData();
+                                }
+                            } catch (retryErr: any) {
+                                alert(`Error al reintentar: ${retryErr.message}`);
+                            } finally {
+                                setSendingToQb(false);
+                            }
+                        }
+                    };
+                    window.addEventListener('message', handleMessage);
+                } else {
+                    alert('Bloqueador de popups detectado. Habilita las ventanas flotantes e ingresa a: /api/integrations/quickbooks/auth');
+                }
+                setSendingToQb(false);
+                return;
+            }
+
             if (data.error) {
                 alert(`Error: ${data.error}`)
             } else {
@@ -291,6 +378,69 @@ export default function InventoryOrdersPage() {
             alert(`Error: ${err.message}`)
         }
         setSendingToQb(false)
+    }
+
+    async function handleForceQbSync() {
+        setSyncingQb(true)
+        try {
+            const res = await fetch('/api/inventory/sync-quickbooks', { method: 'POST' })
+            const data = await res.json()
+
+            // Si la sesión de QuickBooks ha expirado
+            if (res.status === 401 || data.reauth_url) {
+                const width = 600, height = 700;
+                const left = (window.screen.width - width) / 2;
+                const top = (window.screen.height - height) / 2;
+                
+                alert('Sesión de QuickBooks expirada. Se abrirá una ventana emergente para iniciar sesión de nuevo. Al completarla, la sincronización se ejecutará automáticamente.');
+                
+                const popup = window.open(
+                    '/api/integrations/quickbooks/auth',
+                    'qb_auth_popup',
+                    `width=${width},height=${height},left=${left},top=${top}`
+                );
+
+                if (popup) {
+                    const handleMessage = async (e: MessageEvent) => {
+                        if (e.data === 'qb_authorized') {
+                            window.removeEventListener('message', handleMessage);
+                            alert('¡Sesión iniciada! Reintentando sincronización...');
+                            setSyncingQb(true);
+                            try {
+                                const retryRes = await fetch('/api/inventory/sync-quickbooks', { method: 'POST' });
+                                const retryData = await retryRes.json();
+                                if (retryData.error) {
+                                    alert(`Error: ${retryData.error}`);
+                                } else {
+                                    alert('¡Sincronización de QuickBooks completada con éxito!');
+                                    await loadData();
+                                }
+                            } catch (retryErr: any) {
+                                alert(`Error al reintentar: ${retryErr.message}`);
+                            } finally {
+                                setSyncingQb(false);
+                            }
+                        }
+                    };
+                    window.addEventListener('message', handleMessage);
+                } else {
+                    alert('Bloqueador de popups detectado. Habilita las ventanas flotantes e ingresa a: /api/integrations/quickbooks/auth');
+                }
+                setSyncingQb(false);
+                return;
+            }
+
+            if (data.error) {
+                alert(`Error: ${data.error}`)
+            } else {
+                alert('¡Sincronización de QuickBooks completada con éxito!')
+                await loadData()
+            }
+        } catch (err: any) {
+            alert(`Error: ${err.message}`)
+        } finally {
+            setSyncingQb(false)
+        }
     }
 
     async function handleCloseWeek() {
@@ -432,6 +582,16 @@ export default function InventoryOrdersPage() {
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-2">
+                        {activeTab === 'base' && (
+                            <button onClick={handleSavePar} disabled={savingPar || !hasBaseChanges}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-all duration-200 ${
+                                    hasBaseChanges 
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-400 ring-offset-1' 
+                                        : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                }`}>
+                                <Save size={14} /> {savingPar ? t('bodegaOrders.savingPar') : t('bodegaOrders.savePar')}
+                            </button>
+                        )}
                         <button onClick={handleCopyPreviousWeek} disabled={loading}
                             className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
                             <Copy size={14} /> {t('bodegaOrders.copyPrevWeek')}
@@ -439,6 +599,10 @@ export default function InventoryOrdersPage() {
                         <button onClick={handleCopyParIdeal} disabled={loading}
                             className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
                             <RefreshCcw size={14} /> {t('bodegaOrders.copyFromParIdeal')}
+                        </button>
+                        <button onClick={handleForceQbSync} disabled={syncingQb || loading}
+                            className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
+                            <RefreshCcw size={14} className={syncingQb ? 'animate-spin' : ''} /> {syncingQb ? 'Sincronizando...' : t('bodegaOrders.forceSync')}
                         </button>
                         {isCurrentWeek && capturedSunday === items.length && items.length > 0 && (
                             <button onClick={handleCloseWeek} disabled={loading}
@@ -673,118 +837,148 @@ export default function InventoryOrdersPage() {
                         )}
 
                         {/* ---- TAB: ORDER ---- */}
-                        {activeTab === 'order' && (
-                            <div>
-                                {/* Summary cards */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 border-b border-slate-200 bg-gradient-to-r from-blue-50/50 to-indigo-50/50">
-                                    <div className="bg-white rounded-xl p-4 border border-blue-200 shadow-sm">
-                                        <div className="text-xs text-blue-500 font-bold uppercase tracking-wider">{t('bodegaOrders.totalItemsToOrder')}</div>
-                                        <div className="text-3xl font-black text-blue-700 mt-1">{itemsToOrder}</div>
-                                    </div>
-                                    <div className="bg-white rounded-xl p-4 border border-amber-200 shadow-sm">
-                                        <div className="text-xs text-amber-500 font-bold uppercase tracking-wider">{t('bodegaOrders.excessItems')}</div>
-                                        <div className="text-3xl font-black text-amber-600 mt-1">{excessItems}</div>
-                                    </div>
-                                    <div className="bg-white rounded-xl p-4 border border-emerald-200 shadow-sm">
-                                        <div className="text-xs text-emerald-500 font-bold uppercase tracking-wider">{t('bodegaOrders.qbEstimate')}</div>
-                                        <div className="text-lg font-black text-emerald-700 mt-1">
-                                            {orders.find((o: any) => o.order_date === todayStr)?.qb_estimate_number
-                                                ? `#${orders.find((o: any) => o.order_date === todayStr).qb_estimate_number}`
-                                                : '—'}
+                        {activeTab === 'order' && (() => {
+                            const existingOrder = orders.find((o: any) => o.order_date === todayStr);
+                            return (
+                                <div>
+                                    {/* Success banner if already sent to QBO */}
+                                    {existingOrder?.qb_estimate_number && (
+                                        <div className="mx-5 mt-5 bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex flex-wrap gap-4 items-center justify-between shadow-sm">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
+                                                    <Check className="w-5 h-5" />
+                                                </div>
+                                                <div>
+                                                    <h4 className="font-bold text-slate-800 text-sm">
+                                                        {t('bodegaOrders.orderSent')}
+                                                    </h4>
+                                                    <p className="text-xs text-slate-500">
+                                                        {t('bodegaOrders.orderSentDesc', { number: existingOrder.qb_estimate_number })}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button 
+                                                    onClick={() => window.open(`/api/inventory/orders/estimate-pdf?estimateId=${existingOrder.qb_estimate_id}`, '_blank')}
+                                                    className="flex items-center gap-1.5 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-50 px-3.5 py-2 rounded-xl font-bold text-xs shadow-sm transition-all"
+                                                >
+                                                    <Download size={14} /> {t('bodegaOrders.printPdf')}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Summary cards */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 border-b border-slate-200 bg-gradient-to-r from-blue-50/50 to-indigo-50/50">
+                                        <div className="bg-white rounded-xl p-4 border border-blue-200 shadow-sm">
+                                            <div className="text-xs text-blue-500 font-bold uppercase tracking-wider">{t('bodegaOrders.totalItemsToOrder')}</div>
+                                            <div className="text-3xl font-black text-blue-700 mt-1">{itemsToOrder}</div>
+                                        </div>
+                                        <div className="bg-white rounded-xl p-4 border border-amber-200 shadow-sm">
+                                            <div className="text-xs text-amber-500 font-bold uppercase tracking-wider">{t('bodegaOrders.excessItems')}</div>
+                                            <div className="text-3xl font-black text-amber-600 mt-1">{excessItems}</div>
+                                        </div>
+                                        <div className="bg-white rounded-xl p-4 border border-emerald-200 shadow-sm">
+                                            <div className="text-xs text-emerald-500 font-bold uppercase tracking-wider">{t('bodegaOrders.qbEstimate')}</div>
+                                            <div className="text-lg font-black text-emerald-700 mt-1">
+                                                {existingOrder?.qb_estimate_number
+                                                    ? `#${existingOrder.qb_estimate_number}`
+                                                    : '—'}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
 
-                                {/* Order table */}
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm border-collapse whitespace-nowrap">
-                                        <thead>
-                                            <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300">
-                                                <th className="sticky left-0 bg-slate-50 border p-3 text-left min-w-[200px] z-10">{t('bodegaOrders.item')}</th>
-                                                <th className="border p-3 text-center w-28">{t('bodegaOrders.unit')}</th>
-                                                <th className="border p-3 text-center w-20 bg-emerald-50 text-emerald-700">{t('bodegaOrders.parIdeal')}</th>
-                                                <th className="border p-3 text-center w-20 bg-orange-50 text-orange-700">{t('bodegaOrders.leftover')}</th>
-                                                <th className="border p-3 text-center w-20 bg-blue-50 text-blue-700">{t('bodegaOrders.calculated')}</th>
-                                                <th className="border p-3 text-center w-24 bg-indigo-50 text-indigo-700">{t('bodegaOrders.adjusted')}</th>
-                                                <th className="border p-3 text-center w-20 bg-violet-50 text-violet-700 font-black">{t('bodegaOrders.finalQty')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {orderLines.map((line, i) => {
-                                                const adj = adjustments[line.inventory_item_id]
-                                                const finalQty = adj !== undefined ? adj : line.calculated_qty
-                                                const isNegative = line.calculated_qty < 0
-                                                const isZeroLeftover = line.leftover_value === null
+                                    {/* Order table */}
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm border-collapse whitespace-nowrap">
+                                            <thead>
+                                                <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300">
+                                                    <th className="sticky left-0 bg-slate-50 border p-3 text-left min-w-[200px] z-10">{t('bodegaOrders.item')}</th>
+                                                    <th className="border p-3 text-center w-28">{t('bodegaOrders.unit')}</th>
+                                                    <th className="border p-3 text-center w-20 bg-emerald-50 text-emerald-700">{t('bodegaOrders.parIdeal')}</th>
+                                                    <th className="border p-3 text-center w-20 bg-orange-50 text-orange-700">{t('bodegaOrders.leftover')}</th>
+                                                    <th className="border p-3 text-center w-20 bg-blue-50 text-blue-700">{t('bodegaOrders.calculated')}</th>
+                                                    <th className="border p-3 text-center w-24 bg-indigo-50 text-indigo-700">{t('bodegaOrders.adjusted')}</th>
+                                                    <th className="border p-3 text-center w-20 bg-violet-50 text-violet-700 font-black">{t('bodegaOrders.finalQty')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {orderLines.map((line, i) => {
+                                                    const adj = adjustments[line.inventory_item_id]
+                                                    const finalQty = adj !== undefined ? adj : line.calculated_qty
+                                                    const isNegative = line.calculated_qty < 0
+                                                    const isZeroLeftover = line.leftover_value === null
 
-                                                return (
-                                                    <tr key={line.inventory_item_id}
-                                                        className={`transition-colors ${isNegative ? 'bg-red-50/30' : isZeroLeftover ? 'bg-slate-50' : finalQty > 0 ? 'hover:bg-blue-50/30' : ''}`}>
-                                                        <td className="sticky left-0 bg-white border border-slate-200 p-2 font-semibold text-slate-800 z-10">
-                                                            {line.item_name}
-                                                        </td>
-                                                        <td className="border border-slate-200 p-2 text-center text-xs text-slate-500">{line.unit_description}</td>
-                                                        <td className="border border-emerald-100 p-2 text-center font-medium text-emerald-700 bg-emerald-50/30">{line.par_value || '-'}</td>
-                                                        <td className={`border p-2 text-center font-bold ${isZeroLeftover ? 'text-slate-300 bg-slate-50 border-slate-200' : 'text-orange-700 border-orange-100 bg-orange-50/30'}`}>
-                                                            {line.leftover_value !== null ? line.leftover_value : '-'}
-                                                        </td>
-                                                        <td className={`border p-2 text-center font-bold ${isNegative ? 'text-red-600 bg-red-50 border-red-200' : isZeroLeftover ? 'text-slate-300 border-slate-200 bg-slate-50' : 'text-blue-700 bg-blue-50/30 border-blue-100'}`}>
-                                                            {isZeroLeftover ? '-' : line.calculated_qty}
-                                                        </td>
-                                                        <td className="border border-indigo-100 p-0 bg-indigo-50/20">
-                                                            <input
-                                                                type="number"
-                                                                placeholder="-"
-                                                                className="w-full p-2 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200"
-                                                                value={adj !== undefined ? adj : ''}
-                                                                onChange={e => {
-                                                                    const v = e.target.value
-                                                                    if (v === '') {
-                                                                        const newAdj = { ...adjustments }
-                                                                        delete newAdj[line.inventory_item_id]
-                                                                        setAdjustments(newAdj)
-                                                                    } else {
-                                                                        setAdjustments({ ...adjustments, [line.inventory_item_id]: parseFloat(v) || 0 })
-                                                                    }
-                                                                }}
-                                                            />
-                                                        </td>
-                                                        <td className={`border p-2 text-center font-black text-lg ${finalQty > 0 ? 'text-violet-700 bg-violet-50/30 border-violet-200' : finalQty < 0 ? 'text-red-400 bg-red-50/20 border-red-100' : 'text-slate-300 border-slate-200'}`}>
-                                                            {isZeroLeftover ? '-' : finalQty}
-                                                        </td>
-                                                    </tr>
-                                                )
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                                    return (
+                                                        <tr key={line.inventory_item_id}
+                                                            className={`transition-colors ${isNegative ? 'bg-red-50/30' : isZeroLeftover ? 'bg-slate-50' : finalQty > 0 ? 'hover:bg-blue-50/30' : ''}`}>
+                                                            <td className="sticky left-0 bg-white border border-slate-200 p-2 font-semibold text-slate-800 z-10">
+                                                                {line.item_name}
+                                                            </td>
+                                                            <td className="border border-slate-200 p-2 text-center text-xs text-slate-500">{line.unit_description}</td>
+                                                            <td className="border border-emerald-100 p-2 text-center font-medium text-emerald-700 bg-emerald-50/30">{line.par_value || '-'}</td>
+                                                            <td className={`border p-2 text-center font-bold ${isZeroLeftover ? 'text-slate-300 bg-slate-50 border-slate-200' : 'text-orange-700 border-orange-100 bg-orange-50/30'}`}>
+                                                                {line.leftover_value !== null ? line.leftover_value : '-'}
+                                                            </td>
+                                                            <td className={`border p-2 text-center font-bold ${isNegative ? 'text-red-600 bg-red-50 border-red-200' : isZeroLeftover ? 'text-slate-300 border-slate-200 bg-slate-50' : 'text-blue-700 bg-blue-50/30 border-blue-100'}`}>
+                                                                {isZeroLeftover ? '-' : line.calculated_qty}
+                                                            </td>
+                                                            <td className="border border-indigo-100 p-0 bg-indigo-50/20">
+                                                                <input
+                                                                    type="number"
+                                                                    placeholder="-"
+                                                                    className="w-full p-2 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200"
+                                                                    value={adj !== undefined ? adj : ''}
+                                                                    onChange={e => {
+                                                                        const v = e.target.value
+                                                                        if (v === '') {
+                                                                            const newAdj = { ...adjustments }
+                                                                            delete newAdj[line.inventory_item_id]
+                                                                            setAdjustments(newAdj)
+                                                                        } else {
+                                                                            setAdjustments({ ...adjustments, [line.inventory_item_id]: parseFloat(v) || 0 })
+                                                                        }
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                            <td className={`border p-2 text-center font-black text-lg ${finalQty > 0 ? 'text-violet-700 bg-violet-50/30 border-violet-200' : finalQty < 0 ? 'text-red-400 bg-red-50/20 border-red-100' : 'text-slate-300 border-slate-200'}`}>
+                                                                {isZeroLeftover ? '-' : finalQty}
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
 
-                                {/* Observaciones */}
-                                <div className="px-5 pt-4">
-                                    <label className="block text-sm font-bold text-slate-600 mb-1.5">
-                                        📝 {t('bodegaOrders.observations')}
-                                    </label>
-                                    <textarea
-                                        value={orderNotes}
-                                        onChange={e => setOrderNotes(e.target.value)}
-                                        placeholder={t('bodegaOrders.observationsPlaceholder')}
-                                        rows={2}
-                                        className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none bg-white placeholder:text-slate-400"
-                                    />
-                                </div>
+                                    {/* Observations and notes */}
+                                    <div className="p-5 border-t border-slate-200 mt-6 bg-slate-50/30">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                                            📝 {t('bodegaOrders.observations')}
+                                        </label>
+                                        <textarea
+                                            value={orderNotes}
+                                            onChange={e => setOrderNotes(e.target.value)}
+                                            placeholder={t('bodegaOrders.observationsPlaceholder')}
+                                            rows={2}
+                                            className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none bg-white placeholder:text-slate-400"
+                                        />
+                                    </div>
 
-                                {/* Action buttons */}
-                                <div className="p-5 border-t border-slate-200 bg-slate-50/50 flex flex-wrap gap-3 justify-end">
-                                    <button onClick={handleGenerateOrder} disabled={saving}
-                                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors disabled:opacity-50">
-                                        <Save size={16} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
-                                    </button>
-                                    <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek}
-                                        className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                                        <Send size={16} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
-                                    </button>
+                                    {/* Action buttons */}
+                                    <div className="p-5 border-t border-slate-200 bg-slate-50/50 flex flex-wrap gap-3 justify-end">
+                                        <button onClick={handleGenerateOrder} disabled={saving}
+                                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors disabled:opacity-50">
+                                            <Save size={16} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
+                                        </button>
+                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek}
+                                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <Send size={16} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            );
+                        })()}
 
                         {/* ---- TAB: ANALYSIS ---- */}
                         {activeTab === 'analysis' && (

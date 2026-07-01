@@ -83,25 +83,33 @@ export async function POST() {
             return NextResponse.json({ error: 'No se encontró la integración de QuickBooks' }, { status: 404 });
         }
 
-        // 2. Refresh Token
+        // 2. Refresh Token if expired
         let accessToken = integration.access_token;
-        try {
-            console.log('Intentando renovar token de QuickBooks...');
-            const authResponse = await authClient.refreshUsingToken(integration.refresh_token);
-            const tokens = authResponse.getJson();
-            accessToken = tokens.access_token;
+        const isExpired = new Date(integration.expires_at) <= new Date();
+        if (isExpired) {
+            try {
+                console.log('[QB-Sync] Token de QuickBooks expirado. Intentando renovar...');
+                const authResponse = await authClient.refreshUsingToken(integration.refresh_token);
+                const tokens = authResponse.getJson();
+                accessToken = tokens.access_token;
+                console.log('[QB-Sync] ✅ Token renovado exitosamente.');
 
-            // Save new tokens
-            await supabase.from('integrations').update({
-                access_token: tokens.access_token,
-                refresh_token: tokens.refresh_token,
-                expires_at: new Date(Date.now() + tokens.expires_in * 1000),
-                updated_at: new Date(),
-            }).eq('id', integration.id);
-            console.log('✅ Token renovado exitosamente.');
-        } catch (refreshError) {
-            console.error('Error refreshing token:', refreshError);
-            // Si el refresh falla, intentamos usar el que tenemos, pero probablemente de 401
+                // Save new tokens
+                await supabase.from('integrations').update({
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token,
+                    expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+                    updated_at: new Date(),
+                }).eq('id', integration.id);
+            } catch (refreshError: any) {
+                console.error('[QB-Sync] Error refreshing token:', refreshError.message || refreshError);
+                return NextResponse.json({ 
+                    error: 'QuickBooks session expired. Please re-authenticate.', 
+                    reauth_url: '/api/integrations/quickbooks/auth' 
+                }, { status: 401 });
+            }
+        } else {
+            console.log('[QB-Sync] ✅ Token de QuickBooks aún es válido. No se requiere renovación.');
         }
 
         // 3. Initialize QB Client
@@ -441,8 +449,108 @@ export async function POST() {
             console.error('[QB-Sync] Error en template sync:', templateError.message);
         }
 
+        // ====================================================================
+        // AUTO-SYNC: Templates de QB por tienda → store_order_template
+        // ====================================================================
+        let templatesUpdated = 0;
+        let templateItemsSynced = 0;
+        try {
+            console.log('[QB-Sync] 🔄 Sincronizando templates de QB por tienda...');
+            // 1. Obtener todas las tiendas activas con qb_customer_id
+            const { data: activeStores } = await supabase
+                .from('stores')
+                .select('id, name, qb_customer_id')
+                .not('qb_customer_id', 'is', null);
+
+            // 2. Obtener mappings
+            const { data: allMappings } = await supabase
+                .from('quickbooks_mappings')
+                .select('qb_item_id, inventory_item_id, qb_item_name');
+            
+            const qbToInternal = new Map<string, any>();
+            allMappings?.forEach(m => qbToInternal.set(m.qb_item_id, m));
+
+            // Helper para hacer queries a QB (usando fetch nativo)
+            const qbQuery = async (sql: string) => {
+                const res = await fetch(`https://quickbooks.api.intuit.com/v3/company/${integration.realm_id}/query?query=${encodeURIComponent(sql)}&minorversion=75`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Accept': 'application/json'
+                    }
+                });
+                if (!res.ok) throw new Error(`QB Query Failed: ${res.statusText}`);
+                const data = await res.json();
+                return data?.QueryResponse?.Estimate || [];
+            };
+
+            if (activeStores && activeStores.length > 0) {
+                for (const store of activeStores) {
+                    try {
+                        const sql = `SELECT * FROM Estimate WHERE CustomerRef = '${store.qb_customer_id}' ORDER BY MetaData.LastUpdatedTime DESC MAXRESULTS 5`;
+                        const estimates = await qbQuery(sql);
+                        
+                        // Filtrar y tomar el primer Estimate real (sin notas de "TEST" o "ELIMINAR")
+                        const realEstimate = estimates.find((e: any) => {
+                            const note = (e.PrivateNote || '').toUpperCase();
+                            return !note.includes('TEST') && !note.includes('ELIMINAR') && !note.includes('PRUEBA');
+                        });
+
+                        if (!realEstimate) {
+                            console.log(`[QB-Sync] ⚠️ ${store.name}: Sin estimates reales en QB.`);
+                            continue;
+                        }
+
+                        const est = realEstimate;
+                        const lines = est.Line || [];
+                        
+                        const toInsert: any[] = [];
+                        let pos = 1;
+                        for (const line of lines) {
+                            if (line.DetailType === 'SalesItemLineDetail' && line.SalesItemLineDetail?.ItemRef?.value) {
+                                const qbItemId = line.SalesItemLineDetail.ItemRef.value;
+                                const qbItemName = line.SalesItemLineDetail.ItemRef.name || 'Unknown';
+                                
+                                const mapping = qbToInternal.get(qbItemId);
+                                if (!mapping) continue;
+
+                                toInsert.push({
+                                    store_id: store.id,
+                                    inventory_item_id: mapping.inventory_item_id,
+                                    qb_item_id: qbItemId,
+                                    qb_item_name: qbItemName,
+                                    sort_position: pos++
+                                });
+                            }
+                        }
+
+                        if (toInsert.length > 0) {
+                            // Limpiar template anterior
+                            await supabase.from('store_order_template').delete().eq('store_id', store.id);
+
+                            // Insertar nuevo template
+                            const { error: insertErr } = await supabase.from('store_order_template').insert(toInsert);
+                            if (insertErr) {
+                                console.error(`[QB-Sync] ❌ Error insertando template para ${store.name}:`, insertErr.message);
+                            } else {
+                                console.log(`[QB-Sync] ✅ Template de ${store.name} sincronizado (${toInsert.length} items)`);
+                                templatesUpdated++;
+                                templateItemsSynced += toInsert.length;
+                            }
+                        }
+                    } catch (storeError: any) {
+                        console.error(`[QB-Sync] ❌ Error en template de ${store.name}:`, storeError.message);
+                    }
+                    
+                    // Delay para evitar rate limits
+                    await new Promise(r => setTimeout(r, 100));
+                }
+            }
+        } catch (templateError: any) {
+            console.error('[QB-Sync] Error general en template sync:', templateError.message);
+        }
+
         // Log summary with protection details
-        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked, ${storesLinked} stores linked, ${itemsAdded} items added, ${itemsRemoved} items removed`);
+        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked, ${storesLinked} stores linked, ${itemsAdded} items added, ${itemsRemoved} items removed, ${templatesUpdated} templates updated (${templateItemsSynced} items)`);
         if (blockedItems.length > 0) {
             console.log(`[QB-Sync] 🛡️ Blocked items:`);
             blockedItems.forEach(b => console.log(`  - ${b}`));
@@ -456,7 +564,7 @@ export async function POST() {
             blockedCount,
             blockedItems: blockedItems.length > 0 ? blockedItems : undefined,
             storesLinked,
-            templateSync: { itemsAdded, itemsRemoved }
+            templateSync: { itemsAdded, itemsRemoved, templatesUpdated, templateItemsSynced }
         });
 
     } catch (error: any) {

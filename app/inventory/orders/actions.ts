@@ -61,7 +61,37 @@ function getDayKey(dateStr: string): string {
  * Incluye el qb_item_id si existe el mapeo en quickbooks_mappings.
  */
 export async function fetchOrderableItems(storeId: string | number) {
-    // Items con excel_reference (= participan en órdenes)
+    // 1. Intentar obtener el template específico de esta tienda
+    const { data: template, error: templateError } = await supabase
+        .from('store_order_template')
+        .select(`
+            inventory_item_id,
+            qb_item_id,
+            qb_item_name,
+            sort_position,
+            inventory_items:inventory_item_id (id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule)
+        `)
+        .eq('store_id', storeId)
+        .order('sort_position', { ascending: true })
+
+    if (!templateError && template && template.length > 0) {
+        return template.map(t => {
+            const item = t.inventory_items as any
+            const qbCleanName = t.qb_item_name ? t.qb_item_name.split(':').pop().trim() : '';
+            return {
+                id: item.id,
+                name: item.name,
+                unit_type: item.unit_type,
+                excel_reference: item.excel_reference || qbCleanName || item.name,
+                order_unit_description: item.order_unit_description,
+                order_rounding_rule: item.order_rounding_rule || 'none',
+                order_sort_position: t.sort_position || 999,
+                qb_item_id: t.qb_item_id
+            }
+        }) as OrderableItem[]
+    }
+
+    // 2. Fallback: Si no hay template, usar la lista global anterior
     const { data: items, error: itemsError } = await supabase
         .from('inventory_items')
         .select('id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, order_sort_position')
@@ -70,7 +100,7 @@ export async function fetchOrderableItems(storeId: string | number) {
 
     if (itemsError) throw new Error(itemsError.message)
 
-    // QB mappings para poder enviar Estimates
+    // QB mappings globales
     const { data: mappings } = await supabase
         .from('quickbooks_mappings')
         .select('qb_item_id, inventory_item_id')
@@ -108,7 +138,7 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         .eq('store_id', storeId)
         .eq('week_start_date', mondayStr)
 
-    // PAR Ideal
+    // PAR Ideal (Baseline PAR)
     const { data: parIdeal } = await supabase
         .from('inventory_par_ideal')
         .select('*')
@@ -135,7 +165,29 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
 
     // Mapear datos
     const basesMap: Record<string, WeeklyBaseRecord> = {}
-    bases?.forEach((b: any) => { basesMap[b.inventory_item_id] = b })
+    
+    // Si esta semana no tiene bases registradas, inicializar con el PAR Ideal
+    if (bases && bases.length > 0) {
+        bases.forEach((b: any) => { basesMap[b.inventory_item_id] = b })
+    } else if (parIdeal && parIdeal.length > 0) {
+        parIdeal.forEach((p: any) => {
+            basesMap[p.inventory_item_id] = {
+                id: `temp-${p.inventory_item_id}`,
+                store_id: Number(storeId),
+                inventory_item_id: p.inventory_item_id,
+                week_start_date: mondayStr,
+                mon_par: p.mon_par,
+                tue_par: p.tue_par,
+                wed_par: p.wed_par,
+                thu_par: p.thu_par,
+                fri_par: p.fri_par,
+                sat_par: p.sat_par,
+                sun_par: p.sun_par,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            } as any
+        })
+    }
 
     const parIdealMap: Record<string, ParIdealRecord> = {}
     parIdeal?.forEach((p: any) => { parIdealMap[p.inventory_item_id] = p })
@@ -154,6 +206,65 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         currentMonday: mondayStr,
         lastSundayDate: addDays(lastWeekMonday, 6)
     }
+}
+
+/**
+ * Guarda las modificaciones del PAR tanto en las bases de la semana actual 
+ * como en el PAR Ideal de referencia (el baseline para todas las semanas futuras).
+ */
+export async function saveWeeklyBases(
+    storeId: string | number,
+    weekStartDate: string,
+    basesList: { inventory_item_id: string; mon_par: number; tue_par: number; wed_par: number; thu_par: number; fri_par: number; sat_par: number; sun_par: number }[]
+) {
+    // 1. Guardar en weekly bases de la semana seleccionada
+    const weeklyPayload = basesList.map(b => ({
+        store_id: storeId,
+        inventory_item_id: b.inventory_item_id,
+        week_start_date: weekStartDate,
+        mon_par: b.mon_par,
+        tue_par: b.tue_par,
+        wed_par: b.wed_par,
+        thu_par: b.thu_par,
+        fri_par: b.fri_par,
+        sat_par: b.sat_par,
+        sun_par: b.sun_par,
+        updated_at: new Date().toISOString()
+    }))
+
+    const { error: err1 } = await supabase
+        .from('inventory_weekly_bases')
+        .upsert(weeklyPayload, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+
+    if (err1) {
+        console.error('Error al guardar bases semanales:', err1.message)
+        throw new Error(err1.message)
+    }
+
+    // 2. Guardar en par ideal (el baseline definitivo para todas las semanas)
+    const idealPayload = basesList.map(b => ({
+        store_id: storeId,
+        inventory_item_id: b.inventory_item_id,
+        mon_par: b.mon_par,
+        tue_par: b.tue_par,
+        wed_par: b.wed_par,
+        thu_par: b.thu_par,
+        fri_par: b.fri_par,
+        sat_par: b.sat_par,
+        sun_par: b.sun_par,
+        updated_at: new Date().toISOString()
+    }))
+
+    const { error: err2 } = await supabase
+        .from('inventory_par_ideal')
+        .upsert(idealPayload, { onConflict: 'store_id, inventory_item_id' })
+
+    if (err2) {
+        console.error('Error al guardar PAR Ideal:', err2.message)
+        throw new Error(err2.message)
+    }
+
+    revalidatePath('/inventory/orders')
 }
 
 /**
