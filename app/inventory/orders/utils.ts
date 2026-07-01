@@ -62,6 +62,7 @@ export type CalculatedOrderLine = {
     item_name: string
     unit_description: string
     par_value: number
+    par_ideal_value?: number
     leftover_value: number | null
     calculated_qty: number
     rounding_rule: string

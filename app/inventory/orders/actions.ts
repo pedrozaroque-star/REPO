@@ -278,12 +278,14 @@ export async function calculateDailyOrder(
     items: OrderableItem[],
     bases: Record<string, WeeklyBaseRecord>,
     counts: Record<string, Record<string, number>>,
-    mondayStr: string
+    mondayStr: string,
+    parIdeal?: Record<string, ParIdealRecord>,
+    overrideDayField?: string
 ): Promise<CalculatedOrderLine[]> {
     const dayKey = getDayKey(dateStr)
     const dayIndex = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].indexOf(dayKey)
 
-    // Determinar el día siguiente y su PAR
+    // Determinar el día siguiente y su PAR por defecto
     let nextDayBaseField: string
     if (dayKey === 'sun') {
         // Domingo: mañana es lunes de la PRÓXIMA semana
@@ -293,14 +295,20 @@ export async function calculateDailyOrder(
         nextDayBaseField = nextKeys[dayIndex]
     }
 
+    // Usar override si está definido, si no usar el día siguiente por defecto
+    const targetField = overrideDayField && overrideDayField !== 'auto' ? overrideDayField : nextDayBaseField
+
     const lines: CalculatedOrderLine[] = []
 
     for (const item of items) {
         const base = bases[item.id]
         if (!base) continue
 
-        // PAR del día siguiente
-        const parValue = (base as any)[nextDayBaseField] || 0
+        // PAR del día seleccionado
+        const parValue = (base as any)[targetField] || 0
+
+        // PAR Ideal de referencia para ese mismo día
+        const itemParIdeal = parIdeal && parIdeal[item.id] ? (parIdeal[item.id] as any)[targetField] || 0 : 0
 
         // Sobrante de hoy
         const itemCounts = counts[item.id] || {}
@@ -319,6 +327,7 @@ export async function calculateDailyOrder(
             item_name: item.excel_reference || item.name,
             unit_description: item.order_unit_description || item.unit_type,
             par_value: parValue,
+            par_ideal_value: itemParIdeal,
             leftover_value: leftoverValue,
             calculated_qty: calculatedQty,
             rounding_rule: item.order_rounding_rule,

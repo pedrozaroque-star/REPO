@@ -108,6 +108,7 @@ export default function InventoryOrdersPage() {
     const [sendingToQb, setSendingToQb] = useState(false)
     const [syncingQb, setSyncingQb] = useState(false)
     const [orderNotes, setOrderNotes] = useState('')
+    const [overrideDayField, setOverrideDayField] = useState<string>('auto')
 
     // Computed
     const todayStr = new Date().toISOString().split('T')[0]
@@ -165,7 +166,8 @@ export default function InventoryOrdersPage() {
             if (isCurrentWeek) {
                 const lines = await calculateDailyOrder(
                     storeId, todayStr, orderableItems,
-                    weekData.bases, weekData.counts, activeMonday
+                    weekData.bases, weekData.counts, activeMonday,
+                    weekData.parIdeal, overrideDayField
                 )
                 setOrderLines(lines)
             }
@@ -174,9 +176,20 @@ export default function InventoryOrdersPage() {
         } finally {
             setLoading(false)
         }
-    }, [storeId, activeMonday])
+    }, [storeId, activeMonday, overrideDayField])
 
     useEffect(() => { loadData() }, [loadData])
+
+    // Recalcular orden localmente al cambiar el día de base a usar
+    useEffect(() => {
+        if (storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
+            calculateDailyOrder(
+                storeId, todayStr, items,
+                bases, counts, activeMonday,
+                parIdeal, overrideDayField
+            ).then(setOrderLines)
+        }
+    }, [overrideDayField, storeId, todayStr, items, bases, counts, activeMonday, parIdeal])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -216,7 +229,8 @@ export default function InventoryOrdersPage() {
             // Recalcular orden del día
             const lines = await calculateDailyOrder(
                 storeId, todayStr, items,
-                bases, counts, activeMonday
+                bases, counts, activeMonday,
+                parIdeal, overrideDayField
             )
             setOrderLines(lines)
         } catch (e: any) {
@@ -685,10 +699,29 @@ export default function InventoryOrdersPage() {
                             return (
                                 <div>
                                     {/* ---- Header: Pedido para [TOMORROW] ---- */}
-                                    <div className="px-5 pt-5 pb-3">
+                                    <div className="px-5 pt-5 pb-3 flex flex-wrap items-center justify-between gap-4">
                                         <h2 className="text-xl font-black text-slate-800">
-                                            📦 {t('bodegaOrders.orderForDate')} {tomorrowDayName?.es || ''} {tomorrowFormatted}
+                                            📦 {t('bodegaOrders.orderForDate')} {tomorrowDayName?.es || ''} ({tomorrowFormatted})
                                         </h2>
+                                        
+                                        {/* Dropdown to override PAR base day field */}
+                                        <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs">
+                                            <span className="font-bold text-slate-500">📅 Usar PAR de:</span>
+                                            <select
+                                                value={overrideDayField}
+                                                onChange={e => setOverrideDayField(e.target.value)}
+                                                className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans"
+                                            >
+                                                <option value="auto">Automático ({tomorrowDayName?.es || ''})</option>
+                                                <option value="mon_par">Lunes / Monday</option>
+                                                <option value="tue_par">Martes / Tuesday</option>
+                                                <option value="wed_par">Miércoles / Wednesday</option>
+                                                <option value="thu_par">Jueves / Thursday</option>
+                                                <option value="fri_par">Viernes / Friday</option>
+                                                <option value="sat_par">Sábado / Saturday</option>
+                                                <option value="sun_par">Domingo / Sunday</option>
+                                            </select>
+                                        </div>
                                     </div>
 
                                     {/* ---- Success banner if already sent to QB ---- */}
@@ -763,6 +796,9 @@ export default function InventoryOrdersPage() {
                                                     <th className="sticky left-0 bg-slate-50 border-b-2 border-slate-300 p-3 text-left min-w-[200px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                                                         {t('bodegaOrders.item')}
                                                     </th>
+                                                    <th className="p-3 text-center w-20 bg-violet-50 text-violet-700 border-b-2 border-violet-200">
+                                                        {t('bodegaOrders.parIdeal')}
+                                                    </th>
                                                     <th className="p-3 text-center w-20 bg-emerald-50 text-emerald-700 border-b-2 border-emerald-200">
                                                         {t('bodegaOrders.parTomorrow')}
                                                     </th>
@@ -800,6 +836,10 @@ export default function InventoryOrdersPage() {
                                                                     )}
                                                                     <span className="font-semibold text-slate-800">{line.item_name}</span>
                                                                 </div>
+                                                            </td>
+                                                            {/* PAR Ideal (readonly) */}
+                                                            <td className="p-2 text-center font-medium text-violet-600 bg-violet-50/40 border-b border-violet-100">
+                                                                {line.par_ideal_value || '-'}
                                                             </td>
                                                             {/* PAR (readonly) */}
                                                             <td className="p-2 text-center font-bold text-emerald-700 bg-emerald-50/40 border-b border-emerald-100">
@@ -861,7 +901,7 @@ export default function InventoryOrdersPage() {
                                                 {/* ---- Tracking Only separator ---- */}
                                                 {trackingLines.length > 0 && (
                                                     <tr>
-                                                        <td colSpan={6} className="p-3 text-center bg-slate-100 border-y-2 border-slate-300">
+                                                        <td colSpan={7} className="p-3 text-center bg-slate-100 border-y-2 border-slate-300">
                                                             <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
                                                                 ── {t('bodegaOrders.trackingOnly')} / Tracking Only ──
                                                             </span>
@@ -884,6 +924,10 @@ export default function InventoryOrdersPage() {
                                                                     )}
                                                                     <span className="font-semibold text-slate-500">{line.item_name}</span>
                                                                 </div>
+                                                            </td>
+                                                            {/* PAR Ideal */}
+                                                            <td className="p-2 text-center font-medium text-violet-500 bg-violet-50/20 border-b border-violet-100">
+                                                                {line.par_ideal_value || '-'}
                                                             </td>
                                                             {/* PAR */}
                                                             <td className="p-2 text-center font-bold text-emerald-600 bg-emerald-50/30 border-b border-emerald-100">
