@@ -208,10 +208,16 @@ export async function POST(request: NextRequest) {
             console.warn('[QB] No se pudo obtener DocNumber, QB lo asignará automáticamente');
         }
 
+        // La fecha del Estimate es el día SIGUIENTE (fecha de entrega/necesidad),
+        // porque el pedido se genera hoy con los sobrantes de hoy, pero el producto es para mañana
+        const deliveryDate = new Date(order.order_date + 'T12:00:00') // Usar mediodía para evitar problemas de timezone
+        deliveryDate.setDate(deliveryDate.getDate() + 1)
+        const deliveryDateStr = deliveryDate.toISOString().split('T')[0]
+
         const estimateData: any = {
             CustomerRef: { value: customerId },
-            TxnDate: order.order_date,
-            ShipDate: order.order_date,
+            TxnDate: deliveryDateStr,
+            ShipDate: deliveryDateStr,
             CustomerMemo: { value: memo },
             PrivateNote: order.notes || undefined,
             Line: estimateLines,
