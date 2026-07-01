@@ -306,14 +306,12 @@ export async function calculateDailyOrder(
         const itemCounts = counts[item.id] || {}
         const leftoverValue = itemCounts[dateStr] ?? null
 
-        // Calcular orden
-        let calculatedQty = 0
-        if (leftoverValue !== null) {
-            calculatedQty = parValue - leftoverValue
-            // Aplicar regla de redondeo
-            if (calculatedQty > 0) {
-                calculatedQty = applyRounding(calculatedQty, item.order_rounding_rule)
-            }
+        // Calcular orden: si no hay sobrante capturado, asumir 0 (pedir PAR completo)
+        const effectiveLeftover = leftoverValue ?? 0
+        let calculatedQty = parValue - effectiveLeftover
+        // Aplicar regla de redondeo
+        if (calculatedQty > 0) {
+            calculatedQty = applyRounding(calculatedQty, item.order_rounding_rule)
         }
 
         lines.push({
