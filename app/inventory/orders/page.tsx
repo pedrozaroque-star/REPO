@@ -134,6 +134,8 @@ export default function InventoryOrdersPage() {
 
     // Computed
     const todayStr = getLocalBusinessDate(new Date())
+    const [selectedOrderDate, setSelectedOrderDate] = useState<string | null>(null)
+    const activeOrderDate = selectedOrderDate || todayStr
     const isCurrentWeek = activeMonday === getMonday(new Date(todayStr + 'T12:00:00'))
 
     const weekDays = WEEK_DAYS.map(d => ({
@@ -179,15 +181,26 @@ export default function InventoryOrdersPage() {
             setOrders(weekData.orders)
             setHasBaseChanges(false)
 
-            // Pre-cargar notas de la orden existente de hoy
-            const todayOrder = weekData.orders?.find((o: any) => o.order_date === todayStr)
-            if (todayOrder?.notes) setOrderNotes(todayOrder.notes)
-            else setOrderNotes('')
+            // Pre-cargar notas y ajustes de la orden activa
+            const activeOrder = weekData.orders?.find((o: any) => o.order_date === activeOrderDate)
+            if (activeOrder) {
+                setOrderNotes(activeOrder.notes || '')
+                const savedAdjustments: Record<string, number> = {}
+                activeOrder.inventory_order_lines?.forEach((l: any) => {
+                    if (l.adjusted_qty !== null && l.adjusted_qty !== undefined) {
+                        savedAdjustments[l.inventory_item_id] = l.adjusted_qty
+                    }
+                })
+                setAdjustments(savedAdjustments)
+            } else {
+                setOrderNotes('')
+                setAdjustments({})
+            }
 
-            // Calculate today's order
-            if (isCurrentWeek) {
+            // Calculate order
+            if (isCurrentWeek || selectedOrderDate) {
                 const lines = await calculateDailyOrder(
-                    storeId, todayStr, orderableItems,
+                    storeId, activeOrderDate, orderableItems,
                     weekData.bases, weekData.counts, activeMonday,
                     weekData.parIdeal, overrideDayField
                 )
@@ -198,20 +211,20 @@ export default function InventoryOrdersPage() {
         } finally {
             setLoading(false)
         }
-    }, [storeId, activeMonday, overrideDayField])
+    }, [storeId, activeMonday, overrideDayField, activeOrderDate, selectedOrderDate])
 
     useEffect(() => { loadData() }, [loadData])
 
-    // Recalcular orden localmente al cambiar el día de base a usar
+    // Recalcular orden localmente al cambiar el día de base a usar o la fecha activa
     useEffect(() => {
         if (storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
             calculateDailyOrder(
-                storeId, todayStr, items,
+                storeId, activeOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField
             ).then(setOrderLines)
         }
-    }, [overrideDayField, storeId, todayStr, items, bases, counts, activeMonday, parIdeal])
+    }, [overrideDayField, storeId, activeOrderDate, items, bases, counts, activeMonday, parIdeal])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -282,7 +295,7 @@ export default function InventoryOrdersPage() {
      *  Guarda en DB + recalcula la línea de orden en tiempo real. */
     async function handleInlineLeftoverChange(itemId: string, value: string) {
         // 1. Update counts state + save to DB
-        await handleLeftoverChange(itemId, todayStr, value)
+        await handleLeftoverChange(itemId, activeOrderDate, value)
 
         // 2. Recalculate that specific order line
         const numVal = value === '' ? null : (parseFloat(value) || 0)
@@ -363,7 +376,7 @@ export default function InventoryOrdersPage() {
             leftover_value: l.leftover_value ?? 0
         }))
 
-        const res = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
+        const res = await saveOrderDraft(storeId, activeOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
         if (res.error) alert(res.error)
         else { alert(t('bodegaOrders.saved')); await loadData() }
         setSaving(false)
@@ -393,7 +406,7 @@ export default function InventoryOrdersPage() {
             return
         }
 
-        const saveRes = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
+        const saveRes = await saveOrderDraft(storeId, activeOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
         if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
         const orderId = saveRes.orderId
         setSaving(false)
@@ -560,7 +573,7 @@ export default function InventoryOrdersPage() {
     }
 
     // Count captured leftovers for today
-    const capturedToday = items.filter(i => counts[i.id]?.[todayStr] !== undefined).length
+    const capturedToday = items.filter(i => counts[i.id]?.[activeOrderDate] !== undefined).length
     const sundayDate = addDays(activeMonday, 6)
     const capturedSunday = items.filter(i => counts[i.id]?.[sundayDate] !== undefined).length
 
@@ -573,7 +586,7 @@ export default function InventoryOrdersPage() {
     const excessItems = orderLines.filter(l => l.calculated_qty < 0).length
 
     // Compute the next day name + date for daily order header
-    const tomorrow = new Date(todayStr + 'T12:00:00')
+    const tomorrow = new Date(activeOrderDate + 'T12:00:00')
     tomorrow.setDate(tomorrow.getDate() + 1)
     const dayNames: Record<string, { es: string; en: string }> = {
         '0': { es: 'Domingo', en: 'Sunday' },
@@ -802,9 +815,9 @@ export default function InventoryOrdersPage() {
                         {/* TAB 1: DAILY ORDER                                       */}
                         {/* ======================================================== */}
                         {activeTab === 'daily_order' && (() => {
-                            const existingOrder = orders.find((o: any) => o.order_date === todayStr)
+                            const existingOrder = orders.find((o: any) => o.order_date === activeOrderDate)
 
-                            if (!isCurrentWeek) {
+                            if (!isCurrentWeek && !selectedOrderDate) {
                                 return (
                                     <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
                                         <AlertTriangle className="w-10 h-10 text-amber-400" />
@@ -815,6 +828,24 @@ export default function InventoryOrdersPage() {
 
                             return (
                                 <div>
+                                    {/* ---- Banner de Edición Activa ---- */}
+                                    {selectedOrderDate !== null && (
+                                        <div className="mx-5 mt-5 bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl flex items-center justify-between text-xs font-bold shadow-sm">
+                                            <div className="flex items-center gap-2">
+                                                <span className="relative flex h-2 w-2">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                                </span>
+                                                <span>EDITANDO PEDIDO DEL DÍA: <span className="underline">{selectedOrderDate}</span></span>
+                                            </div>
+                                            <button 
+                                                onClick={() => setSelectedOrderDate(null)}
+                                                className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg font-bold transition-all"
+                                            >
+                                                ❌ Regresar al Pedido de Hoy
+                                            </button>
+                                        </div>
+                                    )}
                                     {/* ---- Header: Pedido para [TOMORROW] ---- */}
                                     <div className="px-5 pt-5 pb-3 flex flex-wrap items-center justify-between gap-4">
                                         <h2 className="text-xl font-black text-slate-800">
@@ -950,7 +981,7 @@ export default function InventoryOrdersPage() {
                                                     const finalQty = adj !== undefined ? adj : line.calculated_qty
                                                     const isNegative = line.calculated_qty < 0
                                                     const isZeroLeftover = line.leftover_value === null
-                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[activeOrderDate]
 
                                                     return (
                                                         <tr key={line.inventory_item_id}
@@ -1041,7 +1072,7 @@ export default function InventoryOrdersPage() {
                                                 {/* ---- Tracking-only items ---- */}
                                                 {trackingLines.map((line, idx) => {
                                                     const rowIndex = orderableLines.length + idx + 1
-                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[activeOrderDate]
 
                                                     return (
                                                         <tr key={line.inventory_item_id} className="transition-colors border-b border-slate-100 hover:bg-slate-50/50">
@@ -1167,17 +1198,29 @@ export default function InventoryOrdersPage() {
                                                                 )}
                                                             </div>
 
-                                                            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                                                                {order.qb_estimate_number ? (
-                                                                    <button 
-                                                                        onClick={() => window.open(`/api/inventory/orders/estimate-pdf?estimateId=${order.qb_estimate_id}`, '_blank')}
-                                                                        className="text-xs text-blue-600 hover:text-blue-800 font-bold transition-colors"
+                                                            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                                                                <div className="flex gap-2">
+                                                                    {order.qb_estimate_number ? (
+                                                                        <button 
+                                                                            onClick={() => window.open(`/api/inventory/orders/estimate-pdf?estimateId=${order.qb_estimate_id}`, '_blank')}
+                                                                            className="text-xs text-blue-600 hover:text-blue-800 font-bold transition-colors"
+                                                                        >
+                                                                            🖨️ PDF
+                                                                        </button>
+                                                                    ) : (
+                                                                        <span className="text-[11px] text-slate-400">Sin QB</span>
+                                                                    )}
+
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSelectedOrderDate(order.order_date);
+                                                                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                                        }}
+                                                                        className="text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 px-2 py-1 rounded-lg font-black transition-all flex items-center gap-0.5"
                                                                     >
-                                                                        🖨️ Ver PDF
+                                                                        ✏️ Editar
                                                                     </button>
-                                                                ) : (
-                                                                    <span className="text-[11px] text-slate-400">Sin enviar a QB</span>
-                                                                )}
+                                                                </div>
 
                                                                 <button
                                                                     onClick={() => handleDeleteOrder(order.id, order.qb_estimate_number)}
