@@ -217,8 +217,8 @@ export async function POST(request: NextRequest) {
 
         const estimateData: any = {
             CustomerRef: { value: customerId },
-            TxnDate: deliveryDateStr,
-            ShipDate: deliveryDateStr,
+            TxnDate: order.order_date, // Fecha del pedido (ej. Hoy: 07/01/2026)
+            ShipDate: deliveryDateStr, // Fecha de entrega (ej. Mañana: 07/02/2026)
             CustomerMemo: { value: memo },
             PrivateNote: order.notes || undefined,
             Line: estimateLines,
