@@ -1,6 +1,5 @@
-
 import { NextRequest, NextResponse } from 'next/server';
-import { authClient } from '@/lib/quickbooks';
+import { authClient, saveLocalSandboxIntegration } from '@/lib/quickbooks';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -23,22 +22,27 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Missing Realm ID (Company ID)' }, { status: 400 });
         }
 
-        // 2. Store tokens in Supabase
-        const { error } = await supabase
-            .from('integrations')
-            .upsert({
-                service_name: 'quickbooks',
-                realm_id: realmId,
-                access_token: tokens.access_token,
-                refresh_token: tokens.refresh_token,
-                token_type: tokens.token_type,
-                expires_at: new Date(Date.now() + tokens.expires_in * 1000),
-                updated_at: new Date(),
-            }, { onConflict: 'service_name' });
+        // 2. Store tokens: Local Sandbox file OR Production Supabase DB
+        if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
+            saveLocalSandboxIntegration(tokens, realmId);
+            console.log('✅ Sandbox tokens saved locally to .sandbox_tokens.json');
+        } else {
+            const { error } = await supabase
+                .from('integrations')
+                .upsert({
+                    service_name: 'quickbooks',
+                    realm_id: realmId,
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token,
+                    token_type: tokens.token_type,
+                    expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+                    updated_at: new Date(),
+                }, { onConflict: 'service_name' });
 
-        if (error) {
-            console.error('Database error:', error);
-            return NextResponse.json({ error: 'Failed to save tokens' }, { status: 500 });
+            if (error) {
+                console.error('Database error:', error);
+                return NextResponse.json({ error: 'Failed to save tokens' }, { status: 500 });
+            }
         }
 
         return new NextResponse(

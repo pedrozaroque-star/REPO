@@ -78,11 +78,18 @@ export async function POST(request: NextRequest) {
             .single()
 
         // 5. Conectar a QuickBooks
-        const { data: integration } = await supabase
-            .from('integrations')
-            .select('*')
-            .eq('service_name', 'quickbooks')
-            .single()
+        let integration: any;
+        if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
+            const { getLocalSandboxIntegration } = require('@/lib/quickbooks');
+            integration = getLocalSandboxIntegration();
+        } else {
+            const { data } = await supabase
+                .from('integrations')
+                .select('*')
+                .eq('service_name', 'quickbooks')
+                .single();
+            integration = data;
+        }
 
         if (!integration) {
             return NextResponse.json({ error: 'No se encontró la integración de QuickBooks' }, { status: 404 })
@@ -99,12 +106,17 @@ export async function POST(request: NextRequest) {
                 accessToken = tokens.access_token
                 console.log('[QB-Order] ✅ Token renovado exitosamente.')
 
-                await supabase.from('integrations').update({
-                    access_token: tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                    expires_at: new Date(Date.now() + tokens.expires_in * 1000),
-                    updated_at: new Date(),
-                }).eq('id', integration.id)
+                if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
+                    const { saveLocalSandboxIntegration } = require('@/lib/quickbooks');
+                    saveLocalSandboxIntegration(tokens, integration.realm_id);
+                } else {
+                    await supabase.from('integrations').update({
+                        access_token: tokens.access_token,
+                        refresh_token: tokens.refresh_token,
+                        expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+                        updated_at: new Date(),
+                    }).eq('id', integration.id)
+                }
             } catch (refreshError: any) {
                 console.error('[QB-Order] Error refreshing token:', refreshError.message || refreshError)
                 return NextResponse.json({
