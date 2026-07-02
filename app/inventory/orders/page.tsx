@@ -962,6 +962,7 @@ export default function InventoryOrdersPage() {
                                                                     value={currentLeftover !== undefined ? currentLeftover : ''}
                                                                     onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
                                                                     onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                    onFocus={e => e.target.select()}
                                                                 />
                                                             </td>
                                                             {/* Pedir (calculated) */}
@@ -991,6 +992,7 @@ export default function InventoryOrdersPage() {
                                                                         }
                                                                     }}
                                                                     onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
+                                                                    onFocus={e => e.target.select()}
                                                                 />
                                                             </td>
                                                             {/* Final */}
@@ -1050,6 +1052,7 @@ export default function InventoryOrdersPage() {
                                                                     value={currentLeftover !== undefined ? currentLeftover : ''}
                                                                     onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
                                                                     onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                    onFocus={e => e.target.select()}
                                                                 />
                                                             </td>
                                                             {/* Pedir — dash */}
@@ -1260,6 +1263,7 @@ export default function InventoryOrdersPage() {
                                                                         value={val !== undefined && val !== null ? val : ''}
                                                                         onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
                                                                         onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
+                                                                        onFocus={e => e.target.select()}
                                                                     />
                                                                 </td>
                                                             )
