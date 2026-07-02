@@ -56,6 +56,26 @@ import { createClient } from '@/lib/supabase-client'
 import { useLanguage } from '@/lib/i18n'
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+function getLocalBusinessDate(d: Date = new Date()): string {
+    const year = d.getFullYear()
+    const month = d.getMonth()
+    const date = d.getDate()
+    const hours = d.getHours()
+
+    const localDate = new Date(year, month, date, 12, 0, 0)
+    if (hours < 6) {
+        localDate.setDate(localDate.getDate() - 1)
+    }
+
+    const y = localDate.getFullYear()
+    const m = String(localDate.getMonth() + 1).padStart(2, '0')
+    const r = String(localDate.getDate()).padStart(2, '0')
+    return `${y}-${m}-${r}`
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 type TabId = 'daily_order' | 'weekly_config'
@@ -113,8 +133,8 @@ export default function InventoryOrdersPage() {
     const [overrideDayField, setOverrideDayField] = useState<string>('auto')
 
     // Computed
-    const todayStr = new Date().toISOString().split('T')[0]
-    const isCurrentWeek = activeMonday === getMonday(new Date())
+    const todayStr = getLocalBusinessDate(new Date())
+    const isCurrentWeek = activeMonday === getMonday(new Date(todayStr + 'T12:00:00'))
 
     const weekDays = WEEK_DAYS.map(d => ({
         ...d,
@@ -553,7 +573,7 @@ export default function InventoryOrdersPage() {
     const excessItems = orderLines.filter(l => l.calculated_qty < 0).length
 
     // Compute the next day name + date for daily order header
-    const tomorrow = new Date()
+    const tomorrow = new Date(todayStr + 'T12:00:00')
     tomorrow.setDate(tomorrow.getDate() + 1)
     const dayNames: Record<string, { es: string; en: string }> = {
         '0': { es: 'Domingo', en: 'Sunday' },
