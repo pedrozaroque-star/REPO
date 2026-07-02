@@ -37,7 +37,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
     Package, ClipboardList, ShoppingCart, BarChart3,
     ArrowLeft, ArrowRight, Copy, Save, Send, RefreshCcw,
-    Check, X, Link, AlertTriangle, ChevronDown, Download, Info
+    Check, X, Link, AlertTriangle, ChevronDown, Download, Info, Trash2
 } from 'lucide-react'
 import {
     fetchOrderableItems, fetchAllInventoryItems, fetchWeeklyData,
@@ -104,6 +104,7 @@ export default function InventoryOrdersPage() {
     const [selectedItemId, setSelectedItemId] = useState('')
     const [searchTerm, setSearchTerm] = useState('')
     const [showIdealInfo, setShowIdealInfo] = useState(false)
+    const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null)
 
     // QB sending state
     const [sendingToQb, setSendingToQb] = useState(false)
@@ -271,6 +272,33 @@ export default function InventoryOrdersPage() {
             const newCalc = line.par_value - effectiveLeftover
             return { ...line, leftover_value: numVal, calculated_qty: newCalc }
         }))
+    }
+
+    async function handleDeleteOrder(orderId: string, qbEstimateNum: string | null) {
+        const warningMsg = qbEstimateNum 
+            ? `⚠️ ¡ATENCIÓN! Esta orden está vinculada al Estimate #${qbEstimateNum} en QuickBooks.\n\nAl eliminar esta orden, también se ELIMINARÁ permanentemente de QuickBooks.\n\n¿Estás seguro de que deseas continuar?`
+            : `¿Estás seguro de que deseas eliminar esta orden de forma permanente?`;
+
+        if (!confirm(warningMsg)) return
+
+        setDeletingOrderId(orderId)
+        try {
+            const response = await fetch('/api/inventory/orders/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId }),
+            })
+            const result = await response.json()
+            if (!response.ok) {
+                throw new Error(result.error || 'Error al eliminar la orden')
+            }
+            alert('¡Orden eliminada exitosamente en el sistema y en QuickBooks!')
+            await loadData()
+        } catch (err: any) {
+            alert('Error al eliminar: ' + err.message)
+        } finally {
+            setDeletingOrderId(null)
+        }
     }
 
     async function handleCopyPreviousWeek() {
@@ -1062,6 +1090,87 @@ export default function InventoryOrdersPage() {
                                             <Send size={16} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
                                         </button>
                                     </div>
+
+                                    {/* ---- Weekly estimates history list ---- */}
+                                    {orders && orders.length > 0 && (
+                                        <div className="p-5 border-t border-slate-200 bg-slate-50/20">
+                                            <div className="flex items-center justify-between mb-4">
+                                                <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                                                    📄 Historial de Pedidos de esta Semana
+                                                </h3>
+                                            </div>
+
+                                            {/* Advertencia / Alerta */}
+                                            <div className="mb-4 bg-amber-50 border border-amber-200 p-4 rounded-xl flex gap-3 text-xs text-amber-800 leading-relaxed shadow-sm">
+                                                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                                                <div>
+                                                    <strong className="block font-bold mb-0.5 text-amber-900">⚠️ ADVERTENCIA OPERATIVA</strong>
+                                                    Al **eliminar** un pedido desde esta lista, también se **eliminará de forma definitiva el Estimate en QuickBooks**. 
+                                                    Para **editar** cantidades, simplemente modifícalas en la tabla de arriba y vuelve a hacer clic en &quot;Enviar a QuickBooks&quot;, lo cual actualizará el Estimate existente automáticamente sin crear duplicados.
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {orders.map((order: any) => {
+                                                    const isDeleting = deletingOrderId === order.id
+                                                    return (
+                                                        <div key={order.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow relative flex flex-col justify-between min-h-[140px]">
+                                                            <div>
+                                                                <div className="flex justify-between items-start mb-2">
+                                                                    <span className="font-black text-slate-800 text-sm">📅 Pedido del {order.order_date}</span>
+                                                                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                                                        order.status === 'sent' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                                                        order.status === 'draft' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
+                                                                        'bg-blue-100 text-blue-800 border border-blue-200'
+                                                                    }`}>
+                                                                        {t(`bodegaOrders.status.${order.status}`)}
+                                                                    </span>
+                                                                </div>
+
+                                                                {order.qb_estimate_number && (
+                                                                    <div className="text-xs text-emerald-600 font-bold mb-1 flex items-center gap-1">
+                                                                        <span>Estimate QB: #{order.qb_estimate_number}</span>
+                                                                    </div>
+                                                                )}
+
+                                                                <div className="text-[11px] text-slate-400 mt-1">
+                                                                    Creado por: {order.created_by || 'Sistema'}
+                                                                </div>
+
+                                                                {order.notes && (
+                                                                    <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded-lg mt-2 border border-slate-100 italic truncate max-h-[50px]">
+                                                                        &quot;{order.notes}&quot;
+                                                                    </p>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                                                                {order.qb_estimate_number ? (
+                                                                    <button 
+                                                                        onClick={() => window.open(`/api/inventory/orders/estimate-pdf?estimateId=${order.qb_estimate_id}`, '_blank')}
+                                                                        className="text-xs text-blue-600 hover:text-blue-800 font-bold transition-colors"
+                                                                    >
+                                                                        🖨️ Ver PDF
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="text-[11px] text-slate-400">Sin enviar a QB</span>
+                                                                )}
+
+                                                                <button
+                                                                    onClick={() => handleDeleteOrder(order.id, order.qb_estimate_number)}
+                                                                    disabled={isDeleting || loading}
+                                                                    className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50 p-1.5 rounded-lg font-bold flex items-center gap-1 transition-all disabled:opacity-50"
+                                                                >
+                                                                    <Trash2 size={13} className={isDeleting ? 'animate-pulse' : ''} />
+                                                                    {isDeleting ? 'Eliminando...' : 'Eliminar'}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )
                         })()}
