@@ -37,7 +37,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
     Package, ClipboardList, ShoppingCart, BarChart3,
     ArrowLeft, ArrowRight, Copy, Save, Send, RefreshCcw,
-    Check, X, Link, AlertTriangle, ChevronDown, Download
+    Check, X, Link, AlertTriangle, ChevronDown, Download, Info
 } from 'lucide-react'
 import {
     fetchOrderableItems, fetchAllInventoryItems, fetchWeeklyData,
@@ -103,6 +103,7 @@ export default function InventoryOrdersPage() {
     const [linkModal, setLinkModal] = useState<{ open: boolean; excelName: string }>({ open: false, excelName: '' })
     const [selectedItemId, setSelectedItemId] = useState('')
     const [searchTerm, setSearchTerm] = useState('')
+    const [showIdealInfo, setShowIdealInfo] = useState(false)
 
     // QB sending state
     const [sendingToQb, setSendingToQb] = useState(false)
@@ -592,6 +593,74 @@ export default function InventoryOrdersPage() {
                 </div>
             )}
 
+            {/* ============ IDEAL PAR INFO MODAL ============ */}
+            {showIdealInfo && (
+                <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-xl border border-violet-100 relative">
+                        <button 
+                            onClick={() => setShowIdealInfo(false)} 
+                            className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                        
+                        <div className="flex items-center gap-3 mb-4 border-b border-slate-100 pb-3">
+                            <div className="p-2 bg-violet-100 text-violet-700 rounded-lg">
+                                <Info className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-black text-slate-800">¿Cómo se calcula el PAR Ideal?</h2>
+                                <p className="text-xs text-slate-400">Fórmulas automáticas del historial (Últimas 8 semanas)</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 text-sm text-slate-600 max-h-[60vh] overflow-y-auto pr-1">
+                            <p className="leading-relaxed">
+                                El <strong>PAR Ideal</strong> es una sugerencia matemática calculada automáticamente 
+                                por el sistema promediando las bases reales de las últimas <strong>8 semanas</strong> y aplicando ajustes inteligentes basados en los sobrantes diarios.
+                            </p>
+
+                            <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
+                                <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-emerald-700">📅 Lunes a Viernes:</h3>
+                                <p className="text-xs leading-relaxed">
+                                    Se calcula el porcentaje de sobrante al final del día respecto a la base del día: <code>(Sobrante / PAR) × 100</code>.
+                                </p>
+                                <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
+                                    <li><strong className="text-amber-600">Exceso (&gt; 60% sobrante):</strong> Sobró demasiado producto. El PAR se reduce entre un <strong>10% y 15%</strong>.</li>
+                                    <li><strong className="text-red-500">Escasez (&lt; 20% sobrante):</strong> Quedó muy poco o se agotó. El PAR se incrementa entre un <strong>10% y 20%</strong>.</li>
+                                    <li><strong className="text-emerald-600">Rango Ideal (20% a 60%):</strong> El PAR se mantiene intacto.</li>
+                                </ul>
+                            </div>
+
+                            <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
+                                <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-indigo-700">📅 Sábado (Pedido de Fin de Semana):</h3>
+                                <p className="text-xs leading-relaxed">
+                                    Dado que el pedido del sábado cubre tanto sábado como domingo, el sobrante se valida con el conteo físico del **Domingo por la noche**:
+                                </p>
+                                <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
+                                    <li><strong className="text-amber-600">Exceso (&gt; 30% sobrante el Domingo):</strong> El PAR del sábado se reduce un <strong>10% o 15%</strong>.</li>
+                                    <li><strong className="text-red-500">Escasez (&lt; 10% sobrante el Domingo):</strong> El PAR del sábado se incrementa un <strong>10% o 20%</strong>.</li>
+                                    <li><strong className="text-emerald-600">Rango Ideal (10% a 30%):</strong> El PAR del sábado se mantiene intacto.</li>
+                                </ul>
+                            </div>
+
+                            <p className="text-[11px] text-slate-400 italic">
+                                * Nota: Domingo siempre calcula PAR 0 ya que no hay entregas de bodega los domingos.
+                            </p>
+                        </div>
+                        
+                        <div className="mt-5 border-t border-slate-100 pt-4 flex justify-end">
+                            <button
+                                onClick={() => setShowIdealInfo(false)}
+                                className="bg-violet-600 hover:bg-violet-700 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-colors shadow-sm"
+                            >
+                                Entendido
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ============ HEADER BAR ============ */}
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 gap-4">
                 <div>
@@ -796,8 +865,18 @@ export default function InventoryOrdersPage() {
                                                     <th className="sticky left-0 bg-slate-50 border-b-2 border-slate-300 p-3 text-left min-w-[200px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                                                         {t('bodegaOrders.item')}
                                                     </th>
-                                                    <th className="p-3 text-center w-20 bg-violet-50 text-violet-700 border-b-2 border-violet-200">
-                                                        {t('bodegaOrders.parIdeal')}
+                                                    <th className="p-3 text-center w-24 bg-violet-50 text-violet-700 border-b-2 border-violet-200">
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            <span>{t('bodegaOrders.parIdeal')}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowIdealInfo(true)}
+                                                                className="text-violet-400 hover:text-violet-600 transition-colors"
+                                                                title="¿Cómo se calcula?"
+                                                            >
+                                                                <Info size={13} />
+                                                            </button>
+                                                        </div>
                                                     </th>
                                                     <th className="p-3 text-center w-20 bg-emerald-50 text-emerald-700 border-b-2 border-emerald-200">
                                                         {t('bodegaOrders.parTomorrow')}
