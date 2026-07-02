@@ -1784,54 +1784,74 @@ export default function InventoryOrdersPage() {
                         </div>
 
                         {/* Content */}
-                        <div className="p-6 space-y-6 text-sm text-slate-600 leading-relaxed font-sans">
-                            {/* Sección 1: Fórmula */}
-                            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
-                                    📊 Fórmula Core de Reposición
+                        <div className="p-6 space-y-6 text-sm text-slate-600 leading-relaxed font-sans max-h-[60vh] overflow-y-auto">
+                            {/* PASO A PASO */}
+                            <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
+                                <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5 mb-2">
+                                    🚀 ¿Cómo hacer el Pedido Diario? (Paso a Paso)
                                 </h4>
-                                <p className="mb-2">El cálculo automático para saber cuánto pedir a bodega se basa en:</p>
-                                <div className="bg-white border border-slate-200 rounded-lg p-3 text-center font-mono font-black text-blue-700 text-xs sm:text-sm">
-                                    Pedido (Final) = PAR del día siguiente − Sobrante de hoy
+                                <ol className="list-decimal pl-5 space-y-1.5 text-blue-900/80">
+                                    <li><strong>Selecciona la Sucursal:</strong> Elige tu tienda en el selector arriba a la derecha.</li>
+                                    <li><strong>Verifica la Fecha de Conteo:</strong> Selecciona el día en el que estás contando los productos físicos (por defecto hoy). El pedido se programará para entregarse el **día siguiente**.</li>
+                                    <li><strong>Ingresa los Sobrantes (Conteo Físico):</strong> En la columna naranja <strong>"Sobrante"</strong>, escribe la cantidad de producto que quedó en tu restaurante al cierre. Si ya se habían capturado sobrantes para esta fecha, se cargarán solos de inmediato.</li>
+                                    <li><strong>Revisa la Cantidad Calculada:</strong> El sistema calculará automáticamente cuánto pedir en la columna <strong>"Pedir"</strong> utilizando la fórmula: <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-blue-700">PAR de Mañana − Sobrante</code>. Si tienes suficiente stock, te marcará "Exceso".</li>
+                                    <li><strong>Haz Ajustes Manuales (Opcional):</strong> Si por algún evento especial quieres pedir una cantidad distinta al cálculo del sistema, escribe la cantidad deseada en la columna <strong>"Ajuste"</strong>. La columna <strong>"Final"</strong> tomará ese valor ajustado.</li>
+                                    <li><strong>Guarda y Sincroniza:</strong> Haz clic en <strong>"Generar Orden"</strong> para guardar localmente y luego en <strong>"Enviar a QuickBooks"</strong> para crear el Estimate oficial.</li>
+                                </ol>
+                            </div>
+
+                            {/* SIGNIFICA CADA COSA */}
+                            <div>
+                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                    📋 ¿Qué significa cada columna de la Tabla?
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="border border-slate-100 p-3 rounded-lg">
+                                        <span className="font-bold text-emerald-600 block text-xs uppercase">PAR Mañana</span>
+                                        La cantidad óptima del producto que debe tener el restaurante al inicio del día siguiente.
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg bg-orange-50/10">
+                                        <span className="font-bold text-orange-600 block text-xs uppercase">Sobrante (Naranja)</span>
+                                        El inventario físico actual (lo que te queda en el restaurante hoy).
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg bg-blue-50/10">
+                                        <span className="font-bold text-blue-600 block text-xs uppercase">Pedir (Azul)</span>
+                                        La cantidad sugerida por el sistema (<code className="bg-slate-50 px-1 py-0.5 rounded text-[10px]">PAR − Sobrante</code>).
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg bg-indigo-50/10">
+                                        <span className="font-bold text-indigo-600 block text-xs uppercase">Ajuste (Índigo)</span>
+                                        Sobrescribe el pedido automático en caso de emergencias, eventos especiales o redondeos.
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg col-span-1 md:col-span-2">
+                                        <span className="font-bold text-slate-800 block text-xs uppercase">Final</span>
+                                        La cantidad real que se enviará en la orden final (toma el valor de Ajuste si existe, sino toma el de Pedir).
+                                    </div>
                                 </div>
-                                <p className="text-xs text-slate-400 mt-2">
-                                    * Si el resultado es negativo (exceso), no se pide. Si hay un Ajuste manual, este reemplaza el cálculo automático.
-                                </p>
                             </div>
 
-                            {/* Sección 2: Flujo y Fechas */}
+                            {/* CONFIGURACIÓN SEMANAL */}
                             <div>
                                 <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
-                                    📅 Fecha de Conteo vs Fecha de Entrega
+                                    ⚙️ Pestaña: Configuración Semanal (PAR)
                                 </h4>
-                                <ul className="list-disc pl-5 space-y-1">
-                                    <li><strong>Fecha de Conteo (Sobrante):</strong> Es la fecha elegida en el selector. Indica cuándo se realiza el conteo físico de los sobrantes.</li>
-                                    <li><strong>Fecha de Entrega:</strong> El pedido calculado resultante es para el <strong>día siguiente</strong> (ej. conteo capturado el Jueves se entrega el Viernes).</li>
-                                    <li><strong>Usar PAR de (Override):</strong> Permite calcular el pedido de hoy usando la base de otro día de la semana (ideal para feriados, cierres tempranos o días especiales de venta alta).</li>
+                                <p className="mb-2">Aquí es donde los administradores configuran el PAR ideal diario de cada día de la semana (Lunes a Domingo):</p>
+                                <ul className="list-disc pl-5 space-y-1.5">
+                                    <li><strong>Edición de Celdas:</strong> Haz clic y escribe directamente en la cuadrícula de días para ajustar el PAR diario de cualquier producto.</li>
+                                    <li><strong>📋 Copiar PAR:</strong> Si vas a tener un día festivo o de ventas inusuales, puedes duplicar las bases de un día a otro. Selecciona el día de origen (ej. Viernes), selecciona el día de destino (ej. Lunes o "Todos los días") y haz clic en <strong>Copiar</strong>.</li>
+                                    <li><strong>↩️ Deshacer / Descartar:</strong> Si cometes un error durante la edición y no has presionado "Guardar", haz clic en este botón rojo para revertir la tabla completa a su estado inicial.</li>
+                                    <li><strong>PAR Ideal (Referencia):</strong> Muestra una sugerencia matemática basada en el historial de las últimas 8 semanas y ajustada automáticamente según el porcentaje de sobrantes.</li>
                                 </ul>
                             </div>
 
-                            {/* Sección 3: Configuración Semanal */}
-                            <div>
+                            {/* QUICKBOOKS */}
+                            <div className="border-t border-slate-100 pt-4">
                                 <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
-                                    ⚙️ Configuración Semanal (PAR)
+                                    💼 Integración con QuickBooks (Estimates)
                                 </h4>
-                                <ul className="list-disc pl-5 space-y-1">
-                                    <li><strong>Copiar PAR:</strong> Permite copiar la base de PAR completa de un día a otro día o a todos los días de la semana de un solo golpe.</li>
-                                    <li><strong>Deshacer / Descartar:</strong> Si editas las celdas de la tabla o aplicas alguna copia por error, puedes presionar "Deshacer" para restaurar las bases al estado original guardado en la base de datos.</li>
-                                    <li><strong>PAR Ideal:</strong> Es una sugerencia matemática basada en el historial de las últimas 8 semanas, ajustando automáticamente según el porcentaje de lo que ha sobrado.</li>
-                                </ul>
-                            </div>
-
-                            {/* Sección 4: Integración QuickBooks */}
-                            <div>
-                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
-                                    📄 Integración Resiliente con QuickBooks (Estimates)
-                                </h4>
-                                <ul className="list-disc pl-5 space-y-1">
-                                    <li>Al presionar <strong>Enviar a QB</strong>, se crea un Estimate en QuickBooks Online.</li>
-                                    <li><strong>Resiliente a fallos:</strong> Si el Estimate previo guardado está dañado, contiene insumos inactivos o fue eliminado en QuickBooks, la API lo ignorará de manera segura y creará un Estimate nuevo limpio con tus insumos activos actuales.</li>
-                                    <li><strong>Email y Ubicación:</strong> Los Estimates se envían con el correo del manager activo y las clasificaciones <em>Class: Warehouse</em> y <em>Location: Warehouse</em> preconfiguradas.</li>
+                                <ul className="list-disc pl-5 space-y-1 text-xs text-slate-500">
+                                    <li>El envío a QuickBooks crea automáticamente un Estimate para la tienda en cuestión.</li>
+                                    <li><strong>Clase y Ubicación:</strong> El sistema preconfigura automáticamente el Class y Department/Location en "Warehouse" (Bodega) en QuickBooks para asegurar el flujo correcto en contabilidad.</li>
+                                    <li><strong>Seguridad Antierrores:</strong> Si el Estimate anterior de la base de datos fue eliminado en QuickBooks o contiene productos que ya fueron desactivados, el sistema lo detectará solo y creará un Estimate nuevo limpio con tus productos activos actuales.</li>
                                 </ul>
                             </div>
                         </div>
