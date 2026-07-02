@@ -172,12 +172,11 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
         {
             title: t('sections.inventory'), id: 'inventario',
             items: [
-                { name: t('items.inventory_dashboard'), plainName: 'Inventario', path: '/inventory', icon: <LayoutDashboard size={20} />, roles: ['admin', 'manager', 'supervisor'] },
-                { name: t('items.ingredients'), plainName: 'Insumos', path: '/inventory/items', icon: <Store size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.ingredients'), plainName: 'Insumos de Bodega', path: '/inventory/items', icon: <Store size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.menu_catalog'), plainName: 'Catálogo', path: '/inventory/menu', icon: <ClipboardList size={20} />, roles: ['admin', 'manager', 'supervisor'] },
                 { name: t('items.food_costs'), plainName: 'Costos', path: '/inventory/costs', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
                 { name: t('items.prep'), plainName: 'Preparador', path: '/inventory/preparador', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
-                { name: t('items.bodega_orders'), plainName: 'Pedidos Bodega', path: '/inventory/orders', icon: <Truck size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.bodega_orders'), plainName: 'Orden diaria', path: '/inventory/orders', icon: <Truck size={20} />, roles: ['admin', 'manager', 'supervisor'] },
             ]
         },
         {
