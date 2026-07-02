@@ -311,14 +311,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {(!isCollapsed || isMobile) ? (
                     <div className="flex items-center justify-between w-full min-w-0">
                         <span className={`truncate ${isBasecamp ? 'font-semibold text-slate-800 dark:text-slate-200' : ''}`}>{item.name}</span>
-                        {isBasecamp && (
+                        {(isBasecamp || item.path === '/inventory/orders') && (
                             <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm ml-1.5 shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
                                 new
                             </span>
                         )}
                     </div>
                 ) : (
-                    isBasecamp && (
+                    (isBasecamp || item.path === '/inventory/orders') && (
                         <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm animate-ping new-badge-animated" />
                     )
                 )}
