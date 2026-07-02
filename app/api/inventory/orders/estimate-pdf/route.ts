@@ -55,8 +55,17 @@ export async function GET(request: NextRequest) {
 
     } catch (error: any) {
         console.error('[QB-PDF] Error:', error)
+        let errMsg = error.message || 'Error al obtener el PDF de QuickBooks'
+        
+        // Extraer el detalle del error directo de QuickBooks si está disponible
+        if (error.Fault?.Error?.[0]?.Detail) {
+            errMsg = `Error de QuickBooks: ${error.Fault.Error[0].Detail}`
+        } else if (error.response?.data?.Fault?.Error?.[0]?.Detail) {
+            errMsg = `Error de QuickBooks: ${error.response.data.Fault.Error[0].Detail}`
+        }
+        
         return NextResponse.json({ 
-            error: error.message || 'Error al obtener el PDF de QuickBooks' 
+            error: errMsg
         }, { status: 500 })
     }
 }
