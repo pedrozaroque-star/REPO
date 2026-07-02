@@ -59,7 +59,7 @@ const dictionaries: Record<Language, Dictionary> = {
             my_schedule: 'Mis Horarios',
             self_scheduling: 'Auto-Programación',
             inventory_dashboard: 'Dashboard',
-            menu_catalog: 'Catálogo (Menú)',
+            menu_catalog: 'Recetas (Menú)',
             ingredients: 'Insumos de Bodega',
             food_costs: 'Costos (Food Cost)',
             food_cost_report: 'Reporte General',
@@ -367,8 +367,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // MENU CATALOG
         menu_catalog: {
-            title: 'Catálogo de Menú (Toast)',
-            subtitle: 'Items sincronizados desde el POS. Mapea estos items a recetas.',
+            title: 'Recetas y Costos (Catálogo Toast)',
+            subtitle: 'Items sincronizados desde el POS. Configura recetas para calcular costo y margen de ganancia (Food Cost).',
             sync_btn: 'Sincronizar Ahora',
             syncing_btn: 'Sincronizando...',
             search_placeholder: 'Buscar por nombre o grupo...',
@@ -2062,7 +2062,7 @@ const dictionaries: Record<Language, Dictionary> = {
             my_schedule: 'My Schedule',
             self_scheduling: 'Self-Scheduling',
             inventory_dashboard: 'Dashboard',
-            menu_catalog: 'Menu Catalog',
+            menu_catalog: 'Recipes (Menu)',
             ingredients: 'Warehouse Items',
             food_costs: 'Food Costs',
             food_cost_report: 'General Report',
@@ -2370,8 +2370,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // MENU CATALOG
         menu_catalog: {
-            title: 'Menu Catalog (Toast)',
-            subtitle: 'Active POS items. Map these items to recipes for costing.',
+            title: 'Recipes & Costs (Toast Catalog)',
+            subtitle: 'Active POS items. Configure recipes to calculate costs and profit margins (Food Cost).',
             sync_btn: 'Sync Now',
             syncing_btn: 'Syncing...',
             search_placeholder: 'Search by name or group...',

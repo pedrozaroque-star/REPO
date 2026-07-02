@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { RecipeModal } from './components/RecipeModal'
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Info, X } from 'lucide-react'
 import { calculateIngredientCost } from '@/lib/inventory/recipe-calculations'
 import { useLanguage } from '@/lib/i18n'
 
@@ -12,6 +12,7 @@ export default function MenuCatalogPage() {
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
     const [filter, setFilter] = useState('')
+    const [showInfoModal, setShowInfoModal] = useState(false)
     const [selectedItem, setSelectedItem] = useState<any>(null)
     const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'foodCostPercent', direction: 'desc' })
 
@@ -200,7 +201,16 @@ export default function MenuCatalogPage() {
         <div className="p-8">
             <div className="flex justify-between items-center mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{t('menu_catalog.title')}</h1>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        {t('menu_catalog.title')}
+                        <button
+                            onClick={() => setShowInfoModal(true)}
+                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-all"
+                            title="Guía de uso / User guide"
+                        >
+                            <Info size={18} />
+                        </button>
+                    </h1>
                     <p className="text-slate-500">{t('menu_catalog.subtitle')}</p>
                 </div>
                 <div className="flex gap-4">
@@ -422,6 +432,106 @@ export default function MenuCatalogPage() {
                     // alert remove
                 }}
             />
-        </div >
+
+            {/* ============ INFORMATION MODAL (i) ============ */}
+            {showInfoModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+                    <div className="relative bg-white rounded-2xl max-w-3xl w-full max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-100 flex flex-col">
+                        {/* Header */}
+                        <div className="sticky top-0 bg-white px-6 py-4 border-b border-slate-200 flex items-center justify-between z-10">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl">ℹ️</span>
+                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-wider font-sans">
+                                    Guía de Recetas y Costos (Menú Toast)
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setShowInfoModal(false)}
+                                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6 space-y-6 text-sm text-slate-600 leading-relaxed font-sans max-h-[60vh] overflow-y-auto">
+                            {/* INTRODUCCION */}
+                            <div className="bg-indigo-50/50 border border-indigo-100 p-4 rounded-xl">
+                                <h4 className="font-bold text-indigo-900 text-sm flex items-center gap-1.5 mb-1.5">
+                                    🍳 ¿Para qué sirve este Módulo?
+                                </h4>
+                                <p className="text-indigo-900/80">
+                                    En esta pantalla administras las <strong>Recetas</strong> de cada producto que vendes en los restaurantes. Sirve para relacionar los platillos del menú (Toast POS) con tus <strong>Insumos de Bodega</strong> (ingredientes reales) y así calcular de manera precisa y automática el <strong>Food Cost (Costo de Comida)</strong> y el margen real de ganancias.
+                                </p>
+                            </div>
+
+                            {/* PASO A PASO */}
+                            <div>
+                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                    🚀 ¿Cómo configurar una Receta? (Paso a Paso)
+                                </h4>
+                                <ol className="list-decimal pl-5 space-y-1.5">
+                                    <li><strong>Sincroniza con el POS:</strong> Si acabas de agregar un platillo nuevo en Toast POS o cambió un precio de venta, presiona <strong>Sincronizar Ahora</strong> para actualizar la lista.</li>
+                                    <li><strong>Selecciona un Producto:</strong> Busca el platillo usando la barra de búsqueda o filtra por grupo (tacos, bebidas, combos, etc.).</li>
+                                    <li><strong>Edita la Receta:</strong> Haz clic en el botón <strong>"Editar Receta"</strong> a la derecha del producto. Se abrirá la ventana de composición.</li>
+                                    <li><strong>Agrega Insumos:</strong> Selecciona de la lista de tus insumos de bodega el ingrediente correspondiente (ej. carne asada, cebolla, tortilla, etc.).</li>
+                                    <li><strong>Ingresa las Cantidades:</strong> Define la cantidad exacta necesaria para preparar una porción del producto, utilizando la unidad de medida del insumo (ej. 0.20 libras de carne, 1 unidad de tortilla, etc.).</li>
+                                    <li><strong>Clasifica el Tipo de Ingrediente (COGS):</strong>
+                                        <ul className="list-disc pl-5 mt-1 space-y-1 text-slate-500">
+                                            <li><strong>Alimento (Food):</strong> Ingredientes comestibles que entran directamente en el cálculo de Food Cost de comida.</li>
+                                            <li><strong>Dine-in / Takeout / Delivery (Empaques):</strong> Platones, servilletas, servilleteros o bolsas específicas de entrega. Al separarlo por canal, el sistema te dará el porcentaje de costo real y rentabilidad según el tipo de servicio.</li>
+                                        </ul>
+                                    </li>
+                                    <li><strong>Guarda Cambios:</strong> Al presionar guardar, el costo unitario de cada ingrediente se sumará y verás actualizados los costos y márgenes de ganancia al instante.</li>
+                                </ol>
+                            </div>
+
+                            {/* SIGNIFICA CADA COSA */}
+                            <div>
+                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                    📋 ¿Qué significa cada columna de la Tabla?
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                    <div className="border border-slate-100 p-3 rounded-lg">
+                                        <span className="font-bold text-slate-800 block mb-0.5">Precio</span>
+                                        El precio de venta actual al cliente cargado desde Toast POS.
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg">
+                                        <span className="font-bold text-indigo-600 block mb-0.5">Costo</span>
+                                        El costo de preparación del platillo (la suma del costo de los insumos de comida según los precios de compra vigentes a proveedores).
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg">
+                                        <span className="font-bold text-slate-700 block mb-0.5">Empaques</span>
+                                        El costo total de empaques para los tres canales: comedor, llevar y delivery.
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg bg-red-50/20">
+                                        <span className="font-bold text-red-600 block mb-0.5">Costo % (Food Cost %)</span>
+                                        El porcentaje de costo de comida contra el precio de venta. Si el platillo se vende en $10 y cuesta hacerlo $3, tu costo es 30%.
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg bg-emerald-50/20">
+                                        <span className="font-bold text-emerald-600 block mb-0.5">Utilidad % y Utilidad ($)</span>
+                                        El margen de utilidad neto de tu ganancia tanto en porcentaje como en dólares físicos por plato vendido.
+                                    </div>
+                                    <div className="border border-slate-100 p-3 rounded-lg">
+                                        <span className="font-bold text-slate-800 block mb-0.5">Insumos</span>
+                                        El conteo total de ingredientes que contiene la receta. Si tiene un check verde ✅, la receta está lista.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end">
+                            <button
+                                onClick={() => setShowInfoModal(false)}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl shadow-sm transition-all"
+                            >
+                                Entendido
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     )
 }
