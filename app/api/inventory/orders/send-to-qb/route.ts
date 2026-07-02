@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
         // Se permite re-enviar la orden para actualizar el Estimate en QuickBooks si ya fue enviada antes.
 
-        // 2. Obtener nombres de items para las líneas
+        // 2. Obtener nombres de items + description para las líneas del PDF
         const itemIds = order.inventory_order_lines.map((l: any) => l.inventory_item_id)
         const { data: items } = await supabase
             .from('inventory_items')
@@ -58,6 +58,23 @@ export async function POST(request: NextRequest) {
 
         const itemMap = new Map<string, any>()
         items?.forEach(i => itemMap.set(i.id, i))
+
+        // 2b. Obtener sort_position del template para respetar el orden visual
+        const { data: templateEntries } = await supabase
+            .from('store_order_template')
+            .select('inventory_item_id, sort_position')
+            .eq('store_id', order.store_id)
+            .eq('order_type', order.order_type || 'daily')
+
+        const sortMap = new Map<string, number>()
+        templateEntries?.forEach(t => sortMap.set(t.inventory_item_id, t.sort_position || 999))
+
+        // 2c. Ordenar las líneas de la orden por sort_position del template
+        order.inventory_order_lines.sort((a: any, b: any) => {
+            const posA = sortMap.get(a.inventory_item_id) ?? 999
+            const posB = sortMap.get(b.inventory_item_id) ?? 999
+            return posA - posB
+        })
 
         // 3. Obtener QB mappings (incluye costo para calcular Amount del Estimate)
         const { data: mappings } = await supabase
@@ -77,12 +94,20 @@ export async function POST(request: NextRequest) {
             .eq('id', order.store_id)
             .single()
 
-        // 5. Conectar a QuickBooks
+        // 5. Conectar a QuickBooks (sandbox con fallback a producción)
         let integration: any;
+        let usingSandboxTokens = false;
         if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
             const { getLocalSandboxIntegration } = require('@/lib/quickbooks');
             integration = getLocalSandboxIntegration();
-        } else {
+            if (integration) {
+                usingSandboxTokens = true;
+                console.log('[QB-Order] Using local sandbox tokens');
+            } else {
+                console.log('[QB-Order] No sandbox tokens, falling back to Supabase production tokens');
+            }
+        }
+        if (!integration) {
             const { data } = await supabase
                 .from('integrations')
                 .select('*')
@@ -92,7 +117,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (!integration) {
-            return NextResponse.json({ error: 'No se encontró la integración de QuickBooks' }, { status: 404 })
+            return NextResponse.json({ error: 'No se encontró la integración de QuickBooks. Autoriza en /api/integrations/quickbooks/auth' }, { status: 404 })
         }
 
         // Refresh token if expired
@@ -106,7 +131,7 @@ export async function POST(request: NextRequest) {
                 accessToken = tokens.access_token
                 console.log('[QB-Order] ✅ Token renovado exitosamente.')
 
-                if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
+                if (usingSandboxTokens) {
                     const { saveLocalSandboxIntegration } = require('@/lib/quickbooks');
                     saveLocalSandboxIntegration(tokens, integration.realm_id);
                 } else {
@@ -134,7 +159,7 @@ export async function POST(request: NextRequest) {
             accessToken,
             false,
             integration.realm_id,
-            process.env.QUICKBOOKS_ENVIRONMENT === 'production' ? false : true,
+            usingSandboxTokens ? true : false, // sandbox only when using actual sandbox tokens
             false,
             null,
             '2.0',
@@ -145,13 +170,23 @@ export async function POST(request: NextRequest) {
         const estimateLines: any[] = []
         const skippedItems: string[] = []
 
+        // Items excluidos: no van a bodega (se compran localmente)
+        const EXCLUDED_ITEMS = ['flan', 'cheesecake', 'whole flan']
+
         for (const line of order.inventory_order_lines) {
             const finalQty = line.adjusted_qty ?? line.final_qty ?? line.calculated_qty
             if (finalQty <= 0) continue // No enviar items negativos o cero
 
+            // Excluir items que no van a bodega (Flan, Cheesecake)
+            const item = itemMap.get(line.inventory_item_id)
+            const itemNameLower = (item?.name || '').toLowerCase()
+            if (EXCLUDED_ITEMS.some(ex => itemNameLower === ex)) {
+                console.log(`[QB-Order] ⏭️ Excluido: ${item?.name} (no va a bodega)`)
+                continue
+            }
+
             const qbMapping = qbMap.get(line.inventory_item_id)
             if (!qbMapping) {
-                const item = itemMap.get(line.inventory_item_id)
                 skippedItems.push(item?.name || line.inventory_item_id)
                 continue
             }
@@ -161,6 +196,7 @@ export async function POST(request: NextRequest) {
 
             estimateLines.push({
                 DetailType: 'SalesItemLineDetail',
+                Description: item?.order_unit_description || '', // Para columna ACTIVITY del PDF de QB
                 Amount: amount,
                 SalesItemLineDetail: {
                     ItemRef: { value: qbMapping.qbItemId },

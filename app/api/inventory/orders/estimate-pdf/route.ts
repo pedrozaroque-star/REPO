@@ -18,19 +18,8 @@ export async function GET(request: NextRequest) {
 
         const supabase = await getSupabaseAdminClient()
 
-        // 1. Obtener realm_id de la integración de QuickBooks
-        const { data: integration } = await supabase
-            .from('integrations')
-            .select('realm_id')
-            .eq('service_name', 'quickbooks')
-            .single()
-
-        if (!integration?.realm_id) {
-            return NextResponse.json({ error: 'No se encontró la integración de QuickBooks' }, { status: 404 })
-        }
-
-        // 2. Obtener el cliente de QuickBooks (maneja auto-refresh de tokens)
-        const qbo = await getQuickBooksClient(integration.realm_id)
+        // 1. Obtener el cliente de QuickBooks (maneja sandbox y auto-refresh de tokens)
+        const qbo = await getQuickBooksClient()
 
         // 3. Descargar PDF desde QuickBooks
         const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {

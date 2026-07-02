@@ -37,15 +37,29 @@ export async function POST(request: NextRequest) {
 
         // 2. Si tiene estimate en QB, intentar eliminarlo en QB
         if (order.qb_estimate_id) {
-            // Conectar a QuickBooks
-            const { data: integration } = await supabase
-                .from('integrations')
-                .select('*')
-                .eq('service_name', 'quickbooks')
-                .single()
+            // Conectar a QuickBooks (sandbox con fallback a producción)
+            let integration: any;
+            let usingSandboxTokens = false;
+            if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
+                const { getLocalSandboxIntegration } = require('@/lib/quickbooks');
+                integration = getLocalSandboxIntegration();
+                if (integration) {
+                    usingSandboxTokens = true;
+                } else {
+                    console.log('[QB-Delete] No sandbox tokens, using Supabase production tokens');
+                }
+            }
+            if (!integration) {
+                const { data } = await supabase
+                    .from('integrations')
+                    .select('*')
+                    .eq('service_name', 'quickbooks')
+                    .single()
+                integration = data;
+            }
 
             if (!integration) {
-                return NextResponse.json({ error: 'No se encontró la integración de QuickBooks para eliminar el Estimate' }, { status: 404 })
+                return NextResponse.json({ error: 'No se encontró la integración de QuickBooks' }, { status: 404 })
             }
 
             // Refresh token if expired
@@ -58,12 +72,17 @@ export async function POST(request: NextRequest) {
                     const tokens = authResponse.getJson()
                     accessToken = tokens.access_token
 
-                    await supabase.from('integrations').update({
-                        access_token: tokens.access_token,
-                        refresh_token: tokens.refresh_token,
-                        expires_at: new Date(Date.now() + tokens.expires_in * 1000),
-                        updated_at: new Date(),
-                    }).eq('id', integration.id)
+                    if (usingSandboxTokens) {
+                        const { saveLocalSandboxIntegration } = require('@/lib/quickbooks');
+                        saveLocalSandboxIntegration(tokens, integration.realm_id);
+                    } else {
+                        await supabase.from('integrations').update({
+                            access_token: tokens.access_token,
+                            refresh_token: tokens.refresh_token,
+                            expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+                            updated_at: new Date(),
+                        }).eq('id', integration.id)
+                    }
                 } catch (refreshError: any) {
                     console.error('[QB-Delete] Error refreshing token:', refreshError.message)
                     return NextResponse.json({
@@ -79,7 +98,7 @@ export async function POST(request: NextRequest) {
                 accessToken,
                 false,
                 integration.realm_id,
-                process.env.QUICKBOOKS_ENVIRONMENT === 'production' ? false : true,
+                usingSandboxTokens ? true : false,
                 false,
                 null,
                 '2.0',

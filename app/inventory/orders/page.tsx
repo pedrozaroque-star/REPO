@@ -40,7 +40,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
     Package, ClipboardList, ShoppingCart, BarChart3,
     ArrowLeft, ArrowRight, Copy, Save, Send, RefreshCcw,
-    Check, X, Link, AlertTriangle, ChevronDown, Download, Info, Trash2
+    Check, X, Link, AlertTriangle, ChevronDown, Download, Info, Trash2, Printer
 } from 'lucide-react'
 import {
     fetchOrderableItems, fetchAllInventoryItems, fetchWeeklyData,
@@ -516,8 +516,21 @@ export default function InventoryOrdersPage() {
         setOrderLines(prev => prev.map(line => {
             if (line.inventory_item_id !== itemId) return line
             const effectiveLeftover = numVal ?? 0
-            const newCalc = line.par_value - effectiveLeftover
-            return { ...line, leftover_value: numVal, calculated_qty: newCalc }
+            let calculatedQty = line.par_value - effectiveLeftover
+            
+            // Apply rounding rule if positive
+            if (calculatedQty > 0) {
+                const rule = line.rounding_rule || 'none'
+                if (rule === 'ceiling_30') {
+                    calculatedQty = Math.ceil(calculatedQty / 30) * 30
+                } else if (rule === 'ceiling_4') {
+                    calculatedQty = Math.ceil(calculatedQty / 4) * 4
+                } else {
+                    calculatedQty = Math.round(calculatedQty)
+                }
+            }
+
+            return { ...line, leftover_value: numVal, calculated_qty: calculatedQty }
         }))
     }
 
@@ -1519,6 +1532,15 @@ export default function InventoryOrdersPage() {
 
                                     {/* ---- Action buttons ---- */}
                                     <div className="p-5 border-t border-slate-200 bg-slate-50/50 flex flex-wrap gap-3 justify-end">
+                                        <button
+                                            onClick={() => {
+                                                const url = `/inventory/orders/print-sheet?storeId=${storeId}&orderType=${orderType}&week=${activeMonday}`
+                                                window.open(url, '_blank')
+                                            }}
+                                            className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-5 py-3 rounded-xl font-bold shadow-sm transition-colors"
+                                        >
+                                            <Printer size={16} /> {t('bodegaOrders.printSheet')}
+                                        </button>
                                         <button onClick={handleGenerateOrder} disabled={saving}
                                             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-sm transition-colors disabled:opacity-50">
                                             <Save size={16} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}

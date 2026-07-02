@@ -44,25 +44,30 @@ export function saveLocalSandboxIntegration(tokens: any, realmId: string) {
     return data;
 }
 
-export async function getQuickBooksClient(companyId: string) {
-    // 1. Fetch tokens
+export async function getQuickBooksClient(companyId?: string) {
+    // 1. Fetch tokens — sandbox tries local file first, falls back to Supabase (production)
     let integration: any;
+    let usingSandboxTokens = false;
 
     if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
         integration = getLocalSandboxIntegration();
-        if (!integration) {
-            throw new Error('No local sandbox token found. Please visit /api/integrations/quickbooks/connect to authorize.');
+        if (integration) {
+            usingSandboxTokens = true;
+            console.log('[QB] Using local sandbox tokens');
+        } else {
+            // Fallback: use production tokens from Supabase so local dev can still work
+            console.log('[QB] No sandbox tokens found, falling back to Supabase production tokens');
         }
-    } else {
-        const { data, error } = await supabase
-            .from('integrations')
-            .select('*')
-            .eq('service_name', 'quickbooks')
-            .eq('realm_id', companyId)
-            .single();
+    }
+
+    // Production mode, or sandbox fallback: read from Supabase
+    if (!integration) {
+        const query = supabase.from('integrations').select('*').eq('service_name', 'quickbooks');
+        if (companyId) query.eq('realm_id', companyId);
+        const { data, error } = await query.single();
 
         if (error || !data) {
-            throw new Error('No QuickBooks integration found for this company.');
+            throw new Error('No QuickBooks integration found. Please authorize at /api/integrations/quickbooks/auth');
         }
         integration = data;
     }
@@ -70,10 +75,11 @@ export async function getQuickBooksClient(companyId: string) {
     // 2. Refresh token if needed
     if (new Date(integration.expires_at) <= new Date()) {
         try {
+            console.log('[QB] Token expired, refreshing...');
             const authResponse = await authClient.refreshUsingToken(integration.refresh_token);
             const tokens = authResponse.getJson();
 
-            if (process.env.QUICKBOOKS_ENVIRONMENT === 'sandbox') {
+            if (usingSandboxTokens) {
                 integration = saveLocalSandboxIntegration(tokens, integration.realm_id);
             } else {
                 await supabase
@@ -87,24 +93,29 @@ export async function getQuickBooksClient(companyId: string) {
                     .eq('id', integration.id);
 
                 integration.access_token = tokens.access_token;
+                integration.refresh_token = tokens.refresh_token;
             }
+            console.log('[QB] ✅ Token refreshed');
         } catch (e) {
-            console.error('Error refreshing QuickBooks token:', e);
-            throw new Error('Failed to refresh QuickBooks token. Please re-authenticate.');
+            console.error('[QB] Error refreshing token:', e);
+            throw new Error('Failed to refresh QuickBooks token. Please re-authenticate at /api/integrations/quickbooks/auth');
         }
     }
 
     // 3. Return QuickBooks client instance
+    // useSandbox=true only if we're actually using sandbox tokens against the sandbox API
+    const useSandbox = usingSandboxTokens;
     return new QuickBooks(
         process.env.QUICKBOOKS_CLIENT_ID,
         process.env.QUICKBOOKS_CLIENT_SECRET,
         integration.access_token,
         false, // no token secret for OAuth2
-        companyId,
-        process.env.QUICKBOOKS_ENVIRONMENT === 'production' ? false : true, // sandbox mode
-        true, // debugging
+        companyId || integration.realm_id,
+        useSandbox ? true : false, // sandbox mode only when using actual sandbox tokens
+        false, // debug
         null, // minorversion
         '2.0', // oauth version
         integration.refresh_token
     );
 }
+
