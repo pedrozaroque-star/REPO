@@ -361,6 +361,47 @@ export default function InventoryOrdersPage() {
         }
     }
 
+    function handleCopyDayPar(src: string, tgt: string) {
+        if (src === tgt) {
+            alert('El día de origen y destino no pueden ser el mismo.')
+            return
+        }
+        const dayLabels: Record<string, string> = {
+            mon_par: 'Lunes',
+            tue_par: 'Martes',
+            wed_par: 'Miércoles',
+            thu_par: 'Jueves',
+            fri_par: 'Viernes',
+            sat_par: 'Sábado',
+            sun_par: 'Domingo',
+            all: 'Todos los días'
+        }
+        if (!confirm(`¿Estás seguro de copiar el PAR de ${dayLabels[src]} a ${dayLabels[tgt]}?`)) return
+
+        setBases(prev => {
+            const nextBases = { ...prev }
+            Object.keys(nextBases).forEach(itemId => {
+                const itemBase = { ...nextBases[itemId] } as any
+                if (!itemBase.inventory_item_id) return
+                const sourceVal = itemBase[src] || 0
+                if (tgt === 'all') {
+                    itemBase.mon_par = sourceVal
+                    itemBase.tue_par = sourceVal
+                    itemBase.wed_par = sourceVal
+                    itemBase.thu_par = sourceVal
+                    itemBase.fri_par = sourceVal
+                    itemBase.sat_par = sourceVal
+                    itemBase.sun_par = sourceVal
+                } else {
+                    itemBase[tgt] = sourceVal
+                }
+                nextBases[itemId] = itemBase
+            })
+            return nextBases
+        })
+        setHasBaseChanges(true)
+    }
+
     // --- Handlers ---
     async function handleBaseChange(itemId: string, field: string, value: string) {
         if (!storeId) return
@@ -1523,6 +1564,40 @@ export default function InventoryOrdersPage() {
                                         className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
                                         <RefreshCcw size={14} /> {t('bodegaOrders.copyFromParIdeal')}
                                     </button>
+
+                                    <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs select-none">
+                                         <span className="font-bold text-slate-500">📋 Copiar PAR:</span>
+                                         <select id="copy_src_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
+                                             <option value="mon_par">Lunes</option>
+                                             <option value="tue_par">Martes</option>
+                                             <option value="wed_par">Miércoles</option>
+                                             <option value="thu_par">Jueves</option>
+                                             <option value="fri_par">Viernes</option>
+                                             <option value="sat_par">Sábado</option>
+                                             <option value="sun_par">Domingo</option>
+                                         </select>
+                                         <span className="font-bold text-slate-400">➡️ a:</span>
+                                         <select id="copy_tgt_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
+                                             <option value="all">Todos los días</option>
+                                             <option value="mon_par">Lunes</option>
+                                             <option value="tue_par">Martes</option>
+                                             <option value="wed_par">Miércoles</option>
+                                             <option value="thu_par">Jueves</option>
+                                             <option value="fri_par">Viernes</option>
+                                             <option value="sat_par">Sábado</option>
+                                             <option value="sun_par">Domingo</option>
+                                         </select>
+                                         <button 
+                                             onClick={() => {
+                                                 const src = (document.getElementById('copy_src_day') as HTMLSelectElement).value
+                                                 const tgt = (document.getElementById('copy_tgt_day') as HTMLSelectElement).value
+                                                 handleCopyDayPar(src, tgt)
+                                             }}
+                                             className="ml-1 bg-blue-600 hover:bg-blue-700 text-white font-black px-2.5 py-1 rounded-lg transition-all text-xs"
+                                         >
+                                             Copiar
+                                         </button>
+                                     </div>
 
                                     <div className="flex-1" />
 
