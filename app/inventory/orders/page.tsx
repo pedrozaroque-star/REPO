@@ -134,9 +134,14 @@ export default function InventoryOrdersPage() {
 
     // Computed
     const todayStr = getLocalBusinessDate(new Date())
-    const [selectedOrderDate, setSelectedOrderDate] = useState<string | null>(null)
-    const activeOrderDate = selectedOrderDate || todayStr
     const isCurrentWeek = activeMonday === getMonday(new Date(todayStr + 'T12:00:00'))
+
+    // Edit modal states for past estimates
+    const [editModal, setEditModal] = useState<{ open: boolean; order: any | null }>({ open: false, order: null })
+    const [modalLines, setModalLines] = useState<any[]>([])
+    const [modalNotes, setModalNotes] = useState('')
+    const [savingModal, setSavingModal] = useState(false)
+    const [sendingModal, setSendingModal] = useState(false)
 
     const weekDays = WEEK_DAYS.map(d => ({
         ...d,
@@ -181,12 +186,12 @@ export default function InventoryOrdersPage() {
             setOrders(weekData.orders)
             setHasBaseChanges(false)
 
-            // Pre-cargar notas y ajustes de la orden activa
-            const activeOrder = weekData.orders?.find((o: any) => o.order_date === activeOrderDate)
-            if (activeOrder) {
-                setOrderNotes(activeOrder.notes || '')
+            // Pre-cargar notas y ajustes de la orden de hoy
+            const todayOrder = weekData.orders?.find((o: any) => o.order_date === todayStr)
+            if (todayOrder) {
+                setOrderNotes(todayOrder.notes || '')
                 const savedAdjustments: Record<string, number> = {}
-                activeOrder.inventory_order_lines?.forEach((l: any) => {
+                todayOrder.inventory_order_lines?.forEach((l: any) => {
                     if (l.adjusted_qty !== null && l.adjusted_qty !== undefined) {
                         savedAdjustments[l.inventory_item_id] = l.adjusted_qty
                     }
@@ -198,9 +203,9 @@ export default function InventoryOrdersPage() {
             }
 
             // Calculate order
-            if (isCurrentWeek || selectedOrderDate) {
+            if (isCurrentWeek) {
                 const lines = await calculateDailyOrder(
-                    storeId, activeOrderDate, orderableItems,
+                    storeId, todayStr, orderableItems,
                     weekData.bases, weekData.counts, activeMonday,
                     weekData.parIdeal, overrideDayField
                 )
@@ -211,20 +216,20 @@ export default function InventoryOrdersPage() {
         } finally {
             setLoading(false)
         }
-    }, [storeId, activeMonday, overrideDayField, activeOrderDate, selectedOrderDate])
+    }, [storeId, activeMonday, overrideDayField])
 
     useEffect(() => { loadData() }, [loadData])
 
-    // Recalcular orden localmente al cambiar el día de base a usar o la fecha activa
+    // Recalcular orden localmente al cambiar el día de base a usar
     useEffect(() => {
         if (storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
             calculateDailyOrder(
-                storeId, activeOrderDate, items,
+                storeId, todayStr, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField
             ).then(setOrderLines)
         }
-    }, [overrideDayField, storeId, activeOrderDate, items, bases, counts, activeMonday, parIdeal])
+    }, [overrideDayField, storeId, todayStr, items, bases, counts, activeMonday, parIdeal])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -232,6 +237,129 @@ export default function InventoryOrdersPage() {
             fetchAnalysisData(storeId).then(setAnalysisData)
         }
     }, [activeTab, storeId])
+
+    // --- Edit Modal Handlers ---
+    function handleOpenEditModal(order: any) {
+        setEditModal({ open: true, order })
+        setModalNotes(order.notes || '')
+        
+        // Mapear las líneas guardadas de la orden con sus metadatos de insumos
+        const lines = order.inventory_order_lines.map((line: any) => {
+            const item = allItems.find(i => i.id === line.inventory_item_id)
+            return {
+                ...line,
+                item_name: item?.name || 'Insumo Desconocido',
+                unit_description: item?.order_unit_description || '',
+                qb_item_id: item?.qb_item_id || null
+            }
+        })
+        setModalLines(lines)
+    }
+
+    function handleModalLeftoverChange(itemId: string, value: string) {
+        const numVal = value === '' ? null : (parseFloat(value) || 0)
+        setModalLines(prev => prev.map(line => {
+            if (line.inventory_item_id !== itemId) return line
+            const leftoverVal = numVal ?? 0
+            const calculatedQty = line.par_value - leftoverVal
+            return { ...line, leftover_value: numVal, calculated_qty: calculatedQty }
+        }))
+    }
+
+    function handleModalAdjustmentChange(itemId: string, value: string) {
+        const numVal = value === '' ? null : (parseFloat(value) || 0)
+        setModalLines(prev => prev.map(line => {
+            if (line.inventory_item_id !== itemId) return line
+            return { ...line, adjusted_qty: numVal }
+        }))
+    }
+
+    async function handleSaveModalChanges() {
+        if (!editModal.order || !storeId) return
+        setSavingModal(true)
+        try {
+            const lines = modalLines.map(l => ({
+                inventory_item_id: l.inventory_item_id,
+                calculated_qty: l.calculated_qty,
+                adjusted_qty: l.adjusted_qty,
+                par_value: l.par_value,
+                leftover_value: l.leftover_value ?? 0
+            }))
+
+            const res = await saveOrderDraft(
+                storeId, 
+                editModal.order.order_date, 
+                activeMonday, 
+                lines, 
+                user?.name, 
+                modalNotes || undefined
+            )
+            if (res.error) {
+                alert(res.error)
+            } else {
+                alert('¡Pedido guardado con éxito localmente!')
+                setEditModal({ open: false, order: null })
+                await loadData()
+            }
+        } catch (e: any) {
+            alert('Error al guardar: ' + e.message)
+        } finally {
+            setSavingModal(false)
+        }
+    }
+
+    async function handleSendModalToQb() {
+        if (!editModal.order || !storeId) return
+        setSendingModal(true)
+        try {
+            const lines = modalLines.map(l => ({
+                inventory_item_id: l.inventory_item_id,
+                calculated_qty: l.calculated_qty,
+                adjusted_qty: l.adjusted_qty,
+                par_value: l.par_value,
+                leftover_value: l.leftover_value ?? 0
+            }))
+
+            const saveRes = await saveOrderDraft(
+                storeId, 
+                editModal.order.order_date, 
+                activeMonday, 
+                lines, 
+                user?.name, 
+                modalNotes || undefined
+            )
+            if (saveRes.error) {
+                alert(saveRes.error)
+                setSendingModal(false)
+                return
+            }
+
+            const res = await fetch('/api/inventory/orders/send-to-qb', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId: saveRes.orderId, userEmail: user?.email })
+            })
+            const data = await res.json()
+
+            if (res.status === 401 || data.error === 'token_expired' || data.reauth_url) {
+                alert('La sesión de QuickBooks expiró. Por favor cierra este modal y usa el botón de Enviar a QuickBooks principal en la pantalla de hoy para re-iniciar sesión.')
+                setSendingModal(false)
+                return
+            }
+
+            if (data.error) {
+                alert(`Error: ${data.error}`)
+            } else {
+                alert(t('bodegaOrders.orderSentDesc', { number: data.estimateNumber }))
+                setEditModal({ open: false, order: null })
+                await loadData()
+            }
+        } catch (e: any) {
+            alert('Error al enviar a QB: ' + e.message)
+        } finally {
+            setSendingModal(false)
+        }
+    }
 
     // --- Handlers ---
     async function handleBaseChange(itemId: string, field: string, value: string) {
@@ -295,7 +423,7 @@ export default function InventoryOrdersPage() {
      *  Guarda en DB + recalcula la línea de orden en tiempo real. */
     async function handleInlineLeftoverChange(itemId: string, value: string) {
         // 1. Update counts state + save to DB
-        await handleLeftoverChange(itemId, activeOrderDate, value)
+        await handleLeftoverChange(itemId, todayStr, value)
 
         // 2. Recalculate that specific order line
         const numVal = value === '' ? null : (parseFloat(value) || 0)
@@ -376,7 +504,7 @@ export default function InventoryOrdersPage() {
             leftover_value: l.leftover_value ?? 0
         }))
 
-        const res = await saveOrderDraft(storeId, activeOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
+        const res = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
         if (res.error) alert(res.error)
         else { alert(t('bodegaOrders.saved')); await loadData() }
         setSaving(false)
@@ -406,7 +534,7 @@ export default function InventoryOrdersPage() {
             return
         }
 
-        const saveRes = await saveOrderDraft(storeId, activeOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
+        const saveRes = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
         if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
         const orderId = saveRes.orderId
         setSaving(false)
@@ -573,7 +701,7 @@ export default function InventoryOrdersPage() {
     }
 
     // Count captured leftovers for today
-    const capturedToday = items.filter(i => counts[i.id]?.[activeOrderDate] !== undefined).length
+    const capturedToday = items.filter(i => counts[i.id]?.[todayStr] !== undefined).length
     const sundayDate = addDays(activeMonday, 6)
     const capturedSunday = items.filter(i => counts[i.id]?.[sundayDate] !== undefined).length
 
@@ -586,7 +714,7 @@ export default function InventoryOrdersPage() {
     const excessItems = orderLines.filter(l => l.calculated_qty < 0).length
 
     // Compute the next day name + date for daily order header
-    const tomorrow = new Date(activeOrderDate + 'T12:00:00')
+    const tomorrow = new Date(todayStr + 'T12:00:00')
     tomorrow.setDate(tomorrow.getDate() + 1)
     const dayNames: Record<string, { es: string; en: string }> = {
         '0': { es: 'Domingo', en: 'Sunday' },
@@ -722,6 +850,150 @@ export default function InventoryOrdersPage() {
                 </div>
             )}
 
+            {/* ============ EDIT ESTIMATE MODAL ============ */}
+            {editModal.open && editModal.order && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+                    <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden transform transition-all border border-slate-100">
+                        {/* Header */}
+                        <div className="px-5 py-4 bg-slate-50 border-b border-slate-200/60 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-base sm:text-lg font-black text-slate-800 flex items-center gap-1.5">
+                                    ✏️ Editar Pedido
+                                </h2>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Pedido del {editModal.order.order_date} (Store ID: {storeId}) {editModal.order.qb_estimate_number && `| Estimate QB #${editModal.order.qb_estimate_number}`}
+                                </p>
+                            </div>
+                            <button 
+                                onClick={() => setEditModal({ open: false, order: null })} 
+                                className="text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-2 rounded-xl transition-all"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body (scrollable) */}
+                        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+                            {/* Observations */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    Observaciones / Notas
+                                </label>
+                                <textarea
+                                    value={modalNotes}
+                                    onChange={e => setModalNotes(e.target.value)}
+                                    placeholder="Notas opcionales para este pedido..."
+                                    rows={2}
+                                    className="w-full px-4 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none bg-white placeholder:text-slate-400"
+                                />
+                            </div>
+
+                            {/* Table of items */}
+                            <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                                <div className="max-h-[50vh] overflow-y-auto">
+                                    <table className="w-full text-xs sm:text-sm text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-[11px] sm:text-xs">
+                                                <th className="p-2 sm:p-3">Producto</th>
+                                                <th className="p-2 sm:p-3 text-center w-14 sm:w-16">PAR</th>
+                                                <th className="p-2 sm:p-3 text-center w-20 sm:w-24">Sobrante</th>
+                                                <th className="p-2 sm:p-3 text-center w-16 sm:w-20">Pedir</th>
+                                                <th className="p-2 sm:p-3 text-center w-20 sm:w-24">Ajuste</th>
+                                                <th className="p-2 sm:p-3 text-center w-16 sm:w-20">Final</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {modalLines.map((line: any, index: number) => {
+                                                const leftoverVal = line.leftover_value;
+                                                const isZeroLeftover = leftoverVal === null || leftoverVal === undefined;
+                                                const parVal = line.par_value || 0;
+                                                const calculatedQty = line.calculated_qty;
+                                                const adj = line.adjusted_qty;
+                                                const finalQty = adj !== null && adj !== undefined ? adj : calculatedQty;
+                                                const isNegative = calculatedQty < 0;
+
+                                                return (
+                                                    <tr key={line.id || index} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                                                        {/* Producto */}
+                                                        <td className="p-2 sm:p-3">
+                                                            <div className="flex flex-col">
+                                                                {line.unit_description && (
+                                                                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-medium leading-none mb-0.5">{line.unit_description}</span>
+                                                                )}
+                                                                <span className="font-semibold text-slate-800 leading-tight text-[11px] sm:text-[13px]">{line.item_name}</span>
+                                                            </div>
+                                                        </td>
+                                                        {/* PAR */}
+                                                        <td className="p-2 sm:p-3 text-center font-medium bg-emerald-50/30 text-emerald-800">
+                                                            {parVal}
+                                                        </td>
+                                                        {/* Sobrante */}
+                                                        <td className="p-1 sm:p-1.5 text-center bg-orange-50/20">
+                                                            <input
+                                                                type="number"
+                                                                value={leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : ''}
+                                                                onChange={e => handleModalLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                onFocus={e => e.target.select()}
+                                                                placeholder="Sobrante"
+                                                                className="w-full p-1.5 text-center bg-white border border-orange-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-[11px] sm:text-xs"
+                                                            />
+                                                        </td>
+                                                        {/* Pedir */}
+                                                        <td className={`p-2 sm:p-3 text-center font-bold ${isNegative ? 'text-red-500 bg-red-50/20' : 'text-blue-700 bg-blue-50/10'}`}>
+                                                            {isZeroLeftover ? '-' : calculatedQty}
+                                                        </td>
+                                                        {/* Ajuste */}
+                                                        <td className="p-1 sm:p-1.5 text-center bg-indigo-50/10">
+                                                            <input
+                                                                type="number"
+                                                                value={adj !== null && adj !== undefined ? adj : ''}
+                                                                onChange={e => handleModalAdjustmentChange(line.inventory_item_id, e.target.value)}
+                                                                onFocus={e => e.target.select()}
+                                                                placeholder="-"
+                                                                className="w-full p-1.5 text-center bg-white border border-indigo-100 rounded-lg outline-none focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-[11px] sm:text-xs"
+                                                            />
+                                                        </td>
+                                                        {/* Final */}
+                                                        <td className={`p-2 sm:p-3 text-center font-black text-[12px] sm:text-sm ${finalQty > 0 ? 'text-slate-800 bg-slate-50/50' : 'text-slate-300'}`}>
+                                                            {isZeroLeftover ? '-' : finalQty}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-5 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap gap-2 justify-end">
+                            <button
+                                onClick={() => setEditModal({ open: false, order: null })}
+                                disabled={savingModal || sendingModal}
+                                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl font-bold text-xs sm:text-sm hover:bg-slate-100 transition-colors disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleSaveModalChanges}
+                                disabled={savingModal || sendingModal}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                                <Save size={14} /> {savingModal ? 'Guardando...' : 'Guardar Local'}
+                            </button>
+                            <button
+                                onClick={handleSendModalToQb}
+                                disabled={savingModal || sendingModal}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                                <Send size={14} /> {sendingModal ? 'Enviando...' : 'Enviar a QB'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ============ HEADER BAR ============ */}
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 gap-4">
                 <div>
@@ -815,9 +1087,9 @@ export default function InventoryOrdersPage() {
                         {/* TAB 1: DAILY ORDER                                       */}
                         {/* ======================================================== */}
                         {activeTab === 'daily_order' && (() => {
-                            const existingOrder = orders.find((o: any) => o.order_date === activeOrderDate)
+                            const existingOrder = orders.find((o: any) => o.order_date === todayStr)
 
-                            if (!isCurrentWeek && !selectedOrderDate) {
+                            if (!isCurrentWeek) {
                                 return (
                                     <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
                                         <AlertTriangle className="w-10 h-10 text-amber-400" />
@@ -828,24 +1100,6 @@ export default function InventoryOrdersPage() {
 
                             return (
                                 <div>
-                                    {/* ---- Banner de Edición Activa ---- */}
-                                    {selectedOrderDate !== null && (
-                                        <div className="mx-5 mt-5 bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl flex items-center justify-between text-xs font-bold shadow-sm">
-                                            <div className="flex items-center gap-2">
-                                                <span className="relative flex h-2 w-2">
-                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                                </span>
-                                                <span>EDITANDO PEDIDO DEL DÍA: <span className="underline">{selectedOrderDate}</span></span>
-                                            </div>
-                                            <button 
-                                                onClick={() => setSelectedOrderDate(null)}
-                                                className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg font-bold transition-all"
-                                            >
-                                                ❌ Regresar al Pedido de Hoy
-                                            </button>
-                                        </div>
-                                    )}
                                     {/* ---- Header: Pedido para [TOMORROW] ---- */}
                                     <div className="px-5 pt-5 pb-3 flex flex-wrap items-center justify-between gap-4">
                                         <h2 className="text-xl font-black text-slate-800">
@@ -981,7 +1235,7 @@ export default function InventoryOrdersPage() {
                                                     const finalQty = adj !== undefined ? adj : line.calculated_qty
                                                     const isNegative = line.calculated_qty < 0
                                                     const isZeroLeftover = line.leftover_value === null
-                                                    const currentLeftover = counts[line.inventory_item_id]?.[activeOrderDate]
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
 
                                                     return (
                                                         <tr key={line.inventory_item_id}
@@ -1072,7 +1326,7 @@ export default function InventoryOrdersPage() {
                                                 {/* ---- Tracking-only items ---- */}
                                                 {trackingLines.map((line, idx) => {
                                                     const rowIndex = orderableLines.length + idx + 1
-                                                    const currentLeftover = counts[line.inventory_item_id]?.[activeOrderDate]
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
 
                                                     return (
                                                         <tr key={line.inventory_item_id} className="transition-colors border-b border-slate-100 hover:bg-slate-50/50">
@@ -1212,11 +1466,8 @@ export default function InventoryOrdersPage() {
                                                                     )}
 
                                                                     <button
-                                                                        onClick={() => {
-                                                                            setSelectedOrderDate(order.order_date);
-                                                                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                                                                        }}
-                                                                        className="text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 px-2 py-1 rounded-lg font-black transition-all flex items-center gap-0.5"
+                                                                        onClick={() => handleOpenEditModal(order)}
+                                                                        className="text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-0.5"
                                                                     >
                                                                         ✏️ Editar
                                                                     </button>
