@@ -1333,6 +1333,30 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     </div>
 
+                                    {/* ---- Action buttons (Top duplicate for easy access) ---- */}
+                                    <div className="mx-5 mb-4 p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-3 justify-end items-center">
+                                        <span className="text-xs font-black text-slate-500 uppercase tracking-wider mr-auto">
+                                            ⚡ Acciones Rápidas
+                                        </span>
+                                        <button
+                                            onClick={() => {
+                                                const url = `/inventory/orders/print-sheet?storeId=${storeId}&orderType=${orderType}&week=${activeMonday}`
+                                                window.open(url, '_blank')
+                                            }}
+                                            className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-colors"
+                                        >
+                                            <Printer size={14} /> {t('bodegaOrders.printSheet')}
+                                        </button>
+                                        <button onClick={handleGenerateOrder} disabled={saving}
+                                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-colors disabled:opacity-50">
+                                            <Save size={14} /> {saving ? t('bodegaOrders.saving') : t('bodegaOrders.generateOrder')}
+                                        </button>
+                                        <button onClick={handleSendToQb} disabled={sendingToQb || !isCurrentWeek}
+                                            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <Send size={14} /> {sendingToQb ? t('bodegaOrders.sendingToQb') : t('bodegaOrders.sendToQb')}
+                                        </button>
+                                    </div>
+
                                     {/* ---- Unified order table ---- */}
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm border-collapse whitespace-nowrap">
