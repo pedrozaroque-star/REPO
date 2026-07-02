@@ -234,29 +234,45 @@ export async function POST(request: NextRequest) {
         }
 
         // 7. Crear o actualizar el Estimate en QB
-        let estimate: any;
+        let estimate: any = null;
+        let tryUpdate = false;
+        let existingEstimate: any = null;
+
         if (order.qb_estimate_id) {
             console.log(`[QB-Order] 🔄 Orden ya tiene estimate_id ${order.qb_estimate_id}. Obteniendo SyncToken para actualizar...`)
-            // Obtener el SyncToken del estimate existente de QB
-            const existingEstimate = await new Promise<any>((resolve, reject) => {
-                qbo.getEstimate(order.qb_estimate_id, (err: any, result: any) => {
-                    if (err) reject(err)
-                    else resolve(result)
+            try {
+                existingEstimate = await new Promise<any>((resolve, reject) => {
+                    qbo.getEstimate(order.qb_estimate_id, (err: any, result: any) => {
+                        if (err) reject(err)
+                        else resolve(result)
+                    })
                 })
-            })
+                tryUpdate = true;
+            } catch (err: any) {
+                console.warn(`[QB-Order] ⚠️ No se pudo obtener el Estimate ${order.qb_estimate_id} de QB (posiblemente eliminado). Se creará uno nuevo.`, err.message || err)
+            }
+        }
 
+        if (tryUpdate && existingEstimate) {
             estimateData.Id = order.qb_estimate_id
             estimateData.SyncToken = existingEstimate.SyncToken
             estimateData.sparse = true // Solo actualizar los campos provistos
 
             console.log(`[QB-Order] 🔄 Actualizando Estimate #${existingEstimate.DocNumber} en QuickBooks...`)
-            estimate = await new Promise<any>((resolve, reject) => {
-                qbo.updateEstimate(estimateData, (err: any, result: any) => {
-                    if (err) reject(err)
-                    else resolve(result)
+            try {
+                estimate = await new Promise<any>((resolve, reject) => {
+                    qbo.updateEstimate(estimateData, (err: any, result: any) => {
+                        if (err) reject(err)
+                        else resolve(result)
+                    })
                 })
-            })
-        } else {
+            } catch (err: any) {
+                console.error(`[QB-Order] ❌ Falló la actualización del Estimate ${order.qb_estimate_id}. Intentando crear uno nuevo...`, err.message || err)
+                tryUpdate = false; // Fallback a creación
+            }
+        }
+
+        if (!tryUpdate || !estimate) {
             console.log(`[QB-Order] 🆕 Creando nuevo Estimate en QuickBooks...`)
             estimate = await new Promise<any>((resolve, reject) => {
                 qbo.createEstimate(estimateData, (err: any, result: any) => {
