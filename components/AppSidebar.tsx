@@ -101,8 +101,8 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const { t, language, setLanguage } = useLanguage()
 
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-        operaciones: true, gestion: true, analisis: true,
-        inventario: true, kioskos: true, equipo: true, food_cost: true,
+        operaciones: false, gestion: false, analisis: true,
+        inventario: false, kioskos: false, equipo: false, food_cost: false,
     })
     const [userDropdownOpen, setUserDropdownOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -328,7 +328,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
     const renderNavContent = (isMobile: boolean = false) => (
         <nav className={`flex-1 px-3 py-3 space-y-1 overflow-y-auto overflow-x-hidden no-scrollbar`}>
             {filteredGroups.map((group) => {
-                const isOpen = expandedGroups[group.id] ?? true
+                const isOpen = expandedGroups[group.id] ?? (group.id === 'analisis')
                 return (
                     <div key={group.id} className="mb-1">
                         {/* Group header */}
