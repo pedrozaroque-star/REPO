@@ -60,7 +60,7 @@ function getDayKey(dateStr: string): string {
  * Obtiene los items que participan en el sistema de órdenes (con excel_reference).
  * Incluye el qb_item_id si existe el mapeo en quickbooks_mappings.
  */
-export async function fetchOrderableItems(storeId: string | number) {
+export async function fetchOrderableItems(storeId: string | number, orderType: 'daily' | 'liquids' = 'daily') {
     // 1. Intentar obtener el template específico de esta tienda
     const { data: template, error: templateError } = await supabase
         .from('store_order_template')
@@ -72,6 +72,7 @@ export async function fetchOrderableItems(storeId: string | number) {
             inventory_items:inventory_item_id (id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule)
         `)
         .eq('store_id', storeId)
+        .eq('order_type', orderType)
         .order('sort_position', { ascending: true })
 
     if (!templateError && template && template.length > 0) {
@@ -130,7 +131,7 @@ export async function fetchAllInventoryItems() {
 /**
  * Datos completos para una semana: bases, sobrantes, PAR ideal, e historial de órdenes
  */
-export async function fetchWeeklyData(storeId: string | number, mondayStr: string) {
+export async function fetchWeeklyData(storeId: string | number, mondayStr: string, orderType: 'daily' | 'liquids' = 'daily') {
     // Bases de esta semana
     const { data: bases } = await supabase
         .from('inventory_weekly_bases')
@@ -161,15 +162,14 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         .select('*, inventory_order_lines(*)')
         .eq('store_id', storeId)
         .eq('week_start_date', mondayStr)
+        .eq('order_type', orderType)
         .order('order_date', { ascending: true })
 
     // Mapear datos
     const basesMap: Record<string, WeeklyBaseRecord> = {}
     
-    // Si esta semana no tiene bases registradas, inicializar con el PAR Ideal
-    if (bases && bases.length > 0) {
-        bases.forEach((b: any) => { basesMap[b.inventory_item_id] = b })
-    } else if (parIdeal && parIdeal.length > 0) {
+    // Inicializar basesMap con los valores de referencia del PAR Ideal
+    if (parIdeal && parIdeal.length > 0) {
         parIdeal.forEach((p: any) => {
             basesMap[p.inventory_item_id] = {
                 id: `temp-${p.inventory_item_id}`,
@@ -186,6 +186,13 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             } as any
+        })
+    }
+
+    // Sobrescribir con las bases reales de esta semana si existen
+    if (bases && bases.length > 0) {
+        bases.forEach((b: any) => {
+            basesMap[b.inventory_item_id] = b
         })
     }
 
@@ -469,7 +476,8 @@ export async function saveOrderDraft(
     weekStartDate: string,
     lines: { inventory_item_id: string; calculated_qty: number; adjusted_qty?: number; par_value: number; leftover_value: number }[],
     createdBy?: string,
-    notes?: string
+    notes?: string,
+    orderType: 'daily' | 'liquids' = 'daily'
 ) {
     // Upsert la orden
     const { data: order, error: orderError } = await supabase
@@ -481,8 +489,9 @@ export async function saveOrderDraft(
             status: 'draft',
             created_by: createdBy || 'Manager',
             notes: notes || null,
+            order_type: orderType,
             updated_at: new Date().toISOString()
-        }, { onConflict: 'store_id, order_date' })
+        }, { onConflict: 'store_id, order_date, order_type' })
         .select()
         .single()
 
@@ -514,11 +523,12 @@ export async function saveOrderDraft(
 }
 
 /** Obtiene el historial de órdenes de una tienda */
-export async function getOrderHistory(storeId: string | number, limit: number = 30) {
+export async function getOrderHistory(storeId: string | number, limit: number = 30, orderType: 'daily' | 'liquids' = 'daily') {
     const { data, error } = await supabase
         .from('inventory_orders')
         .select('*')
         .eq('store_id', storeId)
+        .eq('order_type', orderType)
         .order('order_date', { ascending: false })
         .limit(limit)
 

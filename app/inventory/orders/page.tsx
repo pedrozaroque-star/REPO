@@ -106,6 +106,7 @@ export default function InventoryOrdersPage() {
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
     const [activeTab, setActiveTab] = useState<TabId>('daily_order')
+    const [orderType, setOrderType] = useState<'daily' | 'liquids'>('daily')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [hasBaseChanges, setHasBaseChanges] = useState(false)
@@ -180,9 +181,9 @@ export default function InventoryOrdersPage() {
         setLoading(true)
         try {
             const [orderableItems, allInvItems, weekData] = await Promise.all([
-                fetchOrderableItems(storeId),
+                fetchOrderableItems(storeId, orderType),
                 fetchAllInventoryItems(),
-                fetchWeeklyData(storeId, activeMonday),
+                fetchWeeklyData(storeId, activeMonday, orderType),
             ])
             setItems(orderableItems)
             setAllItems(allInvItems)
@@ -223,7 +224,7 @@ export default function InventoryOrdersPage() {
         } finally {
             setLoading(false)
         }
-    }, [storeId, activeMonday, overrideDayField, selectedOrderDate])
+    }, [storeId, activeMonday, overrideDayField, selectedOrderDate, orderType])
 
     useEffect(() => { loadData() }, [loadData])
 
@@ -299,7 +300,8 @@ export default function InventoryOrdersPage() {
                 activeMonday, 
                 lines, 
                 user?.name, 
-                modalNotes || undefined
+                modalNotes || undefined,
+                editModal.order.order_type || 'daily'
             )
             if (res.error) {
                 alert(res.error)
@@ -333,7 +335,8 @@ export default function InventoryOrdersPage() {
                 activeMonday, 
                 lines, 
                 user?.name, 
-                modalNotes || undefined
+                modalNotes || undefined,
+                editModal.order.order_type || 'daily'
             )
             if (saveRes.error) {
                 alert(saveRes.error)
@@ -429,6 +432,26 @@ export default function InventoryOrdersPage() {
         const numVal = parseFloat(value) || 0
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
         setBases({ ...bases, [itemId]: { ...b, [field]: numVal } as any })
+        setHasBaseChanges(true)
+    }
+
+    async function handleLiquidsParChange(itemId: string, value: string) {
+        if (!storeId) return
+        const numVal = parseFloat(value) || 0
+        const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+        setBases({
+            ...bases,
+            [itemId]: {
+                ...b,
+                mon_par: numVal,
+                tue_par: numVal,
+                wed_par: numVal,
+                thu_par: numVal,
+                fri_par: numVal,
+                sat_par: numVal,
+                sun_par: numVal
+            } as any
+        })
         setHasBaseChanges(true)
     }
 
@@ -567,7 +590,7 @@ export default function InventoryOrdersPage() {
             leftover_value: l.leftover_value ?? 0
         }))
 
-        const res = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
+        const res = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined, orderType)
         if (res.error) alert(res.error)
         else { alert(t('bodegaOrders.saved')); await loadData() }
         setSaving(false)
@@ -597,7 +620,7 @@ export default function InventoryOrdersPage() {
             return
         }
 
-        const saveRes = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
+        const saveRes = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined, orderType)
         if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
         const orderId = saveRes.orderId
         setSaving(false)
@@ -1061,7 +1084,7 @@ export default function InventoryOrdersPage() {
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 gap-4">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                        📦 {t('bodegaOrders.title')}
+                        📦 {orderType === 'daily' ? t('bodegaOrders.title') : t('bodegaOrders.liquidsTitle')}
                         <button
                             onClick={() => setShowInfoModal(true)}
                             className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-all"
@@ -1074,6 +1097,30 @@ export default function InventoryOrdersPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
+                    {/* Order Type Toggle */}
+                    <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200 shadow-sm">
+                        <button
+                            onClick={() => setOrderType('daily')}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition-all ${
+                                orderType === 'daily'
+                                    ? 'bg-white text-slate-800 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            📦 {t('bodegaOrders.title')}
+                        </button>
+                        <button
+                            onClick={() => setOrderType('liquids')}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition-all ${
+                                orderType === 'liquids'
+                                    ? 'bg-white text-slate-800 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            🧴 {t('bodegaOrders.liquidsTitle')}
+                        </button>
+                    </div>
+
                     {/* Store selector */}
                     <select
                         value={storeId}
@@ -1295,7 +1342,7 @@ export default function InventoryOrdersPage() {
                                                         </div>
                                                     </th>
                                                     <th className="p-3 text-center w-20 bg-emerald-50 text-emerald-700 border-b-2 border-emerald-200">
-                                                        {t('bodegaOrders.parTomorrow')}
+                                                        {orderType === 'daily' ? t('bodegaOrders.parTomorrow') : 'PAR'}
                                                     </th>
                                                     <th className="p-3 text-center w-24 bg-orange-50 text-orange-700 border-b-2 border-orange-200">
                                                         {t('bodegaOrders.leftover')}
@@ -1614,39 +1661,41 @@ export default function InventoryOrdersPage() {
                                         <RefreshCcw size={14} /> {t('bodegaOrders.copyFromParIdeal')}
                                     </button>
 
-                                    <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs select-none">
-                                         <span className="font-bold text-slate-500">📋 Copiar PAR:</span>
-                                         <select id="copy_src_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
-                                             <option value="mon_par">Lunes</option>
-                                             <option value="tue_par">Martes</option>
-                                             <option value="wed_par">Miércoles</option>
-                                             <option value="thu_par">Jueves</option>
-                                             <option value="fri_par">Viernes</option>
-                                             <option value="sat_par">Sábado</option>
-                                             <option value="sun_par">Domingo</option>
-                                         </select>
-                                         <span className="font-bold text-slate-400">➡️ a:</span>
-                                         <select id="copy_tgt_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
-                                             <option value="all">Todos los días</option>
-                                             <option value="mon_par">Lunes</option>
-                                             <option value="tue_par">Martes</option>
-                                             <option value="wed_par">Miércoles</option>
-                                             <option value="thu_par">Jueves</option>
-                                             <option value="fri_par">Viernes</option>
-                                             <option value="sat_par">Sábado</option>
-                                             <option value="sun_par">Domingo</option>
-                                         </select>
-                                         <button 
-                                             onClick={() => {
-                                                 const src = (document.getElementById('copy_src_day') as HTMLSelectElement).value
-                                                 const tgt = (document.getElementById('copy_tgt_day') as HTMLSelectElement).value
-                                                 handleCopyDayPar(src, tgt)
-                                             }}
-                                             className="ml-1 bg-blue-600 hover:bg-blue-700 text-white font-black px-2.5 py-1 rounded-lg transition-all text-xs"
-                                         >
-                                             Copiar
-                                         </button>
-                                     </div>
+                                    {orderType === 'daily' && (
+    <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs select-none">
+                                             <span className="font-bold text-slate-500">📋 Copiar PAR:</span>
+                                             <select id="copy_src_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
+                                                 <option value="mon_par">Lunes</option>
+                                                 <option value="tue_par">Martes</option>
+                                                 <option value="wed_par">Miércoles</option>
+                                                 <option value="thu_par">Jueves</option>
+                                                 <option value="fri_par">Viernes</option>
+                                                 <option value="sat_par">Sábado</option>
+                                                 <option value="sun_par">Domingo</option>
+                                             </select>
+                                             <span className="font-bold text-slate-400">➡️ a:</span>
+                                             <select id="copy_tgt_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
+                                                 <option value="all">Todos los días</option>
+                                                 <option value="mon_par">Lunes</option>
+                                                 <option value="tue_par">Martes</option>
+                                                 <option value="wed_par">Miércoles</option>
+                                                 <option value="thu_par">Jueves</option>
+                                                 <option value="fri_par">Viernes</option>
+                                                 <option value="sat_par">Sábado</option>
+                                                 <option value="sun_par">Domingo</option>
+                                             </select>
+                                             <button 
+                                                 onClick={() => {
+                                                     const src = (document.getElementById('copy_src_day') as HTMLSelectElement).value
+                                                     const tgt = (document.getElementById('copy_tgt_day') as HTMLSelectElement).value
+                                                     handleCopyDayPar(src, tgt)
+                                                 }}
+                                                 className="ml-1 bg-blue-600 hover:bg-blue-700 text-white font-black px-2.5 py-1 rounded-lg transition-all text-xs"
+                                             >
+                                                 Copiar
+                                             </button>
+                                         </div>
+                                    )}
 
                                     <div className="flex-1" />
 
@@ -1659,7 +1708,7 @@ export default function InventoryOrdersPage() {
                                     )}
                                 </div>
 
-                                {/* ---- BASE PAR table (editable 7-day grid) ---- */}
+                                {/* ---- BASE PAR table (editable grid) ---- */}
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
                                         <thead>
@@ -1667,12 +1716,18 @@ export default function InventoryOrdersPage() {
                                                 <th className="bg-slate-100 border-b-2 border-slate-300 p-3 sticky left-0 z-10 font-black min-w-[200px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                                                     {t('bodegaOrders.item')}
                                                 </th>
-                                                {weekDays.map(d => (
-                                                    <th key={`bh_${d.key}`} className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold">
-                                                        {d.label}<br/>
-                                                        <span className="font-normal text-emerald-500">{d.dateStr.slice(5)}</span>
+                                                {orderType === 'daily' ? (
+                                                    weekDays.map(d => (
+                                                        <th key={`bh_${d.key}`} className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold">
+                                                            {d.label}<br/>
+                                                            <span className="font-normal text-emerald-500">{d.dateStr.slice(5)}</span>
+                                                        </th>
+                                                    ))
+                                                ) : (
+                                                    <th className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-32 text-xs text-emerald-700 font-bold">
+                                                        PAR
                                                     </th>
-                                                ))}
+                                                )}
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1687,25 +1742,47 @@ export default function InventoryOrdersPage() {
                                                                 <span>{item.excel_reference || item.name}</span>
                                                             </div>
                                                         </td>
-                                                        {weekDays.map((d, colIndex) => {
-                                                            const val = b ? (b as any)[d.baseField] : undefined
-                                                            const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
+                                                        {orderType === 'daily' ? (
+                                                            weekDays.map((d, colIndex) => {
+                                                                const val = b ? (b as any)[d.baseField] : undefined
+                                                                const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
 
-                                                            return (
-                                                                <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
-                                                                    <input
-                                                                        id={`input_${rowIndex}_${colIndex}`}
-                                                                        type="number"
-                                                                        placeholder={piVal ? String(piVal) : '-'}
-                                                                        className="w-full h-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300 text-sm"
-                                                                        value={val !== undefined && val !== null ? val : ''}
-                                                                        onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
-                                                                        onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
-                                                                        onFocus={e => e.target.select()}
-                                                                    />
-                                                                </td>
-                                                            )
-                                                        })}
+                                                                return (
+                                                                    <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
+                                                                        <input
+                                                                            id={`input_${rowIndex}_${colIndex}`}
+                                                                            type="number"
+                                                                            placeholder={piVal ? String(piVal) : '-'}
+                                                                            className="w-full h-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300 text-sm"
+                                                                            value={val !== undefined && val !== null ? val : ''}
+                                                                            onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
+                                                                            onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
+                                                                            onFocus={e => e.target.select()}
+                                                                        />
+                                                                    </td>
+                                                                )
+                                                            })
+                                                        ) : (
+                                                            (() => {
+                                                                const val = b ? b.mon_par : undefined
+                                                                const piVal = parIdeal[item.id] ? parIdeal[item.id].mon_par : undefined
+
+                                                                return (
+                                                                    <td className="p-0 border-b border-emerald-100/50">
+                                                                        <input
+                                                                            id={`input_${rowIndex}_0`}
+                                                                            type="number"
+                                                                            placeholder={piVal !== undefined && piVal !== null ? String(piVal) : '-'}
+                                                                            className="w-full h-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300 text-sm"
+                                                                            value={val !== undefined && val !== null ? val : ''}
+                                                                            onChange={e => handleLiquidsParChange(item.id, e.target.value)}
+                                                                            onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                            onFocus={e => e.target.select()}
+                                                                        />
+                                                                    </td>
+                                                                )
+                                                            })()
+                                                        )}
                                                     </tr>
                                                 )
                                             })}
@@ -1727,11 +1804,17 @@ export default function InventoryOrdersPage() {
                                                     <th className="bg-violet-50/30 border-b border-violet-100 p-3 sticky left-0 z-10 font-bold min-w-[200px] text-violet-700 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                                                         {t('bodegaOrders.item')}
                                                     </th>
-                                                    {weekDays.map(d => (
-                                                        <th key={`pih_${d.key}`} className="bg-violet-50/30 border-b border-violet-100 p-2 text-center w-20 text-xs text-violet-600 font-bold">
-                                                            {d.label}
+                                                    {orderType === 'daily' ? (
+                                                        weekDays.map(d => (
+                                                            <th key={`pih_${d.key}`} className="bg-violet-50/30 border-b border-violet-100 p-2 text-center w-20 text-xs text-violet-600 font-bold">
+                                                                {d.label}
+                                                            </th>
+                                                        ))
+                                                    ) : (
+                                                        <th className="bg-violet-50/30 border-b border-violet-100 p-2 text-center w-32 text-xs text-violet-600 font-bold">
+                                                            PAR
                                                         </th>
-                                                    ))}
+                                                    )}
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1742,14 +1825,25 @@ export default function InventoryOrdersPage() {
                                                             <td className="sticky left-0 bg-white border-b border-violet-50 p-2.5 font-semibold text-slate-700 shadow-[2px_0_5px_rgba(0,0,0,0.03)] z-10">
                                                                 {item.excel_reference || item.name}
                                                             </td>
-                                                            {weekDays.map(d => {
-                                                                const piVal = pi ? (pi as any)[d.baseField] : null
-                                                                return (
-                                                                    <td key={`pi_${item.id}_${d.key}`} className="border-b border-violet-50 p-2 text-center text-violet-600 font-medium text-sm">
-                                                                        {piVal || '-'}
-                                                                    </td>
-                                                                )
-                                                            })}
+                                                            {orderType === 'daily' ? (
+                                                                weekDays.map(d => {
+                                                                    const piVal = pi ? (pi as any)[d.baseField] : null
+                                                                    return (
+                                                                        <td key={`pi_${item.id}_${d.key}`} className="border-b border-violet-50 p-2 text-center text-violet-600 font-medium text-sm">
+                                                                            {piVal || '-'}
+                                                                        </td>
+                                                                    )
+                                                                })
+                                                            ) : (
+                                                                (() => {
+                                                                    const piVal = pi ? pi.mon_par : null
+                                                                    return (
+                                                                        <td className="border-b border-violet-50 p-2 text-center text-violet-600 font-medium text-sm">
+                                                                            {piVal !== null && piVal !== undefined ? piVal : '-'}
+                                                                        </td>
+                                                                    )
+                                                                })()
+                                                            )}
                                                         </tr>
                                                     )
                                                 })}
@@ -1797,6 +1891,19 @@ export default function InventoryOrdersPage() {
                                     <li><strong>Revisa la Cantidad Calculada:</strong> El sistema calculará automáticamente cuánto pedir en la columna <strong>"Pedir"</strong> utilizando la fórmula: <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-blue-700">PAR de Mañana − Sobrante</code>. Si tienes suficiente stock, te marcará "Exceso".</li>
                                     <li><strong>Haz Ajustes Manuales (Opcional):</strong> Si por algún evento especial quieres pedir una cantidad distinta al cálculo del sistema, escribe la cantidad deseada en la columna <strong>"Ajuste"</strong>. La columna <strong>"Final"</strong> tomará ese valor ajustado.</li>
                                     <li><strong>Guarda y Sincroniza:</strong> Haz clic en <strong>"Generar Orden"</strong> para guardar localmente y luego en <strong>"Enviar a QuickBooks"</strong> para crear el Estimate oficial.</li>
+                                </ol>
+                            </div>
+
+                            {/* ORDEN DE LÍQUIDOS */}
+                            <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
+                                <h4 className="font-bold text-amber-900 text-sm flex items-center gap-1.5 mb-2">
+                                    🧴 ¿Cómo hacer la Orden de Líquidos? (Semanal)
+                                </h4>
+                                <ol className="list-decimal pl-5 space-y-1.5 text-amber-900/80">
+                                    <li><strong>Cambia el Selector de Arriba:</strong> Selecciona el botón de <strong>"🧴 Orden Líquidos"</strong> en el header.</li>
+                                    <li><strong>Día de Pedido:</strong> Recuerda que esta orden se solicita los <strong>Domingos</strong> para recibirse los <strong>Lunes</strong>.</li>
+                                    <li><strong>Carga y Conteo:</strong> La tabla se filtrará automáticamente con los insumos del template oficial de QB. Captura los sobrantes en la columna naranja.</li>
+                                    <li><strong>Cálculo y Envió:</strong> Funciona igual que la orden diaria. Calcula automáticamente <code>PAR - Sobrante</code> y al enviarse a QB genera un Estimate con el prefijo <code>[LÍQUIDOS]</code> en el memo para control administrativo.</li>
                                 </ol>
                             </div>
 

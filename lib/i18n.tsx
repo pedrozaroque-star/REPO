@@ -1774,7 +1774,7 @@ const dictionaries: Record<Language, Dictionary> = {
             },
         },
         bodegaOrders: {
-            title: 'Pedidos a Bodega',
+            title: 'Orden Diaria',
             subtitle: 'Sistema de reposición automática de inventario',
             tabBase: 'BASE (PAR Semanal)',
             tabLeftovers: 'SOBRANTES',
@@ -1881,6 +1881,7 @@ const dictionaries: Record<Language, Dictionary> = {
             pedir: 'Pedir',
             ajuste: 'Ajuste',
             orderToday: 'Pedido de Hoy',
+            liquidsTitle: 'Orden Líquidos',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {
@@ -3777,7 +3778,7 @@ const dictionaries: Record<Language, Dictionary> = {
             },
         },
         bodegaOrders: {
-            title: 'Warehouse Orders',
+            title: 'Daily Order',
             subtitle: 'Automatic inventory replenishment system',
             tabBase: 'BASE (Weekly PAR)',
             tabLeftovers: 'LEFTOVERS',
@@ -3884,6 +3885,7 @@ const dictionaries: Record<Language, Dictionary> = {
             pedir: 'Order Qty',
             ajuste: 'Adjustment',
             orderToday: 'Today\'s Order',
+            liquidsTitle: 'Liquids Order',
         },
         // DRIVE-THRU LEADERBOARD MODULE
         drive_thru: {

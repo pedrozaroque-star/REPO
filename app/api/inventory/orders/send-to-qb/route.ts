@@ -175,7 +175,8 @@ export async function POST(request: NextRequest) {
         }
 
         // Construir el memo con observaciones si las hay
-        const memoBase = `Pedido ${store?.name || 'Tienda'} - ${order.order_date}`;
+        const prefix = order.order_type === 'liquids' ? '[LÍQUIDOS] ' : '';
+        const memoBase = `${prefix}Pedido ${store?.name || 'Tienda'} - ${order.order_date}`;
         const memo = order.notes ? `${memoBase}\n📝 ${order.notes}` : memoBase;
 
         // Obtener el siguiente DocNumber (la empresa usa numeración custom tipo 258964783306)
