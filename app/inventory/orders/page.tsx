@@ -134,6 +134,7 @@ export default function InventoryOrdersPage() {
     const [syncingQb, setSyncingQb] = useState(false)
     const [orderNotes, setOrderNotes] = useState('')
     const [overrideDayField, setOverrideDayField] = useState<string>('auto')
+    const [selectedOrderDate, setSelectedOrderDate] = useState<string>(() => getLocalBusinessDate(new Date()))
 
     // Computed
     const todayStr = getLocalBusinessDate(new Date())
@@ -190,7 +191,7 @@ export default function InventoryOrdersPage() {
             setHasBaseChanges(false)
 
             // Pre-cargar notas y ajustes de la orden de hoy
-            const todayOrder = weekData.orders?.find((o: any) => o.order_date === todayStr)
+            const todayOrder = weekData.orders?.find((o: any) => o.order_date === selectedOrderDate)
             if (todayOrder) {
                 setOrderNotes(todayOrder.notes || '')
                 const savedAdjustments: Record<string, number> = {}
@@ -208,7 +209,7 @@ export default function InventoryOrdersPage() {
             // Calculate order
             if (isCurrentWeek) {
                 const lines = await calculateDailyOrder(
-                    storeId, todayStr, orderableItems,
+                    storeId, selectedOrderDate, orderableItems,
                     weekData.bases, weekData.counts, activeMonday,
                     weekData.parIdeal, overrideDayField
                 )
@@ -219,20 +220,20 @@ export default function InventoryOrdersPage() {
         } finally {
             setLoading(false)
         }
-    }, [storeId, activeMonday, overrideDayField])
+    }, [storeId, activeMonday, overrideDayField, selectedOrderDate])
 
     useEffect(() => { loadData() }, [loadData])
 
-    // Recalcular orden localmente al cambiar el día de base a usar
+    // Recalcular orden localmente al cambiar el día de base a usar o la fecha seleccionada
     useEffect(() => {
         if (storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
             calculateDailyOrder(
-                storeId, todayStr, items,
+                storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField
             ).then(setOrderLines)
         }
-    }, [overrideDayField, storeId, todayStr, items, bases, counts, activeMonday, parIdeal])
+    }, [overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -405,6 +406,14 @@ export default function InventoryOrdersPage() {
         setHasBaseChanges(true)
     }
 
+    function handleOrderDateChange(dateStr: string) {
+        setSelectedOrderDate(dateStr)
+        const targetMonday = getMonday(new Date(dateStr + 'T12:00:00'))
+        if (targetMonday !== activeMonday) {
+            setActiveMonday(targetMonday)
+        }
+    }
+
     // --- Handlers ---
     async function handleBaseChange(itemId: string, field: string, value: string) {
         if (!storeId) return
@@ -435,7 +444,7 @@ export default function InventoryOrdersPage() {
             
             // Recalcular orden del día
             const lines = await calculateDailyOrder(
-                storeId, todayStr, items,
+                storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField
             )
@@ -467,7 +476,7 @@ export default function InventoryOrdersPage() {
      *  Guarda en DB + recalcula la línea de orden en tiempo real. */
     async function handleInlineLeftoverChange(itemId: string, value: string) {
         // 1. Update counts state + save to DB
-        await handleLeftoverChange(itemId, todayStr, value)
+        await handleLeftoverChange(itemId, selectedOrderDate, value)
 
         // 2. Recalculate that specific order line
         const numVal = value === '' ? null : (parseFloat(value) || 0)
@@ -548,7 +557,7 @@ export default function InventoryOrdersPage() {
             leftover_value: l.leftover_value ?? 0
         }))
 
-        const res = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
+        const res = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
         if (res.error) alert(res.error)
         else { alert(t('bodegaOrders.saved')); await loadData() }
         setSaving(false)
@@ -578,7 +587,7 @@ export default function InventoryOrdersPage() {
             return
         }
 
-        const saveRes = await saveOrderDraft(storeId, todayStr, activeMonday, lines, user?.name, orderNotes || undefined)
+        const saveRes = await saveOrderDraft(storeId, selectedOrderDate, activeMonday, lines, user?.name, orderNotes || undefined)
         if (saveRes.error) { alert(saveRes.error); setSaving(false); return }
         const orderId = saveRes.orderId
         setSaving(false)
@@ -745,7 +754,7 @@ export default function InventoryOrdersPage() {
     }
 
     // Count captured leftovers for today
-    const capturedToday = items.filter(i => counts[i.id]?.[todayStr] !== undefined).length
+    const capturedToday = items.filter(i => counts[i.id]?.[selectedOrderDate] !== undefined).length
     const sundayDate = addDays(activeMonday, 6)
     const capturedSunday = items.filter(i => counts[i.id]?.[sundayDate] !== undefined).length
 
@@ -758,7 +767,7 @@ export default function InventoryOrdersPage() {
     const excessItems = orderLines.filter(l => l.calculated_qty < 0).length
 
     // Compute the next day name + date for daily order header
-    const tomorrow = new Date(todayStr + 'T12:00:00')
+    const tomorrow = new Date(selectedOrderDate + 'T12:00:00')
     tomorrow.setDate(tomorrow.getDate() + 1)
     const dayNames: Record<string, { es: string; en: string }> = {
         '0': { es: 'Domingo', en: 'Sunday' },
@@ -1131,7 +1140,7 @@ export default function InventoryOrdersPage() {
                         {/* TAB 1: DAILY ORDER                                       */}
                         {/* ======================================================== */}
                         {activeTab === 'daily_order' && (() => {
-                            const existingOrder = orders.find((o: any) => o.order_date === todayStr)
+                            const existingOrder = orders.find((o: any) => o.order_date === selectedOrderDate)
 
                             if (!isCurrentWeek) {
                                 return (
@@ -1150,23 +1159,36 @@ export default function InventoryOrdersPage() {
                                             📦 {t('bodegaOrders.orderForDate')} {tomorrowDayName?.es || ''} ({tomorrowFormatted})
                                         </h2>
                                         
-                                        {/* Dropdown to override PAR base day field */}
-                                        <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs">
-                                            <span className="font-bold text-slate-500">📅 Usar PAR de:</span>
-                                            <select
-                                                value={overrideDayField}
-                                                onChange={e => setOverrideDayField(e.target.value)}
-                                                className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans"
-                                            >
-                                                <option value="auto">Automático ({tomorrowDayName?.es || ''})</option>
-                                                <option value="mon_par">Lunes / Monday</option>
-                                                <option value="tue_par">Martes / Tuesday</option>
-                                                <option value="wed_par">Miércoles / Wednesday</option>
-                                                <option value="thu_par">Jueves / Thursday</option>
-                                                <option value="fri_par">Viernes / Friday</option>
-                                                <option value="sat_par">Sábado / Saturday</option>
-                                                <option value="sun_par">Domingo / Sunday</option>
-                                            </select>
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            {/* Selector de fecha de conteo */}
+                                            <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs">
+                                                <span className="font-bold text-slate-500">📅 Fecha de Conteo:</span>
+                                                <input
+                                                    type="date"
+                                                    value={selectedOrderDate}
+                                                    onChange={e => handleOrderDateChange(e.target.value)}
+                                                    className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0"
+                                                />
+                                            </div>
+
+                                            {/* Dropdown to override PAR base day field */}
+                                            <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs">
+                                                <span className="font-bold text-slate-500">📅 Usar PAR de:</span>
+                                                <select
+                                                    value={overrideDayField}
+                                                    onChange={e => setOverrideDayField(e.target.value)}
+                                                    className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans"
+                                                >
+                                                    <option value="auto">Automático ({tomorrowDayName?.es || ''})</option>
+                                                    <option value="mon_par">Lunes / Monday</option>
+                                                    <option value="tue_par">Martes / Tuesday</option>
+                                                    <option value="wed_par">Miércoles / Wednesday</option>
+                                                    <option value="thu_par">Jueves / Thursday</option>
+                                                    <option value="fri_par">Viernes / Friday</option>
+                                                    <option value="sat_par">Sábado / Saturday</option>
+                                                    <option value="sun_par">Domingo / Sunday</option>
+                                                </select>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1279,7 +1301,7 @@ export default function InventoryOrdersPage() {
                                                     const finalQty = adj !== undefined ? adj : line.calculated_qty
                                                     const isNegative = line.calculated_qty < 0
                                                     const isZeroLeftover = line.leftover_value === null
-                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[selectedOrderDate]
 
                                                     return (
                                                         <tr key={line.inventory_item_id}
@@ -1370,7 +1392,7 @@ export default function InventoryOrdersPage() {
                                                 {/* ---- Tracking-only items ---- */}
                                                 {trackingLines.map((line, idx) => {
                                                     const rowIndex = orderableLines.length + idx + 1
-                                                    const currentLeftover = counts[line.inventory_item_id]?.[todayStr]
+                                                    const currentLeftover = counts[line.inventory_item_id]?.[selectedOrderDate]
 
                                                     return (
                                                         <tr key={line.inventory_item_id} className="transition-colors border-b border-slate-100 hover:bg-slate-50/50">
