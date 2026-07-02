@@ -16,6 +16,7 @@
  * - Rollover solo si TODOS los items tienen sobrante de Domingo
  * - El día laboral empieza a las 6:00 AM
  * - Items con qb_item_id === 'TRACK_ONLY' aparecen en sección de solo rastreo
+ * - Permite forzar el PAR de otro día de la semana (por ejemplo, usar PAR de viernes en otro día) en caso de cierres tempranos, días festivos o eventos de venta especial.
  *
  * @dataFlow
  * - inventory_items (con excel_reference) → items del pedido
@@ -30,6 +31,8 @@
  *   Ahora todo viene de la BD. Integración con QuickBooks para Estimates.
  * - [2026-07-01] Rediseño a 2 pestañas (daily_order + weekly_config).
  *   Sobrante inline editable en la tabla del pedido diario.
+ * - [2026-07-02] Añadida edición de estimados anteriores en modal responsivo e independiente.
+ *   Añadido selector inline de copia de PAR de un día a otro en la configuración semanal.
  */
 'use client'
 
