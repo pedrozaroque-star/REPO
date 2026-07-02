@@ -34,9 +34,9 @@ export async function GET(request: NextRequest) {
 
         // 3. Descargar PDF desde QuickBooks
         const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
-            qbo.getEstimatePDF(estimateId, (err: any, result: any) => {
+            (qbo as any).getEstimatePdf(estimateId, (err: any, result: any) => {
                 if (err) {
-                    console.error('[QB-PDF] Error in getEstimatePDF:', err)
+                    console.error('[QB-PDF] Error in getEstimatePdf:', err)
                     reject(err)
                 } else {
                     resolve(result)
