@@ -180,7 +180,7 @@ export default function InventoryOrdersPage() {
             setHasBaseChanges(false)
 
             // Pre-cargar notas de la orden existente de hoy
-            const todayOrder = weekData.orders?.find((o: any) => o.order_date === new Date().toISOString().split('T')[0])
+            const todayOrder = weekData.orders?.find((o: any) => o.order_date === todayStr)
             if (todayOrder?.notes) setOrderNotes(todayOrder.notes)
             else setOrderNotes('')
 
