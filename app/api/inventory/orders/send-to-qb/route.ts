@@ -28,7 +28,7 @@ import QuickBooks from 'node-quickbooks'
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
-        const { orderId } = body
+        const { orderId, userEmail } = body
 
         if (!orderId) {
             return NextResponse.json({ error: 'orderId es requerido' }, { status: 400 })
@@ -154,6 +154,7 @@ export async function POST(request: NextRequest) {
                     ItemRef: { value: qbMapping.qbItemId },
                     Qty: finalQty,
                     UnitPrice: unitPrice,
+                    ClassRef: { value: "2" }, // Class: Warehouse
                 }
             })
         }
@@ -221,6 +222,12 @@ export async function POST(request: NextRequest) {
             CustomerMemo: { value: memo },
             PrivateNote: order.notes || undefined,
             Line: estimateLines,
+            // Class y Location fijados en "Warehouse" (Location ID 1, Class ID 2)
+            DepartmentRef: { value: "1" },
+            ClassRef: { value: "2" },
+        }
+        if (userEmail) {
+            estimateData.BillEmail = { Address: userEmail };
         }
         if (nextDocNumber) {
             estimateData.DocNumber = nextDocNumber;

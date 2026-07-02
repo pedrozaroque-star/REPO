@@ -403,7 +403,7 @@ export default function InventoryOrdersPage() {
             const res = await fetch('/api/inventory/orders/send-to-qb', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orderId })
+                body: JSON.stringify({ orderId, userEmail: user?.email })
             })
             const data = await res.json()
 
@@ -432,7 +432,7 @@ export default function InventoryOrdersPage() {
                                 const retryRes = await fetch('/api/inventory/orders/send-to-qb', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ orderId })
+                                    body: JSON.stringify({ orderId, userEmail: user?.email })
                                 });
                                 const retryData = await retryRes.json();
                                 if (retryData.error) {
