@@ -26,13 +26,13 @@ export default function InventoryLayout({
     }
 
     return (
-        <div className="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden">
+        <div className="flex min-h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-900">
             {/* Sidebar */}
             <aside
                 className={`
                     ${isSidebarOpen ? 'w-64' : 'w-0'} 
                     bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 
-                    hidden md:flex flex-col transition-all duration-300 ease-in-out relative overflow-hidden
+                    hidden md:flex flex-col transition-all duration-300 ease-in-out relative
                 `}
             >
                 <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center whitespace-nowrap">
@@ -77,7 +77,7 @@ export default function InventoryLayout({
                     </button>
                 )}
 
-                <main className="flex-1 overflow-auto">
+                <main className="flex-1 overflow-visible">
                     {children}
                 </main>
             </div>
