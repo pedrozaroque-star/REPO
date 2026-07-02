@@ -297,20 +297,18 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 title={isCollapsed && !isMobile ? (item.plainName || '') : undefined}
                 className={`group/item relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 border-l-[3px] ${
                     isActive
-                        ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white ${isBasecamp ? 'basecamp-animated-item-active' : ''}`
-                        : `${isBasecamp ? 'basecamp-animated-item border-l-[3px]' : 'border-l-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'}`
+                        ? `${colors.activeBg} ${colors.activeBorder} font-semibold text-slate-900 dark:text-white`
+                        : 'border-l-transparent text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'
                 } ${isCollapsed && !isMobile ? 'justify-center px-2' : ''}`}
             >
                 <div className={`flex-shrink-0 transition-transform duration-200 ${
-                    isBasecamp 
-                        ? 'basecamp-animated-icon scale-105' 
-                        : (isActive ? `${colors.icon} scale-110` : `${colors.icon} opacity-70 group-hover/item:opacity-100`)
+                    isActive ? `${colors.icon} scale-110` : `${colors.icon} opacity-70 group-hover/item:opacity-100`
                 }`}>
-                    {React.cloneElement(item.icon as any, { size: 18, strokeWidth: (isActive || isBasecamp) ? 2.5 : 2 })}
+                    {React.cloneElement(item.icon as any, { size: 18, strokeWidth: isActive ? 2.5 : 2 })}
                 </div>
                 {(!isCollapsed || isMobile) ? (
                     <div className="flex items-center justify-between w-full min-w-0">
-                        <span className={`truncate ${isBasecamp ? 'font-semibold text-slate-800 dark:text-slate-200' : ''}`}>{item.name}</span>
+                        <span className="truncate">{item.name}</span>
                         {(isBasecamp || item.path === '/inventory/orders') && (
                             <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm ml-1.5 shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
                                 new
