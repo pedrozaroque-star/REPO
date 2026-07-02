@@ -115,6 +115,7 @@ export default function InventoryOrdersPage() {
     const [items, setItems] = useState<OrderableItem[]>([])
     const [allItems, setAllItems] = useState<any[]>([])
     const [bases, setBases] = useState<Record<string, WeeklyBaseRecord>>({})
+    const [originalBases, setOriginalBases] = useState<Record<string, WeeklyBaseRecord>>({})
     const [parIdeal, setParIdeal] = useState<Record<string, ParIdealRecord>>({})
     const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
     const [orderLines, setOrderLines] = useState<CalculatedOrderLine[]>([])
@@ -185,6 +186,7 @@ export default function InventoryOrdersPage() {
             setItems(orderableItems)
             setAllItems(allInvItems)
             setBases(weekData.bases)
+            setOriginalBases(JSON.parse(JSON.stringify(weekData.bases || {})))
             setParIdeal(weekData.parIdeal)
             setCounts(weekData.counts)
             setOrders(weekData.orders)
@@ -414,6 +416,12 @@ export default function InventoryOrdersPage() {
         }
     }
 
+    function handleUndoBases() {
+        if (!confirm('¿Estás seguro de deshacer todos los cambios no guardados en el PAR semanal?')) return
+        setBases(JSON.parse(JSON.stringify(originalBases)))
+        setHasBaseChanges(false)
+    }
+
     // --- Handlers ---
     async function handleBaseChange(itemId: string, field: string, value: string) {
         if (!storeId) return
@@ -440,6 +448,7 @@ export default function InventoryOrdersPage() {
             
             await saveWeeklyBases(storeId, activeMonday, basesList)
             alert(t('bodegaOrders.parSaved'))
+            setOriginalBases(JSON.parse(JSON.stringify(bases)))
             setHasBaseChanges(false)
             
             // Recalcular orden del día
@@ -1581,6 +1590,13 @@ export default function InventoryOrdersPage() {
                                         }`}>
                                         <Save size={14} /> {savingPar ? t('bodegaOrders.savingPar') : t('bodegaOrders.savePar')}
                                     </button>
+                                    {hasBaseChanges && (
+                                        <button onClick={handleUndoBases}
+                                            className="flex items-center gap-1.5 bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors cursor-pointer"
+                                        >
+                                            <X size={14} /> Deshacer / Descartar
+                                        </button>
+                                    )}
                                     <button onClick={handleCopyPreviousWeek} disabled={loading}
                                         className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
                                         <Copy size={14} /> {t('bodegaOrders.copyPrevWeek')}
