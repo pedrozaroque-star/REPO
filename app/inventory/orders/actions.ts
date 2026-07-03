@@ -61,6 +61,8 @@ function getDayKey(dateStr: string): string {
  * Incluye el qb_item_id si existe el mapeo en quickbooks_mappings.
  */
 export async function fetchOrderableItems(storeId: string | number, orderType: 'daily' | 'liquids' = 'daily') {
+    const queryStoreId = orderType === 'liquids' ? 14 : storeId
+
     // 1. Intentar obtener el template específico de esta tienda
     const { data: template, error: templateError } = await supabase
         .from('store_order_template')
@@ -71,7 +73,7 @@ export async function fetchOrderableItems(storeId: string | number, orderType: '
             sort_position,
             inventory_items:inventory_item_id (id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule)
         `)
-        .eq('store_id', storeId)
+        .eq('store_id', queryStoreId)
         .eq('order_type', orderType)
         .order('sort_position', { ascending: true })
 
