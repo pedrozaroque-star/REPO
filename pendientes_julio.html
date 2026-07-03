@@ -6,7 +6,7 @@
   2. Todos los estilos están embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS.
   3. No depende de redes CDN externas. Todo es nativo o usa vectores SVG embebidos.
 @notes
-  - Creado específicamente para registrar el avance de Julio de 2026 (16.5 horas acumuladas hasta la fecha).
+  - Creado específicamente para registrar el avance de Julio de 2026 (28.0 horas acumuladas hasta la fecha).
   - Incluye los desgloses diarios de julio 1 y julio 2 con la reestructuración completa del módulo de Pedidos de Bodega, integraciones de QuickBooks y reordenamiento de menús de navegación.
 -->
 <!DOCTYPE html>
@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">16.5</div>
+                <div class="stat-number" style="color: #e05638;">28.0</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1630,7 +1630,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 16.5 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 28.0 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1663,17 +1663,17 @@
                                 </td>
                             </tr>
                             <tr>
-                                <td><strong>02-Jul-2026</strong></td>
-                                <td>9:30 AM - 2:30 PM</td>
-                                <td style="text-align: center; font-weight: 700;">5.0</td>
-                                <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Sidebar</span> <span class="table-badge-module">Recetas (Menú)</span></td>
-                                <td>
-                                    <div class="lang-split">
-                                         <div class="es-desc">- **Inventario**: Adición del selector interactivo y editable de la fecha de conteo diario en Pedidos de Bodega.<br>- **Inventario**: Desarrollo de botón para deshacer o descartar cambios no guardados en la pestaña de Configuración Semanal y duplicar PAR diario (Copy Day PAR).<br>- **Inventario**: Implementación de iconos e Info Modals explicativos junto a títulos de página con guías de usuario paso a paso y glosario operativo.<br>- **Inventario**: Soporte para pedidos de líquidos semanales (bebidas) y configuración de PAR dinámicos por producto.<br>- **Navegación**: Reestructuración y renombrado del menú lateral principal (`AppSidebar`): "Insumos" pasó a "Insumos de Bodega" y "Pedidos Bodega" a "Orden diaria". Se dejó únicamente abierto el grupo de "ANALISIS" por defecto y se removió la pantalla inactiva de Dashboard de Inventario.<br>- **Recetas (Menú)**: Módulo de menú renombrado a "Recetas (Menú)" e integración del Info Modal explicativo.</div>
-                                         <div class="en-desc">- Inventory: created editable daily count date selectors and undo/discard changes action.<br>- Inventory: added interactive explanation modals (user guide + glossary) near page titles.<br>- Inventory: added support for weekly liquids orders and dynamic PAR configs.<br>- Sidebar: renamed navigation links ("Insumos de Bodega", "Orden diaria"), closed groups by default, and removed deprecated views.<br>- Recipes: renamed menu module to "Recetas (Menú)" with explanatory Info Modal.</div>
-                                    </div>
-                                </td>
-                            </tr>
+                                 <td><strong>02-Jul-2026</strong></td>
+                                 <td>9:30 AM - 11:00 PM</td>
+                                 <td style="text-align: center; font-weight: 700;">13.5</td>
+                                 <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">Sidebar</span> <span class="table-badge-module">Clima</span> <span class="table-badge-module">QuickBooks</span> <span class="table-badge-module">Recetas</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Inventario**: Integración de impresión física del listado de pedidos para cocina, incluyendo hojas de conteo con sobrantes sugeridos prellenados.<br>- **Inventario**: Validación obligatoria de sobrantes para flanes y cheesecakes antes de generar la orden o enviar a QuickBooks.<br>- **Inventario**: Remoción de barra lateral interna redundante y corrección de barras de desplazamiento dobles anidadas en pantallas de tabletas.<br>- **Inventario**: Barra de acciones rápidas superior en pedidos y selector de fecha de conteo editable.<br>- **Inventario**: Sincronización automática de plantillas diarias y de líquidos desde archivos maestros de QuickBooks (usando Lynwood como tienda base).<br>- **QuickBooks**: Aislamiento del almacenamiento local de tokens de la sandbox para evitar interferencias con las credenciales de producción en Supabase y cron job de sincronización 2 veces al día.<br>- **Clima (Weather)**: Reescritura del servicio de clima con NWS para estabilidad y soporte de histórico de 14 días (para predecir ventas y proyectar pace con mayor precisión).<br>- **Menú y Navegación**: Limpieza de menú principal (`AppSidebar`), renombrado a "Recetas (Menú)" e "Insumos de Bodega", y modal informativo interactivo con glosario de términos.</div>
+                                          <div class="en-desc">- Inventory: completed system print integration, producing physical count sheets with pre-filled suggested leftovers.<br>- Inventory: programmed mandatory leftovers validation for Flan and Cheesecake before generating orders or submitting to QuickBooks.<br>- Inventory: removed redundant inner sidebar and fixed nested double scrollbars in tablet layouts.<br>- Inventory: built a top quick-access action buttons bar and editable daily count date selectors.<br>- Inventory: unified liquids template using Lynwood as master template and automated sync from QuickBooks.<br>- QuickBooks: isolated local sandbox tokens to prevent production credential overwrites in Supabase and configured twice-daily automatic sync cron jobs.<br>- Weather: made Weather API resilient with NWS service integration and 14-day history logging.<br>- UI/Sidebar: navigation cleanup, module renaming, and interactive explanation modals (user guide + glossary).</div>
+                                     </div>
+                                 </td>
+                             </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1686,7 +1686,7 @@
                     <div class="parallel-card">
                         <h4>
                             <span>Pruebas en Sucursal/Local</span>
-                            <span class="hours">2.0 hrs</span>
+                            <span class="hours">3.0 hrs</span>
                         </h4>
                         <p>
                             Ejecución de servidores de desarrollo locales y emuladores móviles de la app. Pruebas táctiles y de arrastre (drag-and-drop) en tiempo real para asegurar que todo sea fácil de usar en las tabletas e iPhones.
@@ -1696,7 +1696,7 @@
                     <div class="parallel-card">
                         <h4>
                             <span>Monitoreo DB y QuickBooks API</span>
-                            <span class="hours">1.5 hrs</span>
+                            <span class="hours">2.5 hrs</span>
                         </h4>
                         <p>
                             Monitoreo de bases de datos de inventario y respuestas de la API de QuickBooks. Diseño de scripts de sincronización de ventas, marcas horarias diarias y corrección de discrepancias en costos.
@@ -1706,7 +1706,7 @@
                     <div class="parallel-card">
                         <h4>
                             <span>Planificación y Diseño</span>
-                            <span class="hours">1.0 hrs</span>
+                            <span class="hours">2.0 hrs</span>
                         </h4>
                         <p>
                             Investigación técnica para conectar sistemas externos (plataforma de Basecamp, sensores de velocidad del Drive-Thru y traductor de menús de QuickBooks) y diagramado de interfaces.
@@ -1738,7 +1738,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Pedidos y Sincronización QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">16.5 hrs</span>
+                        <span class="hours">28.0 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
