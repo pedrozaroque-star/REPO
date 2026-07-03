@@ -47,7 +47,7 @@ export function useWeather(storeId: string | null) {
                     setWeather(map)
                 }
             } catch (e) {
-                console.error("Weather error:", e)
+                console.warn("🌦️ Weather data unavailable (non-critical):", e)
             } finally {
                 setLoading(false)
             }

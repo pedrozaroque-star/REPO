@@ -22,7 +22,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { fetchOrderableItems, fetchWeeklyData } from '../actions'
-import { getMonday } from '../utils'
+import { getMonday, addDays } from '../utils'
 import { createClient } from '@/lib/supabase-client'
 import type { OrderableItem } from '../utils'
 
@@ -48,6 +48,7 @@ export default function PrintSheetPage() {
 
     const [items, setItems] = useState<OrderableItem[]>([])
     const [pars, setPars] = useState<Record<string, any>>({})
+    const [counts, setCounts] = useState<Record<string, Record<string, number>>>({})
     const [storeName, setStoreName] = useState('')
     const [weekStart, setWeekStart] = useState('')
     const [loading, setLoading] = useState(true)
@@ -67,6 +68,7 @@ export default function PrintSheetPage() {
                 // Fetch PAR data
                 const weekData = await fetchWeeklyData(storeId, monday, orderTypeParam)
                 setPars(weekData.bases)
+                setCounts(weekData.counts || {})
 
                 // Fetch store name
                 const supabase = createClient()
@@ -309,9 +311,17 @@ export default function PrintSheetPage() {
                                         </td>
                                     ))}
                                     <td className="col-total">{totalPar > 0 ? totalPar : ''}</td>
-                                    {DAY_LABELS.map((_, i) => (
-                                        <td key={`s-val-${i}`} className="col-day-sob"></td>
-                                    ))}
+                                    {DAY_LABELS.map((_, i) => {
+                                        const dateStr = weekStart ? addDays(weekStart, i) : ''
+                                        const itemCounts = counts[item.id]
+                                        const val = (itemCounts && dateStr) ? itemCounts[dateStr] : undefined
+                                        const hasVal = val !== undefined && val !== null
+                                        return (
+                                            <td key={`s-val-${i}`} className="col-day-sob" style={{ fontWeight: hasVal ? 'bold' : 'normal' }}>
+                                                {hasVal ? val : ''}
+                                            </td>
+                                        )
+                                    })}
                                     <td className="col-use"></td>
                                 </tr>
                             )
