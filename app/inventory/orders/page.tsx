@@ -588,8 +588,41 @@ export default function InventoryOrdersPage() {
         setLoading(false)
     }
 
+    function validateFlanAndCheesecake(lines: any[]): boolean {
+        if (orderType !== 'daily') return true
+
+        const flanLine = lines.find(l => 
+            l.inventory_item_id === 'f8f776c5-3b8c-453e-8161-b49840823933' || 
+            (l.item_name || l.name || '').toLowerCase() === 'flan' ||
+            (l.item_name || l.name || '').toLowerCase() === 'whole flan'
+        )
+        const cheesecakeLine = lines.find(l => 
+            l.inventory_item_id === '8ba55664-5ca9-4886-8ac8-acf1fd070713' || 
+            (l.item_name || l.name || '').toLowerCase() === 'cheesecake' ||
+            (l.item_name || l.name || '').toLowerCase() === 'cheese cake' ||
+            (l.item_name || l.name || '').toLowerCase() === 'whole cheese cake'
+        )
+
+        const missing: string[] = []
+        
+        if (flanLine && flanLine.leftover_value === null) {
+            missing.push('Flan')
+        }
+        if (cheesecakeLine && cheesecakeLine.leftover_value === null) {
+            missing.push('Cheesecake')
+        }
+
+        if (missing.length > 0) {
+            alert(`⚠️ VALIDACIÓN REQUERIDA:\nDebes capturar el sobrante de: ${missing.join(' y ')} antes de generar la orden o enviar a QuickBooks.`)
+            return false
+        }
+
+        return true
+    }
+
     async function handleGenerateOrder() {
         if (!storeId) return
+        if (!validateFlanAndCheesecake(orderLines)) return
         setSaving(true)
         const lines = orderLines.filter(l => {
             const adj = adjustments[l.inventory_item_id]
@@ -610,6 +643,7 @@ export default function InventoryOrdersPage() {
     }
 
     async function handleSendToQb() {
+        if (!validateFlanAndCheesecake(orderLines)) return
         if (!confirm(t('bodegaOrders.confirmSend'))) return
 
         // SIEMPRE re-guardar las líneas antes de enviar a QB,
