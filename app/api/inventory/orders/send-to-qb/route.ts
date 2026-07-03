@@ -60,11 +60,10 @@ export async function POST(request: NextRequest) {
         items?.forEach(i => itemMap.set(i.id, i))
 
         // 2b. Obtener sort_position del template para respetar el orden visual
-        const templateStoreId = order.order_type === 'liquids' ? 14 : order.store_id
         const { data: templateEntries } = await supabase
             .from('store_order_template')
             .select('inventory_item_id, sort_position')
-            .eq('store_id', templateStoreId)
+            .eq('store_id', order.store_id)
             .eq('order_type', order.order_type || 'daily')
 
         const sortMap = new Map<string, number>()

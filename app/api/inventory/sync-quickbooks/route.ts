@@ -518,16 +518,17 @@ export async function POST() {
                                     inventory_item_id: mapping.inventory_item_id,
                                     qb_item_id: qbItemId,
                                     qb_item_name: qbItemName,
-                                    sort_position: pos++
+                                    sort_position: pos++,
+                                    order_type: 'daily'
                                 });
                             }
                         }
 
                         if (toInsert.length > 0) {
-                            // Limpiar template anterior
-                            await supabase.from('store_order_template').delete().eq('store_id', store.id);
+                            // Limpiar template anterior diario
+                            await supabase.from('store_order_template').delete().eq('store_id', store.id).eq('order_type', 'daily');
 
-                            // Insertar nuevo template
+                            // Insertar nuevo template diario
                             const { error: insertErr } = await supabase.from('store_order_template').insert(toInsert);
                             if (insertErr) {
                                 console.error(`[QB-Sync] ❌ Error insertando template para ${store.name}:`, insertErr.message);
@@ -543,6 +544,78 @@ export async function POST() {
                     
                     // Delay para evitar rate limits
                     await new Promise(r => setTimeout(r, 100));
+                }
+
+                // 3. Sincronizar el template único de Líquidos (basado en el Estimate de QB para Líquidos)
+                try {
+                    console.log('[QB-Sync] 🧴 Sincronizando template único de Líquidos...');
+                    
+                    const qbRecentEstimates = await qbQuery("SELECT * FROM Estimate ORDER BY MetaData.LastUpdatedTime DESC MAXRESULTS 100");
+                    
+                    const liquidsEstimate = qbRecentEstimates.find((e: any) => {
+                        const docNum = (e.DocNumber || '').toLowerCase();
+                        const privateNote = (e.PrivateNote || '').toLowerCase();
+                        const customerName = (e.CustomerRef?.name || '').toLowerCase();
+                        return docNum.includes('liquido') || privateNote.includes('liquido') || customerName.includes('warehouse');
+                    });
+
+                    if (liquidsEstimate) {
+                        console.log(`[QB-Sync] 🧴 Encontrado estimate de Líquidos #${liquidsEstimate.DocNumber} (${liquidsEstimate.TxnDate})`);
+                        const lines = liquidsEstimate.Line || [];
+                        const liquidsItems: any[] = [];
+                        let pos = 1;
+                        
+                        for (const line of lines) {
+                            if (line.DetailType === 'SalesItemLineDetail' && line.SalesItemLineDetail?.ItemRef?.value) {
+                                const qbItemId = line.SalesItemLineDetail.ItemRef.value;
+                                const qbItemName = line.SalesItemLineDetail.ItemRef.name || 'Unknown';
+                                
+                                const mapping = qbToInternal.get(qbItemId);
+                                if (!mapping) continue;
+
+                                liquidsItems.push({
+                                    inventory_item_id: mapping.inventory_item_id,
+                                    qb_item_id: qbItemId,
+                                    qb_item_name: qbItemName,
+                                    sort_position: pos++
+                                });
+                            }
+                        }
+
+                        if (liquidsItems.length > 0) {
+                            // Limpiar todos los templates de líquidos anteriores en la DB
+                            await supabase.from('store_order_template').delete().eq('order_type', 'liquids');
+
+                            // Preparar registros para todas las tiendas
+                            const allStoresLiquids: any[] = [];
+                            activeStores.forEach(store => {
+                                liquidsItems.forEach(item => {
+                                    allStoresLiquids.push({
+                                        store_id: store.id,
+                                        inventory_item_id: item.inventory_item_id,
+                                        qb_item_id: item.qb_item_id,
+                                        qb_item_name: item.qb_item_name,
+                                        sort_position: item.sort_position,
+                                        order_type: 'liquids'
+                                    });
+                                });
+                            });
+
+                            // Insertar en lotes de 100
+                            for (let i = 0; i < allStoresLiquids.length; i += 100) {
+                                const batch = allStoresLiquids.slice(i, i + 100);
+                                const { error: insertErr } = await supabase.from('store_order_template').insert(batch);
+                                if (insertErr) {
+                                    console.error(`[QB-Sync] ❌ Error insertando batch de líquidos:`, insertErr.message);
+                                }
+                            }
+                            console.log(`[QB-Sync] 🧴 Template único de Líquidos sincronizado para las ${activeStores.length} tiendas (${liquidsItems.length} items c/u)`);
+                        }
+                    } else {
+                        console.log('[QB-Sync] ⚠️ No se encontró ningún Estimate de Líquidos en QB para usar como template.');
+                    }
+                } catch (liquidsError: any) {
+                    console.error('[QB-Sync] ❌ Error en sync de template de líquidos:', liquidsError.message);
                 }
             }
         } catch (templateError: any) {

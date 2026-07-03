@@ -61,8 +61,6 @@ function getDayKey(dateStr: string): string {
  * Incluye el qb_item_id si existe el mapeo en quickbooks_mappings.
  */
 export async function fetchOrderableItems(storeId: string | number, orderType: 'daily' | 'liquids' = 'daily') {
-    const queryStoreId = orderType === 'liquids' ? 14 : storeId
-
     // 1. Intentar obtener el template específico de esta tienda
     const { data: template, error: templateError } = await supabase
         .from('store_order_template')
@@ -73,7 +71,7 @@ export async function fetchOrderableItems(storeId: string | number, orderType: '
             sort_position,
             inventory_items:inventory_item_id (id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule)
         `)
-        .eq('store_id', queryStoreId)
+        .eq('store_id', storeId)
         .eq('order_type', orderType)
         .order('sort_position', { ascending: true })
 
@@ -311,10 +309,12 @@ export async function calculateDailyOrder(
 
     for (const item of items) {
         const base = bases[item.id]
-        if (!base) continue
+        const effectiveBase = base || {
+            mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0
+        }
 
         // PAR del día seleccionado
-        const parValue = (base as any)[targetField] || 0
+        const parValue = (effectiveBase as any)[targetField] || 0
 
         // PAR Ideal de referencia para ese mismo día
         const itemParIdeal = parIdeal && parIdeal[item.id] ? (parIdeal[item.id] as any)[targetField] || 0 : 0
