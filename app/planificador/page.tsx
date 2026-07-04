@@ -17,7 +17,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
-import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle, AlertTriangle, Copy, Sparkles } from 'lucide-react'
+import { Calendar, Users, Briefcase, Clock, Plus, Zap, Bot, LayoutTemplate, Trash2, ArrowDownAZ, RefreshCcw, LogOut, ChevronLeft, ChevronRight, Loader2, Save, X, AlertCircle, AlertTriangle, Copy, Sparkles, Mail } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase'
 import { useAuth } from '@/components/ProtectedRoute'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -293,6 +293,19 @@ export default function SchedulePlanner() {
             return;
         }
 
+        // 🔒 Pre-check: Si Gmail no está conectado, no llamar a la API.
+        // Cerrar modal de violaciones y abrir modal de conexión de Gmail.
+        if (!googleConnected) {
+            setViolationModal(prev => ({ ...prev, isOpen: false }))
+            setIsGmailModalOpen(true)
+            toast.error(
+                language === 'en'
+                    ? 'You must connect your Gmail account first to send notifications. Click "Connect Gmail Now" in the popup.'
+                    : 'Debes vincular tu cuenta de Gmail primero para enviar avisos. Haz clic en "Conectar mi Gmail Ahora" en la ventana que se abrió.'
+            )
+            return;
+        }
+
         setIsSendingViolations(true);
         try {
             const res = await fetch('/api/scheduler/violations/notify', {
@@ -311,12 +324,16 @@ export default function SchedulePlanner() {
 
             if (!res.ok) {
                 // Interceptar error de Gmail y abrir modal de conexión en lugar de solo lanzar el error
-                if (resData.error && resData.error.includes('GMAIL_AUTH_FAILED')) {
+                if (resData.error && (resData.error.includes('GMAIL_AUTH_FAILED') || resData.error.includes('Gmail'))) {
                    setViolationModal(prev => ({ ...prev, isOpen: false }))
                    setGoogleConnected(false)
                    setGoogleEmail('')
                    setIsGmailModalOpen(true)
-                   throw new Error('Tu conexión a Gmail ha expirado o fue revocada. Por favor, vuelve a conectarlo para enviar los correos.');
+                   throw new Error(
+                       language === 'en'
+                           ? 'Your Gmail connection has expired or was revoked. Please reconnect it to send emails.'
+                           : 'Tu conexión a Gmail ha expirado o fue revocada. Por favor, vuelve a conectarlo para enviar los correos.'
+                   );
                 }
                 throw new Error(resData.error || 'Failed to send notifications')
             }
@@ -1823,20 +1840,38 @@ export default function SchedulePlanner() {
                                         </button>
                                     </>
                                 ) : (
-                                    <button
-                                        onClick={handleAcknowledgeViolations}
-                                        disabled={isSendingViolations}
-                                        className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
-                                    >
-                                        {isSendingViolations ? (
-                                            <>
-                                                <Loader2 size={16} className="animate-spin" />
-                                                {language === 'en' ? 'Processing...' : 'Procesando...'}
-                                            </>
-                                        ) : (
-                                            language === 'en' ? 'Acknowledge' : 'Entendido'
+                                    <>
+                                        <button
+                                            onClick={() => setViolationModal(prev => ({ ...prev, isOpen: false }))}
+                                            disabled={isSendingViolations}
+                                            className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-100 text-gray-800 font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors"
+                                        >
+                                            {language === 'en' ? 'Close' : 'Cerrar'}
+                                        </button>
+                                        {!googleConnected && (
+                                            <a
+                                                href="/api/auth/google/start?returnUrl=/planificador"
+                                                className="bg-gradient-to-r from-blue-600 to-red-500 hover:from-blue-500 hover:to-red-400 text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2 shadow-lg"
+                                            >
+                                                <Mail size={16} />
+                                                {language === 'en' ? 'Connect Gmail' : 'Vincular Gmail'}
+                                            </a>
                                         )}
-                                    </button>
+                                        <button
+                                            onClick={handleAcknowledgeViolations}
+                                            disabled={isSendingViolations}
+                                            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-xl uppercase tracking-wider transition-colors flex items-center gap-2"
+                                        >
+                                            {isSendingViolations ? (
+                                                <>
+                                                    <Loader2 size={16} className="animate-spin" />
+                                                    {language === 'en' ? 'Processing...' : 'Procesando...'}
+                                                </>
+                                            ) : (
+                                                language === 'en' ? 'Acknowledge' : 'Entendido'
+                                            )}
+                                        </button>
+                                    </>
                                 )}
                             </div>
                         </motion.div>
