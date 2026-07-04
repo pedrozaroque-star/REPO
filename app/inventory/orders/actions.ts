@@ -20,6 +20,7 @@
  * @notes
  * - [2026-06-24] Reescritura total. Eliminados datos hardcodeados (EXCEL_PARS, EXCEL_SOBRANTES).
  * - Toda la data viene de la BD, no hay constantes de Lynwood.
+ * - [2026-07-04] Added fetchMappedItems for emergency/extraordinary order items.
  */
 
 'use server'
@@ -126,6 +127,37 @@ export async function fetchAllInventoryItems() {
         .select('id, name, unit_type, excel_reference')
         .order('name', { ascending: true })
     return data || []
+}
+
+/**
+ * Obtiene todos los items de inventario que tienen un mapeo en QuickBooks (para pedidos extraordinarios).
+ */
+export async function fetchMappedItems() {
+    const { data: mappings, error: mapError } = await supabase
+        .from('quickbooks_mappings')
+        .select('inventory_item_id, qb_item_id, qb_item_name')
+
+    if (mapError) throw new Error(mapError.message)
+
+    const { data: items, error: itemsError } = await supabase
+        .from('inventory_items')
+        .select('id, name, unit_type, order_unit_description')
+
+    if (itemsError) throw new Error(itemsError.message)
+
+    const itemMap = new Map()
+    items?.forEach(i => itemMap.set(i.id, i))
+
+    return (mappings || []).map(m => {
+        const item = itemMap.get(m.inventory_item_id)
+        return {
+            id: m.inventory_item_id,
+            name: item?.name || m.qb_item_name,
+            unit_type: item?.unit_type || 'Unit',
+            order_unit_description: item?.order_unit_description || '',
+            qb_item_id: m.qb_item_id
+        }
+    })
 }
 
 /**

@@ -47,7 +47,7 @@ import {
     calculateDailyOrder, updateWeeklyBase, updateDailyLeftover,
     clonePreviousWeekBases, copyFromParIdeal, linkExcelItem,
     saveOrderDraft, executeWeekRollover, fetchAnalysisData,
-    saveWeeklyBases
+    saveWeeklyBases, fetchMappedItems
 } from './actions'
 import {
     getMonday, addDays,
@@ -124,6 +124,11 @@ export default function InventoryOrdersPage() {
     const [orders, setOrders] = useState<any[]>([])
     const [analysisData, setAnalysisData] = useState<any>(null)
 
+    // Emergency / extraordinary items states
+    const [mappedItems, setMappedItems] = useState<any[]>([])
+    const [extraordinarySearch, setExtraordinarySearch] = useState('')
+    const [showExtraordinaryDropdown, setShowExtraordinaryDropdown] = useState(false)
+
     // Linking modal
     const [linkModal, setLinkModal] = useState<{ open: boolean; excelName: string }>({ open: false, excelName: '' })
     const [selectedItemId, setSelectedItemId] = useState('')
@@ -180,13 +185,15 @@ export default function InventoryOrdersPage() {
         if (!storeId) return
         setLoading(true)
         try {
-            const [orderableItems, allInvItems, weekData] = await Promise.all([
+            const [orderableItems, allInvItems, mappedInvItems, weekData] = await Promise.all([
                 fetchOrderableItems(storeId, orderType),
                 fetchAllInventoryItems(),
+                fetchMappedItems(),
                 fetchWeeklyData(storeId, activeMonday, orderType),
             ])
             setItems(orderableItems)
             setAllItems(allInvItems)
+            setMappedItems(mappedInvItems)
             setBases(weekData.bases)
             setOriginalBases(JSON.parse(JSON.stringify(weekData.bases || {})))
             setParIdeal(weekData.parIdeal)
@@ -196,6 +203,30 @@ export default function InventoryOrdersPage() {
 
             // Pre-cargar notas y ajustes de la orden de hoy
             const todayOrder = weekData.orders?.find((o: any) => o.order_date === selectedOrderDate)
+            
+            // Extract extraordinary lines saved in database
+            const extraordinarySavedLines: CalculatedOrderLine[] = []
+            if (todayOrder && todayOrder.inventory_order_lines) {
+                const templateItemIds = new Set(orderableItems.map(i => i.id))
+                todayOrder.inventory_order_lines.forEach((l: any) => {
+                    if (!templateItemIds.has(l.inventory_item_id)) {
+                        const itemMeta = mappedInvItems.find(mi => mi.id === l.inventory_item_id)
+                        extraordinarySavedLines.push({
+                            inventory_item_id: l.inventory_item_id,
+                            item_name: itemMeta?.name || `Product #${l.inventory_item_id}`,
+                            unit_description: itemMeta?.order_unit_description || itemMeta?.unit_type || 'Unit',
+                            par_value: 0,
+                            par_ideal_value: 0,
+                            leftover_value: l.leftover_value,
+                            calculated_qty: 0,
+                            rounding_rule: 'none',
+                            qb_item_id: itemMeta?.qb_item_id || l.qb_item_id || 'UNKNOWN',
+                            is_extraordinary: true
+                        })
+                    }
+                })
+            }
+
             if (todayOrder) {
                 setOrderNotes(todayOrder.notes || '')
                 const savedAdjustments: Record<string, number> = {}
@@ -217,7 +248,7 @@ export default function InventoryOrdersPage() {
                     weekData.bases, weekData.counts, activeMonday,
                     weekData.parIdeal, overrideDayField
                 )
-                setOrderLines(lines)
+                setOrderLines([...lines, ...extraordinarySavedLines])
             }
         } catch (error) {
             console.error('Error loading data:', error)
@@ -230,14 +261,19 @@ export default function InventoryOrdersPage() {
 
     // Recalcular orden localmente al cambiar el día de base a usar o la fecha seleccionada
     useEffect(() => {
-        if (storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
+        if (!loading && storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
             calculateDailyOrder(
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField
-            ).then(setOrderLines)
+            ).then(newLines => {
+                setOrderLines(prev => {
+                    const prevExtraordinary = prev.filter(l => l.is_extraordinary)
+                    return [...newLines, ...prevExtraordinary]
+                })
+            })
         }
-    }, [overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal])
+    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -861,9 +897,10 @@ export default function InventoryOrdersPage() {
     const tomorrowDayName = dayNames[String(tomorrow.getDay())]
     const tomorrowFormatted = `${String(tomorrow.getMonth() + 1).padStart(2, '0')}/${String(tomorrow.getDate()).padStart(2, '0')}/${tomorrow.getFullYear()}`
 
-    // Separate orderable vs tracking-only lines
-    const orderableLines = orderLines.filter(l => l.qb_item_id && l.qb_item_id !== 'TRACK_ONLY')
-    const trackingLines = orderLines.filter(l => !l.qb_item_id || l.qb_item_id === 'TRACK_ONLY')
+    // Separate orderable vs tracking-only lines vs extraordinary items
+    const orderableLines = orderLines.filter(l => l.qb_item_id && l.qb_item_id !== 'TRACK_ONLY' && !l.is_extraordinary)
+    const trackingLines = orderLines.filter(l => (!l.qb_item_id || l.qb_item_id === 'TRACK_ONLY') && !l.is_extraordinary)
+    const extraordinaryLines = orderLines.filter(l => l.is_extraordinary)
 
     // ============================================================================
     // RENDER
@@ -1502,16 +1539,95 @@ export default function InventoryOrdersPage() {
                                                                 />
                                                             </td>
                                                             {/* Final */}
-                                                            <td className={`p-2 text-center font-black text-base border-b ${
-                                                                finalQty > 0 ? 'text-slate-800 bg-slate-50/60 border-slate-200'
-                                                                : finalQty < 0 ? 'text-red-500 bg-red-50/30 border-red-100'
-                                                                : 'text-slate-300 border-slate-100'
-                                                            }`}>
-                                                                {isZeroLeftover ? '-' : finalQty}
+                                                            <td className="p-2 text-center font-black text-base border-b border-indigo-100 bg-indigo-50/20 text-indigo-800">
+                                                                {finalQty}
                                                             </td>
                                                         </tr>
                                                     )
                                                 })}
+
+                                                {/* Searchable input row to add new extraordinary items */}
+                                                <tr className="bg-slate-50/50">
+                                                    <td colSpan={7} className="p-3 border-t border-slate-200">
+                                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                                                            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">
+                                                                🚨 ¿Pedir insumo extraordinario de emergencia?:
+                                                            </span>
+                                                            <div className="relative flex-1">
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="Escribe el nombre del insumo para buscar..."
+                                                                    value={extraordinarySearch}
+                                                                    onChange={e => {
+                                                                        setExtraordinarySearch(e.target.value)
+                                                                        setShowExtraordinaryDropdown(true)
+                                                                    }}
+                                                                    onFocus={() => setShowExtraordinaryDropdown(true)}
+                                                                    className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-400"
+                                                                />
+                                                                
+                                                                {showExtraordinaryDropdown && extraordinarySearch.trim().length > 0 && (
+                                                                    <div className="absolute left-0 right-0 bottom-full mb-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                                                        {mappedItems
+                                                                            .filter(item => {
+                                                                                const isAlreadyAdded = orderLines.some(l => l.inventory_item_id === item.id)
+                                                                                const matchesSearch = item.name.toLowerCase().includes(extraordinarySearch.toLowerCase())
+                                                                                return !isAlreadyAdded && matchesSearch
+                                                                            })
+                                                                            .map(item => (
+                                                                                <button
+                                                                                    key={item.id}
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        const newLine = {
+                                                                                            inventory_item_id: item.id,
+                                                                                            item_name: item.name,
+                                                                                            unit_description: item.order_unit_description || item.unit_type,
+                                                                                            par_value: 0,
+                                                                                            par_ideal_value: 0,
+                                                                                            leftover_value: null,
+                                                                                            calculated_qty: 0,
+                                                                                            rounding_rule: 'none',
+                                                                                            qb_item_id: item.qb_item_id,
+                                                                                            is_extraordinary: true
+                                                                                        }
+                                                                                        setOrderLines(prev => [...prev, newLine])
+                                                                                        setAdjustments(prev => ({ ...prev, [item.id]: 1 }))
+                                                                                        setExtraordinarySearch('')
+                                                                                        setShowExtraordinaryDropdown(false)
+                                                                                    }}
+                                                                                    className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 transition-colors flex items-center justify-between"
+                                                                                >
+                                                                                    <span className="font-semibold text-slate-800">{item.name}</span>
+                                                                                    <span className="text-xs text-slate-400 font-medium">({item.unit_type})</span>
+                                                                                </button>
+                                                                            ))
+                                                                        }
+                                                                        {mappedItems.filter(item => {
+                                                                            const isAlreadyAdded = orderLines.some(l => l.inventory_item_id === item.id)
+                                                                            const matchesSearch = item.name.toLowerCase().includes(extraordinarySearch.toLowerCase())
+                                                                            return !isAlreadyAdded && matchesSearch
+                                                                        }).length === 0 && (
+                                                                            <div className="p-3 text-center text-xs text-slate-400">
+                                                                                No se encontraron insumos mapeados
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {showExtraordinaryDropdown && (
+                                                    <tr className="hidden">
+                                                        <td>
+                                                            <div 
+                                                                className="fixed inset-0 z-20 bg-transparent"
+                                                                onClick={() => setShowExtraordinaryDropdown(false)}
+                                                            />
+                                                        </td>
+                                                    </tr>
+                                                )}
 
                                                 {/* ---- Tracking Only separator ---- */}
                                                 {trackingLines.length > 0 && (

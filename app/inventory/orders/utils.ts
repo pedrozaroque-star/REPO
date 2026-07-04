@@ -67,6 +67,7 @@ export type CalculatedOrderLine = {
     calculated_qty: number
     rounding_rule: string
     qb_item_id?: string
+    is_extraordinary?: boolean
 }
 
 export type OrderRecord = {
