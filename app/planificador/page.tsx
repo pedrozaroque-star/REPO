@@ -1545,6 +1545,7 @@ export default function SchedulePlanner() {
                 isToolbarVisible={isToolbarVisible}
                 setIsToolbarVisible={setIsToolbarVisible}
                 onCloneClick={() => setShowCloneModal(true)}
+                onConnectGmail={() => setIsGmailModalOpen(true)}
             />
 
             <AnimatePresence>

@@ -1,5 +1,5 @@
 
-import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee, Copy } from 'lucide-react'
+import { Calendar, Loader2, Clock, Zap, ChevronRight, Sliders, Coffee, Copy, Mail } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { WeekSelector } from './WeekSelector'
 import { formatStoreName } from '../lib/utils'
@@ -22,7 +22,8 @@ export function PlanificadorHeader({
     googleEmail,
     isToolbarVisible,
     setIsToolbarVisible,
-    onCloneClick
+    onCloneClick,
+    onConnectGmail
 }: any) {
     const { t } = useLanguage()
 
@@ -79,11 +80,21 @@ export function PlanificadorHeader({
                         </span>
                     </div>
                     <div className="flex items-center gap-2">
-                        {googleConnected && (
+                        {googleConnected ? (
                             <div className="hidden xs:flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg text-xs font-bold border border-green-200" title={`Conectado como ${googleEmail}`}>
                                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                                 <span className="max-w-[100px] truncate">{googleEmail}</span>
                             </div>
+                        ) : (
+                            <button
+                                onClick={onConnectGmail}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-red-500 to-yellow-500 hover:from-red-400 hover:to-yellow-400 text-white rounded-lg text-xs font-black shadow-md transition-all hover:scale-105 active:scale-95 animate-pulse hover:animate-none cursor-pointer"
+                                title="Vincular tu cuenta de Gmail de Tacos Gavilan para poder publicar horarios y enviar avisos"
+                            >
+                                <Mail size={16} />
+                                <span className="hidden sm:inline drop-shadow-sm">Vincular Gmail</span>
+                                <span className="sm:hidden drop-shadow-sm">Gmail</span>
+                            </button>
                         )}
 
                         <div className="relative">
