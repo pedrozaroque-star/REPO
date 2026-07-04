@@ -489,10 +489,16 @@ export async function POST() {
                         const sql = `SELECT * FROM Estimate WHERE CustomerRef = '${store.qb_customer_id}' ORDER BY MetaData.LastUpdatedTime DESC MAXRESULTS 5`;
                         const estimates = await qbQuery(sql);
                         
-                        // Filtrar y tomar el primer Estimate real (sin notas de "TEST" o "ELIMINAR")
+                        // Filtrar y tomar el primer Estimate real (sin notas de "TEST", "ELIMINAR", "PRUEBA" y excluyendo los PEDIDOS generados por el sistema)
                         const realEstimate = estimates.find((e: any) => {
                             const note = (e.PrivateNote || '').toUpperCase();
-                            return !note.includes('TEST') && !note.includes('ELIMINAR') && !note.includes('PRUEBA');
+                            const memo = (e.CustomerMemo?.value || '').toUpperCase();
+                            return !note.includes('TEST') && 
+                                   !note.includes('ELIMINAR') && 
+                                   !note.includes('PRUEBA') &&
+                                   !note.includes('PEDIDO') &&
+                                   !memo.includes('PEDIDO') &&
+                                   !memo.includes('SYSTEM');
                         });
 
                         if (!realEstimate) {
