@@ -76,8 +76,10 @@ export async function fetchOrderableItems(storeId: string | number, orderType: '
         .eq('order_type', orderType)
         .order('sort_position', { ascending: true })
 
+    let result: OrderableItem[] = []
+
     if (!templateError && template && template.length > 0) {
-        return template.map(t => {
+        result = template.map(t => {
             const item = t.inventory_items as any
             const qbCleanName = t.qb_item_name ? t.qb_item_name.split(':').pop().trim() : '';
             return {
@@ -91,31 +93,56 @@ export async function fetchOrderableItems(storeId: string | number, orderType: '
                 qb_item_id: t.qb_item_id
             }
         }) as OrderableItem[]
+    } else {
+        // Fallback: Si no hay template, usar la lista global anterior
+        const { data: items, error: itemsError } = await supabase
+            .from('inventory_items')
+            .select('id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, order_sort_position')
+            .not('excel_reference', 'is', null)
+            .order('order_sort_position', { ascending: true })
+
+        if (itemsError) throw new Error(itemsError.message)
+
+        // QB mappings globales
+        const { data: mappings } = await supabase
+            .from('quickbooks_mappings')
+            .select('qb_item_id, inventory_item_id')
+
+        const qbMap = new Map<string, string>()
+        mappings?.forEach(m => qbMap.set(m.inventory_item_id, m.qb_item_id))
+
+        result = (items || []).map(item => ({
+            ...item,
+            order_rounding_rule: item.order_rounding_rule || 'none',
+            order_sort_position: item.order_sort_position || 999,
+            qb_item_id: qbMap.get(item.id)
+        })) as OrderableItem[]
     }
 
-    // 2. Fallback: Si no hay template, usar la lista global anterior
-    const { data: items, error: itemsError } = await supabase
-        .from('inventory_items')
-        .select('id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, order_sort_position')
-        .not('excel_reference', 'is', null)
-        .order('order_sort_position', { ascending: true })
+    // Asegurar que Flan y Cheesecake estén presentes en el pedido diario como TRACK_ONLY
+    if (orderType === 'daily') {
+        const requiredDesserts = [
+            { id: 'f8f776c5-3b8c-453e-8161-b49840823933', name: 'Flan', unit_type: 'Per Unit', order_unit_description: '' },
+            { id: '8ba55664-5ca9-4886-8ac8-acf1fd070713', name: 'Cheesecake', unit_type: 'Per Unit', order_unit_description: 'Cheesecake' }
+        ]
 
-    if (itemsError) throw new Error(itemsError.message)
+        for (const dessert of requiredDesserts) {
+            if (!result.some(r => r.id === dessert.id)) {
+                result.push({
+                    id: dessert.id,
+                    name: dessert.name,
+                    unit_type: dessert.unit_type,
+                    excel_reference: dessert.name,
+                    order_unit_description: dessert.order_unit_description,
+                    order_rounding_rule: 'none',
+                    order_sort_position: 9999,
+                    qb_item_id: 'TRACK_ONLY'
+                })
+            }
+        }
+    }
 
-    // QB mappings globales
-    const { data: mappings } = await supabase
-        .from('quickbooks_mappings')
-        .select('qb_item_id, inventory_item_id')
-
-    const qbMap = new Map<string, string>()
-    mappings?.forEach(m => qbMap.set(m.inventory_item_id, m.qb_item_id))
-
-    return (items || []).map(item => ({
-        ...item,
-        order_rounding_rule: item.order_rounding_rule || 'none',
-        order_sort_position: item.order_sort_position || 999,
-        qb_item_id: qbMap.get(item.id)
-    })) as OrderableItem[]
+    return result
 }
 
 /**

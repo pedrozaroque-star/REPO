@@ -1546,88 +1546,6 @@ export default function InventoryOrdersPage() {
                                                     )
                                                 })}
 
-                                                {/* Searchable input row to add new extraordinary items */}
-                                                <tr className="bg-slate-50/50">
-                                                    <td colSpan={7} className="p-3 border-t border-slate-200">
-                                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                                                            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">
-                                                                🚨 ¿Pedir insumo extraordinario de emergencia?:
-                                                            </span>
-                                                            <div className="relative flex-1">
-                                                                <input
-                                                                    type="text"
-                                                                    placeholder="Escribe el nombre del insumo para buscar..."
-                                                                    value={extraordinarySearch}
-                                                                    onChange={e => {
-                                                                        setExtraordinarySearch(e.target.value)
-                                                                        setShowExtraordinaryDropdown(true)
-                                                                    }}
-                                                                    onFocus={() => setShowExtraordinaryDropdown(true)}
-                                                                    className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-400"
-                                                                />
-                                                                
-                                                                {showExtraordinaryDropdown && extraordinarySearch.trim().length > 0 && (
-                                                                    <div className="absolute left-0 right-0 bottom-full mb-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                                                                        {mappedItems
-                                                                            .filter(item => {
-                                                                                const isAlreadyAdded = orderLines.some(l => l.inventory_item_id === item.id)
-                                                                                const matchesSearch = item.name.toLowerCase().includes(extraordinarySearch.toLowerCase())
-                                                                                return !isAlreadyAdded && matchesSearch
-                                                                            })
-                                                                            .map(item => (
-                                                                                <button
-                                                                                    key={item.id}
-                                                                                    type="button"
-                                                                                    onClick={() => {
-                                                                                        const newLine = {
-                                                                                            inventory_item_id: item.id,
-                                                                                            item_name: item.name,
-                                                                                            unit_description: item.order_unit_description || item.unit_type,
-                                                                                            par_value: 0,
-                                                                                            par_ideal_value: 0,
-                                                                                            leftover_value: null,
-                                                                                            calculated_qty: 0,
-                                                                                            rounding_rule: 'none',
-                                                                                            qb_item_id: item.qb_item_id,
-                                                                                            is_extraordinary: true
-                                                                                        }
-                                                                                        setOrderLines(prev => [...prev, newLine])
-                                                                                        setAdjustments(prev => ({ ...prev, [item.id]: 1 }))
-                                                                                        setExtraordinarySearch('')
-                                                                                        setShowExtraordinaryDropdown(false)
-                                                                                    }}
-                                                                                    className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 transition-colors flex items-center justify-between"
-                                                                                >
-                                                                                    <span className="font-semibold text-slate-800">{item.name}</span>
-                                                                                    <span className="text-xs text-slate-400 font-medium">({item.unit_type})</span>
-                                                                                </button>
-                                                                            ))
-                                                                        }
-                                                                        {mappedItems.filter(item => {
-                                                                            const isAlreadyAdded = orderLines.some(l => l.inventory_item_id === item.id)
-                                                                            const matchesSearch = item.name.toLowerCase().includes(extraordinarySearch.toLowerCase())
-                                                                            return !isAlreadyAdded && matchesSearch
-                                                                        }).length === 0 && (
-                                                                            <div className="p-3 text-center text-xs text-slate-400">
-                                                                                No se encontraron insumos mapeados
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                {showExtraordinaryDropdown && (
-                                                    <tr className="hidden">
-                                                        <td>
-                                                            <div 
-                                                                className="fixed inset-0 z-20 bg-transparent"
-                                                                onClick={() => setShowExtraordinaryDropdown(false)}
-                                                            />
-                                                        </td>
-                                                    </tr>
-                                                )}
 
                                                 {/* ---- Tracking Only separator ---- */}
                                                 {trackingLines.length > 0 && (
@@ -1688,6 +1606,82 @@ export default function InventoryOrdersPage() {
                                                 })}
                                             </tbody>
                                         </table>
+                                    </div>
+
+                                    {/* ---- Search bar for emergency items (Outside the table) ---- */}
+                                    <div className="p-4 border-t border-slate-200 bg-indigo-50/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                                        <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider whitespace-nowrap flex items-center gap-1.5">
+                                            🚨 ¿Pedir insumo extraordinario de emergencia?:
+                                        </span>
+                                        <div className="relative flex-1 z-25">
+                                            <input
+                                                type="text"
+                                                placeholder="Escribe el nombre del insumo para buscar..."
+                                                value={extraordinarySearch}
+                                                onChange={e => {
+                                                    setExtraordinarySearch(e.target.value)
+                                                    setShowExtraordinaryDropdown(true)
+                                                }}
+                                                onFocus={() => setShowExtraordinaryDropdown(true)}
+                                                className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 font-medium"
+                                            />
+                                            
+                                            {showExtraordinaryDropdown && extraordinarySearch.trim().length > 0 && (
+                                                <div className="absolute left-0 right-0 bottom-full mb-1 z-30 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                                                    {mappedItems
+                                                        .filter(item => {
+                                                            const isAlreadyAdded = orderLines.some(l => l.inventory_item_id === item.id)
+                                                            const matchesSearch = item.name.toLowerCase().includes(extraordinarySearch.toLowerCase())
+                                                            return !isAlreadyAdded && matchesSearch
+                                                        })
+                                                        .map(item => (
+                                                            <button
+                                                                key={item.id}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const newLine = {
+                                                                        inventory_item_id: item.id,
+                                                                        item_name: item.name,
+                                                                        unit_description: item.order_unit_description || item.unit_type,
+                                                                        par_value: 0,
+                                                                        par_ideal_value: 0,
+                                                                        leftover_value: null,
+                                                                        calculated_qty: 0,
+                                                                        rounding_rule: 'none',
+                                                                        qb_item_id: item.qb_item_id,
+                                                                        is_extraordinary: true
+                                                                    }
+                                                                    setOrderLines(prev => [...prev, newLine])
+                                                                    setAdjustments(prev => ({ ...prev, [item.id]: 1 }))
+                                                                    setExtraordinarySearch('')
+                                                                    setShowExtraordinaryDropdown(false)
+                                                                }}
+                                                                className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 transition-colors flex items-center justify-between border-b border-slate-100 last:border-0"
+                                                            >
+                                                                <span className="font-semibold text-slate-800">{item.name}</span>
+                                                                <span className="text-xs text-slate-400 font-medium">({item.unit_type})</span>
+                                                            </button>
+                                                        ))
+                                                    }
+                                                    {mappedItems.filter(item => {
+                                                        const isAlreadyAdded = orderLines.some(l => l.inventory_item_id === item.id)
+                                                        const matchesSearch = item.name.toLowerCase().includes(extraordinarySearch.toLowerCase())
+                                                        return !isAlreadyAdded && matchesSearch
+                                                    }).length === 0 && (
+                                                        <div className="p-4 text-center text-xs text-slate-400">
+                                                            No se encontraron insumos mapeados
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                        {/* Click outside backdrop */}
+                                        {showExtraordinaryDropdown && (
+                                            <div 
+                                                className="fixed inset-0 z-10 bg-transparent"
+                                                onClick={() => setShowExtraordinaryDropdown(false)}
+                                            />
+                                        )}
                                     </div>
 
                                     {/* ---- Observations textarea ---- */}
