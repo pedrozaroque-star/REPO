@@ -480,35 +480,41 @@ export async function POST() {
                 });
                 if (!res.ok) throw new Error(`QB Query Failed: ${res.statusText}`);
                 const data = await res.json();
-                return data?.QueryResponse?.Estimate || [];
+                return data?.QueryResponse?.RecurringTransaction || [];
             };
 
+            console.log('[QB-Sync] 🔄 Consultando todos los RecurringTransactions de QBO...');
+            const allRecurring = await qbQuery("SELECT * FROM RecurringTransaction");
+            console.log(`[QB-Sync] 📊 Encontrados ${allRecurring.length} recurring transactions en QB.`);
+
+            // Agrupar los templates de tipo Estimate por Customer ID
+            const dailyTemplatesByCustomerId = new Map<string, any>();
+            let liquidsTemplate: any = null;
+
+            allRecurring.forEach((t: any) => {
+                if (!t.Estimate) return;
+                const est = t.Estimate;
+                const templateName = (est.RecurringInfo?.Name || '').toLowerCase();
+                const customerId = est.CustomerRef?.value;
+
+                if (templateName.includes('orden diaria')) {
+                    dailyTemplatesByCustomerId.set(String(customerId), est);
+                } else if (templateName.includes('liquido') || templateName.includes('liquidos')) {
+                    liquidsTemplate = est;
+                }
+            });
+
             if (activeStores && activeStores.length > 0) {
+                // 1. Sincronizar templates Diarios por tienda
                 for (const store of activeStores) {
                     try {
-                        const sql = `SELECT * FROM Estimate WHERE CustomerRef = '${store.qb_customer_id}' ORDER BY MetaData.LastUpdatedTime DESC MAXRESULTS 5`;
-                        const estimates = await qbQuery(sql);
-                        
-                        // Filtrar y tomar el primer Estimate real (sin notas de "TEST", "ELIMINAR", "PRUEBA" y excluyendo los PEDIDOS generados por el sistema)
-                        const realEstimate = estimates.find((e: any) => {
-                            const note = (e.PrivateNote || '').toUpperCase();
-                            const memo = (e.CustomerMemo?.value || '').toUpperCase();
-                            return !note.includes('TEST') && 
-                                   !note.includes('ELIMINAR') && 
-                                   !note.includes('PRUEBA') &&
-                                   !note.includes('PEDIDO') &&
-                                   !memo.includes('PEDIDO') &&
-                                   !memo.includes('SYSTEM');
-                        });
-
-                        if (!realEstimate) {
-                            console.log(`[QB-Sync] ⚠️ ${store.name}: Sin estimates reales en QB.`);
+                        const est = dailyTemplatesByCustomerId.get(String(store.qb_customer_id));
+                        if (!est) {
+                            console.log(`[QB-Sync] ⚠️ ${store.name}: No se encontró plantilla "Orden Diaria" en Recurring Transactions.`);
                             continue;
                         }
 
-                        const est = realEstimate;
                         const lines = est.Line || [];
-                        
                         const toInsert: any[] = [];
                         let pos = 1;
                         for (const line of lines) {
@@ -547,27 +553,13 @@ export async function POST() {
                     } catch (storeError: any) {
                         console.error(`[QB-Sync] ❌ Error en template de ${store.name}:`, storeError.message);
                     }
-                    
-                    // Delay para evitar rate limits
-                    await new Promise(r => setTimeout(r, 100));
                 }
 
-                // 3. Sincronizar el template único de Líquidos (basado en el Estimate de QB para Líquidos)
+                // 2. Sincronizar template único de Líquidos
                 try {
-                    console.log('[QB-Sync] 🧴 Sincronizando template único de Líquidos...');
-                    
-                    const qbRecentEstimates = await qbQuery("SELECT * FROM Estimate ORDER BY MetaData.LastUpdatedTime DESC MAXRESULTS 100");
-                    
-                    const liquidsEstimate = qbRecentEstimates.find((e: any) => {
-                        const docNum = (e.DocNumber || '').toLowerCase();
-                        const privateNote = (e.PrivateNote || '').toLowerCase();
-                        const customerName = (e.CustomerRef?.name || '').toLowerCase();
-                        return docNum.includes('liquido') || privateNote.includes('liquido') || customerName.includes('warehouse');
-                    });
-
-                    if (liquidsEstimate) {
-                        console.log(`[QB-Sync] 🧴 Encontrado estimate de Líquidos #${liquidsEstimate.DocNumber} (${liquidsEstimate.TxnDate})`);
-                        const lines = liquidsEstimate.Line || [];
+                    if (liquidsTemplate) {
+                        console.log(`[QB-Sync] 🧴 Sincronizando template único de Líquidos: "${liquidsTemplate.RecurringInfo?.Name || 'Líquidos'}"`);
+                        const lines = liquidsTemplate.Line || [];
                         const liquidsItems: any[] = [];
                         let pos = 1;
                         
@@ -618,7 +610,7 @@ export async function POST() {
                             console.log(`[QB-Sync] 🧴 Template único de Líquidos sincronizado para las ${activeStores.length} tiendas (${liquidsItems.length} items c/u)`);
                         }
                     } else {
-                        console.log('[QB-Sync] ⚠️ No se encontró ningún Estimate de Líquidos en QB para usar como template.');
+                        console.log('[QB-Sync] ⚠️ No se encontró ningún Template de Líquidos en Recurring Transactions de QBO.');
                     }
                 } catch (liquidsError: any) {
                     console.error('[QB-Sync] ❌ Error en sync de template de líquidos:', liquidsError.message);
