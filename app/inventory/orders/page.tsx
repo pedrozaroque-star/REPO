@@ -1546,6 +1546,87 @@ export default function InventoryOrdersPage() {
                                                     )
                                                 })}
 
+                                                {/* ---- Extraordinary items ---- */}
+                                                {extraordinaryLines.length > 0 && (
+                                                    <tr>
+                                                        <td colSpan={7} className="p-3 text-center bg-indigo-50/50 border-y-2 border-indigo-200">
+                                                            <span className="text-xs font-black text-indigo-700 uppercase tracking-widest">
+                                                                ── Insumos Extraordinarios / Emergency Items ──
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                )}
+
+                                                {extraordinaryLines.map((line, idx) => {
+                                                    const rowIndex = orderableLines.length + idx + 1
+                                                    const adj = adjustments[line.inventory_item_id]
+                                                    const finalQty = adj !== undefined ? adj : line.calculated_qty
+
+                                                    return (
+                                                        <tr key={line.inventory_item_id} className="transition-colors border-b border-indigo-100/50 hover:bg-indigo-50/10">
+                                                            {/* Producto */}
+                                                            <td className="sticky left-0 bg-white border-b border-indigo-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setOrderLines(prev => prev.filter(l => l.inventory_item_id !== line.inventory_item_id))
+                                                                            setAdjustments(prev => {
+                                                                                const copy = { ...prev }
+                                                                                delete copy[line.inventory_item_id]
+                                                                                return copy
+                                                                            })
+                                                                        }}
+                                                                        className="text-red-500 hover:text-red-700 transition-colors p-1"
+                                                                        title="Eliminar insumo extraordinario"
+                                                                    >
+                                                                        <Trash2 size={15} />
+                                                                    </button>
+                                                                    <div className="flex flex-col">
+                                                                        {line.unit_description && (
+                                                                            <span className="text-[10px] text-slate-400 font-medium leading-tight">{line.unit_description}</span>
+                                                                        )}
+                                                                        <span className="font-semibold text-indigo-900">{line.item_name}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            {/* PAR Ideal — dash */}
+                                                            <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            {/* PAR — dash */}
+                                                            <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            {/* Sobrante — dash */}
+                                                            <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            {/* Pedir — dash */}
+                                                            <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            {/* Ajuste (optional override) */}
+                                                            <td className="p-0 border-b border-indigo-250 bg-indigo-50/20">
+                                                                <input
+                                                                    id={`input_${rowIndex}_1`}
+                                                                    type="number"
+                                                                    placeholder="-"
+                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-sm placeholder:text-indigo-200 border-l-[3px] border-l-indigo-300"
+                                                                    value={adj !== undefined ? adj : ''}
+                                                                    onChange={e => {
+                                                                        const v = e.target.value
+                                                                        if (v === '') {
+                                                                            const newAdj = { ...adjustments }
+                                                                            delete newAdj[line.inventory_item_id]
+                                                                            setAdjustments(newAdj)
+                                                                        } else {
+                                                                            setAdjustments({ ...adjustments, [line.inventory_item_id]: parseFloat(v) || 0 })
+                                                                        }
+                                                                    }}
+                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 1)}
+                                                                    onFocus={e => e.target.select()}
+                                                                />
+                                                            </td>
+                                                            {/* Final */}
+                                                            <td className="p-2 text-center font-black text-base border-b border-indigo-100 bg-indigo-50/20 text-indigo-800">
+                                                                {finalQty}
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })}
 
                                                 {/* ---- Tracking Only separator ---- */}
                                                 {trackingLines.length > 0 && (

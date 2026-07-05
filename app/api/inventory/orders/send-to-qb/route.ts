@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         const itemIds = order.inventory_order_lines.map((l: any) => l.inventory_item_id)
         const { data: items } = await supabase
             .from('inventory_items')
-            .select('id, name, excel_reference, order_unit_description')
+            .select('id, name, excel_reference, order_unit_description, unit_type')
             .in('id', itemIds)
 
         const itemMap = new Map<string, any>()
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
 
             estimateLines.push({
                 DetailType: 'SalesItemLineDetail',
-                Description: item?.order_unit_description || '', // Para columna ACTIVITY del PDF de QB
+                Description: item?.order_unit_description || (item?.unit_type ? (item.unit_type.startsWith('(') ? item.unit_type : `(${item.unit_type})`) : ''), // Para columna ACTIVITY del PDF de QB
                 Amount: amount,
                 SalesItemLineDetail: {
                     ItemRef: { value: qbMapping.qbItemId },
@@ -359,13 +359,22 @@ export async function POST(request: NextRequest) {
         // Detectar si el error es de sesión expirada / invalid token en QuickBooks
         const isAuthError = 
             error.statusCode === 401 || 
+            error.statusCode === 400 || 
             (error.message && (
                 error.message.includes('401') || 
+                error.message.includes('400') || 
                 error.message.includes('invalid_token') || 
                 error.message.includes('token_expired') ||
                 error.message.includes('invalid_grant')
             )) ||
-            (error.authResponse && error.authResponse.json && error.authResponse.json.error === 'invalid_grant');
+            (error.authResponse && (
+                error.authResponse.status === 400 || 
+                error.authResponse.status === 401 ||
+                (error.authResponse.json && (
+                    error.authResponse.json.error === 'invalid_grant' ||
+                    error.authResponse.json.error === 'invalid_token'
+                ))
+            ));
 
         if (isAuthError) {
             return NextResponse.json({
