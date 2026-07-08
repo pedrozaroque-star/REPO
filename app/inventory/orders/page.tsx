@@ -2133,8 +2133,8 @@ export default function InventoryOrdersPage() {
                                     <div>
                                         <strong className="block font-bold mb-0.5 text-amber-900">⚠️ {language === 'es' ? 'ADVERTENCIA OPERATIVA' : 'OPERATIONAL WARNING'}</strong>
                                         {language === 'es' 
-                                            ? 'Al eliminar un pedido, también se eliminará el Estimate en QuickBooks. Para editar cantidades, modifícalas en "Pedido del Día" y re-envía a QB.'
-                                            : 'Deleting an order will also delete the QuickBooks Estimate. To edit quantities, modify them in "Daily Order" and re-send to QB.'}
+                                            ? 'Desde aquí puedes editar cantidades de pedidos anteriores con el botón ✏️ Editar, lo cual actualizará el Estimate en QuickBooks automáticamente. Al eliminar un pedido, también se eliminará de forma definitiva el Estimate en QuickBooks.'
+                                            : 'From here you can edit quantities of previous orders using the ✏️ Edit button, which will automatically update the QuickBooks Estimate. Deleting an order will also permanently delete the QuickBooks Estimate.'}
                                     </div>
                                 </div>
 
