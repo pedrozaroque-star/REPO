@@ -358,7 +358,7 @@ export default function InventoryOrdersPage() {
             const res = await saveOrderDraft(
                 storeId, 
                 editModal.order.order_date, 
-                activeMonday, 
+                editModal.order.week_start_date || activeMonday, // Usar la semana real de la orden, no la actual
                 lines, 
                 user?.name, 
                 modalNotes || undefined,
@@ -393,7 +393,7 @@ export default function InventoryOrdersPage() {
             const saveRes = await saveOrderDraft(
                 storeId, 
                 editModal.order.order_date, 
-                activeMonday, 
+                editModal.order.week_start_date || activeMonday, // Usar la semana real de la orden, no la actual
                 lines, 
                 user?.name, 
                 modalNotes || undefined,

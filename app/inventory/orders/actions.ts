@@ -423,6 +423,8 @@ export async function calculateDailyOrder(
         // Calcular orden: si no hay sobrante capturado, asumir 0 (pedir PAR completo)
         const effectiveLeftover = leftoverValue ?? 0
         let calculatedQty = parValue - effectiveLeftover
+        // Clamp a 0: si sobrante > PAR, no pedir cantidades negativas
+        calculatedQty = Math.max(0, calculatedQty)
         // Aplicar regla de redondeo
         if (calculatedQty > 0) {
             calculatedQty = applyRounding(calculatedQty, item.order_rounding_rule)
@@ -578,6 +580,21 @@ export async function saveOrderDraft(
     notes?: string,
     orderType: 'daily' | 'liquids' = 'daily'
 ) {
+    // Si la orden ya existe y fue enviada a QB, preservar su status actual
+    // (no resetear a 'draft' un pedido que ya tiene Estimate en QB)
+    let preservedStatus: string | null = null
+    const { data: existingOrder } = await supabase
+        .from('inventory_orders')
+        .select('status, qb_estimate_id')
+        .eq('store_id', storeId)
+        .eq('order_date', orderDate)
+        .eq('order_type', orderType)
+        .maybeSingle()
+
+    if (existingOrder?.qb_estimate_id) {
+        preservedStatus = existingOrder.status // Preservar 'sent' o lo que sea
+    }
+
     // Upsert la orden
     const { data: order, error: orderError } = await supabase
         .from('inventory_orders')
@@ -585,7 +602,7 @@ export async function saveOrderDraft(
             store_id: storeId,
             order_date: orderDate,
             week_start_date: weekStartDate,
-            status: 'draft',
+            status: preservedStatus || 'draft',
             created_by: createdBy || 'Manager',
             notes: notes || null,
             order_type: orderType,

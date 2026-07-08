@@ -347,107 +347,15 @@ export async function POST() {
         }
 
         // ====================================================================
-        // AUTO-SYNC: Template de QB → Items Ordenables en nuestro sistema
-        // QB Estimate template es la FUENTE DE VERDAD para qué items se piden
-        // Si QB agrega un item nuevo → lo agregamos como ordenable
-        // Si QB quita un item → lo removemos de ordenables (descontinuado)
+        // NOTA: Anteriormente aquí había una sección "AUTO-SYNC: Template de QB → Items Ordenables"
+        // que leía el Estimate MÁS RECIENTE de QB para determinar qué items eran ordenables.
+        // Se ELIMINÓ porque usaba un Estimate random (podría ser de cualquier tienda)
+        // en vez del RecurringTransaction correcto. Esto podía marcar items como
+        // "descontinuados" erróneamente. La sección de RecurringTransactions (abajo)
+        // es la fuente de verdad correcta para templates por tienda.
         // ====================================================================
         let itemsAdded = 0;
         let itemsRemoved = 0;
-        try {
-            // Leer el Estimate más reciente para obtener la lista de items del template
-            const recentEstimate = await new Promise<any>((resolve, reject) => {
-                qbo.findEstimates({
-                    fetchAll: false,
-                    limit: 1,
-                    desc: 'MetaData.LastUpdatedTime',
-                }, (err: any, result: any) => {
-                    if (err) reject(err);
-                    else {
-                        const estimates = result?.QueryResponse?.Estimate || [];
-                        resolve(estimates[0] || null);
-                    }
-                });
-            });
-
-            if (recentEstimate?.Line) {
-                // Extraer QB Item IDs del template (solo SalesItemLineDetail, no subtotales)
-                const templateQbIds = new Set<string>();
-                recentEstimate.Line.forEach((line: any) => {
-                    if (line.DetailType === 'SalesItemLineDetail' && line.SalesItemLineDetail?.ItemRef?.value) {
-                        templateQbIds.add(line.SalesItemLineDetail.ItemRef.value);
-                    }
-                });
-                console.log(`[QB-Sync] 📋 Template tiene ${templateQbIds.size} items (del Estimate #${recentEstimate.DocNumber})`);
-
-                // Obtener todos los mappings QB → inventory_item
-                const { data: allMappings } = await supabase
-                    .from('quickbooks_mappings')
-                    .select('qb_item_id, inventory_item_id');
-                const qbToInternal = new Map<string, string>();
-                allMappings?.forEach(m => qbToInternal.set(m.qb_item_id, m.inventory_item_id));
-
-                // Obtener items ordenables actuales (los que tienen excel_reference)
-                const { data: currentOrderable } = await supabase
-                    .from('inventory_items')
-                    .select('id, name, excel_reference, order_sort_position')
-                    .not('excel_reference', 'is', null);
-                const orderableIds = new Set(currentOrderable?.map(i => i.id) || []);
-
-                // 1. Items en template QB pero NO ordenables → AGREGAR
-                const maxSort = Math.max(...(currentOrderable?.map(i => i.order_sort_position || 0) || [0]));
-                let nextSort = maxSort + 1;
-
-                for (const qbId of templateQbIds) {
-                    const internalId = qbToInternal.get(qbId);
-                    if (!internalId) continue; // No tiene mapping, el sync de items lo creará
-
-                    if (!orderableIds.has(internalId)) {
-                        // Este item está en QB pero no es ordenable → agregarlo
-                        const { data: item } = await supabase
-                            .from('inventory_items')
-                            .select('name')
-                            .eq('id', internalId)
-                            .single();
-
-                        await supabase
-                            .from('inventory_items')
-                            .update({
-                                excel_reference: item?.name || 'Nuevo Item',
-                                order_sort_position: nextSort++
-                            })
-                            .eq('id', internalId);
-
-                        console.log(`[QB-Sync] ➕ Nuevo item ordenable: ${item?.name} (QB ID: ${qbId})`);
-                        itemsAdded++;
-                    }
-                }
-
-                // 2. Items ordenables pero NO en template QB → REMOVER (descontinuados)
-                for (const item of (currentOrderable || [])) {
-                    // Buscar el qb_item_id de este item
-                    const mapping = allMappings?.find(m => m.inventory_item_id === item.id);
-                    if (!mapping) continue; // Sin mapping, no podemos comparar
-
-                    if (!templateQbIds.has(mapping.qb_item_id)) {
-                        // Este item ya no está en el template de QB → descontinuado
-                        await supabase
-                            .from('inventory_items')
-                            .update({ excel_reference: null, order_sort_position: null })
-                            .eq('id', item.id);
-
-                        console.log(`[QB-Sync] ➖ Item descontinuado: ${item.name} (QB ID: ${mapping.qb_item_id})`);
-                        itemsRemoved++;
-                    }
-                }
-
-                if (itemsAdded === 0 && itemsRemoved === 0) {
-                    console.log(`[QB-Sync] ✅ Items ordenables sincronizados con template QB (${templateQbIds.size} items)`);
-                }
-            }
-        } catch (templateError: any) {
-            console.error('[QB-Sync] Error en template sync:', templateError.message);
-        }
 
         // ====================================================================
         // AUTO-SYNC: Templates de QB por tienda → store_order_template

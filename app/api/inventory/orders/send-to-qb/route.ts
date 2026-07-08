@@ -76,16 +76,13 @@ export async function POST(request: NextRequest) {
             return posA - posB
         })
 
-        // 3. Obtener QB mappings (incluye costo para calcular Amount del Estimate)
+        // 3. Obtener QB mappings (solo necesitamos el qb_item_id para referenciar el item en QB)
         const { data: mappings } = await supabase
             .from('quickbooks_mappings')
-            .select('qb_item_id, inventory_item_id, last_fetch_cost')
+            .select('qb_item_id, inventory_item_id')
 
-        const qbMap = new Map<string, { qbItemId: string; cost: number }>()
-        mappings?.forEach(m => qbMap.set(m.inventory_item_id, {
-            qbItemId: m.qb_item_id,
-            cost: m.last_fetch_cost || 0
-        }))
+        const qbMap = new Map<string, string>()
+        mappings?.forEach(m => qbMap.set(m.inventory_item_id, m.qb_item_id))
 
         // 4. Obtener store info (incluye qb_customer_id para Estimate)
         const { data: store } = await supabase
@@ -166,7 +163,44 @@ export async function POST(request: NextRequest) {
             integration.refresh_token
         )
 
-        // 6. Construir el Estimate
+        // 6. Obtener las tarifas (Rate) y descripciones de cada item directamente del catálogo de QB
+        //    para que Amount y Description sean correctos y coincidan con el template del Estimate.
+        const allQbItemIds = [...new Set(
+            order.inventory_order_lines
+                .map((l: any) => qbMap.get(l.inventory_item_id))
+                .filter(Boolean)
+        )] as string[]
+
+        const qbItemInfoMap = new Map<string, { rate: number; description: string }>()
+        if (allQbItemIds.length > 0) {
+            try {
+                // Query en lotes de 30 IDs para evitar queries muy largas
+                for (let i = 0; i < allQbItemIds.length; i += 30) {
+                    const batch = allQbItemIds.slice(i, i + 30)
+                    const qbItems = await new Promise<any[]>((resolve, reject) => {
+                        qbo.findItems([
+                            { field: 'Id', value: batch, operator: 'IN' }
+                        ], (err: any, result: any) => {
+                            if (err) reject(err)
+                            else resolve(result?.QueryResponse?.Item || [])
+                        })
+                    })
+                    for (const qbItem of qbItems) {
+                        // UnitPrice = Rate que QB usa en Estimates (precio de venta)
+                        // Description = lo que aparece en la columna ACTIVITY izquierda del PDF
+                        qbItemInfoMap.set(String(qbItem.Id), {
+                            rate: qbItem.UnitPrice ?? 0,
+                            description: qbItem.Description || ''
+                        })
+                    }
+                }
+                console.log(`[QB-Order] ✅ Obtenidas ${qbItemInfoMap.size} tarifas y descripciones del catálogo QB`)
+            } catch (rateErr: any) {
+                console.warn('[QB-Order] ⚠️ No se pudieron obtener datos de QB:', rateErr.message)
+            }
+        }
+
+        // 7. Construir las líneas del Estimate
         const estimateLines: any[] = []
         const skippedItems: string[] = []
 
@@ -185,23 +219,26 @@ export async function POST(request: NextRequest) {
                 continue
             }
 
-            const qbMapping = qbMap.get(line.inventory_item_id)
-            if (!qbMapping) {
+            const qbItemId = qbMap.get(line.inventory_item_id)
+            if (!qbItemId) {
                 skippedItems.push(item?.name || line.inventory_item_id)
                 continue
             }
 
-            const unitPrice = qbMapping.cost
-            const amount = Math.round(finalQty * unitPrice * 100) / 100 // Redondear a 2 decimales
+            // Usar Rate y Description del catálogo QB (NO de nuestra DB)
+            const qbInfo = qbItemInfoMap.get(qbItemId)
+            const qbRate = qbInfo?.rate ?? 0
+            const qbDescription = qbInfo?.description || ''
+            const amount = Math.round(finalQty * qbRate * 100) / 100
 
+            // Todo viene del catálogo QB: Description, Rate, Amount
             estimateLines.push({
                 DetailType: 'SalesItemLineDetail',
-                Description: item?.order_unit_description || (item?.unit_type ? (item.unit_type.startsWith('(') ? item.unit_type : `(${item.unit_type})`) : ''), // Para columna ACTIVITY del PDF de QB
+                Description: qbDescription, // Columna ACTIVITY izquierda del PDF (ej: "(Bag of 1 Gallon)")
                 Amount: amount,
                 SalesItemLineDetail: {
-                    ItemRef: { value: qbMapping.qbItemId },
+                    ItemRef: { value: qbItemId },
                     Qty: finalQty,
-                    UnitPrice: unitPrice,
                     ClassRef: { value: "2" }, // Class: Warehouse
                 }
             })
@@ -227,35 +264,37 @@ export async function POST(request: NextRequest) {
         const memoBase = `${prefix}Pedido ${store?.name || 'Tienda'} - ${order.order_date}`;
         const memo = order.notes ? `${memoBase}\n📝 ${order.notes}` : memoBase;
 
-        // Obtener el siguiente DocNumber (la empresa usa numeración custom tipo 258964783306)
-        // QB ordena DocNumber como string, así que buscamos los más recientes y sacamos el max numérico
+        // Obtener el siguiente DocNumber SOLO para estimates NUEVOS
+        // Si estamos actualizando uno existente, NO cambiamos el DocNumber
+        const isUpdate = !!order.qb_estimate_id
         let nextDocNumber: string | undefined;
-        try {
-            const recentEstimates = await new Promise<any[]>((resolve, reject) => {
-                qbo.findEstimates({
-                    fetchAll: false,
-                    limit: 20,
-                    desc: 'MetaData.LastUpdatedTime',
-                }, (err: any, result: any) => {
-                    if (err) reject(err);
-                    else resolve(result?.QueryResponse?.Estimate || []);
+        if (!isUpdate) {
+            try {
+                const recentEstimates = await new Promise<any[]>((resolve, reject) => {
+                    qbo.findEstimates({
+                        fetchAll: false,
+                        limit: 20,
+                        desc: 'MetaData.LastUpdatedTime',
+                    }, (err: any, result: any) => {
+                        if (err) reject(err);
+                        else resolve(result?.QueryResponse?.Estimate || []);
+                    });
                 });
-            });
-            
-            // Encontrar el DocNumber numérico más alto entre los recientes
-            let maxNum = 0;
-            for (const est of recentEstimates) {
-                if (est.DocNumber) {
-                    const num = parseInt(est.DocNumber, 10);
-                    if (!isNaN(num) && num > maxNum) maxNum = num;
+                
+                let maxNum = 0;
+                for (const est of recentEstimates) {
+                    if (est.DocNumber) {
+                        const num = parseInt(est.DocNumber, 10);
+                        if (!isNaN(num) && num > maxNum) maxNum = num;
+                    }
                 }
+                if (maxNum > 0) {
+                    nextDocNumber = String(maxNum + 1);
+                    console.log(`[QB] Max DocNumber: ${maxNum}, asignando #${nextDocNumber}`);
+                }
+            } catch (numErr) {
+                console.warn('[QB] No se pudo obtener DocNumber, QB lo asignará automáticamente');
             }
-            if (maxNum > 0) {
-                nextDocNumber = String(maxNum + 1);
-                console.log(`[QB] Max DocNumber: ${maxNum}, asignando #${nextDocNumber}`);
-            }
-        } catch (numErr) {
-            console.warn('[QB] No se pudo obtener DocNumber, QB lo asignará automáticamente');
         }
 
         // La fecha del Estimate es el día SIGUIENTE (fecha de entrega/necesidad),
