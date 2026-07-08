@@ -72,8 +72,20 @@ export async function GET(req: NextRequest) {
             { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
         );
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('OAuth Error:', error);
-        return NextResponse.json({ error: 'Authentication Failed' }, { status: 500 });
+        const errorDetails = {
+            error: 'Authentication Failed',
+            message: error?.message || 'Unknown error',
+            originalMessage: error?.originalMessage || error?.authResponse?.json?.error || null,
+            intuit_error: error?.authResponse?.json || null,
+            statusCode: error?.authResponse?.statusCode || null,
+            configured_redirect_uri: process.env.QUICKBOOKS_REDIRECT_URI,
+            configured_environment: process.env.QUICKBOOKS_ENVIRONMENT,
+            configured_client_id_prefix: process.env.QUICKBOOKS_CLIENT_ID?.substring(0, 8) + '...',
+            actual_callback_url: url.href,
+        };
+        console.error('OAuth Error Details:', JSON.stringify(errorDetails, null, 2));
+        return NextResponse.json(errorDetails, { status: 500 });
     }
 }
