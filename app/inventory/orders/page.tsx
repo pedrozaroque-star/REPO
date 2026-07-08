@@ -536,13 +536,16 @@ export default function InventoryOrdersPage() {
             setOriginalBases(JSON.parse(JSON.stringify(bases)))
             setHasBaseChanges(false)
             
-            // Recalcular orden del día
+            // Recalcular orden del día preservando insumos extraordinarios
             const lines = await calculateDailyOrder(
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
                 parIdeal, overrideDayField
             )
-            setOrderLines(lines)
+            setOrderLines(prev => {
+                const prevExtraordinary = prev.filter(l => l.is_extraordinary)
+                return [...lines, ...prevExtraordinary]
+            })
         } catch (e: any) {
             alert('Error: ' + e.message)
         } finally {
@@ -762,6 +765,7 @@ export default function InventoryOrdersPage() {
                     const handleMessage = async (e: MessageEvent) => {
                         if (e.data === 'qb_authorized') {
                             window.removeEventListener('message', handleMessage);
+                            if (timer) clearInterval(timer);
                             // Reintentar de forma automática
                             alert('¡Sesión iniciada! Reintentando el envío...');
                             setSendingToQb(true);
@@ -786,6 +790,14 @@ export default function InventoryOrdersPage() {
                         }
                     };
                     window.addEventListener('message', handleMessage);
+
+                    // Limpiar listener si el popup se cierra
+                    const timer = setInterval(() => {
+                        if (popup.closed) {
+                            clearInterval(timer);
+                            window.removeEventListener('message', handleMessage);
+                        }
+                    }, 1000);
                 } else {
                     alert('Bloqueador de popups detectado. Habilita las ventanas flotantes e ingresa a: /api/integrations/quickbooks/auth');
                 }
@@ -829,6 +841,7 @@ export default function InventoryOrdersPage() {
                     const handleMessage = async (e: MessageEvent) => {
                         if (e.data === 'qb_authorized') {
                             window.removeEventListener('message', handleMessage);
+                            if (timer) clearInterval(timer);
                             alert('¡Sesión iniciada! Reintentando sincronización...');
                             setSyncingQb(true);
                             try {
@@ -848,6 +861,14 @@ export default function InventoryOrdersPage() {
                         }
                     };
                     window.addEventListener('message', handleMessage);
+
+                    // Limpiar listener si el popup se cierra
+                    const timer = setInterval(() => {
+                        if (popup.closed) {
+                            clearInterval(timer);
+                            window.removeEventListener('message', handleMessage);
+                        }
+                    }, 1000);
                 } else {
                     alert('Bloqueador de popups detectado. Habilita las ventanas flotantes e ingresa a: /api/integrations/quickbooks/auth');
                 }

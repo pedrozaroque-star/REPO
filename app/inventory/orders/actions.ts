@@ -483,7 +483,7 @@ export async function updateDailyLeftover(
         const { error } = await supabase
             .from('inventory_counts')
             .delete()
-            .match({ store_id: storeId, inventory_item_id: itemId, count_date: dateStr })
+            .match({ store_id: storeId.toString(), inventory_item_id: itemId, count_date: dateStr })
         if (error) console.error('Error deleting count:', error)
         return
     }
@@ -491,7 +491,7 @@ export async function updateDailyLeftover(
     const { error } = await supabase
         .from('inventory_counts')
         .upsert({
-            store_id: storeId,
+            store_id: storeId.toString(),
             inventory_item_id: itemId,
             count_date: dateStr,
             quantity_on_hand: value
