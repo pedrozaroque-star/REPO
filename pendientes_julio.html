@@ -6,7 +6,7 @@
   2. Todos los estilos están embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS.
   3. No depende de redes CDN externas. Todo es nativo o usa vectores SVG embebidos.
 @notes
-  - Creado específicamente para registrar el avance de Julio de 2026 (28.0 horas acumuladas hasta la fecha).
+  - Creado específicamente para registrar el avance de Julio de 2026 (42.5 horas acumuladas hasta la fecha).
   - Incluye los desgloses diarios de julio 1 y julio 2 con la reestructuración completa del módulo de Pedidos de Bodega, integraciones de QuickBooks y reordenamiento de menús de navegación.
 -->
 <!DOCTYPE html>
@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">28.0</div>
+                <div class="stat-number" style="color: #e05638;">42.5</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1630,7 +1630,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 28.0 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 42.5 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1674,6 +1674,42 @@
                                      </div>
                                  </td>
                              </tr>
+                             <tr>
+                                 <td><strong>03-Jul-2026</strong></td>
+                                 <td>8:00 AM - 10:00 AM</td>
+                                 <td style="text-align: center; font-weight: 700;">2.0</td>
+                                 <td><span class="table-badge-module">Inventario</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Validación de Postres**: Refinamiento técnico de las reglas de validación de Flan y Cheesecake para asegurar que se bloquee el envío únicamente en las órdenes del tipo diario (`daily`) y no afecte los pedidos de líquidos semanales.</div>
+                                          <div class="en-desc">- Dessert Validation: refined validation boundaries for Flan and Cheesecake to restrict checks exclusively to daily orders without blocking weekly liquid orders.</div>
+                                     </div>
+                                 </td>
+                             </tr>
+                             <tr>
+                                 <td><strong>04-Jul-2026</strong></td>
+                                 <td>1:30 PM - 8:00 PM</td>
+                                 <td style="text-align: center; font-weight: 700;">6.5</td>
+                                 <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">Inventario</span> <span class="table-badge-module">QuickBooks</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Planificador (Conexión Gmail)**: Solución al error que dejaba a los mánagers atrapados en el modal de infracciones de turnos si no tenían Gmail vinculado. Se habilitaron botones bilingües interactivos de 'Cerrar' y 'Vincular Gmail' dentro del modal, atrapando con gracia los errores `GMAIL_AUTH_FAILED` y `GMAIL_NOT_CONNECTED`.<br>- **Planificador**: Adición de botón con gradiente animado llamativo 'Vincular Gmail' en la cabecera del planificador para que gerentes como Alfonso vinculen su OAuth de Google fácilmente.<br>- **Inventario (Órdenes Extraordinarias)**: Desarrollo de soporte para agregar artículos extraordinarios o de emergencia (no presentes en la plantilla regular) a la orden diaria.<br>- **QuickBooks (Catálogos)**: Sincronización de plantillas desde "QBO Recurring Transactions" en lugar de estimados recientes, evitando que los pedidos especiales o modificados contaminen la plantilla base de la tienda.</div>
+                                          <div class="en-desc">- Planner (Gmail Connect): resolved critical loop trapping managers in the violation modal when Gmail was disconnected. Coded close buttons and connect shortcut triggers, handling `GMAIL_AUTH_FAILED` gracefully.<br>- Planner UI: created animated visual button in planner header to guide managers (like Alfonso) to complete Google OAuth setup.<br>- Inventory (Emergency Items): added support for inserting extraordinary/emergency products into daily orders.<br>- QuickBooks Template Sync: refactored sync rules to fetch catalog configurations from QuickBooks Recurring Transactions to prevent catalog pollution from past estimates.</div>
+                                     </div>
+                                 </td>
+                             </tr>
+                             <tr>
+                                 <td><strong>07-Jul-2026</strong></td>
+                                 <td>6:00 PM - 8:00 PM</td>
+                                 <td style="text-align: center; font-weight: 700;">2.0</td>
+                                 <td><span class="table-badge-module">Inventario</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Historial y Sobrantes**: Creación de las pestañas **Historial** y **Sobrantes** con un selector y navegador de semanas unificado.<br>- **Historial**: Tablero para auditar y buscar órdenes anteriores por fecha con cargador optimizado a través de Server Actions (`fetchHistoryData`) que evitan restricciones RLS de Supabase.<br>- **Sobrantes**: Matriz interactiva de artículos contra días de la semana para auditar el desperdicio y sobrantes históricos de la tienda.</div>
+                                          <div class="en-desc">- History & Leftovers Tabs: built History and Leftovers tabs with shared week navigator state.<br>- History tab: created list to search past orders using server action (`fetchHistoryData`) to bypass database RLS constraints.<br>- Leftovers tab: programmed interactive leftovers matrix (items x days of the week) to monitor waste logs.</div>
+                                     </div>
+                                 </td>
+                             </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1686,31 +1722,31 @@
                     <div class="parallel-card">
                         <h4>
                             <span>Pruebas en Sucursal/Local</span>
-                            <span class="hours">3.0 hrs</span>
+                            <span class="hours">4.5 hrs</span>
                         </h4>
                         <p>
-                            Ejecución de servidores de desarrollo locales y emuladores móviles de la app. Pruebas táctiles y de arrastre (drag-and-drop) en tiempo real para asegurar que todo sea fácil de usar en las tabletas e iPhones.
-                            <span class="en-text">Launching local testing servers and mobile emulators to validate touch layouts, animations, and drag-and-drop simplicity on physical devices.</span>
+                            Ejecución de servidores de desarrollo locales y emuladores móviles de la app. Pruebas táctiles, formatos de impresión, y validación de flujos de autenticación OAuth de Google Workspace.
+                            <span class="en-text">Launching local testing servers and emulators. Tested print layouts, tablet scroll constraints, and Google Workspace OAuth path redirects.</span>
                         </p>
                     </div>
                     <div class="parallel-card">
                         <h4>
                             <span>Monitoreo DB y QuickBooks API</span>
-                            <span class="hours">2.5 hrs</span>
+                            <span class="hours">4.0 hrs</span>
                         </h4>
                         <p>
-                            Monitoreo de bases de datos de inventario y respuestas de la API de QuickBooks. Diseño de scripts de sincronización de ventas, marcas horarias diarias y corrección de discrepancias en costos.
-                            <span class="en-text">Monitoring databases and QuickBooks API logs. Writing manual scripts to synchronize sales history, daily work hours, and correct price discrepancies.</span>
+                            Monitoreo de bases de datos de inventario y respuestas de la API de QuickBooks y NWS. Auditorías de políticas RLS y flujos de RLS-bypass para historiales de orden.
+                            <span class="en-text">Monitoring databases, QuickBooks endpoints, and NWS logs. Configured Postgres RLS bypass functions for historical weekly matrix sheets.</span>
                         </p>
                     </div>
                     <div class="parallel-card">
                         <h4>
                             <span>Planificación y Diseño</span>
-                            <span class="hours">2.0 hrs</span>
+                            <span class="hours">3.0 hrs</span>
                         </h4>
                         <p>
-                            Investigación técnica para conectar sistemas externos (plataforma de Basecamp, sensores de velocidad del Drive-Thru y traductor de menús de QuickBooks) y diagramado de interfaces.
-                            <span class="en-text">Technical research to connect third-party platforms (Basecamp OAuth, Drive-Thru speed sensors, and Toast/QuickBooks menus) and planning layouts.</span>
+                            Investigación técnica para heredar configuraciones de QBO Recurring Transactions, diseño de matrices visuales de desperdicios y telemetría predictiva del clima.
+                            <span class="en-text">Scoping QuickBooks Recurring Transactions mapping, designing leftovers grids layouts, and planning weather pace telemetry formulas.</span>
                         </p>
                     </div>
                 </div>
@@ -1722,7 +1758,7 @@
                 <div class="modules-summary">
                     <div class="module-summary-item">
                         <span>Actividades, Planificador y Horarios / Activities & Scheduling</span>
-                        <span class="hours">0.0 hrs</span>
+                        <span class="hours">4.0 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Clon y Sincronizador de Basecamp / Basecamp Integration</span>
@@ -1738,7 +1774,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Pedidos y Sincronización QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">28.0 hrs</span>
+                        <span class="hours">38.5 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
