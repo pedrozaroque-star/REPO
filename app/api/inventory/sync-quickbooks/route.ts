@@ -58,6 +58,7 @@
  *   debe ajustar la unidad correcta después.
  * - El matching de nombres es exact-match case-insensitive con trim.
  * - [2026-06-19] Added smart price protection: multiplier from DB, max_drop_percent blocking.
+ * - [2026-07-08] Fixed liquids template matching to search specifically for 'orden liquidos' to prevent 'Bodega Liquidos' from overwriting it.
  */
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
@@ -407,7 +408,7 @@ export async function POST() {
 
                 if (templateName.includes('orden diaria')) {
                     dailyTemplatesByCustomerId.set(String(customerId), est);
-                } else if (templateName.includes('liquido') || templateName.includes('liquidos')) {
+                } else if (templateName.includes('orden liquidos') || templateName.includes('orden de liquidos')) {
                     liquidsTemplate = est;
                 }
             });
