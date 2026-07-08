@@ -13,13 +13,27 @@
 // HELPERS
 // ============================================================================
 
-/** Obtiene el lunes de la semana de una fecha dada */
+/** Obtiene el lunes de la semana de una fecha dada (calendario puro) */
 export function getMonday(d: Date): string {
     const date = new Date(d)
     date.setHours(0, 0, 0, 0)
     const day = date.getDay()
     const diff = date.getDate() - day + (day === 0 ? -6 : 1)
     return new Date(date.setDate(diff)).toISOString().split('T')[0]
+}
+
+/**
+ * Obtiene el lunes de la semana de NEGOCIO actual.
+ * El día laboral empieza a las 6:00 AM y termina a las 5:59 AM del siguiente día.
+ * Entonces lunes 1:00 AM = todavía es "domingo" → retorna el lunes de la semana anterior.
+ */
+export function getBusinessMonday(d: Date = new Date()): string {
+    const adjusted = new Date(d)
+    if (adjusted.getHours() < 6) {
+        adjusted.setDate(adjusted.getDate() - 1) // Retroceder al día laboral anterior
+    }
+    adjusted.setHours(12, 0, 0, 0)
+    return getMonday(adjusted)
 }
 
 /** Suma días a una fecha string YYYY-MM-DD */

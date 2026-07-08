@@ -50,7 +50,7 @@ import {
     saveWeeklyBases, fetchMappedItems, fetchHistoryData
 } from './actions'
 import {
-    getMonday, addDays,
+    getMonday, getBusinessMonday, addDays,
     type OrderableItem, type WeeklyBaseRecord, type ParIdealRecord,
     type CalculatedOrderLine
 } from './utils'
@@ -102,7 +102,7 @@ export default function InventoryOrdersPage() {
     const { t, language } = useLanguage()
 
     // --- State ---
-    const [activeMonday, setActiveMonday] = useState<string>(getMonday(new Date()))
+    const [activeMonday, setActiveMonday] = useState<string>(getBusinessMonday(new Date()))
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
     const [activeTab, setActiveTab] = useState<TabId>('daily_order')
@@ -155,7 +155,7 @@ export default function InventoryOrdersPage() {
     const [savingModal, setSavingModal] = useState(false)
 
     // History tab state
-    const [historyMonday, setHistoryMonday] = useState<string>(getMonday(new Date()))
+    const [historyMonday, setHistoryMonday] = useState<string>(getBusinessMonday(new Date()))
     const [historyOrders, setHistoryOrders] = useState<any[]>([])
     const [historyCounts, setHistoryCounts] = useState<Record<string, Record<string, number>>>({})
     const [historyLoading, setHistoryLoading] = useState(false)
