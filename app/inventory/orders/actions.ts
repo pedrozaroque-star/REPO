@@ -334,6 +334,44 @@ export async function saveWeeklyBases(
 }
 
 /**
+ * Carga datos del historial para las pestañas Historial y Sobrantes.
+ * Usa el service role key (sin RLS) igual que fetchWeeklyData.
+ */
+export async function fetchHistoryData(
+    storeId: string | number,
+    mondayStr: string
+): Promise<{ orders: any[]; counts: Record<string, Record<string, number>> }> {
+    const sunday = addDays(mondayStr, 6)
+
+    // Fetch ALL orders for this week (both daily and liquids)
+    const { data: ordersData } = await supabase
+        .from('inventory_orders')
+        .select('*, inventory_order_lines(*)')
+        .eq('store_id', storeId)
+        .eq('week_start_date', mondayStr)
+        .order('order_date', { ascending: true })
+
+    // Fetch counts (sobrantes) for the week
+    const { data: countsData } = await supabase
+        .from('inventory_counts')
+        .select('*')
+        .eq('store_id', storeId.toString())
+        .gte('count_date', mondayStr)
+        .lte('count_date', sunday)
+
+    // Build counts map: { itemId: { dateStr: value } }
+    const countsMap: Record<string, Record<string, number>> = {}
+    if (countsData) {
+        for (const c of countsData) {
+            if (!countsMap[c.inventory_item_id]) countsMap[c.inventory_item_id] = {}
+            countsMap[c.inventory_item_id][c.count_date] = c.quantity_on_hand
+        }
+    }
+
+    return { orders: ordersData || [], counts: countsMap }
+}
+
+/**
  * Calcula la orden del día para una fecha específica.
  * ORDER = PAR_mañana - Sobrante_hoy
  * Para domingo: nextDay es Lunes de la PRÓXIMA semana

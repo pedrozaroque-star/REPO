@@ -47,7 +47,7 @@ import {
     calculateDailyOrder, updateWeeklyBase, updateDailyLeftover,
     clonePreviousWeekBases, copyFromParIdeal, linkExcelItem,
     saveOrderDraft, executeWeekRollover, fetchAnalysisData,
-    saveWeeklyBases, fetchMappedItems
+    saveWeeklyBases, fetchMappedItems, fetchHistoryData
 } from './actions'
 import {
     getMonday, addDays,
@@ -81,7 +81,7 @@ function getLocalBusinessDate(d: Date = new Date()): string {
 // ============================================================================
 // TYPES
 // ============================================================================
-type TabId = 'daily_order' | 'weekly_config'
+type TabId = 'daily_order' | 'weekly_config' | 'history' | 'leftovers'
 
 const WEEK_DAYS = [
     { key: 'mon', baseField: 'mon_par', offset: 0 },
@@ -99,7 +99,7 @@ const WEEK_DAYS = [
 export default function InventoryOrdersPage() {
     const { user } = useAuth()
     const supabase = createClient()
-    const { t } = useLanguage()
+    const { t, language } = useLanguage()
 
     // --- State ---
     const [activeMonday, setActiveMonday] = useState<string>(getMonday(new Date()))
@@ -153,6 +153,12 @@ export default function InventoryOrdersPage() {
     const [modalLines, setModalLines] = useState<any[]>([])
     const [modalNotes, setModalNotes] = useState('')
     const [savingModal, setSavingModal] = useState(false)
+
+    // History tab state
+    const [historyMonday, setHistoryMonday] = useState<string>(getMonday(new Date()))
+    const [historyOrders, setHistoryOrders] = useState<any[]>([])
+    const [historyCounts, setHistoryCounts] = useState<Record<string, Record<string, number>>>({})
+    const [historyLoading, setHistoryLoading] = useState(false)
     const [sendingModal, setSendingModal] = useState(false)
 
     const weekDays = WEEK_DAYS.map(d => ({
@@ -281,6 +287,25 @@ export default function InventoryOrdersPage() {
             fetchAnalysisData(storeId).then(setAnalysisData)
         }
     }, [activeTab, storeId])
+
+    // Load history/leftovers data when tab or week changes
+    useEffect(() => {
+        if (!storeId || (activeTab !== 'history' && activeTab !== 'leftovers')) return
+        
+        async function loadHistoryData() {
+            setHistoryLoading(true)
+            try {
+                const result = await fetchHistoryData(storeId, historyMonday)
+                setHistoryOrders(result.orders)
+                setHistoryCounts(result.counts)
+            } catch (e) {
+                console.error('Error loading history data:', e)
+            } finally {
+                setHistoryLoading(false)
+            }
+        }
+        loadHistoryData()
+    }, [activeTab, storeId, historyMonday])
 
     // --- Edit Modal Handlers ---
     function handleOpenEditModal(order: any) {
@@ -661,6 +686,7 @@ export default function InventoryOrdersPage() {
         if (!validateFlanAndCheesecake(orderLines)) return
         setSaving(true)
         const lines = orderLines.filter(l => {
+            if (l.leftover_value === null || l.leftover_value === undefined) return false
             const adj = adjustments[l.inventory_item_id]
             const finalQty = adj !== undefined ? adj : l.calculated_qty
             return finalQty > 0
@@ -686,6 +712,7 @@ export default function InventoryOrdersPage() {
         // incluso si la orden ya existe (podría tener 0 líneas de un guardado parcial previo)
         setSaving(true)
         const lines = orderLines.filter(l => {
+            if (l.leftover_value === null || l.leftover_value === undefined) return false
             const adj = adjustments[l.inventory_item_id]
             const finalQty = adj !== undefined ? adj : l.calculated_qty
             return finalQty > 0
@@ -876,6 +903,7 @@ export default function InventoryOrdersPage() {
 
     // Summary cards for Order tab
     const itemsToOrder = orderLines.filter(l => {
+        if (l.leftover_value === null || l.leftover_value === undefined) return false
         const adj = adjustments[l.inventory_item_id]
         const finalQty = adj !== undefined ? adj : l.calculated_qty
         return finalQty > 0
@@ -1273,6 +1301,37 @@ export default function InventoryOrdersPage() {
                 >
                     ⚙️ {t('bodegaOrders.weeklyConfigTab')}
                 </button>
+
+                {/* Tab: Historial */}
+                <button
+                    onClick={() => setActiveTab('history')}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-t-2xl font-bold text-sm transition-all duration-200 border-t-[3px] ${
+                        activeTab === 'history'
+                            ? 'bg-white border-t-amber-500 text-amber-800 shadow-sm'
+                            : 'bg-slate-100 border-t-transparent text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                    }`}
+                >
+                    📄 {t('bodegaOrders.historyTab')}
+                    {orders && orders.length > 0 && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                            activeTab === 'history' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                            {orders.length}
+                        </span>
+                    )}
+                </button>
+
+                {/* Tab: Sobrantes */}
+                <button
+                    onClick={() => setActiveTab('leftovers')}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-t-2xl font-bold text-sm transition-all duration-200 border-t-[3px] ${
+                        activeTab === 'leftovers'
+                            ? 'bg-white border-t-orange-500 text-orange-800 shadow-sm'
+                            : 'bg-slate-100 border-t-transparent text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                    }`}
+                >
+                    📦 {t('bodegaOrders.leftoversTab')}
+                </button>
             </div>
 
             {/* ============ CONTENT ============ */}
@@ -1539,8 +1598,8 @@ export default function InventoryOrdersPage() {
                                                                 />
                                                             </td>
                                                             {/* Final */}
-                                                            <td className="p-2 text-center font-black text-base border-b border-indigo-100 bg-indigo-50/20 text-indigo-800">
-                                                                {finalQty}
+                                                            <td className={`p-2 text-center font-black text-base border-b border-indigo-100 bg-indigo-50/20 ${isZeroLeftover ? 'text-slate-300' : 'text-indigo-800'}`}>
+                                                                {isZeroLeftover ? '-' : finalQty}
                                                             </td>
                                                         </tr>
                                                     )
@@ -1800,95 +1859,6 @@ export default function InventoryOrdersPage() {
                                         </button>
                                     </div>
 
-                                    {/* ---- Weekly estimates history list ---- */}
-                                    {orders && orders.length > 0 && (
-                                        <div className="p-5 border-t border-slate-200 bg-slate-50/20">
-                                            <div className="flex items-center justify-between mb-4">
-                                                <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                                                    📄 Historial de Pedidos de esta Semana
-                                                </h3>
-                                            </div>
-
-                                            {/* Advertencia / Alerta */}
-                                            <div className="mb-4 bg-amber-50 border border-amber-200 p-4 rounded-xl flex gap-3 text-xs text-amber-800 leading-relaxed shadow-sm">
-                                                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                                                <div>
-                                                    <strong className="block font-bold mb-0.5 text-amber-900">⚠️ ADVERTENCIA OPERATIVA</strong>
-                                                    Al **eliminar** un pedido desde esta lista, también se **eliminará de forma definitiva el Estimate en QuickBooks**. 
-                                                    Para **editar** cantidades, simplemente modifícalas en la tabla de arriba y vuelve a hacer clic en &quot;Enviar a QuickBooks&quot;, lo cual actualizará el Estimate existente automáticamente sin crear duplicados.
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {orders.map((order: any) => {
-                                                    const isDeleting = deletingOrderId === order.id
-                                                    return (
-                                                        <div key={order.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow relative flex flex-col justify-between min-h-[140px]">
-                                                            <div>
-                                                                <div className="flex justify-between items-start mb-2">
-                                                                    <span className="font-black text-slate-800 text-sm">📅 Pedido del {order.order_date}</span>
-                                                                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                                                                        order.status === 'sent' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
-                                                                        order.status === 'draft' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
-                                                                        'bg-blue-100 text-blue-800 border border-blue-200'
-                                                                    }`}>
-                                                                        {t(`bodegaOrders.status.${order.status}`)}
-                                                                    </span>
-                                                                </div>
-
-                                                                {order.qb_estimate_number && (
-                                                                    <div className="text-xs text-emerald-600 font-bold mb-1 flex items-center gap-1">
-                                                                        <span>Estimate QB: #{order.qb_estimate_number}</span>
-                                                                    </div>
-                                                                )}
-
-                                                                <div className="text-[11px] text-slate-400 mt-1">
-                                                                    Creado por: {order.created_by || 'Sistema'}
-                                                                </div>
-
-                                                                {order.notes && (
-                                                                    <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded-lg mt-2 border border-slate-100 italic truncate max-h-[50px]">
-                                                                        &quot;{order.notes}&quot;
-                                                                    </p>
-                                                                )}
-                                                            </div>
-
-                                                            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                                                                <div className="flex gap-2">
-                                                                    {order.qb_estimate_number ? (
-                                                                        <button 
-                                                                            onClick={() => window.open(`/api/inventory/orders/estimate-pdf?estimateId=${order.qb_estimate_id}`, '_blank')}
-                                                                            className="text-xs text-blue-600 hover:text-blue-800 font-bold transition-colors"
-                                                                        >
-                                                                            🖨️ PDF
-                                                                        </button>
-                                                                    ) : (
-                                                                        <span className="text-[11px] text-slate-400">Sin QB</span>
-                                                                    )}
-
-                                                                    <button
-                                                                        onClick={() => handleOpenEditModal(order)}
-                                                                        className="text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-0.5"
-                                                                    >
-                                                                        ✏️ Editar
-                                                                    </button>
-                                                                </div>
-
-                                                                <button
-                                                                    onClick={() => handleDeleteOrder(order.id, order.qb_estimate_number)}
-                                                                    disabled={isDeleting || loading}
-                                                                    className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50 p-1.5 rounded-lg font-bold flex items-center gap-1 transition-all disabled:opacity-50"
-                                                                >
-                                                                    <Trash2 size={13} className={isDeleting ? 'animate-pulse' : ''} />
-                                                                    {isDeleting ? 'Eliminando...' : 'Eliminar'}
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             )
                         })()}
@@ -2124,6 +2094,267 @@ export default function InventoryOrdersPage() {
                                 </div>
                             </div>
                         )}
+
+                        {/* ======================================================== */}
+                        {/* TAB 3: HISTORY                                            */}
+                        {/* ======================================================== */}
+                        {activeTab === 'history' && (
+                            <div className="p-6">
+                                {/* Header + Week Navigator */}
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
+                                    <div>
+                                        <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                                            📄 {t('bodegaOrders.historyTab')}
+                                        </h2>
+                                        <p className="text-sm text-slate-500 mt-0.5">
+                                            {language === 'es' 
+                                                ? `Pedidos registrados de la semana` 
+                                                : `Registered orders for the week`}
+                                        </p>
+                                    </div>
+                                    {/* Week navigator */}
+                                    <div className="flex items-center gap-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                        <button className="px-3 py-2.5 hover:bg-slate-100 transition-colors" onClick={() => setHistoryMonday(addDays(historyMonday, -7))}>
+                                            <ArrowLeft className="w-4 h-4 text-slate-500" />
+                                        </button>
+                                        <div className="px-3 py-2 font-bold text-sm border-x border-slate-200 min-w-[140px] text-center">
+                                            {historyMonday === getMonday(new Date()) && <span className="text-xs text-emerald-600 block font-medium">{language === 'es' ? 'Semana Actual' : 'Current Week'}</span>}
+                                            {historyMonday} → {addDays(historyMonday, 6)}
+                                        </div>
+                                        <button className="px-3 py-2.5 hover:bg-slate-100 transition-colors" onClick={() => setHistoryMonday(addDays(historyMonday, 7))}>
+                                            <ArrowRight className="w-4 h-4 text-slate-500" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Advertencia */}
+                                <div className="mb-5 bg-amber-50 border border-amber-200 p-4 rounded-xl flex gap-3 text-xs text-amber-800 leading-relaxed shadow-sm">
+                                    <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                                    <div>
+                                        <strong className="block font-bold mb-0.5 text-amber-900">⚠️ {language === 'es' ? 'ADVERTENCIA OPERATIVA' : 'OPERATIONAL WARNING'}</strong>
+                                        {language === 'es' 
+                                            ? 'Al eliminar un pedido, también se eliminará el Estimate en QuickBooks. Para editar cantidades, modifícalas en "Pedido del Día" y re-envía a QB.'
+                                            : 'Deleting an order will also delete the QuickBooks Estimate. To edit quantities, modify them in "Daily Order" and re-send to QB.'}
+                                    </div>
+                                </div>
+
+                                {historyLoading ? (
+                                    <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
+                                        <div className="w-8 h-8 border-4 border-amber-200 border-t-amber-600 rounded-full animate-spin" />
+                                        {language === 'es' ? 'Cargando historial...' : 'Loading history...'}
+                                    </div>
+                                ) : historyOrders.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {historyOrders.map((order: any) => {
+                                            const isDeleting = deletingOrderId === order.id
+                                            return (
+                                                <div key={order.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow relative flex flex-col justify-between min-h-[160px]">
+                                                    <div>
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <span className="font-black text-slate-800 text-sm">📅 {language === 'es' ? 'Pedido del' : 'Order from'} {order.order_date}</span>
+                                                            <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                                                order.status === 'sent' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                                                order.status === 'draft' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
+                                                                'bg-blue-100 text-blue-800 border border-blue-200'
+                                                            }`}>
+                                                                {t(`bodegaOrders.status.${order.status}`)}
+                                                            </span>
+                                                        </div>
+
+                                                        {order.qb_estimate_number && (
+                                                            <div className="text-xs text-emerald-600 font-bold mb-1 flex items-center gap-1">
+                                                                <span>Estimate QB: #{order.qb_estimate_number}</span>
+                                                            </div>
+                                                        )}
+
+                                                        <div className="text-[11px] text-slate-400 mt-1">
+                                                            {language === 'es' ? 'Creado por' : 'Created by'}: {order.created_by || 'Sistema'}
+                                                        </div>
+
+                                                        {order.notes && (
+                                                            <p className="text-xs text-slate-500 bg-slate-50 p-2 rounded-lg mt-2 border border-slate-100 italic truncate max-h-[50px]">
+                                                                &quot;{order.notes}&quot;
+                                                            </p>
+                                                        )}
+
+                                                        {order.inventory_order_lines && (
+                                                            <div className="text-[11px] text-blue-500 mt-2 font-medium">
+                                                                📦 {order.inventory_order_lines.length} {language === 'es' ? 'items' : 'items'}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                                                        <div className="flex gap-2">
+                                                            {order.qb_estimate_number ? (
+                                                                <button 
+                                                                    onClick={() => window.open(`/api/inventory/orders/estimate-pdf?estimateId=${order.qb_estimate_id}`, '_blank')}
+                                                                    className="text-xs text-blue-600 hover:text-blue-800 font-bold transition-colors flex items-center gap-1"
+                                                                >
+                                                                    🖨️ PDF
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-[11px] text-slate-400">{language === 'es' ? 'Sin QB' : 'No QB'}</span>
+                                                            )}
+
+                                                            <button
+                                                                onClick={() => handleOpenEditModal(order)}
+                                                                className="text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-0.5"
+                                                            >
+                                                                ✏️ {language === 'es' ? 'Editar' : 'Edit'}
+                                                            </button>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={() => handleDeleteOrder(order.id, order.qb_estimate_number)}
+                                                            disabled={isDeleting || loading}
+                                                            className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50 p-1.5 rounded-lg font-bold flex items-center gap-1 transition-all disabled:opacity-50"
+                                                        >
+                                                            <Trash2 size={13} className={isDeleting ? 'animate-pulse' : ''} />
+                                                            {isDeleting 
+                                                                ? (language === 'es' ? 'Eliminando...' : 'Deleting...') 
+                                                                : (language === 'es' ? 'Eliminar' : 'Delete')}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-16 text-slate-400">
+                                        <div className="text-5xl mb-3">📭</div>
+                                        <p className="text-lg font-bold text-slate-500">
+                                            {language === 'es' ? 'No hay pedidos esta semana' : 'No orders this week'}
+                                        </p>
+                                        <p className="text-sm mt-1">
+                                            {language === 'es' 
+                                                ? 'Los pedidos que generes aparecerán aquí' 
+                                                : 'Orders you create will appear here'}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ======================================================== */}
+                        {/* TAB 4: LEFTOVERS (SOBRANTES)                              */}
+                        {/* ======================================================== */}
+                        {activeTab === 'leftovers' && (() => {
+                            const historyWeekDays = WEEK_DAYS.map(d => ({
+                                ...d,
+                                dateStr: addDays(historyMonday, d.offset),
+                                label: t(`bodegaOrders.${d.key}`),
+                            }))
+                            // Get items that have at least one count this week
+                            const itemsWithCounts = items.filter(item => {
+                                const itemCounts = historyCounts[item.id]
+                                return itemCounts && Object.keys(itemCounts).length > 0
+                            })
+                            // Also include items with no counts for reference
+                            const allOrderableItems = items
+
+                            return (
+                                <div className="p-6">
+                                    {/* Header + Week Navigator */}
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 gap-3">
+                                        <div>
+                                            <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                                                📦 {t('bodegaOrders.leftoversTab')}
+                                            </h2>
+                                            <p className="text-sm text-slate-500 mt-0.5">
+                                                {language === 'es' 
+                                                    ? `Sobrantes capturados por día — ${itemsWithCounts.length} de ${allOrderableItems.length} items con datos` 
+                                                    : `Captured leftovers by day — ${itemsWithCounts.length} of ${allOrderableItems.length} items with data`}
+                                            </p>
+                                        </div>
+                                        {/* Week navigator */}
+                                        <div className="flex items-center gap-0 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                            <button className="px-3 py-2.5 hover:bg-slate-100 transition-colors" onClick={() => setHistoryMonday(addDays(historyMonday, -7))}>
+                                                <ArrowLeft className="w-4 h-4 text-slate-500" />
+                                            </button>
+                                            <div className="px-3 py-2 font-bold text-sm border-x border-slate-200 min-w-[140px] text-center">
+                                                {historyMonday === getMonday(new Date()) && <span className="text-xs text-emerald-600 block font-medium">{language === 'es' ? 'Semana Actual' : 'Current Week'}</span>}
+                                                {historyMonday} → {addDays(historyMonday, 6)}
+                                            </div>
+                                            <button className="px-3 py-2.5 hover:bg-slate-100 transition-colors" onClick={() => setHistoryMonday(addDays(historyMonday, 7))}>
+                                                <ArrowRight className="w-4 h-4 text-slate-500" />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {historyLoading ? (
+                                        <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
+                                            <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin" />
+                                            {language === 'es' ? 'Cargando sobrantes...' : 'Loading leftovers...'}
+                                        </div>
+                                    ) : allOrderableItems.length > 0 ? (
+                                        <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="bg-slate-50 border-b-2 border-slate-200">
+                                                        <th className="sticky left-0 bg-slate-50 p-3 text-left font-black text-slate-700 min-w-[200px] z-10">
+                                                            {language === 'es' ? 'Producto' : 'Product'}
+                                                        </th>
+                                                        {historyWeekDays.map(d => (
+                                                            <th key={d.key} className="p-3 text-center font-bold text-slate-600 min-w-[85px]">
+                                                                <div className="text-xs">{d.label}</div>
+                                                                <div className="text-[10px] text-slate-400 font-normal">{d.dateStr.slice(5)}</div>
+                                                            </th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {allOrderableItems.map((item, idx) => {
+                                                        const itemCounts = historyCounts[item.id] || {}
+                                                        const hasAnyCounts = Object.keys(itemCounts).length > 0
+                                                        
+                                                        return (
+                                                            <tr key={item.id} className={`border-b border-slate-100 transition-colors ${hasAnyCounts ? 'hover:bg-orange-50/30' : 'hover:bg-slate-50/50 opacity-40'}`}>
+                                                                <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+                                                                    <div className="flex flex-col">
+                                                                        {item.order_unit_description && (
+                                                                            <span className="text-[10px] text-slate-400 font-medium leading-tight">{item.order_unit_description}</span>
+                                                                        )}
+                                                                        <span className="font-semibold text-slate-800 text-xs">{item.excel_reference || item.name}</span>
+                                                                    </div>
+                                                                </td>
+                                                                {historyWeekDays.map(d => {
+                                                                    const val = itemCounts[d.dateStr]
+                                                                    const hasVal = val !== undefined && val !== null
+                                                                    return (
+                                                                        <td key={d.key} className={`p-2 text-center font-bold text-sm border-b border-slate-100 ${
+                                                                            hasVal 
+                                                                                ? val === 0 
+                                                                                    ? 'text-red-500 bg-red-50/30' 
+                                                                                    : 'text-orange-700 bg-orange-50/20'
+                                                                                : 'text-slate-200'
+                                                                        }`}>
+                                                                            {hasVal ? val : '-'}
+                                                                        </td>
+                                                                    )
+                                                                })}
+                                                            </tr>
+                                                        )
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-16 text-slate-400">
+                                            <div className="text-5xl mb-3">📦</div>
+                                            <p className="text-lg font-bold text-slate-500">
+                                                {language === 'es' ? 'No hay sobrantes registrados esta semana' : 'No leftovers recorded this week'}
+                                            </p>
+                                            <p className="text-sm mt-1">
+                                                {language === 'es' 
+                                                    ? 'Los sobrantes capturados aparecerán aquí' 
+                                                    : 'Captured leftovers will appear here'}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })()}
                     </>
                 )}
             </div>
