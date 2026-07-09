@@ -399,6 +399,7 @@ export async function POST() {
             // Agrupar los templates de tipo Estimate por Customer ID
             const dailyTemplatesByCustomerId = new Map<string, any>();
             let liquidsTemplate: any = null;
+            let uniformsTemplate: any = null;
 
             allRecurring.forEach((t: any) => {
                 if (!t.Estimate) return;
@@ -410,6 +411,8 @@ export async function POST() {
                     dailyTemplatesByCustomerId.set(String(customerId), est);
                 } else if (templateName.includes('orden liquidos') || templateName.includes('orden de liquidos')) {
                     liquidsTemplate = est;
+                } else if (templateName.includes('orden uniformes') || templateName.includes('orden de uniformes')) {
+                    uniformsTemplate = est;
                 }
             });
 
@@ -523,6 +526,67 @@ export async function POST() {
                     }
                 } catch (liquidsError: any) {
                     console.error('[QB-Sync] ❌ Error en sync de template de líquidos:', liquidsError.message);
+                }
+
+                // 3. Sincronizar template único de Uniformes
+                try {
+                    if (uniformsTemplate) {
+                        console.log(`[QB-Sync] 🎽 Sincronizando template único de Uniformes: "${uniformsTemplate.RecurringInfo?.Name || 'Uniformes'}"`);
+                        const uniLines = uniformsTemplate.Line || [];
+                        const uniformsItems: any[] = [];
+                        let uniPos = 1;
+                        
+                        for (const line of uniLines) {
+                            if (line.DetailType === 'SalesItemLineDetail' && line.SalesItemLineDetail?.ItemRef?.value) {
+                                const qbItemId = line.SalesItemLineDetail.ItemRef.value;
+                                const qbItemName = line.SalesItemLineDetail.ItemRef.name || 'Unknown';
+                                
+                                const mapping = qbToInternal.get(qbItemId);
+                                if (!mapping) continue;
+
+                                uniformsItems.push({
+                                    inventory_item_id: mapping.inventory_item_id,
+                                    qb_item_id: qbItemId,
+                                    qb_item_name: qbItemName,
+                                    sort_position: uniPos++
+                                });
+                            }
+                        }
+
+                        if (uniformsItems.length > 0) {
+                            // Limpiar todos los templates de uniformes anteriores en la DB
+                            await supabase.from('store_order_template').delete().eq('order_type', 'uniforms');
+
+                            // Preparar registros para todas las tiendas
+                            const allStoresUniforms: any[] = [];
+                            activeStores.forEach(store => {
+                                uniformsItems.forEach(item => {
+                                    allStoresUniforms.push({
+                                        store_id: store.id,
+                                        inventory_item_id: item.inventory_item_id,
+                                        qb_item_id: item.qb_item_id,
+                                        qb_item_name: item.qb_item_name,
+                                        sort_position: item.sort_position,
+                                        order_type: 'uniforms'
+                                    });
+                                });
+                            });
+
+                            // Insertar en lotes de 100
+                            for (let i = 0; i < allStoresUniforms.length; i += 100) {
+                                const batch = allStoresUniforms.slice(i, i + 100);
+                                const { error: insertErr } = await supabase.from('store_order_template').insert(batch);
+                                if (insertErr) {
+                                    console.error(`[QB-Sync] ❌ Error insertando batch de uniformes:`, insertErr.message);
+                                }
+                            }
+                            console.log(`[QB-Sync] 🎽 Template único de Uniformes sincronizado para las ${activeStores.length} tiendas (${uniformsItems.length} items c/u)`);
+                        }
+                    } else {
+                        console.log('[QB-Sync] ⚠️ No se encontró ningún Template de Uniformes en Recurring Transactions de QBO.');
+                    }
+                } catch (uniformsError: any) {
+                    console.error('[QB-Sync] ❌ Error en sync de template de uniformes:', uniformsError.message);
                 }
             }
         } catch (templateError: any) {

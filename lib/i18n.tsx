@@ -1884,6 +1884,7 @@ const dictionaries: Record<Language, Dictionary> = {
             ajuste: 'Ajuste',
             orderToday: 'Pedido de Hoy',
             liquidsTitle: 'Orden Líquidos',
+            uniformsTitle: 'Orden Uniformes',
             printSheet: 'Imprimir Hoja',
         },
         // DRIVE-THRU LEADERBOARD MODULE
@@ -3891,6 +3892,7 @@ const dictionaries: Record<Language, Dictionary> = {
             ajuste: 'Adjustment',
             orderToday: 'Today\'s Order',
             liquidsTitle: 'Liquids Order',
+            uniformsTitle: 'Uniforms Order',
             printSheet: 'Print Sheet',
         },
         // DRIVE-THRU LEADERBOARD MODULE

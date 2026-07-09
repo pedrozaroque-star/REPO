@@ -34,6 +34,9 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+/** Tipos de orden soportados: diaria, líquidos, uniformes */
+export type OrderType = 'daily' | 'liquids' | 'uniforms'
+
 // ============================================================================
 // HELPERS (private, not exported — no issue with 'use server')
 // ============================================================================
@@ -61,7 +64,7 @@ function getDayKey(dateStr: string): string {
  * Obtiene los items que participan en el sistema de órdenes (con excel_reference).
  * Incluye el qb_item_id si existe el mapeo en quickbooks_mappings.
  */
-export async function fetchOrderableItems(storeId: string | number, orderType: 'daily' | 'liquids' = 'daily') {
+export async function fetchOrderableItems(storeId: string | number, orderType: OrderType = 'daily') {
     // 1. Intentar obtener el template específico de esta tienda
     const { data: template, error: templateError } = await supabase
         .from('store_order_template')
@@ -190,7 +193,7 @@ export async function fetchMappedItems() {
 /**
  * Datos completos para una semana: bases, sobrantes, PAR ideal, e historial de órdenes
  */
-export async function fetchWeeklyData(storeId: string | number, mondayStr: string, orderType: 'daily' | 'liquids' = 'daily') {
+export async function fetchWeeklyData(storeId: string | number, mondayStr: string, orderType: OrderType = 'daily') {
     // Bases de esta semana
     const { data: bases } = await supabase
         .from('inventory_weekly_bases')
@@ -578,7 +581,7 @@ export async function saveOrderDraft(
     lines: { inventory_item_id: string; calculated_qty: number; adjusted_qty?: number; par_value: number; leftover_value: number }[],
     createdBy?: string,
     notes?: string,
-    orderType: 'daily' | 'liquids' = 'daily'
+    orderType: OrderType = 'daily'
 ) {
     // Si la orden ya existe y fue enviada a QB, preservar su status actual
     // (no resetear a 'draft' un pedido que ya tiene Estimate en QB)
@@ -639,7 +642,7 @@ export async function saveOrderDraft(
 }
 
 /** Obtiene el historial de órdenes de una tienda */
-export async function getOrderHistory(storeId: string | number, limit: number = 30, orderType: 'daily' | 'liquids' = 'daily') {
+export async function getOrderHistory(storeId: string | number, limit: number = 30, orderType: OrderType = 'daily') {
     const { data, error } = await supabase
         .from('inventory_orders')
         .select('*')

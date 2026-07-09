@@ -43,7 +43,7 @@ const DAY_FIELDS = ['mon_par', 'tue_par', 'wed_par', 'thu_par', 'fri_par', 'sat_
 export default function PrintSheetPage() {
     const searchParams = useSearchParams()
     const storeIdParam = searchParams.get('storeId') || '14'
-    const orderTypeParam = (searchParams.get('orderType') || 'daily') as 'daily' | 'liquids'
+    const orderTypeParam = (searchParams.get('orderType') || 'daily') as 'daily' | 'liquids' | 'uniforms'
     const weekParam = searchParams.get('week')
 
     const [items, setItems] = useState<OrderableItem[]>([])
@@ -102,7 +102,7 @@ export default function PrintSheetPage() {
         )
     }
 
-    const typeLabel = orderTypeParam === 'liquids' ? 'LÍQUIDOS' : 'DIARIO'
+    const typeLabel = orderTypeParam === 'liquids' ? 'LÍQUIDOS' : orderTypeParam === 'uniforms' ? 'UNIFORMES' : 'DIARIO'
 
     return (
         <>

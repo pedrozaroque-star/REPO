@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Construir el memo con observaciones si las hay
-        const prefix = order.order_type === 'liquids' ? '[LÍQUIDOS] ' : '';
+        const prefix = order.order_type === 'liquids' ? '[LÍQUIDOS] ' : order.order_type === 'uniforms' ? '[UNIFORMES] ' : '';
         const memoBase = `${prefix}Pedido ${store?.name || 'Tienda'} - ${order.order_date}`;
         const memo = order.notes ? `${memoBase}\n📝 ${order.notes}` : memoBase;
 

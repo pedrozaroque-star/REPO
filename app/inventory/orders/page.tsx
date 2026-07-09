@@ -47,7 +47,8 @@ import {
     calculateDailyOrder, updateWeeklyBase, updateDailyLeftover,
     clonePreviousWeekBases, copyFromParIdeal, linkExcelItem,
     saveOrderDraft, executeWeekRollover, fetchAnalysisData,
-    saveWeeklyBases, fetchMappedItems, fetchHistoryData
+    saveWeeklyBases, fetchMappedItems, fetchHistoryData,
+    type OrderType
 } from './actions'
 import {
     getMonday, getBusinessMonday, addDays,
@@ -106,7 +107,7 @@ export default function InventoryOrdersPage() {
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
     const [activeTab, setActiveTab] = useState<TabId>('daily_order')
-    const [orderType, setOrderType] = useState<'daily' | 'liquids'>('daily')
+    const [orderType, setOrderType] = useState<OrderType>('daily')
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [hasBaseChanges, setHasBaseChanges] = useState(false)
@@ -1217,7 +1218,7 @@ export default function InventoryOrdersPage() {
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 gap-4">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                        📦 {orderType === 'daily' ? t('bodegaOrders.title') : t('bodegaOrders.liquidsTitle')}
+                        📦 {orderType === 'daily' ? t('bodegaOrders.title') : orderType === 'liquids' ? t('bodegaOrders.liquidsTitle') : t('bodegaOrders.uniformsTitle')}
                         <button
                             onClick={() => setShowInfoModal(true)}
                             className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-full transition-all"
@@ -1251,6 +1252,16 @@ export default function InventoryOrdersPage() {
                             }`}
                         >
                             🧴 {t('bodegaOrders.liquidsTitle')}
+                        </button>
+                        <button
+                            onClick={() => setOrderType('uniforms')}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition-all ${
+                                orderType === 'uniforms'
+                                    ? 'bg-white text-slate-800 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                            🎽 {t('bodegaOrders.uniformsTitle')}
                         </button>
                     </div>
 
