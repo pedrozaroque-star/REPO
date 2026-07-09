@@ -6,7 +6,7 @@
   2. Todos los estilos están embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS.
   3. No depende de redes CDN externas. Todo es nativo o usa vectores SVG embebidos.
 @notes
-  - Creado específicamente para registrar el avance de Julio de 2026 (42.5 horas acumuladas hasta la fecha).
+  - Creado específicamente para registrar el avance de Julio de 2026 (50.5 horas acumuladas hasta la fecha).
   - Incluye los desgloses diarios de julio 1 y julio 2 con la reestructuración completa del módulo de Pedidos de Bodega, integraciones de QuickBooks y reordenamiento de menús de navegación.
 -->
 <!DOCTYPE html>
@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">42.5</div>
+                <div class="stat-number" style="color: #e05638;">50.5</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1630,7 +1630,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 42.5 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 50.5 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1710,6 +1710,18 @@
                                      </div>
                                  </td>
                              </tr>
+                             <tr>
+                                 <td><strong>08-Jul-2026</strong></td>
+                                 <td>10:00 AM - 3:05 PM</td>
+                                 <td style="text-align: center; font-weight: 700;">8.0</td>
+                                 <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">QuickBooks</span> <span class="table-badge-module">Base de Datos</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Crisis de Producción QuickBooks OAuth** (10:00 AM - 11:30 AM): Los tokens de autenticación de QuickBooks expiraron en producción durante horario laboral, bloqueando la generación de PDFs de estimados. Diagnóstico profundo del flujo de refresh tokens, ejecución de script interactivo de re-autenticación, descubrimiento de credenciales DIFERENTES entre Vercel (producción) y localhost (sandbox) como causa raíz del fallo persistente. Actualización del callback en Vercel para mostrar errores verbosos detallados en lugar del genérico 'Authentication Failed'.<br>- **5 Bugs Críticos en Orden Diaria** (11:30 AM - 1:15 PM): (1) Corrección de `saveOrderDraft` para que no resetee el estado a 'draft' cuando ya existe un Estimate en QuickBooks. (2-3) Las funciones de edición y reenvío de pedidos ahora respetan la fecha `week_start_date` de la orden original en lugar de la semana activa del navegador. (4) Cantidades negativas imposibles: se forzó un mínimo de 0 cuando el sobrante excede el PAR. (5) Eliminación del viejo sincronizador de plantillas basado en Estimates recientes que marcaba incorrectamente artículos como descontinuados.<br>- **Día Laboral 6:00 AM**: Creación de `getBusinessMonday()` para resolver el problema de que entre medianoche y las 5:59 AM los mánagers no podían capturar sobrantes ni generar órdenes porque el sistema saltaba a la semana siguiente prematuramente.<br>- **Bugs Menores**: (M1) Conversión de `storeId` a string para evitar incompatibilidades entre tipo texto y numérico en la base de datos. (M4) Limpieza automática de listeners de mensajes del popup de QuickBooks si el mánager lo cierra. (M5) Preservación de artículos extraordinarios/emergencia al guardar bases de PAR diario.<br>- **Migración Masiva de Datos - Sobrantes para 14 Tiendas** (2:30 PM - 3:05 PM): Importación masiva de datos históricos de sobrantes desde archivos Excel hacia la base de datos de Supabase para 14 sucursales (Rialto, West Covina, Azusa, Broadway, Central, Slauson, Hollywood, Santa Ana, La Puente, Huntington Park, Norwalk, Bell, Lynwood, Compton). Resolución de bug crítico de precedencia donde Buche, Carnitas y Chorizo se mapeaban erróneamente a items de Bodega en lugar de items de Restaurante. Corrección del mapeo de Onion/Cilantro Mixta para separar correctamente el producto a granel (1/4 lb) del de porción individual (1 oz).<br>- **Investigación de Items Faltantes en QB Líquidos**: Búsqueda en QuickBooks Recurring Transactions para identificar que la plantilla correcta 'Orden liquidos presiona Use' tiene 31 items, mientras que la vieja 'Bodega Liquidos' solo tiene 25. Restricción del filtro de sincronización para que solo tome la plantilla correcta y no contamine las órdenes diarias de comida.</div>
+                                          <div class="en-desc">- **QuickBooks OAuth Production Crisis** (10:00 AM - 11:30 AM): QuickBooks auth tokens expired in production during business hours, blocking estimate PDF generation. Deep investigation of refresh token flow, interactive re-auth script execution, discovery of DIFFERENT credentials between Vercel (production) and localhost (sandbox) as root cause of persistent failure. Updated Vercel callback with verbose error diagnostics.<br>- **5 Critical Bugs in Daily Orders** (11:30 AM - 1:15 PM): (1) Fixed `saveOrderDraft` to not reset status to 'draft' for orders with existing QB estimates. (2-3) Edit and resubmit functions now use order's original `week_start_date` instead of active browser week. (4) Clamped calculated_qty to 0 minimum when leftovers exceed PAR. (5) Removed legacy template sync that incorrectly marked items as discontinued.<br>- **Business Day Boundary 6AM**: Created `getBusinessMonday()` helper so managers can capture leftovers and generate orders between midnight and 5:59 AM without the system jumping to the next week prematurely.<br>- **Minor Bugs**: (M1) String conversion for storeId on leftover updates. (M4) Auto-cleanup of QB popup message listeners. (M5) Preserve extraordinary items when saving daily PAR bases.<br>- **Mass Data Migration - Leftovers for 14 Stores** (2:30 PM - 3:05 PM): Bulk import of historical leftover data from Excel files to Supabase for 14 locations. Fixed critical precedence bug where Buche, Carnitas, Chorizo matched Bodega items instead of Restaurant items. Fixed Onion/Cilantro Mixta mapping to correctly separate bulk product (1/4 lb) from portion bag (1 oz).<br>- **Missing Items Investigation in QB Liquids**: Searched QuickBooks Recurring Transactions to identify that correct template 'Orden liquidos presiona Use' has 31 items vs old 'Bodega Liquidos' with only 25. Restricted sync filter to use correct template exclusively.</div>
+                                     </div>
+                                 </td>
+                             </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1722,7 +1734,7 @@
                     <div class="parallel-card">
                         <h4>
                             <span>Pruebas en Sucursal/Local</span>
-                            <span class="hours">4.5 hrs</span>
+                            <span class="hours">5.5 hrs</span>
                         </h4>
                         <p>
                             Ejecución de servidores de desarrollo locales y emuladores móviles de la app. Pruebas táctiles, formatos de impresión, y validación de flujos de autenticación OAuth de Google Workspace.
@@ -1732,7 +1744,7 @@
                     <div class="parallel-card">
                         <h4>
                             <span>Monitoreo DB y QuickBooks API</span>
-                            <span class="hours">4.0 hrs</span>
+                            <span class="hours">5.0 hrs</span>
                         </h4>
                         <p>
                             Monitoreo de bases de datos de inventario y respuestas de la API de QuickBooks y NWS. Auditorías de políticas RLS y flujos de RLS-bypass para historiales de orden.
@@ -1774,7 +1786,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Pedidos y Sincronización QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">38.5 hrs</span>
+                        <span class="hours">46.5 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
