@@ -2441,6 +2441,20 @@ export default function InventoryOrdersPage() {
                                 </ol>
                             </div>
 
+                            {/* ORDEN DE UNIFORMES */}
+                            <div className="bg-violet-50/50 border border-violet-100 p-4 rounded-xl">
+                                <h4 className="font-bold text-violet-900 text-sm flex items-center gap-1.5 mb-2">
+                                    🎽 ¿Cómo hacer la Orden de Uniformes?
+                                </h4>
+                                <ol className="list-decimal pl-5 space-y-1.5 text-violet-900/80">
+                                    <li><strong>Cambia el Selector de Arriba:</strong> Selecciona el botón de <strong>"🎽 Orden Uniformes"</strong> en el header.</li>
+                                    <li><strong>Template Único:</strong> A diferencia de la orden diaria (que tiene un template diferente por tienda), la orden de uniformes usa <strong>un solo template maestro</strong> de QuickBooks que aplica a todas las tiendas.</li>
+                                    <li><strong>Misma Mecánica:</strong> Funciona igual que las otras órdenes. Captura sobrantes → el sistema calcula <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-violet-700">PAR − Sobrante</code> → Genera Orden → Envía a QB.</li>
+                                    <li><strong>Identificación:</strong> Al enviarse a QuickBooks, el Estimate se crea con el Customer de tu tienda (nombre, correo, domicilio) y el prefijo <code>[UNIFORMES]</code> en el memo para control administrativo.</li>
+                                    <li><strong>Productos:</strong> Incluye playeras (Team Members, Shift Leader, Assistant Manager, Store Manager), chamarras (rojas y negras) y gorras en todas las tallas disponibles.</li>
+                                </ol>
+                            </div>
+
                             {/* SIGNIFICA CADA COSA */}
                             <div>
                                 <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
