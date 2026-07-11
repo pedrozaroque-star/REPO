@@ -1747,6 +1747,10 @@ const dictionaries: Record<Language, Dictionary> = {
                 activities_label: 'Actividades',
                 more_activities: 'más',
                 section_drivethru: 'DRIVE-THRU',
+                no_activities_assigned: 'Sin actividades asignadas',
+                reassign_position: 'Reasignar Posición',
+                back_to_profile: 'Volver al perfil',
+                leave_vacant: 'Dejar Vacante (Libre)',
             },
             checklist: {
                 btn: 'Checklist',
@@ -3817,6 +3821,10 @@ const dictionaries: Record<Language, Dictionary> = {
                 activities_label: 'Activities',
                 more_activities: 'more',
                 section_drivethru: 'DRIVE-THRU',
+                no_activities_assigned: 'No activities assigned',
+                reassign_position: 'Reassign Position',
+                back_to_profile: 'Back to profile',
+                leave_vacant: 'Leave Vacant (Free)',
             },
             checklist: {
                 btn: 'Checklist',

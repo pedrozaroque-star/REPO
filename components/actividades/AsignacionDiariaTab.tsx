@@ -370,6 +370,7 @@ const BoardSlot: React.FC<BoardSlotProps> = ({
   onClick,
   hasDriveThru = true,
 }) => {
+  const { t } = useLanguage();
   const emp = assignee
     ? employees.find((e) => String(e.id) === String(assignee.employee_id))
     : null;
@@ -431,7 +432,7 @@ const BoardSlot: React.FC<BoardSlotProps> = ({
               : 'text-slate-300 dark:text-slate-600'
           }`}
         >
-          {emp ? emp.chosen_name || emp.first_name : 'Libre'}
+          {emp ? emp.chosen_name || emp.first_name : t('actividades.daily.vacant')}
         </span>
         {emp && (
           <p
@@ -671,13 +672,16 @@ export default function AsignacionDiariaTab() {
     return map;
   }, [assignments, selectedDateStr, activeShift]);
 
-  // Activity map: position_key -> activities[] filtered by shift and selected day frequency
+  // Activity map: position_key -> activities[] filtered by shift, store model, and selected day frequency
   const activityMap = useMemo(() => {
     const map: Record<string, PositionActivity[]> = {};
     
     // Get current day index (0 = Monday, ..., 6 = Sunday)
     const jsDay = selectedDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
     const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
+
+    // Determine current store model for filtering
+    const storeModel = hasDriveThru ? 'DRIVE_THRU' : 'REGULAR';
 
     // Helper matching frequency strings (like 'Diario', 'Domingo', 'Jueves y Domingo', '6')
     const isFreqMatch = (paFrequency: string, dayIdx: number): boolean => {
@@ -705,6 +709,9 @@ export default function AsignacionDiariaTab() {
     positionActivities.forEach((pa) => {
       // Filter by shift
       if (pa.shift !== 'AMBOS' && pa.shift !== activeShift) return;
+
+      // Filter by store model (Regular vs Drive-Thru)
+      if (pa.store_model && pa.store_model !== 'AMBOS' && pa.store_model !== storeModel) return;
       
       // Filter by frequency matching with selectedDay
       if (pa.frequency && !isFreqMatch(pa.frequency, myDayIndex)) return;
@@ -713,7 +720,7 @@ export default function AsignacionDiariaTab() {
       map[pa.position_key].push(pa);
     });
     return map;
-  }, [positionActivities, activeShift, selectedDay]);
+  }, [positionActivities, activeShift, selectedDay, hasDriveThru]);
 
   // ── Data Fetching ──
   const fetchStores = useCallback(async () => {
@@ -958,7 +965,7 @@ export default function AsignacionDiariaTab() {
             employee_id: String(a.employee_id),
             assignment_date: selectedDateStr,
             main_station: a.main_station,
-            sub_position: a.sub_position ? a.sub_position.replace(prevDateStr, selectedDateStr) : `${a.main_station}_${activeShift}`,
+            sub_position: a.sub_position || `${a.main_station}_${activeShift}`,
             station_group: a.station_group,
             tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
           };
@@ -1031,7 +1038,7 @@ export default function AsignacionDiariaTab() {
           employee_id: String(a.employee_id),
           assignment_date: nextAssignDateStr,
           main_station: a.main_station,
-          sub_position: a.sub_position ? a.sub_position.replace(a.assignment_date, nextAssignDateStr) : `${a.main_station}_${activeShift}`,
+          sub_position: a.sub_position || `${a.main_station}_${activeShift}`,
           station_group: a.station_group,
           tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
         };
@@ -2203,7 +2210,7 @@ export default function AsignacionDiariaTab() {
                                   <div className="py-16 flex flex-col items-center justify-center opacity-30">
                                     <ClipboardList size={48} className="mb-3" />
                                     <p className="text-sm font-black text-slate-400 uppercase italic tracking-widest">
-                                      Sin actividades asignadas
+                                      {t('actividades.daily.no_activities_assigned')}
                                     </p>
                                   </div>
                                 )}
@@ -2219,14 +2226,14 @@ export default function AsignacionDiariaTab() {
                       <div className="space-y-6 max-w-4xl mx-auto w-full flex-1 flex flex-col min-h-0">
                         <div className="flex items-center justify-between flex-shrink-0">
                           <h4 className="text-lg sm:text-xl font-black text-slate-400 uppercase tracking-widest italic">
-                            Reasignar Posición
+                            {t('actividades.daily.reassign_position')}
                           </h4>
                           {currentEmp && (
                             <button
                               onClick={() => setIsReassigning(false)}
                               className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 px-3.5 py-1.5 rounded-lg transition-all"
                             >
-                              Volver al perfil
+                              {t('actividades.daily.back_to_profile')}
                             </button>
                           )}
                         </div>
@@ -2244,7 +2251,7 @@ export default function AsignacionDiariaTab() {
                             className="w-full p-4 rounded-xl sm:rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-black uppercase tracking-widest text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all text-left flex items-center gap-4"
                           >
                             <X size={18} />
-                            <span>Dejar Vacante (Libre)</span>
+                            <span>{t('actividades.daily.leave_vacant')}</span>
                           </button>
                           {(() => {
                             // Only show employees scheduled at this store today (from roster)
