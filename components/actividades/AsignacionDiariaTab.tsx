@@ -2023,7 +2023,16 @@ export default function AsignacionDiariaTab() {
                             <X size={18} />
                             <span>Dejar Vacante (Libre)</span>
                           </button>
-                          {employees.map((e) => {
+                          {(() => {
+                            // Only show employees scheduled at this store today (from roster)
+                            const rosterEmployees = todayShifts
+                              .filter(s => !s.is_callback)
+                              .map(s => employees.find(e => String(e.id) === String(s.employee_id)))
+                              .filter((e): e is Employee => !!e)
+                              // Deduplicate (cross-shift employees may appear twice)
+                              .filter((e, idx, arr) => arr.findIndex(x => String(x.id) === String(e.id)) === idx);
+
+                            return rosterEmployees.map((e) => {
                             const shiftSuffix = `_${activeShift}`;
                             const isBusy = assignments.some(
                               (a) =>
@@ -2059,7 +2068,8 @@ export default function AsignacionDiariaTab() {
                                 </div>
                               </button>
                             );
-                          })}
+                          });
+                          })()}
                         </div>
                       </div>
                     );
