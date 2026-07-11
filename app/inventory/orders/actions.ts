@@ -195,6 +195,19 @@ export async function fetchMappedItems() {
  * Datos completos para una semana: bases, sobrantes, PAR ideal, e historial de órdenes
  */
 export async function fetchWeeklyData(storeId: string | number, mondayStr: string, orderType: OrderType = 'daily') {
+    // 0. Obtener las reglas de redondeo de todos los items
+    const { data: items } = await supabase
+        .from('inventory_items')
+        .select('id, order_rounding_rule')
+    const roundingMap = new Map<string, string>()
+    items?.forEach(i => roundingMap.set(i.id, i.order_rounding_rule || 'none'))
+
+    const applyRound = (itemId: string, val: number) => {
+        if (val <= 0) return 0
+        const rule = roundingMap.get(itemId) || 'none'
+        return applyRounding(val, rule)
+    }
+
     // Bases de esta semana
     const { data: bases } = await supabase
         .from('inventory_weekly_bases')
@@ -203,10 +216,22 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
         .eq('week_start_date', mondayStr)
 
     // PAR Ideal (Baseline PAR)
-    const { data: parIdeal } = await supabase
+    const { data: parIdealRaw } = await supabase
         .from('inventory_par_ideal')
         .select('*')
         .eq('store_id', storeId)
+
+    // Redondear dinámicamente el PAR Ideal obtenido de la BD
+    const parIdeal = parIdealRaw?.map((p: any) => ({
+        ...p,
+        mon_par: applyRound(p.inventory_item_id, p.mon_par),
+        tue_par: applyRound(p.inventory_item_id, p.tue_par),
+        wed_par: applyRound(p.inventory_item_id, p.wed_par),
+        thu_par: applyRound(p.inventory_item_id, p.thu_par),
+        fri_par: applyRound(p.inventory_item_id, p.fri_par),
+        sat_par: applyRound(p.inventory_item_id, p.sat_par),
+        sun_par: applyRound(p.inventory_item_id, p.sun_par)
+    })) || []
 
     // Sobrantes de esta semana + domingo de semana pasada (para cálculo del lunes)
     const lastWeekMonday = addDays(mondayStr, -7)
@@ -255,7 +280,16 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
     // Sobrescribir con las bases reales de esta semana si existen
     if (bases && bases.length > 0) {
         bases.forEach((b: any) => {
-            basesMap[b.inventory_item_id] = b
+            basesMap[b.inventory_item_id] = {
+                ...b,
+                mon_par: applyRound(b.inventory_item_id, b.mon_par),
+                tue_par: applyRound(b.inventory_item_id, b.tue_par),
+                wed_par: applyRound(b.inventory_item_id, b.wed_par),
+                thu_par: applyRound(b.inventory_item_id, b.thu_par),
+                fri_par: applyRound(b.inventory_item_id, b.fri_par),
+                sat_par: applyRound(b.inventory_item_id, b.sat_par),
+                sun_par: applyRound(b.inventory_item_id, b.sun_par)
+            }
         })
     }
 
