@@ -2302,32 +2302,21 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     </div>
 
-                                    {/* Legend Card */}
-                                    <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                                        <div className="flex flex-wrap items-center gap-4 text-xs">
-                                            <span className="font-bold text-slate-600">{language === 'es' ? 'Leyenda %:' : 'Legend %:'}</span>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="inline-block w-3 h-3 rounded-full bg-emerald-400"></span>
-                                                <span className="text-slate-600">{language === 'es' ? '10–50% Rango Ideal ✅' : '10–50% Ideal Range ✅'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="inline-block w-3 h-3 rounded-full bg-amber-400"></span>
-                                                <span className="text-slate-600">{language === 'es' ? '<10% Riesgo — PAR sube ⬆️' : '<10% Risk — PAR goes up ⬆️'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="inline-block w-3 h-3 rounded-full bg-red-400"></span>
-                                                <span className="text-slate-600">{language === 'es' ? '≥50% Exceso — PAR baja ⬇️' : '≥50% Excess — PAR goes down ⬇️'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="inline-block w-3 h-3 rounded-full bg-slate-300"></span>
-                                                <span className="text-slate-600">{language === 'es' ? 'PAR < 8: sin ajuste' : 'PAR < 8: no adjustment'}</span>
-                                            </div>
-                                        </div>
-                                        <p className="text-[10px] text-slate-400 mt-1.5">
-                                            {language === 'es' 
-                                                ? 'Sábado usa umbrales diferentes: ≥30% exceso, 10-30% ideal, <10% riesgo. Se valida con el sobrante del Domingo.'
-                                                : 'Saturday uses different thresholds: ≥30% excess, 10-30% ideal, <10% risk. Validated with Sunday leftovers.'}
-                                        </p>
+                                    {/* Legend - Clean pill design */}
+                                    <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+                                        <span className="font-bold text-slate-500 mr-1">% =</span>
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-bold">
+                                            ✅ 10–50% {language === 'es' ? 'Ideal' : 'Ideal'}
+                                        </span>
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-bold">
+                                            ⬆️ &lt;10% {language === 'es' ? 'Riesgo' : 'Risk'}
+                                        </span>
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-100 text-red-700 font-bold">
+                                            ⬇️ ≥50% {language === 'es' ? 'Exceso' : 'Excess'}
+                                        </span>
+                                        <span className="text-slate-400 ml-1">
+                                            {language === 'es' ? '(Sáb: ≥30% exceso, 10-30% ideal)' : '(Sat: ≥30% excess, 10-30% ideal)'}
+                                        </span>
                                     </div>
 
                                     {historyLoading ? (
@@ -2337,21 +2326,16 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     ) : allOrderableItems.length > 0 ? (
                                         <div className="overflow-x-auto border border-slate-200 rounded-2xl">
-                                            <table className="w-full text-sm">
+                                            <table className="w-full text-sm border-collapse">
                                                 <thead>
-                                                    <tr className="bg-slate-50 border-b-2 border-slate-200">
-                                                        <th className="sticky left-0 bg-slate-50 p-3 text-left font-black text-slate-700 min-w-[180px] z-10">
+                                                    <tr className="bg-slate-100">
+                                                        <th className="sticky left-0 bg-slate-100 p-3 text-left font-black text-slate-700 min-w-[200px] z-10 border-b-2 border-slate-300 shadow-[2px_0_5px_rgba(0,0,0,0.06)]">
                                                             {language === 'es' ? 'Producto' : 'Product'}
                                                         </th>
                                                         {historyWeekDays.map(d => (
-                                                            <th key={d.key} colSpan={2} className="p-2 text-center font-bold text-slate-600 border-l border-slate-200">
-                                                                <div className="text-xs">{d.label}</div>
+                                                            <th key={d.key} className="p-2.5 text-center font-bold text-slate-600 min-w-[90px] border-b-2 border-slate-300">
+                                                                <div className="text-xs font-black">{d.label}</div>
                                                                 <div className="text-[10px] text-slate-400 font-normal">{d.dateStr.slice(5)}</div>
-                                                                <div className="flex justify-center gap-2 mt-0.5 text-[9px] font-normal text-slate-400">
-                                                                    <span>PAR</span>
-                                                                    <span>|</span>
-                                                                    <span>{language === 'es' ? 'Sob' : 'Left'}</span>
-                                                                </div>
                                                             </th>
                                                         ))}
                                                     </tr>
@@ -2363,8 +2347,8 @@ export default function InventoryOrdersPage() {
                                                         const hasAnyCounts = Object.keys(itemCounts).length > 0
                                                         
                                                         return (
-                                                            <tr key={item.id} className={`border-b border-slate-100 transition-colors ${hasAnyCounts ? 'hover:bg-slate-50/50' : 'hover:bg-slate-50/30 opacity-40'}`}>
-                                                                <td className="sticky left-0 bg-white border-b border-slate-100 p-2 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+                                                            <tr key={item.id} className={`transition-colors ${hasAnyCounts ? '' : 'opacity-30'}`}>
+                                                                <td className="sticky left-0 bg-white p-2.5 z-10 border-b border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                                                                     <div className="flex flex-col">
                                                                         {item.order_unit_description && (
                                                                             <span className="text-[10px] text-slate-400 font-medium leading-tight">{item.order_unit_description}</span>
@@ -2386,37 +2370,45 @@ export default function InventoryOrdersPage() {
                                                                         pct = Math.round((leftover / parVal) * 100)
                                                                         traffic = getTrafficLight(pct, isSaturday)
                                                                     } else if (hasVal && leftover === 0) {
+                                                                        pct = 0
                                                                         traffic = { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '🔴' }
                                                                     }
 
+                                                                    if (!hasVal) {
+                                                                        return (
+                                                                            <td key={d.key} className="text-center border-b border-slate-100 text-slate-200 p-2">
+                                                                                -
+                                                                            </td>
+                                                                        )
+                                                                    }
+
                                                                     return (
-                                                                        <td key={d.key} colSpan={2} className={`border-l border-slate-200 border-b border-slate-100 p-0`}>
-                                                                            {hasVal ? (
-                                                                                <div className={`flex flex-col items-center py-1.5 px-1 ${traffic.bg} h-full`}>
-                                                                                    {/* PAR and Leftover side by side */}
-                                                                                    <div className="flex items-center gap-1.5 text-xs">
-                                                                                        <span className="text-slate-400 font-medium">{parVal || '-'}</span>
-                                                                                        <span className="text-slate-300">|</span>
-                                                                                        <span className={`font-bold ${leftover === 0 ? 'text-red-600' : traffic.text}`}>
-                                                                                            {leftover}
-                                                                                        </span>
-                                                                                    </div>
-                                                                                    {/* Percentage badge */}
-                                                                                    {pct !== null ? (
-                                                                                        <span className={`text-[10px] font-bold ${traffic.text} mt-0.5`}>
-                                                                                            {pct}%
-                                                                                        </span>
-                                                                                    ) : parVal < 8 && parVal > 0 ? (
-                                                                                        <span className="text-[9px] text-slate-400 mt-0.5">n/a</span>
-                                                                                    ) : leftover === 0 ? (
-                                                                                        <span className="text-[10px] font-bold text-red-500 mt-0.5">0%</span>
-                                                                                    ) : null}
-                                                                                </div>
-                                                                            ) : (
-                                                                                <div className="flex items-center justify-center py-2.5 text-slate-200 text-xs">
-                                                                                    -
-                                                                                </div>
-                                                                            )}
+                                                                        <td key={d.key} className={`border-b border-slate-100 p-0`}>
+                                                                            <div className={`flex flex-col items-center justify-center py-2 px-1 ${traffic.bg} min-h-[56px]`}>
+                                                                                {/* PAR reference - subtle top label */}
+                                                                                {parVal > 0 && (
+                                                                                    <span className="text-[9px] text-slate-400 font-medium leading-none">
+                                                                                        PAR {parVal}
+                                                                                    </span>
+                                                                                )}
+                                                                                {/* Leftover - protagonist number */}
+                                                                                <span className={`text-base font-black leading-tight ${leftover === 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                                                                                    {leftover}
+                                                                                </span>
+                                                                                {/* Percentage pill */}
+                                                                                {pct !== null ? (
+                                                                                    <span className={`text-[10px] font-bold px-1.5 rounded-full mt-0.5 ${traffic.text} ${
+                                                                                        traffic.bg === 'bg-red-50' ? 'bg-red-100' 
+                                                                                        : traffic.bg === 'bg-emerald-50' ? 'bg-emerald-100' 
+                                                                                        : traffic.bg === 'bg-amber-50' ? 'bg-amber-100' 
+                                                                                        : 'bg-slate-100'
+                                                                                    }`}>
+                                                                                        {pct}%
+                                                                                    </span>
+                                                                                ) : parVal > 0 && parVal < 8 ? (
+                                                                                    <span className="text-[9px] text-slate-300 mt-0.5">—</span>
+                                                                                ) : null}
+                                                                            </div>
                                                                         </td>
                                                                     )
                                                                 })}
