@@ -776,19 +776,22 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
                 
                 if (sundayLeftoverVal !== undefined && parVal >= 8) {
                     const leftoverPct = (sundayLeftoverVal / parVal) * 100
-                    if (leftoverPct > 30) {
-                        if (leftoverPct >= 50) {
+                    if (leftoverPct >= 40) {
+                        // ≥40% sobrante → exceso, bajar PAR
+                        if (leftoverPct >= 60) {
                             adjPar = parVal - Math.round(parVal * 0.15)
                         } else {
                             adjPar = parVal - Math.round(parVal * 0.10)
                         }
-                    } else if (leftoverPct < 10) {
+                    } else if (leftoverPct < 15) {
+                        // <15% sobrante → riesgo de quedarse sin, subir PAR
                         if (parVal >= 40) {
                             adjPar = parVal + Math.round(parVal * 0.10)
                         } else {
                             adjPar = parVal + Math.round(parVal * 0.20)
                         }
                     }
+                    // 15%-40% → rango ideal, sin cambio
                 }
             } else {
                 // Lunes a Viernes se valida con el sobrante del mismo día
@@ -797,22 +800,22 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
                 
                 if (leftoverVal !== undefined && parVal >= 8) {
                     const leftoverPct = (leftoverVal / parVal) * 100
-                    if (leftoverPct >= 50) {
-                        // ≥50% sobrante → sobra demasiado, bajar PAR
-                        if (leftoverPct >= 70) {
+                    if (leftoverPct >= 60) {
+                        // ≥60% sobrante → sobra demasiado, bajar PAR
+                        if (leftoverPct >= 80) {
                             adjPar = parVal - Math.round(parVal * 0.15)
                         } else {
                             adjPar = parVal - Math.round(parVal * 0.10)
                         }
-                    } else if (leftoverPct < 10) {
-                        // <10% sobrante → riesgo de quedarse sin producto, subir PAR
+                    } else if (leftoverPct < 20) {
+                        // <20% sobrante → riesgo de quedarse sin producto, subir PAR
                         if (parVal >= 40) {
                             adjPar = parVal + Math.round(parVal * 0.10)
                         } else {
                             adjPar = parVal + Math.round(parVal * 0.20)
                         }
                     }
-                    // 10%-50% → rango ideal, sin cambio
+                    // 20%-60% → rango ideal, sin cambio
                 }
             }
 

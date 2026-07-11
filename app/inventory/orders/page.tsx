@@ -2262,14 +2262,14 @@ export default function InventoryOrdersPage() {
                             // Helper: get traffic light color class based on leftover %
                             const getTrafficLight = (pct: number, isSaturday: boolean) => {
                                 if (isSaturday) {
-                                    // Sábado: ≥30% = rojo, 10-30% = verde, <10% = amarillo
-                                    if (pct >= 30) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
-                                    if (pct >= 10) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
+                                    // Sábado: ≥40% = rojo, 15-40% = verde, <15% = amarillo
+                                    if (pct >= 40) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
+                                    if (pct >= 15) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
                                     return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
                                 }
-                                // L-V: ≥50% = rojo, 10-50% = verde, <10% = amarillo
-                                if (pct >= 50) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
-                                if (pct >= 10) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
+                                // L-V: ≥60% = rojo, 20-60% = verde, <20% = amarillo
+                                if (pct >= 60) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
+                                if (pct >= 20) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
                                 return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
                             }
 
@@ -2306,16 +2306,16 @@ export default function InventoryOrdersPage() {
                                     <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
                                         <span className="font-bold text-slate-500 mr-1">% =</span>
                                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-bold">
-                                            ✅ 10–50% {language === 'es' ? 'Ideal' : 'Ideal'}
+                                            ✅ 20–60% {language === 'es' ? 'Ideal' : 'Ideal'}
                                         </span>
                                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-bold">
-                                            ⬆️ &lt;10% {language === 'es' ? 'Riesgo' : 'Risk'}
+                                            ⬆️ &lt;20% {language === 'es' ? 'Riesgo' : 'Risk'}
                                         </span>
                                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-100 text-red-700 font-bold">
-                                            ⬇️ ≥50% {language === 'es' ? 'Exceso' : 'Excess'}
+                                            ⬇️ ≥60% {language === 'es' ? 'Exceso' : 'Excess'}
                                         </span>
                                         <span className="text-slate-400 ml-1">
-                                            {language === 'es' ? '(Sáb: ≥30% exceso, 10-30% ideal)' : '(Sat: ≥30% excess, 10-30% ideal)'}
+                                            {language === 'es' ? '(Sáb: ≥40% exceso, 15-40% ideal)' : '(Sat: ≥40% excess, 15-40% ideal)'}
                                         </span>
                                     </div>
 
