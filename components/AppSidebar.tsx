@@ -157,6 +157,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.schedules'), plainName: 'Horarios', path: '/horarios', icon: <Clock size={20} />, roles: ['manager', 'supervisor', 'admin'] },
                 { name: t('items.procedures'), plainName: 'Procedimientos', path: '/procedimientos', icon: <CheckSquare size={20} />, roles: [] },
                 { name: t('items.dashboard'), plainName: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={20} />, roles: ['manager', 'supervisor', 'admin'] },
+                { name: t('items.safe'), plainName: 'Caja Fuerte', path: '/caja-fuerte', icon: <Shield size={20} />, roles: ['admin', 'supervisor', 'manager', 'asistente'] },
                 { name: t('items.basecamp'), plainName: 'Basecamp', path: '/basecamp', icon: <BasecampIcon size={20} />, roles: ['manager', 'supervisor', 'admin', 'asistente'] },
             ]
         },
@@ -308,14 +309,14 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 {(!isCollapsed || isMobile) ? (
                     <div className="flex items-center justify-between w-full min-w-0">
                         <span className="truncate">{item.name}</span>
-                        {(isBasecamp || item.path === '/inventory/orders') && (
+                        {(isBasecamp || item.path === '/inventory/orders' || item.path === '/caja-fuerte') && (
                             <span className="new-badge-animated bg-red-500 dark:bg-red-600 text-white text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm ml-1.5 shrink-0 flex items-center justify-center border border-red-400/20 leading-none">
                                 new
                             </span>
                         )}
                     </div>
                 ) : (
-                    (isBasecamp || item.path === '/inventory/orders') && (
+                    (isBasecamp || item.path === '/inventory/orders' || item.path === '/caja-fuerte') && (
                         <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm animate-ping new-badge-animated" />
                     )
                 )}
