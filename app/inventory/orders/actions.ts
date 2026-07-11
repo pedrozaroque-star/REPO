@@ -43,6 +43,7 @@ export type OrderType = 'daily' | 'liquids' | 'uniforms'
 
 /** Aplica la regla de redondeo de un item */
 function applyRounding(value: number, rule: string): number {
+    if (rule === 'ceiling_60') return Math.ceil(value / 60) * 60
     if (rule === 'ceiling_30') return Math.ceil(value / 30) * 30
     if (rule === 'ceiling_4') return Math.ceil(value / 4) * 4
     return Math.round(value) // Default: redondear al entero más cercano
@@ -727,6 +728,13 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
 
     if (!allBases || allBases.length === 0) return
 
+    // 1b. Obtener las reglas de redondeo de todos los items
+    const { data: items } = await supabase
+        .from('inventory_items')
+        .select('id, order_rounding_rule')
+    const roundingMap = new Map<string, string>()
+    items?.forEach(i => roundingMap.set(i.id, i.order_rounding_rule || 'none'))
+
     // 2. Obtener todos los sobrantes registrados en ese mismo rango
     const { data: leftovers } = await supabase
         .from('inventory_counts')
@@ -811,19 +819,27 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
     }
 
     // 4. Promediar e insertar/actualizar en la tabla de PAR Ideal
-    const parRecords = Object.entries(itemAdjustedBases).map(([itemId, data]) => ({
-        store_id: storeId,
-        inventory_item_id: itemId,
-        mon_par: Math.round(data.sums.mon / data.count),
-        tue_par: Math.round(data.sums.tue / data.count),
-        wed_par: Math.round(data.sums.wed / data.count),
-        thu_par: Math.round(data.sums.thu / data.count),
-        fri_par: Math.round(data.sums.fri / data.count),
-        sat_par: Math.round(data.sums.sat / data.count),
-        sun_par: 0, // Domingo siempre es 0
-        calculated_from_weeks: data.count,
-        updated_at: new Date().toISOString()
-    }))
+    const parRecords = Object.entries(itemAdjustedBases).map(([itemId, data]) => {
+        const rule = roundingMap.get(itemId) || 'none'
+        const roundPar = (val: number) => {
+            const rawAvg = val / data.count
+            if (rawAvg <= 0) return 0
+            return applyRounding(rawAvg, rule)
+        }
+        return {
+            store_id: storeId,
+            inventory_item_id: itemId,
+            mon_par: roundPar(data.sums.mon),
+            tue_par: roundPar(data.sums.tue),
+            wed_par: roundPar(data.sums.wed),
+            thu_par: roundPar(data.sums.thu),
+            fri_par: roundPar(data.sums.fri),
+            sat_par: roundPar(data.sums.sat),
+            sun_par: 0, // Domingo siempre es 0
+            calculated_from_weeks: data.count,
+            updated_at: new Date().toISOString()
+        }
+    })
 
     if (parRecords.length > 0) {
         await supabase

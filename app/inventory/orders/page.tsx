@@ -492,7 +492,13 @@ export default function InventoryOrdersPage() {
     // --- Handlers ---
     async function handleBaseChange(itemId: string, field: string, value: string) {
         if (!storeId) return
-        const numVal = parseFloat(value) || 0
+        let numVal = parseFloat(value) || 0
+        const item = items.find(i => i.id === itemId)
+        if (item && numVal > 0) {
+            if (item.order_rounding_rule === 'ceiling_60') numVal = Math.ceil(numVal / 60) * 60
+            else if (item.order_rounding_rule === 'ceiling_30') numVal = Math.ceil(numVal / 30) * 30
+            else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
+        }
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
         setBases({ ...bases, [itemId]: { ...b, [field]: numVal } as any })
         setHasBaseChanges(true)
@@ -500,7 +506,13 @@ export default function InventoryOrdersPage() {
 
     async function handleLiquidsParChange(itemId: string, value: string) {
         if (!storeId) return
-        const numVal = parseFloat(value) || 0
+        let numVal = parseFloat(value) || 0
+        const item = items.find(i => i.id === itemId)
+        if (item && numVal > 0) {
+            if (item.order_rounding_rule === 'ceiling_60') numVal = Math.ceil(numVal / 60) * 60
+            else if (item.order_rounding_rule === 'ceiling_30') numVal = Math.ceil(numVal / 30) * 30
+            else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
+        }
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
         setBases({
             ...bases,
