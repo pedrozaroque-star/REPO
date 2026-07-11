@@ -725,7 +725,7 @@ export async function executeWeekRollover(storeId: string | number, currentMonda
  * Recalcula el PAR Ideal promediando las bases de las últimas N semanas,
  * ajustadas matemáticamente según el sobrante diario de cada día.
  */
-export async function recalculateParIdeal(storeId: string | number, weeksBack: number = 8) {
+export async function recalculateParIdeal(storeId: string | number, weeksBack: number = 4) {
     const today = new Date()
     const currentMonday = getMonday(today)
     const startDate = addDays(currentMonday, -(weeksBack * 7))
