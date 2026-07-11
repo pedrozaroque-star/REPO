@@ -932,7 +932,7 @@ export default function InventoryOrdersPage() {
         const finalQty = adj !== undefined ? adj : l.calculated_qty
         return finalQty > 0
     }).length
-    const excessItems = orderLines.filter(l => l.calculated_qty < 0).length
+    const excessItems = orderLines.filter(l => l.leftover_value !== null && l.leftover_value !== undefined && l.par_value > 0 && l.leftover_value > l.par_value).length
 
     // Compute the next day name + date for daily order header
     const tomorrow = new Date(selectedOrderDate + 'T12:00:00')
@@ -1021,14 +1021,14 @@ export default function InventoryOrdersPage() {
                             </div>
                             <div>
                                 <h2 className="text-lg font-black text-slate-800">¿Cómo se calcula el PAR Ideal?</h2>
-                                <p className="text-xs text-slate-400">Fórmulas automáticas del historial (Últimas 8 semanas)</p>
+                                <p className="text-xs text-slate-400">Fórmulas automáticas del historial (Últimas 4 semanas)</p>
                             </div>
                         </div>
 
                         <div className="space-y-4 text-sm text-slate-600 max-h-[60vh] overflow-y-auto pr-1">
                             <p className="leading-relaxed">
                                 El <strong>PAR Ideal</strong> es una sugerencia matemática calculada automáticamente 
-                                por el sistema promediando las bases reales de las últimas <strong>8 semanas</strong> y aplicando ajustes inteligentes basados en los sobrantes diarios.
+                                por el sistema promediando las bases reales de las últimas <strong>4 semanas</strong> y aplicando ajustes inteligentes basados en los sobrantes diarios.
                             </p>
 
                             <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
@@ -1049,9 +1049,9 @@ export default function InventoryOrdersPage() {
                                     Dado que el pedido del sábado cubre tanto sábado como domingo, el sobrante se valida con el conteo físico del **Domingo por la noche**:
                                 </p>
                                 <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
-                                    <li><strong className="text-amber-600">Exceso (&gt; 30% sobrante el Domingo):</strong> El PAR del sábado se reduce un <strong>10% o 15%</strong>.</li>
-                                    <li><strong className="text-red-500">Escasez (&lt; 10% sobrante el Domingo):</strong> El PAR del sábado se incrementa un <strong>10% o 20%</strong>.</li>
-                                    <li><strong className="text-emerald-600">Rango Ideal (10% a 30%):</strong> El PAR del sábado se mantiene intacto.</li>
+                                    <li><strong className="text-amber-600">Exceso (&gt; 40% sobrante el Domingo):</strong> El PAR del sábado se reduce un <strong>10% o 15%</strong>.</li>
+                                    <li><strong className="text-red-500">Escasez (&lt; 15% sobrante el Domingo):</strong> El PAR del sábado se incrementa un <strong>10% o 20%</strong>.</li>
+                                    <li><strong className="text-emerald-600">Rango Ideal (15% a 40%):</strong> El PAR del sábado se mantiene intacto.</li>
                                 </ul>
                             </div>
 
@@ -2315,7 +2315,7 @@ export default function InventoryOrdersPage() {
                                             ⬇️ ≥60% {language === 'es' ? 'Exceso' : 'Excess'}
                                         </span>
                                         <span className="text-slate-400 ml-1">
-                                            {language === 'es' ? '(Sáb: ≥40% exceso, 15-40% ideal)' : '(Sat: ≥40% excess, 15-40% ideal)'}
+                                            {language === 'es' ? '(Sáb: <15% riesgo, 15-40% ideal, ≥40% exceso)' : '(Sat: <15% risk, 15-40% ideal, ≥40% excess)'}
                                         </span>
                                     </div>
 
@@ -2541,7 +2541,7 @@ export default function InventoryOrdersPage() {
                                     <li><strong>Edición de Celdas:</strong> Haz clic y escribe directamente en la cuadrícula de días para ajustar el PAR diario de cualquier producto.</li>
                                     <li><strong>📋 Copiar PAR:</strong> Si vas a tener un día festivo o de ventas inusuales, puedes duplicar las bases de un día a otro. Selecciona el día de origen (ej. Viernes), selecciona el día de destino (ej. Lunes o "Todos los días") y haz clic en <strong>Copiar</strong>.</li>
                                     <li><strong>↩️ Deshacer / Descartar:</strong> Si cometes un error durante la edición y no has presionado "Guardar", haz clic en este botón rojo para revertir la tabla completa a su estado inicial.</li>
-                                    <li><strong>PAR Ideal (Referencia):</strong> Muestra una sugerencia matemática basada en el historial de las últimas 8 semanas y ajustada automáticamente según el porcentaje de sobrantes.</li>
+                                    <li><strong>PAR Ideal (Referencia):</strong> Muestra una sugerencia matemática basada en el historial de las últimas 4 semanas y ajustada automáticamente según el porcentaje de sobrantes.</li>
                                 </ul>
                             </div>
 

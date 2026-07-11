@@ -4,7 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseAdminClient } from '@/lib/supabase'
+
+
 import { getQuickBooksClient } from '@/lib/quickbooks'
 
 export async function GET(request: NextRequest) {
@@ -16,7 +17,6 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'estimateId es requerido' }, { status: 400 })
         }
 
-        const supabase = await getSupabaseAdminClient()
 
         // 1. Obtener el cliente de QuickBooks (maneja sandbox y auto-refresh de tokens)
         const qbo = await getQuickBooksClient()

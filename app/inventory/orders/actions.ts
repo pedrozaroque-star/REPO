@@ -84,7 +84,7 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
     if (!templateError && template && template.length > 0) {
         result = template.map(t => {
             const item = t.inventory_items as any
-            const qbCleanName = t.qb_item_name ? t.qb_item_name.split(':').pop().trim() : '';
+            const qbCleanName = t.qb_item_name ? t.qb_item_name.split(':').pop()?.trim() || '' : '';
             return {
                 id: item.id,
                 name: item.name,
