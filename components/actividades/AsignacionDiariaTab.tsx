@@ -52,6 +52,7 @@ import {
   RefreshCw,
   Copy,
   ClipboardList,
+  Calendar,
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
 import { supabase } from '@/lib/supabase';
@@ -475,6 +476,7 @@ export default function AsignacionDiariaTab() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [copyingAll, setCopyingAll] = useState(false);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
@@ -982,6 +984,90 @@ export default function AsignacionDiariaTab() {
     }
   }, [selectedStoreGuid, selectedDay, selectedDateStr, activeShift, activityMap, language]);
 
+  const handleCopyPreviousWeekAll = useCallback(async () => {
+    if (!selectedStoreGuid) return;
+    if (!confirm(language === 'es' ? '¿Estás seguro de que quieres clonar TODA la semana pasada? Esto reemplazará todas las asignaciones de esta semana de forma permanente.' : 'Are you sure you want to clone the ENTIRE previous week? This will overwrite all assignments for the current week permanently.')) return;
+    
+    setCopyingAll(true);
+    try {
+      // 1. Calculate previous week date range
+      const prevWeekStart = subDays(currentWeekStart, 7);
+      const prevWeekEnd = subDays(currentWeekStart, 1);
+      const prevWeekStartStr = formatDateISO(prevWeekStart);
+      const prevWeekEndStr = formatDateISO(prevWeekEnd);
+
+      // Current week date range
+      const currentWeekEnd = addDays(currentWeekStart, 6);
+      const currentWeekStartStr = formatDateISO(currentWeekStart);
+      const currentWeekEndStr = formatDateISO(currentWeekEnd);
+
+      // 2. Fetch all assignments from previous week
+      const res = await fetch(
+        `/api/roles?store_id=${selectedStoreGuid}&start_date=${prevWeekStartStr}&end_date=${prevWeekEndStr}`
+      );
+      if (!res.ok) throw new Error('Failed to fetch previous week assignments');
+
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        alert(language === 'es' ? 'No se encontraron asignaciones en la semana anterior para copiar.' : 'No assignments found in the previous week.');
+        setCopyingAll(false);
+        return;
+      }
+
+      // 3. Map assignments to current week dates (adding 7 days)
+      const clonedAssignments = data.map((a: any) => {
+        const prevAssignDate = new Date(a.assignment_date + 'T00:00:00');
+        const nextAssignDate = addDays(prevAssignDate, 7);
+        const nextAssignDateStr = formatDateISO(nextAssignDate);
+
+        // Fetch defaults if tasks are missing
+        const stationActivitiesList = activityMap[a.main_station] || [];
+        const defaultTasks = stationActivitiesList
+          .map(pa => pa.operating_procedures?.activity)
+          .filter(Boolean) as string[];
+
+        return {
+          store_id: selectedStoreGuid,
+          employee_id: String(a.employee_id),
+          assignment_date: nextAssignDateStr,
+          main_station: a.main_station,
+          sub_position: a.sub_position ? a.sub_position.replace(a.assignment_date, nextAssignDateStr) : `${a.main_station}_${activeShift}`,
+          station_group: a.station_group,
+          tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
+        };
+      });
+
+      // 4. Send POST request to write it directly to the DB (clearing the entire current week range)
+      const saveRes = await fetch('/api/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignments: clonedAssignments,
+          store_id: selectedStoreGuid,
+          start_date: currentWeekStartStr,
+          end_date: currentWeekEndStr,
+          // Sending without active_shift so it deletes and overwrites both AM and PM shifts for the entire week
+        }),
+      });
+
+      const saveResult = await saveRes.json();
+      if (saveResult.success) {
+        // Reload current data
+        await Promise.all([fetchShifts(), fetchAssignments()]);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+        alert(language === 'es' ? '¡Semana completa clonada y guardada con éxito!' : 'Entire week cloned and saved successfully!');
+      } else {
+        alert(language === 'es' ? 'Hubo un error al guardar las asignaciones clonadas.' : 'Error saving cloned assignments.');
+      }
+    } catch (err) {
+      console.error('Error cloning entire week:', err);
+      alert(language === 'es' ? 'Hubo un error al clonar la semana.' : 'An error occurred while cloning the week.');
+    } finally {
+      setCopyingAll(false);
+    }
+  }, [selectedStoreGuid, currentWeekStart, activeShift, activityMap, language, fetchShifts, fetchAssignments]);
+
   // ── Navigation ──
   const goToPrevWeek = () => {
     const newStart = subWeeks(currentWeekStart, 1);
@@ -1078,7 +1164,23 @@ export default function AsignacionDiariaTab() {
                 </button>
               </div>
 
-              {/* Copiar Semana Anterior */}
+              {/* Clonar Semana Completa */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleCopyPreviousWeekAll}
+                disabled={copyingAll}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
+              >
+                {copyingAll ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                ) : (
+                  <Calendar className="w-4 h-4 text-indigo-500" />
+                )}
+                {copyingAll ? t('actividades.daily.copying_prev_week_all') : t('actividades.daily.copy_prev_week_all')}
+              </motion.button>
+
+              {/* Clonar por Día y Turno */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
