@@ -113,7 +113,7 @@ const POSITION_GROUPS: PositionGroup[] = [
     labelKey: 'actividades.config.group_kitchen',
     icon: <Utensils className="w-4 h-4" />,
     color: 'from-orange-500 to-red-500',
-    positions: ['TACOS', 'CARNES', 'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'PREPARACION', 'CIERRE 1', 'CIERRE 2'],
+    positions: ['TACOS', 'CARNES', 'BURRITOS', 'TORTILLAS', 'TORTAS/QUESADILLAS', 'PREPARACION', 'ACTIVIDADES EXTRA 1', 'ACTIVIDADES EXTRA 2', 'ACTIVIDADES EXTRA 3', 'ACTIVIDADES EXTRA 4', 'ACTIVIDADES EXTRA 5', 'ACTIVIDADES EXTRA 6'],
   },
   {
     key: 'drive_thru',
