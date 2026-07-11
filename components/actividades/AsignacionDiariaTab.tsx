@@ -668,17 +668,49 @@ export default function AsignacionDiariaTab() {
     return map;
   }, [assignments, selectedDateStr, activeShift]);
 
-  // Activity map: position_key -> activities[]
+  // Activity map: position_key -> activities[] filtered by shift and selected day frequency
   const activityMap = useMemo(() => {
     const map: Record<string, PositionActivity[]> = {};
+    
+    // Get current day index (0 = Monday, ..., 6 = Sunday)
+    const jsDay = selectedDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const myDayIndex = jsDay === 0 ? 6 : jsDay - 1;
+
+    // Helper matching frequency strings (like 'Diario', 'Domingo', 'Jueves y Domingo', '6')
+    const isFreqMatch = (paFrequency: string, dayIdx: number): boolean => {
+      if (!paFrequency) return false;
+      const freqLower = paFrequency.toLowerCase();
+      if (freqLower === 'diario') return true;
+      if (paFrequency === String(dayIdx)) return true;
+      
+      const dayNamesMap: Record<string, string[]> = {
+        '0': ['lunes'],
+        '1': ['martes'],
+        '2': ['miercoles', 'miércoles'],
+        '3': ['jueves'],
+        '4': ['viernes'],
+        '5': ['sabado', 'sábado'],
+        '6': ['domingo']
+      };
+      
+      const names = dayNamesMap[String(dayIdx)];
+      if (!names) return false;
+      
+      return names.some(name => freqLower.includes(name));
+    };
+
     positionActivities.forEach((pa) => {
       // Filter by shift
       if (pa.shift !== 'AMBOS' && pa.shift !== activeShift) return;
+      
+      // Filter by frequency matching with selectedDay
+      if (pa.frequency && !isFreqMatch(pa.frequency, myDayIndex)) return;
+
       if (!map[pa.position_key]) map[pa.position_key] = [];
       map[pa.position_key].push(pa);
     });
     return map;
-  }, [positionActivities, activeShift]);
+  }, [positionActivities, activeShift, selectedDay]);
 
   // ── Data Fetching ──
   const fetchStores = useCallback(async () => {
