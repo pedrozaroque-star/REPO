@@ -437,7 +437,8 @@ export async function calculateDailyOrder(
     counts: Record<string, Record<string, number>>,
     mondayStr: string,
     parIdeal?: Record<string, ParIdealRecord>,
-    overrideDayField?: string
+    overrideDayField?: string,
+    parBoostPercent: number = 0
 ): Promise<CalculatedOrderLine[]> {
     const dayKey = getDayKey(dateStr)
     const dayIndex = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].indexOf(dayKey)
@@ -463,8 +464,15 @@ export async function calculateDailyOrder(
             mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0
         }
 
-        // PAR del día seleccionado
-        const parValue = (effectiveBase as any)[targetField] || 0
+        // PAR original del día seleccionado
+        let parValue = (effectiveBase as any)[targetField] || 0
+
+        // Aplicar incremento de emergencia si está definido y el PAR > 0
+        if (parBoostPercent > 0 && parValue > 0) {
+            const boosted = parValue * (1 + parBoostPercent / 100)
+            // Asegurar que el PAR incrementado también respete las reglas de múltiplos del item
+            parValue = applyRounding(boosted, item.order_rounding_rule)
+        }
 
         // PAR Ideal de referencia para ese mismo día
         const itemParIdeal = parIdeal && parIdeal[item.id] ? (parIdeal[item.id] as any)[targetField] || 0 : 0

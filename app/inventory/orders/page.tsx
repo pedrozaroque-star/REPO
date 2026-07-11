@@ -147,6 +147,7 @@ export default function InventoryOrdersPage() {
     const [selectedOrderDate, setSelectedOrderDate] = useState<string>(() => getLocalBusinessDate(new Date()))
     const [copySrcDay, setCopySrcDay] = useState<string>('mon_par')
     const [copyTgtDay, setCopyTgtDay] = useState<string>('all')
+    const [parBoostPercent, setParBoostPercent] = useState<number>(0)
 
     // Computed
     const todayStr = getLocalBusinessDate(new Date())
@@ -257,7 +258,7 @@ export default function InventoryOrdersPage() {
                 const lines = await calculateDailyOrder(
                     storeId, selectedOrderDate, orderableItems,
                     weekData.bases, weekData.counts, activeMonday,
-                    weekData.parIdeal, overrideDayField
+                    weekData.parIdeal, overrideDayField, parBoostPercent
                 )
                 setOrderLines([...lines, ...extraordinarySavedLines])
             }
@@ -266,17 +267,17 @@ export default function InventoryOrdersPage() {
         } finally {
             setLoading(false)
         }
-    }, [storeId, activeMonday, overrideDayField, selectedOrderDate, orderType])
+    }, [storeId, activeMonday, overrideDayField, selectedOrderDate, orderType, parBoostPercent])
 
     useEffect(() => { loadData() }, [loadData])
 
-    // Recalcular orden localmente al cambiar el día de base a usar o la fecha seleccionada
+    // Recalcular orden localmente al cambiar el día de base a usar o la fecha seleccionada o el incremento de PAR
     useEffect(() => {
         if (!loading && storeId && items.length > 0 && bases && Object.keys(bases).length > 0) {
             calculateDailyOrder(
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
-                parIdeal, overrideDayField
+                parIdeal, overrideDayField, parBoostPercent
             ).then(newLines => {
                 setOrderLines(prev => {
                     const prevExtraordinary = prev.filter(l => l.is_extraordinary)
@@ -284,7 +285,7 @@ export default function InventoryOrdersPage() {
                 })
             })
         }
-    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal])
+    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal, parBoostPercent])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -554,7 +555,7 @@ export default function InventoryOrdersPage() {
             const lines = await calculateDailyOrder(
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
-                parIdeal, overrideDayField
+                parIdeal, overrideDayField, parBoostPercent
             )
             setOrderLines(prev => {
                 const prevExtraordinary = prev.filter(l => l.is_extraordinary)
@@ -1484,6 +1485,22 @@ export default function InventoryOrdersPage() {
                                                     <option value="sun_par">Domingo / Sunday</option>
                                                 </select>
                                             </div>
+
+                                            {/* Selector de Incremento de PAR (Emergencia) */}
+                                            <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-1.5 shadow-sm text-xs text-indigo-800">
+                                                <span className="font-bold text-indigo-700">{t('bodegaOrders.parBoost')}:</span>
+                                                <select
+                                                    value={parBoostPercent}
+                                                    onChange={e => setParBoostPercent(Number(e.target.value))}
+                                                    className="bg-transparent font-bold outline-none cursor-pointer text-indigo-900"
+                                                >
+                                                    <option value="0">{t('bodegaOrders.noBoost')}</option>
+                                                    <option value="10">{t('bodegaOrders.boost10')}</option>
+                                                    <option value="15">{t('bodegaOrders.boost15')}</option>
+                                                    <option value="20">{t('bodegaOrders.boost20')}</option>
+                                                    <option value="25">{t('bodegaOrders.boost25')}</option>
+                                                </select>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1641,6 +1658,9 @@ export default function InventoryOrdersPage() {
                                                             {/* PAR (readonly) */}
                                                             <td className="p-2 text-center font-bold text-emerald-700 bg-emerald-50/40 border-b border-emerald-100">
                                                                 {line.par_value || '-'}
+                                                                {parBoostPercent > 0 && line.par_value > 0 && (
+                                                                    <span className="text-[9px] text-indigo-600 font-semibold block mt-0.5 animate-pulse">+{parBoostPercent}%</span>
+                                                                )}
                                                             </td>
                                                             {/* Sobrante (EDITABLE) */}
                                                             <td className="p-0 border-b border-orange-200 bg-orange-50/30">
