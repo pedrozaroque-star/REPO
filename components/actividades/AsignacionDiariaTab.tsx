@@ -474,6 +474,7 @@ export default function AsignacionDiariaTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
@@ -913,6 +914,74 @@ export default function AsignacionDiariaTab() {
     }
   };
 
+  const handleCopyPreviousWeek = useCallback(async () => {
+    if (!selectedStoreGuid) return;
+    setCopying(true);
+    try {
+      const prevDate = subDays(selectedDay, 7);
+      const prevDateStr = formatDateISO(prevDate);
+      
+      const res = await fetch(
+        `/api/roles?store_id=${selectedStoreGuid}&start_date=${prevDateStr}&end_date=${prevDateStr}`
+      );
+      if (!res.ok) throw new Error('Failed to fetch previous week assignments');
+      
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        if (data.length === 0) {
+          alert(language === 'es' ? 'No se encontraron asignaciones del mismo día de la semana anterior para copiar.' : 'No assignments found for the same day of the previous week.');
+          setCopying(false);
+          return;
+        }
+
+        // Map previous week assignments to the current day date
+        // Only keep those matching the current active shift (e.g. if we are on PM, copy the PM assignments)
+        const prevShiftSuffix = `_${activeShift}`;
+        const shiftFiltered = data.filter((a: any) => a.sub_position?.endsWith(prevShiftSuffix));
+
+        if (shiftFiltered.length === 0) {
+          alert(language === 'es' ? `No se encontraron asignaciones en el turno ${activeShift} para el mismo día de la semana anterior.` : `No assignments found in ${activeShift} shift for the same day of the previous week.`);
+          setCopying(false);
+          return;
+        }
+
+        const clonedAssignments = shiftFiltered.map((a: any) => {
+          const stationActivitiesList = activityMap[a.main_station] || [];
+          const defaultTasks = stationActivitiesList
+            .map(pa => pa.operating_procedures?.activity)
+            .filter(Boolean) as string[];
+
+          return {
+            store_id: selectedStoreGuid,
+            employee_id: String(a.employee_id),
+            assignment_date: selectedDateStr,
+            main_station: a.main_station,
+            sub_position: a.sub_position ? a.sub_position.replace(prevDateStr, selectedDateStr) : `${a.main_station}_${activeShift}`,
+            station_group: a.station_group,
+            tasks: a.tasks && a.tasks.length > 0 ? a.tasks : defaultTasks,
+          };
+        });
+
+        // Merge with existing assignments for other shifts or overwrite current shift
+        setAssignments((prev) => {
+          // Remove current shift assignments first
+          const otherShifts = prev.filter(
+            (a) => !(a.assignment_date === selectedDateStr && a.sub_position?.endsWith(`_${activeShift}`))
+          );
+          return [...otherShifts, ...clonedAssignments];
+        });
+        
+        setSaveSuccess(false); // force manual save
+        alert(language === 'es' ? '¡Asignaciones de la semana anterior copiadas! Revisa los cambios y haz clic en Guardar Cambios para confirmarlos.' : 'Previous week assignments copied! Review and click Save Changes to confirm.');
+      }
+    } catch (err) {
+      console.error('Error copying previous week assignments:', err);
+      alert(language === 'es' ? 'Hubo un error al copiar las asignaciones.' : 'An error occurred while copying assignments.');
+    } finally {
+      setCopying(false);
+    }
+  }, [selectedStoreGuid, selectedDay, selectedDateStr, activeShift, activityMap, language]);
+
   // ── Navigation ──
   const goToPrevWeek = () => {
     const newStart = subWeeks(currentWeekStart, 1);
@@ -1008,6 +1077,22 @@ export default function AsignacionDiariaTab() {
                   />
                 </button>
               </div>
+
+              {/* Copiar Semana Anterior */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleCopyPreviousWeek}
+                disabled={copying}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm transition-all flex items-center gap-2 disabled:opacity-60"
+              >
+                {copying ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                ) : (
+                  <Copy className="w-4 h-4 text-indigo-500" />
+                )}
+                {copying ? t('actividades.daily.copying_prev_week') : t('actividades.daily.copy_prev_week')}
+              </motion.button>
 
               {/* Tablero */}
               <motion.button
