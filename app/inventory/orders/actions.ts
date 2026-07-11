@@ -656,19 +656,6 @@ export async function saveOrderDraft(
     return { success: true, orderId: order.id }
 }
 
-/** Obtiene el historial de órdenes de una tienda */
-export async function getOrderHistory(storeId: string | number, limit: number = 30, orderType: OrderType = 'daily') {
-    const { data, error } = await supabase
-        .from('inventory_orders')
-        .select('*')
-        .eq('store_id', storeId)
-        .eq('order_type', orderType)
-        .order('order_date', { ascending: false })
-        .limit(limit)
-
-    if (error) return { error: error.message, orders: [] }
-    return { orders: data || [] }
-}
 
 /**
  * Ejecuta el cierre de semana (equivalente al macro de Google Sheets).

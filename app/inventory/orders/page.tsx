@@ -97,9 +97,10 @@ const WEEK_DAYS = [
 // ============================================================================
 // COMPONENT
 // ============================================================================
+const supabase = createClient()
+
 export default function InventoryOrdersPage() {
     const { user } = useAuth()
-    const supabase = createClient()
     const { t, language } = useLanguage()
 
     // --- State ---
@@ -144,6 +145,8 @@ export default function InventoryOrdersPage() {
     const [orderNotes, setOrderNotes] = useState('')
     const [overrideDayField, setOverrideDayField] = useState<string>('auto')
     const [selectedOrderDate, setSelectedOrderDate] = useState<string>(() => getLocalBusinessDate(new Date()))
+    const [copySrcDay, setCopySrcDay] = useState<string>('mon_par')
+    const [copyTgtDay, setCopyTgtDay] = useState<string>('all')
 
     // Computed
     const todayStr = getLocalBusinessDate(new Date())
@@ -186,7 +189,7 @@ export default function InventoryOrdersPage() {
             }
         }
         if (user !== undefined) fetchStores()
-    }, [supabase, user])
+    }, [user])
 
     // --- Load all data ---
     const loadData = useCallback(async () => {
@@ -370,12 +373,12 @@ export default function InventoryOrdersPage() {
             if (res.error) {
                 alert(res.error)
             } else {
-                alert('¡Pedido guardado con éxito localmente!')
+                alert(t('bodegaOrders.savedLocal'))
                 setEditModal({ open: false, order: null })
                 await loadData()
             }
         } catch (e: any) {
-            alert('Error al guardar: ' + e.message)
+            alert(t('bodegaOrders.errorSave') + e.message)
         } finally {
             setSavingModal(false)
         }
@@ -416,7 +419,7 @@ export default function InventoryOrdersPage() {
             const data = await res.json()
 
             if (res.status === 401 || data.error === 'token_expired' || data.reauth_url) {
-                alert('La sesión de QuickBooks expiró. Por favor cierra este modal y usa el botón de Enviar a QuickBooks principal en la pantalla de hoy para re-iniciar sesión.')
+                alert(t('bodegaOrders.qbReauthModalAlert'))
                 setSendingModal(false)
                 return
             }
@@ -429,7 +432,7 @@ export default function InventoryOrdersPage() {
                 await loadData()
             }
         } catch (e: any) {
-            alert('Error al enviar a QB: ' + e.message)
+            alert(t('bodegaOrders.errorSendQb') + e.message)
         } finally {
             setSendingModal(false)
         }
@@ -437,20 +440,16 @@ export default function InventoryOrdersPage() {
 
     function handleCopyDayPar(src: string, tgt: string) {
         if (src === tgt) {
-            alert('El día de origen y destino no pueden ser el mismo.')
+            alert(t('bodegaOrders.sameDayError'))
             return
         }
-        const dayLabels: Record<string, string> = {
-            mon_par: 'Lunes',
-            tue_par: 'Martes',
-            wed_par: 'Miércoles',
-            thu_par: 'Jueves',
-            fri_par: 'Viernes',
-            sat_par: 'Sábado',
-            sun_par: 'Domingo',
-            all: 'Todos los días'
-        }
-        if (!confirm(`¿Estás seguro de copiar el PAR de ${dayLabels[src]} a ${dayLabels[tgt]}?`)) return
+        const labelSrc = t(`bodegaOrders.dayLabels.${src}`)
+        const labelTgt = t(`bodegaOrders.dayLabels.${tgt}`)
+        const msg = t('bodegaOrders.confirmCopyDayPar')
+            .replace('{src}', labelSrc)
+            .replace('{tgt}', labelTgt)
+
+        if (!confirm(msg)) return
 
         setBases(prev => {
             const nextBases = { ...prev }
@@ -485,7 +484,7 @@ export default function InventoryOrdersPage() {
     }
 
     function handleUndoBases() {
-        if (!confirm('¿Estás seguro de deshacer todos los cambios no guardados en el PAR semanal?')) return
+        if (!confirm(t('bodegaOrders.confirmUndoBases'))) return
         setBases(JSON.parse(JSON.stringify(originalBases)))
         setHasBaseChanges(false)
     }
@@ -619,7 +618,7 @@ export default function InventoryOrdersPage() {
             if (!response.ok) {
                 throw new Error(result.error || 'Error al eliminar la orden')
             }
-            alert('¡Orden eliminada exitosamente en el sistema y en QuickBooks!')
+            alert(t('bodegaOrders.orderDeleted'))
             await loadData()
         } catch (err: any) {
             alert('Error al eliminar: ' + err.message)
@@ -731,7 +730,7 @@ export default function InventoryOrdersPage() {
         }))
 
         if (lines.length === 0) {
-            alert('No hay items con cantidad > 0 para enviar. Verifica los sobrantes y la base del día.')
+            alert(t('bodegaOrders.noItemsToOrderError'))
             setSaving(false)
             return
         }
@@ -756,7 +755,7 @@ export default function InventoryOrdersPage() {
                 const left = (window.screen.width - width) / 2;
                 const top = (window.screen.height - height) / 2;
                 
-                alert('Sesión de QuickBooks expirada. Se abrirá una ventana emergente para iniciar sesión de nuevo. Al completarla, la orden se enviará automáticamente.');
+                alert(t('bodegaOrders.qbSessionExpiredPrompt'));
                 
                 const popup = window.open(
                     '/api/integrations/quickbooks/auth',
@@ -770,7 +769,7 @@ export default function InventoryOrdersPage() {
                             window.removeEventListener('message', handleMessage);
                             if (timer) clearInterval(timer);
                             // Reintentar de forma automática
-                            alert('¡Sesión iniciada! Reintentando el envío...');
+                            alert(t('bodegaOrders.qbSessionStarted'));
                             setSendingToQb(true);
                             try {
                                 const retryRes = await fetch('/api/inventory/orders/send-to-qb', {
@@ -802,7 +801,7 @@ export default function InventoryOrdersPage() {
                         }
                     }, 1000);
                 } else {
-                    alert('Bloqueador de popups detectado. Habilita las ventanas flotantes e ingresa a: /api/integrations/quickbooks/auth');
+                    alert(t('bodegaOrders.popupBlocked'));
                 }
                 setSendingToQb(false);
                 return;
@@ -832,7 +831,7 @@ export default function InventoryOrdersPage() {
                 const left = (window.screen.width - width) / 2;
                 const top = (window.screen.height - height) / 2;
                 
-                alert('Sesión de QuickBooks expirada. Se abrirá una ventana emergente para iniciar sesión de nuevo. Al completarla, la sincronización se ejecutará automáticamente.');
+                alert(t('bodegaOrders.qbSyncPrompt'));
                 
                 const popup = window.open(
                     '/api/integrations/quickbooks/auth',
@@ -845,7 +844,7 @@ export default function InventoryOrdersPage() {
                         if (e.data === 'qb_authorized') {
                             window.removeEventListener('message', handleMessage);
                             if (timer) clearInterval(timer);
-                            alert('¡Sesión iniciada! Reintentando sincronización...');
+                            alert(t('bodegaOrders.qbSyncRetrySessionStarted'));
                             setSyncingQb(true);
                             try {
                                 const retryRes = await fetch('/api/inventory/sync-quickbooks', { method: 'POST' });
@@ -853,7 +852,7 @@ export default function InventoryOrdersPage() {
                                 if (retryData.error) {
                                     alert(`Error: ${retryData.error}`);
                                 } else {
-                                    alert('¡Sincronización de QuickBooks completada con éxito!');
+                                    alert(t('bodegaOrders.qbSyncSuccess'));
                                     await loadData();
                                 }
                             } catch (retryErr: any) {
@@ -873,7 +872,7 @@ export default function InventoryOrdersPage() {
                         }
                     }, 1000);
                 } else {
-                    alert('Bloqueador de popups detectado. Habilita las ventanas flotantes e ingresa a: /api/integrations/quickbooks/auth');
+                    alert(t('bodegaOrders.popupBlocked'));
                 }
                 setSyncingQb(false);
                 return;
@@ -882,7 +881,7 @@ export default function InventoryOrdersPage() {
             if (data.error) {
                 alert(`Error: ${data.error}`)
             } else {
-                alert('¡Sincronización de QuickBooks completada con éxito!')
+                alert(t('bodegaOrders.qbSyncSuccess'))
                 await loadData()
             }
         } catch (err: any) {
@@ -1020,44 +1019,87 @@ export default function InventoryOrdersPage() {
                                 <Info className="w-6 h-6" />
                             </div>
                             <div>
-                                <h2 className="text-lg font-black text-slate-800">¿Cómo se calcula el PAR Ideal?</h2>
-                                <p className="text-xs text-slate-400">Fórmulas automáticas del historial (Últimas 4 semanas)</p>
+                                <h2 className="text-lg font-black text-slate-800">
+                                    {language === 'es' ? '¿Cómo se calcula el PAR Ideal?' : 'How is Ideal PAR Calculated?'}
+                                </h2>
+                                <p className="text-xs text-slate-400">
+                                    {language === 'es' ? 'Fórmulas automáticas del historial (Últimas 4 semanas)' : 'Automatic history formulas (Last 4 weeks)'}
+                                </p>
                             </div>
                         </div>
 
                         <div className="space-y-4 text-sm text-slate-600 max-h-[60vh] overflow-y-auto pr-1">
-                            <p className="leading-relaxed">
-                                El <strong>PAR Ideal</strong> es una sugerencia matemática calculada automáticamente 
-                                por el sistema promediando las bases reales de las últimas <strong>4 semanas</strong> y aplicando ajustes inteligentes basados en los sobrantes diarios.
-                            </p>
+                            {language === 'es' ? (
+                                <>
+                                    <p className="leading-relaxed">
+                                        El <strong>PAR Ideal</strong> es una sugerencia matemática calculada automáticamente 
+                                        por el sistema promediando las bases reales de las últimas <strong>4 semanas</strong> y aplicando ajustes inteligentes basados en los sobrantes diarios.
+                                    </p>
 
-                            <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
-                                <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-emerald-700">📅 Lunes a Viernes:</h3>
-                                <p className="text-xs leading-relaxed">
-                                    Se calcula el porcentaje de sobrante al final del día respecto a la base del día: <code>(Sobrante / PAR) × 100</code>.
-                                </p>
-                                <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
-                                    <li><strong className="text-amber-600">Exceso (&gt; 60% sobrante):</strong> Sobró demasiado producto. El PAR se reduce entre un <strong>10% y 15%</strong>.</li>
-                                    <li><strong className="text-red-500">Escasez (&lt; 20% sobrante):</strong> Quedó muy poco o se agotó. El PAR se incrementa entre un <strong>10% y 20%</strong>.</li>
-                                    <li><strong className="text-emerald-600">Rango Ideal (20% a 60%):</strong> El PAR se mantiene intacto.</li>
-                                </ul>
-                            </div>
+                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
+                                        <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-emerald-700">📅 Lunes a Viernes:</h3>
+                                        <p className="text-xs leading-relaxed">
+                                            Se calcula el porcentaje de sobrante al final del día respecto a la base del día: <code>(Sobrante / PAR) × 100</code>.
+                                        </p>
+                                        <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
+                                            <li><strong className="text-amber-600">Exceso (&gt; 60% sobrante):</strong> Sobró demasiado producto. El PAR se reduce entre un <strong>10% y 15%</strong>.</li>
+                                            <li><strong className="text-red-500">Escasez (&lt; 20% sobrante):</strong> Quedó muy poco o se agotó. El PAR se incrementa entre un <strong>10% y 20%</strong>.</li>
+                                            <li><strong className="text-emerald-600">Rango Ideal (20% a 60%):</strong> El PAR se mantiene intacto.</li>
+                                        </ul>
+                                    </div>
 
-                            <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
-                                <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-indigo-700">📅 Sábado (Pedido de Fin de Semana):</h3>
-                                <p className="text-xs leading-relaxed">
-                                    Dado que el pedido del sábado cubre tanto sábado como domingo, el sobrante se valida con el conteo físico del **Domingo por la noche**:
-                                </p>
-                                <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
-                                    <li><strong className="text-amber-600">Exceso (&gt; 40% sobrante el Domingo):</strong> El PAR del sábado se reduce un <strong>10% o 15%</strong>.</li>
-                                    <li><strong className="text-red-500">Escasez (&lt; 15% sobrante el Domingo):</strong> El PAR del sábado se incrementa un <strong>10% o 20%</strong>.</li>
-                                    <li><strong className="text-emerald-600">Rango Ideal (15% a 40%):</strong> El PAR del sábado se mantiene intacto.</li>
-                                </ul>
-                            </div>
+                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
+                                        <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-indigo-700">📅 Sábado (Pedido de Fin de Semana):</h3>
+                                        <p className="text-xs leading-relaxed">
+                                            Dado que el pedido del sábado cubre tanto sábado como domingo, el sobrante se valida con el conteo físico del **Domingo por la noche**:
+                                        </p>
+                                        <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
+                                            <li><strong className="text-amber-600">Exceso (&gt; 40% sobrante el Domingo):</strong> El PAR del sábado se reduce un <strong>10% o 15%</strong>.</li>
+                                            <li><strong className="text-red-500">Escasez (&lt; 15% sobrante el Domingo):</strong> El PAR del sábado se incrementa un <strong>10% o 20%</strong>.</li>
+                                            <li><strong className="text-emerald-600">Rango Ideal (15% a 40%):</strong> El PAR del sábado se mantiene intacto.</li>
+                                        </ul>
+                                    </div>
 
-                            <p className="text-[11px] text-slate-400 italic">
-                                * Nota: Domingo siempre calcula PAR 0 ya que no hay entregas de bodega los domingos.
-                            </p>
+                                    <p className="text-[11px] text-slate-400 italic">
+                                        * Nota: Domingo siempre calcula PAR 0 ya que no hay entregas de bodega los domingos.
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="leading-relaxed">
+                                        The <strong>Ideal PAR</strong> is a mathematical suggestion automatically calculated 
+                                        by the system by averaging the real bases of the last <strong>4 weeks</strong> and applying smart adjustments based on daily leftovers.
+                                    </p>
+
+                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
+                                        <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-emerald-700">📅 Monday to Friday:</h3>
+                                        <p className="text-xs leading-relaxed">
+                                            The leftover percentage at the end of the day relative to the daily base is calculated: <code>(Leftover / PAR) × 100</code>.
+                                        </p>
+                                        <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
+                                            <li><strong className="text-amber-600">Excess (&gt; 60% leftover):</strong> Too much leftover product. The PAR is reduced by <strong>10% to 15%</strong>.</li>
+                                            <li><strong className="text-red-500">Shortage (&lt; 20% leftover):</strong> Too little or ran out. The PAR is increased by <strong>10% to 20%</strong>.</li>
+                                            <li><strong className="text-emerald-600">Ideal Range (20% to 60%):</strong> The PAR remains unchanged.</li>
+                                        </ul>
+                                    </div>
+
+                                    <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-150">
+                                        <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider text-indigo-700">📅 Saturday (Weekend Order):</h3>
+                                        <p className="text-xs leading-relaxed">
+                                            Since Saturday's order covers both Saturday and Sunday, leftovers are verified with **Sunday night's** physical count:
+                                        </p>
+                                        <ul className="list-disc list-inside text-xs space-y-1.5 pl-1 text-slate-500">
+                                            <li><strong className="text-amber-600">Excess (&gt; 40% leftover on Sunday):</strong> Saturday's PAR is reduced by <strong>10% or 15%</strong>.</li>
+                                            <li><strong className="text-red-500">Shortage (&lt; 15% leftover on Sunday):</strong> Saturday's PAR is increased by <strong>10% or 20%</strong>.</li>
+                                            <li><strong className="text-emerald-600">Ideal Range (15% to 40%):</strong> Saturday's PAR remains unchanged.</li>
+                                        </ul>
+                                    </div>
+
+                                    <p className="text-[11px] text-slate-400 italic">
+                                        * Note: Sunday always calculates PAR 0 since there are no warehouse deliveries on Sundays.
+                                    </p>
+                                </>
+                            )}
                         </div>
                         
                         <div className="mt-5 border-t border-slate-100 pt-4 flex justify-end">
@@ -1937,9 +1979,13 @@ export default function InventoryOrdersPage() {
                                     </button>
 
                                     {orderType === 'daily' && (
-    <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs select-none">
+                                         <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs select-none">
                                              <span className="font-bold text-slate-500">📋 Copiar PAR:</span>
-                                             <select id="copy_src_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
+                                             <select 
+                                                 value={copySrcDay} 
+                                                 onChange={(e) => setCopySrcDay(e.target.value)} 
+                                                 className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0"
+                                             >
                                                  <option value="mon_par">Lunes</option>
                                                  <option value="tue_par">Martes</option>
                                                  <option value="wed_par">Miércoles</option>
@@ -1949,7 +1995,11 @@ export default function InventoryOrdersPage() {
                                                  <option value="sun_par">Domingo</option>
                                              </select>
                                              <span className="font-bold text-slate-400">➡️ a:</span>
-                                             <select id="copy_tgt_day" className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0">
+                                             <select 
+                                                 value={copyTgtDay} 
+                                                 onChange={(e) => setCopyTgtDay(e.target.value)} 
+                                                 className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0"
+                                             >
                                                  <option value="all">Todos los días</option>
                                                  <option value="mon_par">Lunes</option>
                                                  <option value="tue_par">Martes</option>
@@ -1960,11 +2010,7 @@ export default function InventoryOrdersPage() {
                                                  <option value="sun_par">Domingo</option>
                                              </select>
                                              <button 
-                                                 onClick={() => {
-                                                     const src = (document.getElementById('copy_src_day') as HTMLSelectElement).value
-                                                     const tgt = (document.getElementById('copy_tgt_day') as HTMLSelectElement).value
-                                                     handleCopyDayPar(src, tgt)
-                                                 }}
+                                                 onClick={() => handleCopyDayPar(copySrcDay, copyTgtDay)}
                                                  className="ml-1 bg-blue-600 hover:bg-blue-700 text-white font-black px-2.5 py-1 rounded-lg transition-all text-xs"
                                              >
                                                  Copiar
@@ -2447,7 +2493,7 @@ export default function InventoryOrdersPage() {
                             <div className="flex items-center gap-2">
                                 <span className="text-xl">ℹ️</span>
                                 <h3 className="text-lg font-black text-slate-800 uppercase tracking-wider font-sans">
-                                    Guía del Módulo de Pedidos a Bodega
+                                    {language === 'es' ? 'Guía del Módulo de Pedidos a Bodega' : 'Warehouse Orders Module Guide'}
                                 </h3>
                             </div>
                             <button
@@ -2460,102 +2506,205 @@ export default function InventoryOrdersPage() {
 
                         {/* Content */}
                         <div className="p-6 space-y-6 text-sm text-slate-600 leading-relaxed font-sans max-h-[60vh] overflow-y-auto">
-                            {/* PASO A PASO */}
-                            <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
-                                <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5 mb-2">
-                                    🚀 ¿Cómo hacer el Pedido Diario? (Paso a Paso)
-                                </h4>
-                                <ol className="list-decimal pl-5 space-y-1.5 text-blue-900/80">
-                                    <li><strong>Selecciona la Sucursal:</strong> Elige tu tienda en el selector arriba a la derecha.</li>
-                                    <li><strong>Verifica la Fecha de Conteo:</strong> Selecciona el día en el que estás contando los productos físicos (por defecto hoy). El pedido se programará para entregarse el **día siguiente**.</li>
-                                    <li><strong>Ingresa los Sobrantes (Conteo Físico):</strong> En la columna naranja <strong>"Sobrante"</strong>, escribe la cantidad de producto que quedó en tu restaurante al cierre. Si ya se habían capturado sobrantes para esta fecha, se cargarán solos de inmediato.</li>
-                                    <li><strong>Revisa la Cantidad Calculada:</strong> El sistema calculará automáticamente cuánto pedir en la columna <strong>"Pedir"</strong> utilizando la fórmula: <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-blue-700">PAR de Mañana − Sobrante</code>. Si tienes suficiente stock, te marcará "Exceso".</li>
-                                    <li><strong>Haz Ajustes Manuales (Opcional):</strong> Si por algún evento especial quieres pedir una cantidad distinta al cálculo del sistema, escribe la cantidad deseada en la columna <strong>"Ajuste"</strong>. La columna <strong>"Final"</strong> tomará ese valor ajustado.</li>
-                                    <li><strong>Guarda y Sincroniza:</strong> Haz clic en <strong>"Generar Orden"</strong> para guardar localmente y luego en <strong>"Enviar a QuickBooks"</strong> para crear el Estimate oficial.</li>
-                                </ol>
-                            </div>
-
-                            {/* ORDEN DE LÍQUIDOS */}
-                            <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
-                                <h4 className="font-bold text-amber-900 text-sm flex items-center gap-1.5 mb-2">
-                                    🧴 ¿Cómo hacer la Orden de Líquidos? (Semanal)
-                                </h4>
-                                <ol className="list-decimal pl-5 space-y-1.5 text-amber-900/80">
-                                    <li><strong>Cambia el Selector de Arriba:</strong> Selecciona el botón de <strong>"🧴 Orden Líquidos"</strong> en el header.</li>
-                                    <li><strong>Día de Pedido:</strong> Recuerda que esta orden se solicita los <strong>Domingos</strong> para recibirse los <strong>Lunes</strong>.</li>
-                                    <li><strong>Carga y Conteo:</strong> La tabla se filtrará automáticamente con los insumos del template oficial de QB. Captura los sobrantes en la columna naranja.</li>
-                                    <li><strong>Cálculo y Envió:</strong> Funciona igual que la orden diaria. Calcula automáticamente <code>PAR - Sobrante</code> y al enviarse a QB genera un Estimate con el prefijo <code>[LÍQUIDOS]</code> en el memo para control administrativo.</li>
-                                </ol>
-                            </div>
-
-                            {/* ORDEN DE UNIFORMES */}
-                            <div className="bg-violet-50/50 border border-violet-100 p-4 rounded-xl">
-                                <h4 className="font-bold text-violet-900 text-sm flex items-center gap-1.5 mb-2">
-                                    🎽 ¿Cómo hacer la Orden de Uniformes?
-                                </h4>
-                                <ol className="list-decimal pl-5 space-y-1.5 text-violet-900/80">
-                                    <li><strong>Cambia el Selector de Arriba:</strong> Selecciona el botón de <strong>"🎽 Orden Uniformes"</strong> en el header.</li>
-                                    <li><strong>Template Único:</strong> A diferencia de la orden diaria (que tiene un template diferente por tienda), la orden de uniformes usa <strong>un solo template maestro</strong> de QuickBooks que aplica a todas las tiendas.</li>
-                                    <li><strong>Misma Mecánica:</strong> Funciona igual que las otras órdenes. Captura sobrantes → el sistema calcula <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-violet-700">PAR − Sobrante</code> → Genera Orden → Envía a QB.</li>
-                                    <li><strong>Identificación:</strong> Al enviarse a QuickBooks, el Estimate se crea con el Customer de tu tienda (nombre, correo, domicilio) y el prefijo <code>[UNIFORMES]</code> en el memo para control administrativo.</li>
-                                    <li><strong>Productos:</strong> Incluye playeras (Team Members, Shift Leader, Assistant Manager, Store Manager), chamarras (rojas y negras) y gorras en todas las tallas disponibles.</li>
-                                </ol>
-                            </div>
-
-                            {/* SIGNIFICA CADA COSA */}
-                            <div>
-                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
-                                    📋 ¿Qué significa cada columna de la Tabla?
-                                </h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div className="border border-slate-100 p-3 rounded-lg">
-                                        <span className="font-bold text-emerald-600 block text-xs uppercase">PAR Mañana</span>
-                                        La cantidad óptima del producto que debe tener el restaurante al inicio del día siguiente.
+                            {language === 'es' ? (
+                                <>
+                                    {/* PASO A PASO */}
+                                    <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
+                                        <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5 mb-2">
+                                            🚀 ¿Cómo hacer el Pedido Diario? (Paso a Paso)
+                                        </h4>
+                                        <ol className="list-decimal pl-5 space-y-1.5 text-blue-900/80">
+                                            <li><strong>Selecciona la Sucursal:</strong> Elige tu tienda en el selector arriba a la derecha.</li>
+                                            <li><strong>Verifica la Fecha de Conteo:</strong> Selecciona el día en el que estás contando los productos físicos (por defecto hoy). El pedido se programará para entregarse el **día siguiente**.</li>
+                                            <li><strong>Ingresa los Sobrantes (Conteo Físico):</strong> En la columna naranja <strong>"Sobrante"</strong>, escribe la cantidad de producto que quedó en tu restaurante al cierre. Si ya se habían capturado sobrantes para esta fecha, se cargarán solos de inmediato.</li>
+                                            <li><strong>Revisa la Cantidad Calculada:</strong> El sistema calculará automáticamente cuánto pedir en la columna <strong>"Pedir"</strong> utilizando la fórmula: <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-blue-700">PAR de Mañana − Sobrante</code>. Si tienes suficiente stock, te marcará "Exceso".</li>
+                                            <li><strong>Haz Ajustes Manuales (Opcional):</strong> Si por algún evento especial quieres pedir una cantidad distinta al cálculo del sistema, escribe la cantidad deseada en la columna <strong>"Ajuste"</strong>. La columna <strong>"Final"</strong> tomará ese valor ajustado.</li>
+                                            <li><strong>Guarda y Sincroniza:</strong> Haz clic en <strong>"Generar Orden"</strong> para guardar localmente y luego en <strong>"Enviar a QuickBooks"</strong> para crear el Estimate oficial.</li>
+                                        </ol>
                                     </div>
-                                    <div className="border border-slate-100 p-3 rounded-lg bg-orange-50/10">
-                                        <span className="font-bold text-orange-600 block text-xs uppercase">Sobrante (Naranja)</span>
-                                        El inventario físico actual (lo que te queda en el restaurante hoy).
-                                    </div>
-                                    <div className="border border-slate-100 p-3 rounded-lg bg-blue-50/10">
-                                        <span className="font-bold text-blue-600 block text-xs uppercase">Pedir (Azul)</span>
-                                        La cantidad sugerida por el sistema (<code className="bg-slate-50 px-1 py-0.5 rounded text-[10px]">PAR − Sobrante</code>).
-                                    </div>
-                                    <div className="border border-slate-100 p-3 rounded-lg bg-indigo-50/10">
-                                        <span className="font-bold text-indigo-600 block text-xs uppercase">Ajuste (Índigo)</span>
-                                        Sobrescribe el pedido automático en caso de emergencias, eventos especiales o redondeos.
-                                    </div>
-                                    <div className="border border-slate-100 p-3 rounded-lg col-span-1 md:col-span-2">
-                                        <span className="font-bold text-slate-800 block text-xs uppercase">Final</span>
-                                        La cantidad real que se enviará en la orden final (toma el valor de Ajuste si existe, sino toma el de Pedir).
-                                    </div>
-                                </div>
-                            </div>
 
-                            {/* CONFIGURACIÓN SEMANAL */}
-                            <div>
-                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
-                                    ⚙️ Pestaña: Configuración Semanal (PAR)
-                                </h4>
-                                <p className="mb-2">Aquí es donde los administradores configuran el PAR ideal diario de cada día de la semana (Lunes a Domingo):</p>
-                                <ul className="list-disc pl-5 space-y-1.5">
-                                    <li><strong>Edición de Celdas:</strong> Haz clic y escribe directamente en la cuadrícula de días para ajustar el PAR diario de cualquier producto.</li>
-                                    <li><strong>📋 Copiar PAR:</strong> Si vas a tener un día festivo o de ventas inusuales, puedes duplicar las bases de un día a otro. Selecciona el día de origen (ej. Viernes), selecciona el día de destino (ej. Lunes o "Todos los días") y haz clic en <strong>Copiar</strong>.</li>
-                                    <li><strong>↩️ Deshacer / Descartar:</strong> Si cometes un error durante la edición y no has presionado "Guardar", haz clic en este botón rojo para revertir la tabla completa a su estado inicial.</li>
-                                    <li><strong>PAR Ideal (Referencia):</strong> Muestra una sugerencia matemática basada en el historial de las últimas 4 semanas y ajustada automáticamente según el porcentaje de sobrantes.</li>
-                                </ul>
-                            </div>
+                                    {/* ORDEN DE LÍQUIDOS */}
+                                    <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
+                                        <h4 className="font-bold text-amber-900 text-sm flex items-center gap-1.5 mb-2">
+                                            🧴 ¿Cómo hacer la Orden de Líquidos? (Semanal)
+                                        </h4>
+                                        <ol className="list-decimal pl-5 space-y-1.5 text-amber-900/80">
+                                            <li><strong>Cambia el Selector de Arriba:</strong> Selecciona el botón de <strong>"🧴 Orden Líquidos"</strong> en el header.</li>
+                                            <li><strong>Día de Pedido:</strong> Recuerda que esta orden se solicita los <strong>Domingos</strong> para recibirse los <strong>Lunes</strong>.</li>
+                                            <li><strong>Carga y Conteo:</strong> La tabla se filtrará automáticamente con los insumos del template oficial de QB. Captura los sobrantes en la columna naranja.</li>
+                                            <li><strong>Cálculo y Envió:</strong> Funciona igual que la orden diaria. Calcula automáticamente <code>PAR - Sobrante</code> y al enviarse a QB genera un Estimate con el prefijo <code>[LÍQUIDOS]</code> en el memo para control administrativo.</li>
+                                        </ol>
+                                    </div>
 
-                            {/* QUICKBOOKS */}
-                            <div className="border-t border-slate-100 pt-4">
-                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
-                                    💼 Integración con QuickBooks (Estimates)
-                                </h4>
-                                <ul className="list-disc pl-5 space-y-1 text-xs text-slate-500">
-                                    <li>El envío a QuickBooks crea automáticamente un Estimate para la tienda en cuestión.</li>
-                                    <li><strong>Clase y Ubicación:</strong> El sistema preconfigura automáticamente el Class y Department/Location en "Warehouse" (Bodega) en QuickBooks para asegurar el flujo correcto en contabilidad.</li>
-                                    <li><strong>Seguridad Antierrores:</strong> Si el Estimate anterior de la base de datos fue eliminado en QuickBooks o contiene productos que ya fueron desactivados, el sistema lo detectará solo y creará un Estimate nuevo limpio con tus productos activos actuales.</li>
-                                </ul>
-                            </div>
+                                    {/* ORDEN DE UNIFORMES */}
+                                    <div className="bg-violet-50/50 border border-violet-100 p-4 rounded-xl">
+                                        <h4 className="font-bold text-violet-900 text-sm flex items-center gap-1.5 mb-2">
+                                            🎽 ¿Cómo hacer la Orden de Uniformes?
+                                        </h4>
+                                        <ol className="list-decimal pl-5 space-y-1.5 text-violet-900/80">
+                                            <li><strong>Cambia el Selector de Arriba:</strong> Selecciona el botón de <strong>"🎽 Orden Uniformes"</strong> en el header.</li>
+                                            <li><strong>Template Único:</strong> A diferencia de la orden diaria (que tiene un template diferente por tienda), la orden de uniformes usa <strong>un solo template maestro</strong> de QuickBooks que aplica a todas las tiendas.</li>
+                                            <li><strong>Misma Mecánica:</strong> Funciona igual que las otras órdenes. Captura sobrantes → el sistema calcula <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-violet-700">PAR − Sobrante</code> → Genera Orden → Envía a QB.</li>
+                                            <li><strong>Identificación:</strong> Al enviarse a QuickBooks, el Estimate se crea con el Customer de tu tienda (nombre, correo, domicilio) y el prefijo <code>[UNIFORMES]</code> en el memo para control administrativo.</li>
+                                            <li><strong>Productos:</strong> Incluye playeras (Team Members, Shift Leader, Assistant Manager, Store Manager), chamarras (rojas y negras) y gorras en todas las tallas disponibles.</li>
+                                        </ol>
+                                    </div>
+
+                                    {/* SIGNIFICA CADA COSA */}
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            📋 ¿Qué significa cada columna de la Tabla?
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div className="border border-slate-100 p-3 rounded-lg">
+                                                <span className="font-bold text-emerald-600 block text-xs uppercase">PAR Mañana</span>
+                                                La cantidad óptima del producto que debe tener el restaurante al inicio del día siguiente.
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg bg-orange-50/10">
+                                                <span className="font-bold text-orange-600 block text-xs uppercase">Sobrante (Naranja)</span>
+                                                El inventario físico actual (lo que te queda en el restaurante hoy).
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg bg-blue-50/10">
+                                                <span className="font-bold text-blue-600 block text-xs uppercase">Pedir (Azul)</span>
+                                                La cantidad sugerida por el sistema (<code className="bg-slate-50 px-1 py-0.5 rounded text-[10px]">PAR − Sobrante</code>).
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg bg-indigo-50/10">
+                                                <span className="font-bold text-indigo-600 block text-xs uppercase">Ajuste (Índigo)</span>
+                                                Sobrescribe el pedido automático en caso de emergencias, eventos especiales o redondeos.
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg col-span-1 md:col-span-2">
+                                                <span className="font-bold text-slate-800 block text-xs uppercase">Final</span>
+                                                La cantidad real que se enviará en la orden final (toma el valor de Ajuste si existe, sino toma el de Pedir).
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* CONFIGURACIÓN SEMANAL */}
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            ⚙️ Pestaña: Configuración Semanal (PAR)
+                                        </h4>
+                                        <p className="mb-2">Aquí es donde los administradores configuran el PAR ideal diario de cada día de la semana (Lunes a Domingo):</p>
+                                        <ul className="list-disc pl-5 space-y-1.5">
+                                            <li><strong>Edición de Celdas:</strong> Haz clic y escribe directamente en la cuadrícula de días para ajustar el PAR diario de cualquier producto.</li>
+                                            <li><strong>📋 Copiar PAR:</strong> Si vas a tener un día festivo o de ventas inusuales, puedes duplicar las bases de un día a otro. Selecciona el día de origen (ej. Viernes), selecciona el día de destino (ej. Lunes o "Todos los días") y haz clic en <strong>Copiar</strong>.</li>
+                                            <li><strong>↩️ Deshacer / Descartar:</strong> Si cometes un error durante la edición y no has presionado "Guardar", haz clic en este botón rojo para revertir la tabla completa a su estado inicial.</li>
+                                            <li><strong>PAR Ideal (Referencia):</strong> Muestra una sugerencia matemática basada en el historial de las últimas 4 semanas y ajustada automáticamente según el porcentaje de sobrantes.</li>
+                                        </ul>
+                                    </div>
+
+                                    {/* QUICKBOOKS */}
+                                    <div className="border-t border-slate-100 pt-4">
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            💼 Integración con QuickBooks (Estimates)
+                                        </h4>
+                                        <ul className="list-disc pl-5 space-y-1 text-xs text-slate-500">
+                                            <li>El envío a QuickBooks crea automáticamente un Estimate para la tienda en cuestión.</li>
+                                            <li><strong>Clase y Ubicación:</strong> El sistema preconfigura automáticamente el Class y Department/Location en "Warehouse" (Bodega) en QuickBooks para asegurar el flujo correcto en contabilidad.</li>
+                                            <li><strong>Seguridad Antierrores:</strong> Si el Estimate anterior de la base de datos fue eliminado en QuickBooks o contiene productos que ya fueron desactivados, el sistema lo detectará solo y creará un Estimate nuevo limpio con tus productos activos actuales.</li>
+                                        </ul>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    {/* STEP BY STEP */}
+                                    <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
+                                        <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5 mb-2">
+                                            🚀 How to place the Daily Order? (Step by Step)
+                                        </h4>
+                                        <ol className="list-decimal pl-5 space-y-1.5 text-blue-900/80">
+                                            <li><strong>Select Store:</strong> Choose your store in the selector on the top right.</li>
+                                            <li><strong>Verify Count Date:</strong> Select the day you are counting physical products (today by default). The order is scheduled for delivery on the **next day**.</li>
+                                            <li><strong>Enter Leftovers (Physical Count):</strong> In the orange <strong>"Leftover"</strong> column, type the quantity of product left in your restaurant at closing. If leftovers were already counted for this date, they will load automatically.</li>
+                                            <li><strong>Check Calculated Qty:</strong> The system automatically calculates how much to order in the <strong>"Order"</strong> column using the formula: <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-blue-700">Tomorrow's PAR − Leftover</code>. If you have enough stock, it will show "Excess".</li>
+                                            <li><strong>Make Manual Adjustments (Optional):</strong> If you want to order a different quantity due to a special event, type the desired quantity in the <strong>"Adjustment"</strong> column. The <strong>"Final"</strong> column will use this value.</li>
+                                            <li><strong>Save and Sync:</strong> Click <strong>"Generate Order"</strong> to save locally and then <strong>"Send to QuickBooks"</strong> to create the official Estimate.</li>
+                                        </ol>
+                                    </div>
+
+                                    {/* LIQUIDS ORDER */}
+                                    <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
+                                        <h4 className="font-bold text-amber-900 text-sm flex items-center gap-1.5 mb-2">
+                                            🧴 How to make the Liquids Order? (Weekly)
+                                        </h4>
+                                        <ol className="list-decimal pl-5 space-y-1.5 text-amber-900/80">
+                                            <li><strong>Switch the Selector Above:</strong> Select the <strong>"🧴 Liquids Order"</strong> button in the header.</li>
+                                            <li><strong>Order Day:</strong> Remember this order is requested on <strong>Sundays</strong> for delivery on <strong>Mondays</strong>.</li>
+                                            <li><strong>Load and Count:</strong> The table will filter automatically with items from the official QB template. Capture leftovers in the orange column.</li>
+                                            <li><strong>Calculate and Send:</strong> Works exactly like the daily order. It calculates <code>PAR - Leftover</code> and when sent to QB generates an Estimate with the prefix <code>[LÍQUIDOS]</code> in the memo for administrative control.</li>
+                                        </ol>
+                                    </div>
+
+                                    {/* UNIFORMS ORDER */}
+                                    <div className="bg-violet-50/50 border border-violet-100 p-4 rounded-xl">
+                                        <h4 className="font-bold text-violet-900 text-sm flex items-center gap-1.5 mb-2">
+                                            🎽 How to make the Uniforms Order?
+                                        </h4>
+                                        <ol className="list-decimal pl-5 space-y-1.5 text-violet-900/80">
+                                            <li><strong>Switch the Selector Above:</strong> Select the <strong>"🎽 Uniforms Order"</strong> button in the header.</li>
+                                            <li><strong>Single Template:</strong> Unlike the daily order (which has a different template per store), the uniforms order uses <strong>a single master template</strong> from QuickBooks that applies to all stores.</li>
+                                            <li><strong>Same Mechanics:</strong> Works exactly like other orders. Capture leftovers → system calculates <code className="bg-white px-1.5 py-0.5 rounded border font-bold text-violet-700">PAR − Leftover</code> → Generate Order → Send to QB.</li>
+                                            <li><strong>Identification:</strong> When sent to QuickBooks, the Estimate is created with your store's Customer (name, email, address) and the prefix <code>[UNIFORMES]</code> in the memo.</li>
+                                            <li><strong>Products:</strong> Includes shirts (Team Members, Shift Leader, Assistant Manager, Store Manager), jackets (red and black), and caps in all available sizes.</li>
+                                        </ol>
+                                    </div>
+
+                                    {/* WHAT COLUMNS MEAN */}
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            📋 What does each table column mean?
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div className="border border-slate-100 p-3 rounded-lg">
+                                                <span className="font-bold text-emerald-600 block text-xs uppercase">Tomorrow's PAR</span>
+                                                The optimal product quantity the restaurant should have at the start of the next day.
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg bg-orange-50/10">
+                                                <span className="font-bold text-orange-600 block text-xs uppercase">Leftover (Orange)</span>
+                                                Current physical inventory (what you have left in the restaurant today).
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg bg-blue-50/10">
+                                                <span className="font-bold text-blue-600 block text-xs uppercase">Order (Blue)</span>
+                                                The system-suggested quantity (<code className="bg-slate-50 px-1 py-0.5 rounded text-[10px]">PAR − Leftover</code>).
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg bg-indigo-50/10">
+                                                <span className="font-bold text-indigo-600 block text-xs uppercase">Adjustment (Indigo)</span>
+                                                Overrides the automatic calculation for emergencies, special events, or packaging rounding rules.
+                                            </div>
+                                            <div className="border border-slate-100 p-3 rounded-lg col-span-1 md:col-span-2">
+                                                <span className="font-bold text-slate-800 block text-xs uppercase">Final</span>
+                                                The actual quantity that will be sent in the final order (uses the Adjustment value if it exists, otherwise uses the Order value).
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* WEEKLY CONFIG */}
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            ⚙️ Tab: Weekly Config (PAR)
+                                        </h4>
+                                        <p className="mb-2">Here administrators configure the daily Ideal PAR for each day of the week (Monday to Sunday):</p>
+                                        <ul className="list-disc pl-5 space-y-1.5">
+                                            <li><strong>Edit Cells:</strong> Click and type directly in the day grid to adjust the daily PAR for any product.</li>
+                                            <li><strong>📋 Copy PAR:</strong> If you have a holiday or unusual sales days, you can duplicate bases from one day to another. Select the source day (e.g., Friday), select the target day (e.g., Monday or "All days"), and click <strong>Copy</strong>.</li>
+                                            <li><strong>↩️ Undo / Discard:</strong> If you make a mistake and haven't clicked "Save", click this red button to revert the entire grid to its initial state.</li>
+                                            <li><strong>Ideal PAR (Reference):</strong> Shows a mathematical suggestion based on the last 4 weeks' history adjusted automatically by leftover percentages.</li>
+                                        </ul>
+                                    </div>
+
+                                    {/* QUICKBOOKS */}
+                                    <div className="border-t border-slate-100 pt-4">
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            💼 QuickBooks Integration (Estimates)
+                                        </h4>
+                                        <ul className="list-disc pl-5 space-y-1 text-xs text-slate-500">
+                                            <li>Sending to QuickBooks automatically creates an Estimate for the respective store.</li>
+                                            <li><strong>Class and Location:</strong> The system automatically preconfigures Class and Department/Location to "Warehouse" in QuickBooks to ensure correct accounting flows.</li>
+                                            <li><strong>Error Prevention:</strong> If the previous Estimate from the database was deleted in QuickBooks or contains discontinued products, the system will detect it and create a new clean Estimate with your active products.</li>
+                                        </ul>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         {/* Footer */}
@@ -2564,7 +2713,7 @@ export default function InventoryOrdersPage() {
                                 onClick={() => setShowInfoModal(false)}
                                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl shadow-sm transition-all"
                             >
-                                Entendido
+                                {language === 'es' ? 'Entendido' : 'Understood'}
                             </button>
                         </div>
                     </div>
