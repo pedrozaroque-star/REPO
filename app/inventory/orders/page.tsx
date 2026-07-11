@@ -1990,16 +1990,33 @@ export default function InventoryOrdersPage() {
                                                     {t('bodegaOrders.item')}
                                                 </th>
                                                 {orderType === 'daily' ? (
-                                                    weekDays.map(d => (
+                                                    <>
+                                                    {weekDays.map(d => (
                                                         <th key={`bh_${d.key}`} className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold">
                                                             {d.label}<br/>
                                                             <span className="font-normal text-emerald-500">{d.dateStr.slice(5)}</span>
                                                         </th>
-                                                    ))
+                                                    ))}
+                                                    {/* PAR Ideal columns (violet) */}
+                                                    <th className="bg-slate-200 border-b-2 border-slate-300 p-0 w-[2px]"></th>
+                                                    {weekDays.map(d => (
+                                                        <th key={`pih_${d.key}`} className="bg-violet-50/60 border-b-2 border-violet-200 p-2 text-center w-16 text-[10px] text-violet-600 font-bold">
+                                                            {d.label}<br/>
+                                                            <span className="font-normal text-violet-400">Ideal</span>
+                                                        </th>
+                                                    ))}
+                                                    </>
                                                 ) : (
+                                                    <>
                                                     <th className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-32 text-xs text-emerald-700 font-bold">
                                                         PAR
                                                     </th>
+                                                    <th className="bg-slate-200 border-b-2 border-slate-300 p-0 w-[2px]"></th>
+                                                    <th className="bg-violet-50/60 border-b-2 border-violet-200 p-2 text-center w-24 text-[10px] text-violet-600 font-bold">
+                                                        PAR<br/>
+                                                        <span className="font-normal text-violet-400">Ideal</span>
+                                                    </th>
+                                                    </>
                                                 )}
                                             </tr>
                                         </thead>
@@ -2016,7 +2033,8 @@ export default function InventoryOrdersPage() {
                                                             </div>
                                                         </td>
                                                         {orderType === 'daily' ? (
-                                                            weekDays.map((d, colIndex) => {
+                                                            <>
+                                                            {weekDays.map((d, colIndex) => {
                                                                 const val = b ? (b as any)[d.baseField] : undefined
                                                                 const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
 
@@ -2034,9 +2052,21 @@ export default function InventoryOrdersPage() {
                                                                         />
                                                                     </td>
                                                                 )
-                                                            })
+                                                            })}
+                                                            {/* PAR Ideal values (violet, readonly) */}
+                                                            <td className="bg-slate-200 p-0 w-[2px] border-b border-slate-200"></td>
+                                                            {weekDays.map(d => {
+                                                                const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : null
+                                                                return (
+                                                                    <td key={`pi_${item.id}_${d.key}`} className="border-b border-violet-100/50 p-1.5 text-center text-violet-500 font-medium text-xs bg-violet-50/20">
+                                                                        {piVal || '-'}
+                                                                    </td>
+                                                                )
+                                                            })}
+                                                            </>
                                                         ) : (
-                                                            (() => {
+                                                            <>
+                                                            {(() => {
                                                                 const val = b ? b.mon_par : undefined
                                                                 const piVal = parIdeal[item.id] ? parIdeal[item.id].mon_par : undefined
 
@@ -2054,7 +2084,13 @@ export default function InventoryOrdersPage() {
                                                                         />
                                                                     </td>
                                                                 )
-                                                            })()
+                                                            })()}
+                                                            {/* PAR Ideal value (violet, readonly) */}
+                                                            <td className="bg-slate-200 p-0 w-[2px] border-b border-slate-200"></td>
+                                                            <td className="border-b border-violet-100/50 p-1.5 text-center text-violet-500 font-medium text-xs bg-violet-50/20">
+                                                                {parIdeal[item.id]?.mon_par || '-'}
+                                                            </td>
+                                                            </>
                                                         )}
                                                     </tr>
                                                 )
@@ -2063,67 +2099,7 @@ export default function InventoryOrdersPage() {
                                     </table>
                                 </div>
 
-                                {/* ---- PAR Ideal reference table (readonly) ---- */}
-                                <div className="border-t-2 border-slate-200">
-                                    <div className="px-5 py-3 bg-violet-50/50 border-b border-violet-100">
-                                        <h3 className="text-sm font-black text-violet-700 uppercase tracking-wider">
-                                            {t('bodegaOrders.parIdealHeader')}
-                                        </h3>
-                                    </div>
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
-                                            <thead>
-                                                <tr>
-                                                    <th className="bg-violet-50/30 border-b border-violet-100 p-3 sticky left-0 z-10 font-bold min-w-[200px] text-violet-700 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                                                        {t('bodegaOrders.item')}
-                                                    </th>
-                                                    {orderType === 'daily' ? (
-                                                        weekDays.map(d => (
-                                                            <th key={`pih_${d.key}`} className="bg-violet-50/30 border-b border-violet-100 p-2 text-center w-20 text-xs text-violet-600 font-bold">
-                                                                {d.label}
-                                                            </th>
-                                                        ))
-                                                    ) : (
-                                                        <th className="bg-violet-50/30 border-b border-violet-100 p-2 text-center w-32 text-xs text-violet-600 font-bold">
-                                                            PAR
-                                                        </th>
-                                                    )}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {items.map(item => {
-                                                    const pi = parIdeal[item.id]
-                                                    return (
-                                                        <tr key={item.id} className="border-b border-violet-50 hover:bg-violet-50/20 transition-colors">
-                                                            <td className="sticky left-0 bg-white border-b border-violet-50 p-2.5 font-semibold text-slate-700 shadow-[2px_0_5px_rgba(0,0,0,0.03)] z-10">
-                                                                {item.excel_reference || item.name}
-                                                            </td>
-                                                            {orderType === 'daily' ? (
-                                                                weekDays.map(d => {
-                                                                    const piVal = pi ? (pi as any)[d.baseField] : null
-                                                                    return (
-                                                                        <td key={`pi_${item.id}_${d.key}`} className="border-b border-violet-50 p-2 text-center text-violet-600 font-medium text-sm">
-                                                                            {piVal || '-'}
-                                                                        </td>
-                                                                    )
-                                                                })
-                                                            ) : (
-                                                                (() => {
-                                                                    const piVal = pi ? pi.mon_par : null
-                                                                    return (
-                                                                        <td className="border-b border-violet-50 p-2 text-center text-violet-600 font-medium text-sm">
-                                                                            {piVal !== null && piVal !== undefined ? piVal : '-'}
-                                                                        </td>
-                                                                    )
-                                                                })()
-                                                            )}
-                                                        </tr>
-                                                    )
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
+
                             </div>
                         )}
 
