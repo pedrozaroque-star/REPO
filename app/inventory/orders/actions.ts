@@ -704,18 +704,18 @@ export async function executeWeekRollover(storeId: string | number, currentMonda
         return { error: `Faltan sobrantes del domingo para ${missing.length} productos.`, missingCount: missing.length }
     }
 
-    // 3. Clonar bases a la nueva semana
+    // 3. Recalcular PAR Ideal PRIMERO (incluyendo la semana que se cierra)
+    await recalculateParIdeal(storeId)
+
+    // 4. Clonar bases a la nueva semana (ahora usa el PAR Ideal recién recalculado)
     const cloneResult = await clonePreviousWeekBases(storeId, nextMonday)
     if (cloneResult.error) {
-        // Si no hay bases de la semana actual, intentar con PAR Ideal
+        // Si no hay bases de la semana actual, usar el PAR Ideal recién calculado
         const parResult = await copyFromParIdeal(storeId, nextMonday)
         if (parResult.error) {
             return { error: 'No se pudieron crear bases para la nueva semana.' }
         }
     }
-
-    // 4. Recalcular PAR Ideal (promedio de últimas 8 semanas)
-    await recalculateParIdeal(storeId)
 
     revalidatePath('/inventory/orders')
     return { success: true, nextMonday }
@@ -736,7 +736,7 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
         .select('*')
         .eq('store_id', storeId)
         .gte('week_start_date', startDate)
-        .lt('week_start_date', currentMonday) // No incluir la semana actual
+        .lte('week_start_date', currentMonday) // Incluir la semana actual (la que se está cerrando)
 
     if (!allBases || allBases.length === 0) return
 
@@ -746,7 +746,7 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
         .select('inventory_item_id, count_date, quantity_on_hand')
         .eq('store_id', storeId.toString())
         .gte('count_date', startDate)
-        .lt('count_date', currentMonday)
+        .lte('count_date', addDays(currentMonday, 6)) // Incluir toda la semana actual
 
     // Mapa de sobrantes para búsqueda rápida
     const leftoverMap = new Map()
