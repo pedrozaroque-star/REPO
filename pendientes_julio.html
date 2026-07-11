@@ -1616,6 +1616,47 @@
                     </div>
                 </div>
  
+                <div class="task-card">
+                    <div class="card-header">
+                        <span class="badge pending">Pendiente</span>
+                        <span class="badge-cat cat-maint">Operaciones / Operations</span>
+                    </div>
+                    
+                        <h3 class="task-title">18. Actualizar y Descargar Videos Musicales Regional Mexicano</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus / Status
+                            </span>
+                            <div class="audit-box">
+                                <strong>Pendiente.</strong> Actualización y descarga de la biblioteca de videos musicales de Regional Mexicano para las pantallas de las sucursales. Se requiere obtener contenido actualizado (éxitos recientes, corridos, banda, norteñas) y preparar los archivos para reproducción en las TVs de los restaurantes.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos recomendados
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number">1</span>
+                                <span class="step-text">Definir la lista de artistas y canciones de Regional Mexicano más populares y actualizados para el ambiente de los restaurantes.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">2</span>
+                                <span class="step-text">Descargar los videos musicales en formato compatible con las TVs de las sucursales (MP4, resolución HD).</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number">3</span>
+                                <span class="step-text">Organizar los archivos en carpetas por tienda y cargarlos en las USBs o sistemas de reproducción de cada sucursal.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+ 
             </div> <!-- /grid -->
  
         </div> <!-- /tasks-container -->
@@ -1630,7 +1671,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 50.5 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 65.5 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1722,6 +1763,30 @@
                                      </div>
                                  </td>
                              </tr>
+                             <tr>
+                                 <td><strong>09-Jul-2026</strong></td>
+                                 <td>9:00 AM - 9:30 AM</td>
+                                 <td style="text-align: center; font-weight: 700;">1.5</td>
+                                 <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">QuickBooks</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Orden de Uniformes (Nuevo Tipo de Pedido)**: Implementación completa de un tercer tipo de orden ('uniformes') en el módulo de pedidos de inventario. Detección de la plantilla 'Orden UNIFORMES presiona Use' en QuickBooks Recurring Transactions, replicación a las 15 tiendas (43 artículos cada una), botón de acceso con título dinámico, prefijo [UNIFORMES] en memo de QB, etiqueta en hoja de impresión, y claves i18n en español/inglés.<br>- **Corrección de Items Incorrectos**: El supervisor reportó que los items no correspondían a la orden de uniformes correcta. Se identificó y seleccionó la plantilla correcta separándola de plantillas con nombres similares.<br>- **Arquitectura de Plantillas Compartidas**: Se documentó y codificó la lógica de que líquidos y uniformes usan UN solo template maestro para todas las tiendas (a diferencia de la orden diaria que tiene un template por tienda), rellenando dinámicamente campos de identificación como tienda, correo y domicilio.</div>
+                                          <div class="en-desc">- **Uniforms Order Type (New)**: Full implementation of a third order type ('uniforms') in the inventory orders module. Detected 'Orden UNIFORMES presiona Use' template from QuickBooks Recurring Transactions, replicated to all 15 stores (43 items each), dynamic title button, [UNIFORMES] prefix in QB memo, print sheet label, and ES/EN i18n keys.<br>- **Wrong Items Fix**: Supervisor reported mismatched items — identified and selected the correct template, separating it from similarly-named ones.<br>- **Shared Template Architecture**: Documented and coded logic where liquids and uniforms use ONE master template for all stores (unlike daily orders with per-store templates), dynamically populating store identification fields like email and address.</div>
+                                     </div>
+                                 </td>
+                             </tr>
+                             <tr>
+                                 <td><strong>10-Jul-2026</strong></td>
+                                 <td>3:00 PM - 9:25 PM</td>
+                                 <td style="text-align: center; font-weight: 700;">10.0</td>
+                                 <td><span class="table-badge-module">Actividades</span> <span class="table-badge-module">Caja Fuerte</span> <span class="table-badge-module">Inventario</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Visita Presencial a Sucursal Slauson** (6:00 PM - 9:30 PM): Visita de seguimiento en sitio para verificar el estado y funcionamiento de las tabletas piloto de cocina instaladas en la sucursal de Slauson. Revisión de conectividad, carga de módulos del sistema, y validación de la experiencia de usuario con el personal de la tienda.<br>- **Guía de Uso de Uniformes**: Actualización del modal informativo de la página de órdenes para incluir la nueva sección de Uniformes (color violeta) con instrucciones paso a paso.<br>- **Tablero de Actividades - Filtro por Tienda**: Corrección del bug donde la lista de reasignación de empleados mostraba nombres de TODAS las tiendas (ej. Roberto Velásquez aparecía en Slauson sin trabajar allí). Ahora solo muestra empleados del roster de la tienda seleccionada para ese día.<br>- **Tablero de Actividades - ACTIVIDADES EXTRA 1-6**: Renombramiento de 'CIERRE 1' y 'CIERRE 2' a 'ACTIVIDADES EXTRA 1' y '2', y adición de 4 slots nuevos (EXTRA 3, 4, 5, 6) en la sección de Cocina para asignar tareas adicionales.<br>- **Módulo de Caja Fuerte (NUEVO)**: Desarrollo completo del módulo de conteo de caja fuerte para las sucursales. Incluye: formulario para registrar conteos de efectivo con desglose por denominación ($100, $50, $20, $10, $5, $1, monedas), cálculo automático del total, historial de conteos por tienda y fecha, APIs de creación/edición/eliminación, migración SQL para la tabla `safe_counts`, tipos TypeScript completos, entrada en el sidebar de navegación, y soporte bilingüe completo (116 claves i18n).<br>- **Tablero de Actividades - Filtro por Día de la Semana**: Corrección del bug donde actividades exclusivas de ciertos días (ej. 'LAVAR FREIDORAS' solo viernes) aparecían en otros días. Se replicó la lógica de frecuencia del backend de notificaciones al frontend.<br>- **Copiar Semana Anterior (por Día/Turno)**: Botón premium que permite clonar las asignaciones de actividades del mismo día y turno de la semana anterior, descartando las asignaciones actuales del turno activo y reemplazándolas con las clonadas.<br>- **Clonar Semana Completa**: Botón que copia TODAS las asignaciones (ambos turnos, 7 días) de la semana anterior de una sola vez, guardando directamente a la base de datos en una transacción única. Incluye diálogo de confirmación antes de ejecutar.<br>- **Auditoría Profunda de Actividades**: (1) Filtro de `store_model` (Regular vs Drive-Thru) para paridad con el backend de notificaciones. (2) Eliminación de código muerto en operaciones de clonado. (3) Reemplazo de 5 strings hardcodeados en español por llamadas `t()` de i18n. (4) Adición de 4 claves i18n nuevas. (5) Hook `useLanguage()` en componente BoardSlot.</div>
+                                          <div class="en-desc">- **On-Site Visit to Slauson Store** (6:00 PM - 9:30 PM): Follow-up field visit to verify the status and operation of the pilot kitchen tablets installed at the Slauson location. Reviewed connectivity, system module loading, and validated user experience with store staff.<br>- **Uniforms Usage Guide**: Updated orders page info modal to include new Uniforms section (purple color) with step-by-step instructions.<br>- **Activities Board - Store Filter**: Fixed bug where employee reassignment list showed names from ALL stores (e.g. Roberto Velásquez appeared at Slauson without working there). Now only shows employees from selected store's roster for that day.<br>- **Activities Board - EXTRA ACTIVITIES 1-6**: Renamed 'CIERRE 1/2' to 'ACTIVIDADES EXTRA 1/2' and added 4 new slots (EXTRA 3, 4, 5, 6) in the Kitchen section for additional task assignments.<br>- **Safe Counts Module (NEW)**: Complete development of cash safe counting module for stores. Includes: cash count entry form with denomination breakdown ($100, $50, $20, $10, $5, $1, coins), automatic total calculation, count history by store and date, create/edit/delete APIs, SQL migration for `safe_counts` table, full TypeScript types, sidebar navigation entry, and complete bilingual support (116 i18n keys).<br>- **Activities Board - Weekday Frequency Filter**: Fixed bug where day-exclusive activities (e.g. 'WASH FRYERS' Friday-only) appeared on other days. Replicated notification backend frequency logic to frontend.<br>- **Copy Previous Week (by Day/Shift)**: Premium button that clones activity assignments from the same day and shift of the previous week, discarding current active shift assignments and replacing with cloned ones.<br>- **Clone Full Week**: Button that copies ALL assignments (both shifts, 7 days) from the previous week at once, saving directly to database in a single transaction. Includes confirmation dialog before execution.<br>- **Deep Activities Audit**: (1) `store_model` filter (Regular vs Drive-Thru) for parity with notifications backend. (2) Dead code removal in clone operations. (3) Replaced 5 hardcoded Spanish strings with `t()` i18n calls. (4) Added 4 new i18n keys. (5) `useLanguage()` hook in BoardSlot component.</div>
+                                     </div>
+                                 </td>
+                             </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1734,11 +1799,11 @@
                     <div class="parallel-card">
                         <h4>
                             <span>Pruebas en Sucursal/Local</span>
-                            <span class="hours">5.5 hrs</span>
+                            <span class="hours">9.5 hrs</span>
                         </h4>
                         <p>
-                            Ejecución de servidores de desarrollo locales y emuladores móviles de la app. Pruebas táctiles, formatos de impresión, y validación de flujos de autenticación OAuth de Google Workspace.
-                            <span class="en-text">Launching local testing servers and emulators. Tested print layouts, tablet scroll constraints, and Google Workspace OAuth path redirects.</span>
+                            Ejecución de servidores de desarrollo locales y emuladores móviles de la app. Pruebas táctiles, formatos de impresión, validación de flujos OAuth, y visitas presenciales a sucursales para verificación de tabletas piloto y módulos del sistema en campo (Slauson 10-Jul).
+                            <span class="en-text">Launching local testing servers and emulators. Tested print layouts, tablet scroll constraints, Google Workspace OAuth redirects, and on-site store visits for pilot tablet verification and system module field testing (Slauson 10-Jul).</span>
                         </p>
                     </div>
                     <div class="parallel-card">
@@ -1770,7 +1835,7 @@
                 <div class="modules-summary">
                     <div class="module-summary-item">
                         <span>Actividades, Planificador y Horarios / Activities & Scheduling</span>
-                        <span class="hours">4.0 hrs</span>
+                        <span class="hours">18.0 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Clon y Sincronizador de Basecamp / Basecamp Integration</span>
@@ -1786,7 +1851,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Pedidos y Sincronización QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">46.5 hrs</span>
+                        <span class="hours">47.5 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
