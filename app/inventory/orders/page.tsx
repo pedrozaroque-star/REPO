@@ -159,6 +159,7 @@ export default function InventoryOrdersPage() {
     const [historyMonday, setHistoryMonday] = useState<string>(getBusinessMonday(new Date()))
     const [historyOrders, setHistoryOrders] = useState<any[]>([])
     const [historyCounts, setHistoryCounts] = useState<Record<string, Record<string, number>>>({})
+    const [historyBases, setHistoryBases] = useState<Record<string, any>>({})
     const [historyLoading, setHistoryLoading] = useState(false)
     const [sendingModal, setSendingModal] = useState(false)
 
@@ -299,6 +300,7 @@ export default function InventoryOrdersPage() {
                 const result = await fetchHistoryData(storeId, historyMonday)
                 setHistoryOrders(result.orders)
                 setHistoryCounts(result.counts)
+                setHistoryBases(result.bases)
             } catch (e) {
                 console.error('Error loading history data:', e)
             } finally {
@@ -2245,21 +2247,31 @@ export default function InventoryOrdersPage() {
                         )}
 
                         {/* ======================================================== */}
-                        {/* TAB 4: LEFTOVERS (SOBRANTES)                              */}
-                        {/* ======================================================== */}
                         {activeTab === 'leftovers' && (() => {
                             const historyWeekDays = WEEK_DAYS.map(d => ({
                                 ...d,
                                 dateStr: addDays(historyMonday, d.offset),
                                 label: t(`bodegaOrders.${d.key}`),
                             }))
-                            // Get items that have at least one count this week
                             const itemsWithCounts = items.filter(item => {
                                 const itemCounts = historyCounts[item.id]
                                 return itemCounts && Object.keys(itemCounts).length > 0
                             })
-                            // Also include items with no counts for reference
                             const allOrderableItems = items
+
+                            // Helper: get traffic light color class based on leftover %
+                            const getTrafficLight = (pct: number, isSaturday: boolean) => {
+                                if (isSaturday) {
+                                    // Sábado: ≥30% = rojo, 10-30% = verde, <10% = amarillo
+                                    if (pct >= 30) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
+                                    if (pct >= 10) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
+                                    return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
+                                }
+                                // L-V: ≥50% = rojo, 10-50% = verde, <10% = amarillo
+                                if (pct >= 50) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
+                                if (pct >= 10) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
+                                return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
+                            }
 
                             return (
                                 <div className="p-6">
@@ -2290,6 +2302,34 @@ export default function InventoryOrdersPage() {
                                         </div>
                                     </div>
 
+                                    {/* Legend Card */}
+                                    <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                                        <div className="flex flex-wrap items-center gap-4 text-xs">
+                                            <span className="font-bold text-slate-600">{language === 'es' ? 'Leyenda %:' : 'Legend %:'}</span>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="inline-block w-3 h-3 rounded-full bg-emerald-400"></span>
+                                                <span className="text-slate-600">{language === 'es' ? '10–50% Rango Ideal ✅' : '10–50% Ideal Range ✅'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="inline-block w-3 h-3 rounded-full bg-amber-400"></span>
+                                                <span className="text-slate-600">{language === 'es' ? '<10% Riesgo — PAR sube ⬆️' : '<10% Risk — PAR goes up ⬆️'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="inline-block w-3 h-3 rounded-full bg-red-400"></span>
+                                                <span className="text-slate-600">{language === 'es' ? '≥50% Exceso — PAR baja ⬇️' : '≥50% Excess — PAR goes down ⬇️'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="inline-block w-3 h-3 rounded-full bg-slate-300"></span>
+                                                <span className="text-slate-600">{language === 'es' ? 'PAR < 8: sin ajuste' : 'PAR < 8: no adjustment'}</span>
+                                            </div>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-1.5">
+                                            {language === 'es' 
+                                                ? 'Sábado usa umbrales diferentes: ≥30% exceso, 10-30% ideal, <10% riesgo. Se valida con el sobrante del Domingo.'
+                                                : 'Saturday uses different thresholds: ≥30% excess, 10-30% ideal, <10% risk. Validated with Sunday leftovers.'}
+                                        </p>
+                                    </div>
+
                                     {historyLoading ? (
                                         <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
                                             <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin" />
@@ -2300,25 +2340,31 @@ export default function InventoryOrdersPage() {
                                             <table className="w-full text-sm">
                                                 <thead>
                                                     <tr className="bg-slate-50 border-b-2 border-slate-200">
-                                                        <th className="sticky left-0 bg-slate-50 p-3 text-left font-black text-slate-700 min-w-[200px] z-10">
+                                                        <th className="sticky left-0 bg-slate-50 p-3 text-left font-black text-slate-700 min-w-[180px] z-10">
                                                             {language === 'es' ? 'Producto' : 'Product'}
                                                         </th>
                                                         {historyWeekDays.map(d => (
-                                                            <th key={d.key} className="p-3 text-center font-bold text-slate-600 min-w-[85px]">
+                                                            <th key={d.key} colSpan={2} className="p-2 text-center font-bold text-slate-600 border-l border-slate-200">
                                                                 <div className="text-xs">{d.label}</div>
                                                                 <div className="text-[10px] text-slate-400 font-normal">{d.dateStr.slice(5)}</div>
+                                                                <div className="flex justify-center gap-2 mt-0.5 text-[9px] font-normal text-slate-400">
+                                                                    <span>PAR</span>
+                                                                    <span>|</span>
+                                                                    <span>{language === 'es' ? 'Sob' : 'Left'}</span>
+                                                                </div>
                                                             </th>
                                                         ))}
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {allOrderableItems.map((item, idx) => {
+                                                    {allOrderableItems.map((item) => {
                                                         const itemCounts = historyCounts[item.id] || {}
+                                                        const itemBases = historyBases[item.id]
                                                         const hasAnyCounts = Object.keys(itemCounts).length > 0
                                                         
                                                         return (
-                                                            <tr key={item.id} className={`border-b border-slate-100 transition-colors ${hasAnyCounts ? 'hover:bg-orange-50/30' : 'hover:bg-slate-50/50 opacity-40'}`}>
-                                                                <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+                                                            <tr key={item.id} className={`border-b border-slate-100 transition-colors ${hasAnyCounts ? 'hover:bg-slate-50/50' : 'hover:bg-slate-50/30 opacity-40'}`}>
+                                                                <td className="sticky left-0 bg-white border-b border-slate-100 p-2 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
                                                                     <div className="flex flex-col">
                                                                         {item.order_unit_description && (
                                                                             <span className="text-[10px] text-slate-400 font-medium leading-tight">{item.order_unit_description}</span>
@@ -2327,17 +2373,50 @@ export default function InventoryOrdersPage() {
                                                                     </div>
                                                                 </td>
                                                                 {historyWeekDays.map(d => {
-                                                                    const val = itemCounts[d.dateStr]
-                                                                    const hasVal = val !== undefined && val !== null
+                                                                    const leftover = itemCounts[d.dateStr]
+                                                                    const hasVal = leftover !== undefined && leftover !== null
+                                                                    const parVal = itemBases ? Number((itemBases as any)[d.baseField]) || 0 : 0
+                                                                    const isSaturday = d.key === 'sat'
+                                                                    
+                                                                    // Calculate percentage
+                                                                    let pct: number | null = null
+                                                                    let traffic = { bg: '', text: 'text-slate-300', border: '', label: '' }
+                                                                    
+                                                                    if (hasVal && parVal >= 8) {
+                                                                        pct = Math.round((leftover / parVal) * 100)
+                                                                        traffic = getTrafficLight(pct, isSaturday)
+                                                                    } else if (hasVal && leftover === 0) {
+                                                                        traffic = { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '🔴' }
+                                                                    }
+
                                                                     return (
-                                                                        <td key={d.key} className={`p-2 text-center font-bold text-sm border-b border-slate-100 ${
-                                                                            hasVal 
-                                                                                ? val === 0 
-                                                                                    ? 'text-red-500 bg-red-50/30' 
-                                                                                    : 'text-orange-700 bg-orange-50/20'
-                                                                                : 'text-slate-200'
-                                                                        }`}>
-                                                                            {hasVal ? val : '-'}
+                                                                        <td key={d.key} colSpan={2} className={`border-l border-slate-200 border-b border-slate-100 p-0`}>
+                                                                            {hasVal ? (
+                                                                                <div className={`flex flex-col items-center py-1.5 px-1 ${traffic.bg} h-full`}>
+                                                                                    {/* PAR and Leftover side by side */}
+                                                                                    <div className="flex items-center gap-1.5 text-xs">
+                                                                                        <span className="text-slate-400 font-medium">{parVal || '-'}</span>
+                                                                                        <span className="text-slate-300">|</span>
+                                                                                        <span className={`font-bold ${leftover === 0 ? 'text-red-600' : traffic.text}`}>
+                                                                                            {leftover}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    {/* Percentage badge */}
+                                                                                    {pct !== null ? (
+                                                                                        <span className={`text-[10px] font-bold ${traffic.text} mt-0.5`}>
+                                                                                            {pct}%
+                                                                                        </span>
+                                                                                    ) : parVal < 8 && parVal > 0 ? (
+                                                                                        <span className="text-[9px] text-slate-400 mt-0.5">n/a</span>
+                                                                                    ) : leftover === 0 ? (
+                                                                                        <span className="text-[10px] font-bold text-red-500 mt-0.5">0%</span>
+                                                                                    ) : null}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="flex items-center justify-center py-2.5 text-slate-200 text-xs">
+                                                                                    -
+                                                                                </div>
+                                                                            )}
                                                                         </td>
                                                                     )
                                                                 })}

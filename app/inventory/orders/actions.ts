@@ -343,7 +343,7 @@ export async function saveWeeklyBases(
 export async function fetchHistoryData(
     storeId: string | number,
     mondayStr: string
-): Promise<{ orders: any[]; counts: Record<string, Record<string, number>> }> {
+): Promise<{ orders: any[]; counts: Record<string, Record<string, number>>; bases: Record<string, any> }> {
     const sunday = addDays(mondayStr, 6)
 
     // Fetch ALL orders for this week (both daily and liquids)
@@ -362,6 +362,13 @@ export async function fetchHistoryData(
         .gte('count_date', mondayStr)
         .lte('count_date', sunday)
 
+    // Fetch weekly bases (PAR per day) for this week
+    const { data: basesData } = await supabase
+        .from('inventory_weekly_bases')
+        .select('*')
+        .eq('store_id', storeId)
+        .eq('week_start_date', mondayStr)
+
     // Build counts map: { itemId: { dateStr: value } }
     const countsMap: Record<string, Record<string, number>> = {}
     if (countsData) {
@@ -371,7 +378,15 @@ export async function fetchHistoryData(
         }
     }
 
-    return { orders: ordersData || [], counts: countsMap }
+    // Build bases map: { itemId: { mon_par, tue_par, ... } }
+    const basesMap: Record<string, any> = {}
+    if (basesData) {
+        for (const b of basesData) {
+            basesMap[b.inventory_item_id] = b
+        }
+    }
+
+    return { orders: ordersData || [], counts: countsMap, bases: basesMap }
 }
 
 /**
@@ -780,21 +795,24 @@ export async function recalculateParIdeal(storeId: string | number, weeksBack: n
                 const dateStr = addDays(b.week_start_date, index)
                 const leftoverVal = leftoverMap.get(`${itemId}_${dateStr}`)
                 
-                if (leftoverVal !== undefined && parVal >= 10) {
+                if (leftoverVal !== undefined && parVal >= 8) {
                     const leftoverPct = (leftoverVal / parVal) * 100
-                    if (leftoverPct > 60) {
+                    if (leftoverPct >= 50) {
+                        // ≥50% sobrante → sobra demasiado, bajar PAR
                         if (leftoverPct >= 70) {
                             adjPar = parVal - Math.round(parVal * 0.15)
                         } else {
                             adjPar = parVal - Math.round(parVal * 0.10)
                         }
-                    } else if (leftoverPct < 20) {
+                    } else if (leftoverPct < 10) {
+                        // <10% sobrante → riesgo de quedarse sin producto, subir PAR
                         if (parVal >= 40) {
                             adjPar = parVal + Math.round(parVal * 0.10)
                         } else {
                             adjPar = parVal + Math.round(parVal * 0.20)
                         }
                     }
+                    // 10%-50% → rango ideal, sin cambio
                 }
             }
 
