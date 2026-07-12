@@ -1713,7 +1713,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 65.5 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 71.0 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1829,6 +1829,18 @@
                                      </div>
                                  </td>
                              </tr>
+                             <tr>
+                                 <td><strong>11-Jul-2026</strong></td>
+                                 <td>10:19 AM - 1:46 PM</td>
+                                 <td style="text-align: center; font-weight: 700;">5.5</td>
+                                 <td><span class="table-badge-module">Inventario</span> <span class="table-badge-module">QuickBooks</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Rediseño Completo de Pestaña Sobrantes v2**: Nuevo layout con semáforo de colores (verde/ámbar/rojo) basado en el porcentaje sobrante vs PAR. PAR como etiqueta sutil, sobrante como número protágono grande en negrita, y porcentaje como pastilla coloreada. Fondo completo de celda con color de semáforo. Leyenda como pastillas limpias en vez de tarjetas voluminosas.<br>- **PAR Ideal Inline**: Movimiento del PAR Ideal de tabla separada a columnas violeta integradas directamente al lado derecho de la cuadrícula de configuración semanal (7 columnas para diario, 1 para líquidos/uniformes).<br>- **Bug Crítico: PAR Ideal excluía semana actual**: La función `recalculateParIdeal` usaba filtro `lt()` que excluía los datos de cierre de la semana actual del cálculo. Cambiado a `lte()`. Además, `executeWeekRollover` clonaba el PAR ANTES de recalcular — ahora recalcula PRIMERO y luego copia el PAR Ideal actualizado.<br>- **Ventana de cálculo 8→4 semanas**: Reducción de la ventana de promedio del PAR Ideal de 8 a 4 semanas para reaccionar más rápido a patrones recientes (ej. 2 Horchatas sobrantes el viernes ahora pesa 25% en vez de 12.5%).<br>- **Ampliación de Umbrales PAR**: L-V: riesgo &lt;20% (era &lt;10%), ideal 20-60% (era 10-50%), exceso ≥60% (era ≥50%). Sáb: riesgo &lt;15%, ideal 15-40%, exceso ≥40%. Filosofía: quedarse sin producto fuerza al gerente a ir a otra tienda lejana, lo cual es mucho más costoso que tener sobrante.<br>- **Auditoría Integral del Módulo**: Eliminación de función muerta `getOrderHistory`. Corrección de anti-patrón `document.getElementById` de React para copiar PAR. Implementación de soporte bilingüe completo (50+ claves i18n) para alertas, confirmaciones, flujos de QuickBooks y modales de guía. Limpieza de dependencia de Supabase en React.<br>- **Reglas de Redondeo Especiales**: Implementación de `ceiling_60` para Papelito Para Torta (charolas de 60 paquetes). Redondeo automático de ajustes manuales de PAR según reglas del item. Aplicación de reglas de redondeo durante el cálculo de promedios de PAR Ideal en el rollover semanal.<br>- **Limpieza dinámica de datos legacy**: Aplicación automática de reglas de redondeo sobre el PAR Ideal y bases semanales al cargarlos de la base de datos, reparando registros viejos que no cumplían las reglas.<br>- **Boost de Emergencia PAR (+10/15/20/25%)**: Dropdown en la pestaña de orden diaria que permite subir temporalmente el PAR de TODOS los productos para días especiales o de alta demanda. Las cantidades boosteadas respetan las reglas de redondeo y muestran una pastilla visual (+X%) bajo los valores de PAR en la tabla.</div>
+                                          <div class="en-desc">- **Sobrantes Tab Redesign v2**: New traffic-light layout (green/amber/red) based on leftover % vs PAR. PAR as subtle label, leftover as bold protagonist number, percentage as colored pill badge. Full cell background with traffic-light color. Clean pill legend.<br>- **PAR Ideal Inline**: Moved PAR Ideal from separate table to violet inline columns on the right side of weekly config grid.<br>- **Critical Bug: PAR Ideal excluded current week**: `recalculateParIdeal` used `lt()` filter excluding closing week data. Changed to `lte()`. Also `executeWeekRollover` now recalculates FIRST then copies updated PAR Ideal.<br>- **Calculation window 8→4 weeks**: Faster reaction to recent leftover patterns (e.g. 2 Horchata leftovers on Friday now weighs 25% instead of 12.5%).<br>- **PAR Threshold Widening**: M-F: risk &lt;20% (was &lt;10%), ideal 20-60% (was 10-50%), excess ≥60% (was ≥50%). Sat: risk &lt;15%, ideal 15-40%, excess ≥40%. Running out forces manager to drive to distant store for restock.<br>- **Comprehensive Module Audit**: Dead `getOrderHistory` removal. React anti-pattern fix for PAR copy. Full i18n (50+ keys) for alerts, confirmations, QB flows, help modals. Supabase dependency cleanup.<br>- **Special Rounding Rules**: `ceiling_60` for Papelito Para Torta (60-pack trays). Auto-round manual PAR adjustments. Enforce rounding during PAR Ideal rollover averages.<br>- **Dynamic Legacy Data Cleanup**: Auto-apply rounding rules on fetched PAR Ideal and weekly bases to repair old database records.<br>- **Emergency PAR Boost (+10/15/20/25%)**: Dropdown in daily order tab to temporarily increase PAR for ALL products on high-demand days. Boosted values respect rounding rules and show visual (+X%) pill badge.</div>
+                                     </div>
+                                 </td>
+                             </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1893,7 +1905,7 @@
                     </div>
                     <div class="module-summary-item">
                         <span>Inventario, Pedidos y Sincronización QuickBooks / Inventory & QuickBooks</span>
-                        <span class="hours">47.5 hrs</span>
+                        <span class="hours">53.0 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Mantenimiento General y Soporte Técnico / General Maintenance & Support</span>
