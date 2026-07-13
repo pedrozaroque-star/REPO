@@ -345,29 +345,6 @@ export async function saveWeeklyBases(
         throw new Error(err1.message)
     }
 
-    // 2. Guardar en par ideal (el baseline definitivo para todas las semanas)
-    const idealPayload = basesList.map(b => ({
-        store_id: storeId,
-        inventory_item_id: b.inventory_item_id,
-        mon_par: b.mon_par,
-        tue_par: b.tue_par,
-        wed_par: b.wed_par,
-        thu_par: b.thu_par,
-        fri_par: b.fri_par,
-        sat_par: b.sat_par,
-        sun_par: b.sun_par,
-        updated_at: new Date().toISOString()
-    }))
-
-    const { error: err2 } = await supabase
-        .from('inventory_par_ideal')
-        .upsert(idealPayload, { onConflict: 'store_id, inventory_item_id' })
-
-    if (err2) {
-        console.error('Error al guardar PAR Ideal:', err2.message)
-        throw new Error(err2.message)
-    }
-
     revalidatePath('/inventory/orders')
 }
 
