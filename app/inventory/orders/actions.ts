@@ -256,27 +256,6 @@ export async function fetchWeeklyData(storeId: string | number, mondayStr: strin
     // Mapear datos
     const basesMap: Record<string, WeeklyBaseRecord> = {}
     
-    // Inicializar basesMap con los valores de referencia del PAR Ideal
-    if (parIdeal && parIdeal.length > 0) {
-        parIdeal.forEach((p: any) => {
-            basesMap[p.inventory_item_id] = {
-                id: `temp-${p.inventory_item_id}`,
-                store_id: Number(storeId),
-                inventory_item_id: p.inventory_item_id,
-                week_start_date: mondayStr,
-                mon_par: p.mon_par,
-                tue_par: p.tue_par,
-                wed_par: p.wed_par,
-                thu_par: p.thu_par,
-                fri_par: p.fri_par,
-                sat_par: p.sat_par,
-                sun_par: p.sun_par,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            } as any
-        })
-    }
-
     // Sobrescribir con las bases reales de esta semana si existen
     if (bases && bases.length > 0) {
         bases.forEach((b: any) => {
