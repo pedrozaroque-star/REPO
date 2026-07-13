@@ -2592,6 +2592,19 @@ export default function InventoryOrdersPage() {
                                         </ol>
                                     </div>
 
+                                    {/* HORARIO LABORAL DE NEGOCIO */}
+                                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            ⏰ Día Laboral Operativo (Transición Nocturna)
+                                        </h4>
+                                        <p className="text-xs text-slate-600">
+                                            El sistema se rige bajo el horario operativo oficial de la empresa: <strong>el día laboral inicia a las 6:00 AM y termina a las 5:59 AM del siguiente día</strong> (el turno PM inicia a las 5:00 PM).
+                                        </p>
+                                        <ul className="list-disc pl-5 mt-1.5 text-xs space-y-1 text-slate-500">
+                                            <li>Si capturas sobrantes a las 11:30 PM de un Domingo o a la 1:00 AM de un Lunes calendario, el sistema sabe que operativamente sigue siendo el día de negocio <strong>Domingo</strong> y guardará tus datos de forma correcta.</li>
+                                        </ul>
+                                    </div>
+
                                     {/* ORDEN DE LÍQUIDOS */}
                                     <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-xl">
                                         <h4 className="font-bold text-amber-900 text-sm flex items-center gap-1.5 mb-2">
@@ -2659,6 +2672,13 @@ export default function InventoryOrdersPage() {
                                             <li><strong>📋 Copiar PAR:</strong> Si vas a tener un día festivo o de ventas inusuales, puedes duplicar las bases de un día a otro. Selecciona el día de origen (ej. Viernes), selecciona el día de destino (ej. Lunes o "Todos los días") y haz clic en <strong>Copiar</strong>.</li>
                                             <li><strong>↩️ Deshacer / Descartar:</strong> Si cometes un error durante la edición y no has presionado "Guardar", haz clic en este botón rojo para revertir la tabla completa a su estado inicial.</li>
                                             <li><strong>PAR Ideal (Referencia):</strong> Muestra una sugerencia matemática basada en el historial de las últimas 4 semanas y ajustada automáticamente según el porcentaje de sobrantes.</li>
+                                            <li><strong>🎨 Resaltado Semántico de Alertas:</strong> Al editar valores, se te alertará visualmente en comparación con la recomendación ideal:
+                                                <ul className="list-disc pl-5 mt-1 space-y-0.5 text-xs text-slate-500">
+                                                    <li><span className="text-indigo-600 font-bold">Color Azul/Índigo:</span> Tu PAR actual es <strong>mayor (exceso)</strong> que el ideal sugerido.</li>
+                                                    <li><span className="text-amber-600 font-bold">Color Naranja/Ámbar:</span> Tu PAR actual es <strong>menor (faltante)</strong> que el ideal sugerido (riesgo de desabasto).</li>
+                                                    <li>Las semanas futuras que no han sido configuradas o clonadas se muestran limpias en blanco con una guía del ideal en gris claro.</li>
+                                                </ul>
+                                            </li>
                                         </ul>
                                     </div>
 
@@ -2671,6 +2691,8 @@ export default function InventoryOrdersPage() {
                                             <li>El envío a QuickBooks crea automáticamente un Estimate para la tienda en cuestión.</li>
                                             <li><strong>Clase y Ubicación:</strong> El sistema preconfigura automáticamente el Class y Department/Location en "Warehouse" (Bodega) en QuickBooks para asegurar el flujo correcto en contabilidad.</li>
                                             <li><strong>Seguridad Antierrores:</strong> Si el Estimate anterior de la base de datos fue eliminado en QuickBooks o contiene productos que ya fueron desactivados, el sistema lo detectará solo y creará un Estimate nuevo limpio con tus productos activos actuales.</li>
+                                            <li><strong>Sincronización Inteligente:</strong> Los precios y las plantillas se sincronizan automáticamente en segundo plano. Si realizaste cambios en QuickBooks y deseas verlos inmediatamente, puedes hacer clic en <strong>"Sincronizar con QuickBooks"</strong> arriba a la derecha.</li>
+                                            <li><strong>Reglas de Redondeo:</strong> Para ciertos insumos (como panes y tortillas), el sistema aplica automáticamente redondeos de empaque cerrado (ej. múltiplos de 30 o 60) definidos por administración.</li>
                                         </ul>
                                     </div>
                                 </>
@@ -2689,6 +2711,19 @@ export default function InventoryOrdersPage() {
                                             <li><strong>Make Manual Adjustments (Optional):</strong> If you want to order a different quantity due to a special event, type the desired quantity in the <strong>"Adjustment"</strong> column. The <strong>"Final"</strong> column will use this value.</li>
                                             <li><strong>Save and Sync:</strong> Click <strong>"Generate Order"</strong> to save locally and then <strong>"Send to QuickBooks"</strong> to create the official Estimate.</li>
                                         </ol>
+                                    </div>
+
+                                    {/* BUSINESS HOURS / OPERATING DAY */}
+                                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            ⏰ Operating Business Day (Night Shift Transition)
+                                        </h4>
+                                        <p className="text-xs text-slate-600">
+                                            The system functions according to the company's official operating hours: <strong>the business day begins at 6:00 AM and ends at 5:59 AM of the following day</strong> (the PM shift starts at 5:00 PM).
+                                        </p>
+                                        <ul className="list-disc pl-5 mt-1.5 text-xs space-y-1 text-slate-500">
+                                            <li>If you register leftovers at 11:30 PM on a Sunday or at 1:00 AM on a calendar Monday, the system understands it is operatively still <strong>Sunday</strong> and will route the count correctly.</li>
+                                        </ul>
                                     </div>
 
                                     {/* LIQUIDS ORDER */}
@@ -2758,6 +2793,13 @@ export default function InventoryOrdersPage() {
                                             <li><strong>📋 Copy PAR:</strong> If you have a holiday or unusual sales days, you can duplicate bases from one day to another. Select the source day (e.g., Friday), select the target day (e.g., Monday or "All days"), and click <strong>Copy</strong>.</li>
                                             <li><strong>↩️ Undo / Discard:</strong> If you make a mistake and haven't clicked "Save", click this red button to revert the entire grid to its initial state.</li>
                                             <li><strong>Ideal PAR (Reference):</strong> Shows a mathematical suggestion based on the last 4 weeks' history adjusted automatically by leftover percentages.</li>
+                                            <li><strong>🎨 Semantical Color Highlights:</strong> When editing values, cells are color-coded to compare your PAR with the Ideal baseline:
+                                                <ul className="list-disc pl-5 mt-1 space-y-0.5 text-xs text-slate-500">
+                                                    <li><span className="text-indigo-600 font-bold">Blue/Indigo Highlight:</span> Your active PAR is <strong>greater (excess)</strong> than the suggested ideal.</li>
+                                                    <li><span className="text-amber-600 font-bold">Orange/Amber Highlight:</span> Your active PAR is <strong>less (deficit)</strong> than the suggested ideal (risk of stockout).</li>
+                                                    <li>Future weeks that have not been manually set or cloned will remain clean and white with the ideal value shown as a gray placeholder.</li>
+                                                </ul>
+                                            </li>
                                         </ul>
                                     </div>
 
@@ -2770,6 +2812,8 @@ export default function InventoryOrdersPage() {
                                             <li>Sending to QuickBooks automatically creates an Estimate for the respective store.</li>
                                             <li><strong>Class and Location:</strong> The system automatically preconfigures Class and Department/Location to "Warehouse" in QuickBooks to ensure correct accounting flows.</li>
                                             <li><strong>Error Prevention:</strong> If the previous Estimate from the database was deleted in QuickBooks or contains discontinued products, the system will detect it and create a new clean Estimate with your active products.</li>
+                                            <li><strong>Smart Sync:</strong> Item prices and templates are synchronized automatically in the background. If you made changes in QuickBooks and need to see them immediately, click <strong>"Sincronizar con QuickBooks"</strong> on the top right.</li>
+                                            <li><strong>Rounding Rules:</strong> For specific supplies (like breads or tortillas), the system automatically applies packaging rounding rules (e.g., multiples of 30 or 60) set by administration.</li>
                                         </ul>
                                     </div>
                                 </>
