@@ -2065,37 +2065,58 @@ export default function InventoryOrdersPage() {
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
                                         <thead>
+                                            {/* Primera Fila: Encabezados de grupo */}
                                             <tr>
-                                                <th className="bg-slate-100 border-b-2 border-slate-300 p-3 sticky left-0 z-10 font-black min-w-[200px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                                                <th rowSpan={2} className="bg-slate-100 border-b-2 border-slate-300 p-3 sticky left-0 z-20 font-black min-w-[200px] shadow-[2px_0_5px_rgba(0,0,0,0.05)] align-middle text-slate-700">
                                                     {t('bodegaOrders.item')}
                                                 </th>
                                                 {orderType === 'daily' ? (
                                                     <>
-                                                    {weekDays.map(d => (
-                                                        <th key={`bh_${d.key}`} className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold">
-                                                            {d.label}<br/>
-                                                            <span className="font-normal text-emerald-500">{d.dateStr.slice(5)}</span>
+                                                        <th colSpan={7} className="bg-emerald-100/80 text-emerald-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-emerald-300">
+                                                            {t('bodegaOrders.parActualHeader')}
                                                         </th>
-                                                    ))}
-                                                    {/* PAR Ideal columns (violet) */}
-                                                    <th className="bg-slate-200 border-b-2 border-slate-300 p-0 w-[2px]"></th>
-                                                    {weekDays.map(d => (
-                                                        <th key={`pih_${d.key}`} className="bg-violet-50/60 border-b-2 border-violet-200 p-2 text-center w-16 text-[10px] text-violet-600 font-bold">
-                                                            {d.label}<br/>
-                                                            <span className="font-normal text-violet-400">Ideal</span>
+                                                        <th rowSpan={2} className="bg-slate-300 border-b-2 border-slate-300 p-0 w-[2px]"></th>
+                                                        <th colSpan={7} className="bg-violet-100/80 text-violet-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-violet-300">
+                                                            {t('bodegaOrders.parIdealHeader')}
                                                         </th>
-                                                    ))}
                                                     </>
                                                 ) : (
                                                     <>
-                                                    <th className="bg-emerald-50 border-b-2 border-emerald-200 p-2 text-center w-32 text-xs text-emerald-700 font-bold">
-                                                        PAR
-                                                    </th>
-                                                    <th className="bg-slate-200 border-b-2 border-slate-300 p-0 w-[2px]"></th>
-                                                    <th className="bg-violet-50/60 border-b-2 border-violet-200 p-2 text-center w-24 text-[10px] text-violet-600 font-bold">
-                                                        PAR<br/>
-                                                        <span className="font-normal text-violet-400">Ideal</span>
-                                                    </th>
+                                                        <th className="bg-emerald-100/80 text-emerald-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-emerald-300 w-32">
+                                                            {t('bodegaOrders.parActualHeader')}
+                                                        </th>
+                                                        <th rowSpan={2} className="bg-slate-300 border-b-2 border-slate-300 p-0 w-[2px]"></th>
+                                                        <th className="bg-violet-100/80 text-violet-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-violet-300 w-24">
+                                                            {t('bodegaOrders.parIdealHeader')}
+                                                        </th>
+                                                    </>
+                                                )}
+                                            </tr>
+                                            {/* Segunda Fila: Detalles de los días */}
+                                            <tr>
+                                                {orderType === 'daily' ? (
+                                                    <>
+                                                        {weekDays.map(d => (
+                                                            <th key={`bh_${d.key}`} className="bg-emerald-50 border-b border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold">
+                                                                {d.label}<br/>
+                                                                <span className="font-normal text-emerald-500">{d.dateStr.slice(5)}</span>
+                                                            </th>
+                                                        ))}
+                                                        {weekDays.map(d => (
+                                                            <th key={`pih_${d.key}`} className="bg-violet-50/60 border-b border-violet-200 p-2 text-center w-16 text-[10px] text-violet-600 font-bold">
+                                                                {d.label}<br/>
+                                                                <span className="font-normal text-violet-400">Ideal</span>
+                                                            </th>
+                                                        ))}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <th className="bg-emerald-50 border-b border-emerald-200 p-1.5 text-center text-xs text-emerald-700 font-bold">
+                                                            PAR
+                                                        </th>
+                                                        <th className="bg-violet-50/60 border-b border-violet-200 p-1.5 text-center text-[10px] text-violet-600 font-bold">
+                                                            Ideal
+                                                        </th>
                                                     </>
                                                 )}
                                             </tr>
@@ -2120,17 +2141,15 @@ export default function InventoryOrdersPage() {
                                                                 const isDifferent = (val || 0) !== (piVal || 0)
 
                                                                 return (
-                                                                    <td key={`bc_${item.id}_${d.key}`} className={`p-0 border-b border-emerald-100/50 transition-colors ${
-                                                                        isDifferent ? 'bg-amber-50/70' : ''
-                                                                    }`}>
+                                                                    <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
                                                                         <input
                                                                             id={`input_${rowIndex}_${colIndex}`}
                                                                             type="number"
                                                                             placeholder={piVal ? String(piVal) : '-'}
-                                                                            className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 focus:ring-emerald-400 text-sm ${
+                                                                            className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all ${
                                                                                 isDifferent
-                                                                                ? 'text-amber-800 font-bold'
-                                                                                : 'bg-transparent text-slate-800 font-medium'
+                                                                                ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
+                                                                                : 'bg-transparent text-slate-800 font-medium border-b border-b-transparent focus:ring-emerald-400'
                                                                             }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
                                                                             onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
@@ -2159,17 +2178,15 @@ export default function InventoryOrdersPage() {
                                                                 const isDifferent = (val || 0) !== (piVal || 0)
 
                                                                 return (
-                                                                    <td className={`p-0 border-b border-emerald-100/50 transition-colors ${
-                                                                        isDifferent ? 'bg-amber-50/70' : ''
-                                                                    }`}>
+                                                                    <td className="p-0 border-b border-emerald-100/50">
                                                                         <input
                                                                             id={`input_${rowIndex}_0`}
                                                                             type="number"
                                                                             placeholder={piVal !== undefined && piVal !== null ? String(piVal) : '-'}
-                                                                            className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 focus:ring-emerald-400 text-sm ${
+                                                                            className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all ${
                                                                                 isDifferent
-                                                                                ? 'text-amber-800 font-bold'
-                                                                                : 'bg-transparent text-slate-800 font-medium'
+                                                                                ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
+                                                                                : 'bg-transparent text-slate-800 font-medium border-b border-b-transparent focus:ring-emerald-400'
                                                                             }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
                                                                             onChange={e => handleLiquidsParChange(item.id, e.target.value)}
