@@ -2138,7 +2138,8 @@ export default function InventoryOrdersPage() {
                                                             {weekDays.map((d, colIndex) => {
                                                                 const val = b ? (b as any)[d.baseField] : undefined
                                                                 const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
-                                                                const isDifferent = (val || 0) !== (piVal || 0)
+                                                                const isOver = (val || 0) > (piVal || 0)
+                                                                const isUnder = (val || 0) < (piVal || 0)
 
                                                                 return (
                                                                     <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
@@ -2147,8 +2148,10 @@ export default function InventoryOrdersPage() {
                                                                             type="number"
                                                                             placeholder={piVal ? String(piVal) : '-'}
                                                                             className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all ${
-                                                                                isDifferent
+                                                                                isOver
                                                                                 ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
+                                                                                : isUnder
+                                                                                ? 'bg-amber-50/50 text-amber-700 font-bold border-b-2 border-b-amber-400 focus:ring-amber-400'
                                                                                 : 'bg-transparent text-slate-800 font-medium border-b border-b-transparent focus:ring-emerald-400'
                                                                             }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
@@ -2175,7 +2178,8 @@ export default function InventoryOrdersPage() {
                                                             {(() => {
                                                                 const val = b ? b.mon_par : undefined
                                                                 const piVal = parIdeal[item.id] ? parIdeal[item.id].mon_par : undefined
-                                                                const isDifferent = (val || 0) !== (piVal || 0)
+                                                                const isOver = (val || 0) > (piVal || 0)
+                                                                const isUnder = (val || 0) < (piVal || 0)
 
                                                                 return (
                                                                     <td className="p-0 border-b border-emerald-100/50">
@@ -2184,8 +2188,10 @@ export default function InventoryOrdersPage() {
                                                                             type="number"
                                                                             placeholder={piVal !== undefined && piVal !== null ? String(piVal) : '-'}
                                                                             className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 text-sm transition-all ${
-                                                                                isDifferent
+                                                                                isOver
                                                                                 ? 'bg-indigo-50/50 text-indigo-700 font-bold border-b-2 border-b-indigo-400 focus:ring-indigo-400'
+                                                                                : isUnder
+                                                                                ? 'bg-amber-50/50 text-amber-700 font-bold border-b-2 border-b-amber-400 focus:ring-amber-400'
                                                                                 : 'bg-transparent text-slate-800 font-medium border-b border-b-transparent focus:ring-emerald-400'
                                                                             }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
