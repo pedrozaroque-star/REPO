@@ -2117,14 +2117,21 @@ export default function InventoryOrdersPage() {
                                                             {weekDays.map((d, colIndex) => {
                                                                 const val = b ? (b as any)[d.baseField] : undefined
                                                                 const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
+                                                                const isDifferent = (val || 0) !== (piVal || 0)
 
                                                                 return (
-                                                                    <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
+                                                                    <td key={`bc_${item.id}_${d.key}`} className={`p-0 border-b border-emerald-100/50 transition-colors ${
+                                                                        isDifferent ? 'bg-amber-50/70' : ''
+                                                                    }`}>
                                                                         <input
                                                                             id={`input_${rowIndex}_${colIndex}`}
                                                                             type="number"
                                                                             placeholder={piVal ? String(piVal) : '-'}
-                                                                            className="w-full h-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300 text-sm"
+                                                                            className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 focus:ring-emerald-400 text-sm ${
+                                                                                isDifferent
+                                                                                ? 'text-amber-800 font-bold'
+                                                                                : 'bg-transparent text-slate-800 font-medium'
+                                                                            }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
                                                                             onChange={e => handleBaseChange(item.id, d.baseField, e.target.value)}
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, colIndex)}
@@ -2149,14 +2156,21 @@ export default function InventoryOrdersPage() {
                                                             {(() => {
                                                                 const val = b ? b.mon_par : undefined
                                                                 const piVal = parIdeal[item.id] ? parIdeal[item.id].mon_par : undefined
+                                                                const isDifferent = (val || 0) !== (piVal || 0)
 
                                                                 return (
-                                                                    <td className="p-0 border-b border-emerald-100/50">
+                                                                    <td className={`p-0 border-b border-emerald-100/50 transition-colors ${
+                                                                        isDifferent ? 'bg-amber-50/70' : ''
+                                                                    }`}>
                                                                         <input
                                                                             id={`input_${rowIndex}_0`}
                                                                             type="number"
                                                                             placeholder={piVal !== undefined && piVal !== null ? String(piVal) : '-'}
-                                                                            className="w-full h-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-emerald-400 font-medium text-slate-800 placeholder:text-slate-300 text-sm"
+                                                                            className={`w-full h-full p-2.5 text-center outline-none focus:bg-white focus:ring-2 focus:ring-emerald-400 text-sm ${
+                                                                                isDifferent
+                                                                                ? 'text-amber-800 font-bold'
+                                                                                : 'bg-transparent text-slate-800 font-medium'
+                                                                            }`}
                                                                             value={val !== undefined && val !== null ? val : ''}
                                                                             onChange={e => handleLiquidsParChange(item.id, e.target.value)}
                                                                             onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
