@@ -2062,31 +2062,31 @@ export default function InventoryOrdersPage() {
                                 </div>
 
                                 {/* ---- BASE PAR table (editable grid) ---- */}
-                                <div className="overflow-x-auto">
+                                <div className="overflow-auto max-h-[calc(100vh-280px)] border border-slate-200 rounded-xl shadow-sm bg-white">
                                     <table className="w-full text-sm text-left border-collapse whitespace-nowrap">
                                         <thead>
                                             {/* Primera Fila: Encabezados de grupo */}
                                             <tr>
-                                                <th rowSpan={2} className="bg-slate-100 border-b-2 border-slate-300 p-3 sticky left-0 z-20 font-black min-w-[200px] shadow-[2px_0_5px_rgba(0,0,0,0.05)] align-middle text-slate-700">
+                                                <th rowSpan={2} className="bg-slate-100 border-b-2 border-slate-300 p-3 sticky left-0 top-0 z-30 font-black min-w-[200px] shadow-[2px_0_5px_rgba(0,0,0,0.05)] align-middle text-slate-700">
                                                     {t('bodegaOrders.item')}
                                                 </th>
                                                 {orderType === 'daily' ? (
                                                     <>
-                                                        <th colSpan={7} className="bg-emerald-100/80 text-emerald-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-emerald-300">
+                                                        <th colSpan={7} className="bg-emerald-100/80 text-emerald-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-emerald-300 sticky top-0 z-20">
                                                             {t('bodegaOrders.parActualHeader')}
                                                         </th>
-                                                        <th rowSpan={2} className="bg-slate-300 border-b-2 border-slate-300 p-0 w-[2px]"></th>
-                                                        <th colSpan={7} className="bg-violet-100/80 text-violet-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-violet-300">
+                                                        <th rowSpan={2} className="bg-slate-300 border-b-2 border-slate-300 p-0 w-[2px] sticky top-0 z-20"></th>
+                                                        <th colSpan={7} className="bg-violet-100/80 text-violet-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-violet-300 sticky top-0 z-20">
                                                             {t('bodegaOrders.parIdealHeader')}
                                                         </th>
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <th className="bg-emerald-100/80 text-emerald-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-emerald-300 w-32">
+                                                        <th className="bg-emerald-100/80 text-emerald-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-emerald-300 w-32 sticky top-0 z-20">
                                                             {t('bodegaOrders.parActualHeader')}
                                                         </th>
-                                                        <th rowSpan={2} className="bg-slate-300 border-b-2 border-slate-300 p-0 w-[2px]"></th>
-                                                        <th className="bg-violet-100/80 text-violet-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-violet-300 w-24">
+                                                        <th rowSpan={2} className="bg-slate-300 border-b-2 border-slate-300 p-0 w-[2px] sticky top-0 z-20"></th>
+                                                        <th className="bg-violet-100/80 text-violet-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-violet-300 w-24 sticky top-0 z-20">
                                                             {t('bodegaOrders.parIdealHeader')}
                                                         </th>
                                                     </>
@@ -2097,13 +2097,13 @@ export default function InventoryOrdersPage() {
                                                 {orderType === 'daily' ? (
                                                     <>
                                                         {weekDays.map(d => (
-                                                            <th key={`bh_${d.key}`} className="bg-emerald-50 border-b border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold">
+                                                            <th key={`bh_${d.key}`} className="bg-emerald-50 border-b border-emerald-200 p-2 text-center w-20 text-xs text-emerald-700 font-bold sticky top-[36px] z-20">
                                                                 {d.label}<br/>
                                                                 <span className="font-normal text-emerald-500">{d.dateStr.slice(5)}</span>
                                                             </th>
                                                         ))}
                                                         {weekDays.map(d => (
-                                                            <th key={`pih_${d.key}`} className="bg-violet-50/60 border-b border-violet-200 p-2 text-center w-16 text-[10px] text-violet-600 font-bold">
+                                                            <th key={`pih_${d.key}`} className="bg-violet-50/60 border-b border-violet-200 p-2 text-center w-16 text-[10px] text-violet-600 font-bold sticky top-[36px] z-20">
                                                                 {d.label}<br/>
                                                                 <span className="font-normal text-violet-400">Ideal</span>
                                                             </th>
@@ -2111,10 +2111,10 @@ export default function InventoryOrdersPage() {
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <th className="bg-emerald-50 border-b border-emerald-200 p-1.5 text-center text-xs text-emerald-700 font-bold">
+                                                        <th className="bg-emerald-50 border-b border-emerald-200 p-1.5 text-center text-xs text-emerald-700 font-bold sticky top-[36px] z-20">
                                                             PAR
                                                         </th>
-                                                        <th className="bg-violet-50/60 border-b border-violet-200 p-1.5 text-center text-[10px] text-violet-600 font-bold">
+                                                        <th className="bg-violet-50/60 border-b border-violet-200 p-1.5 text-center text-[10px] text-violet-600 font-bold sticky top-[36px] z-20">
                                                             Ideal
                                                         </th>
                                                     </>
