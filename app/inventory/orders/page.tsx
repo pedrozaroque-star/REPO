@@ -2577,6 +2577,31 @@ export default function InventoryOrdersPage() {
                         <div className="p-6 space-y-6 text-sm text-slate-600 leading-relaxed font-sans max-h-[60vh] overflow-y-auto">
                             {language === 'es' ? (
                                 <>
+                                    {/* PESTAÑAS DEL MÓDULO */}
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            📂 Pestañas del Módulo (¿Qué hace cada una?)
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">📝 Pedido del Día</span>
+                                                Pantalla principal para capturar sobrantes del cierre del restaurante, ver el cálculo automático del pedido diario, hacer ajustes y enviarlo a QuickBooks.
+                                            </div>
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">⚙️ Config Semanal</span>
+                                                Permite configurar el PAR diario (base de inventario) de Lunes a Domingo, y compararlo contra el PAR Ideal sugerido por estadísticas.
+                                            </div>
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">📋 Historial</span>
+                                                Permite buscar, auditar y consultar todos los pedidos pasados que ya fueron generados y enviados a QuickBooks.
+                                            </div>
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">📊 Sobrantes</span>
+                                                Reporte de auditoría para verificar y comparar los sobrantes físicos reportados en semanas anteriores y analizar tendencias de consumo.
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {/* PASO A PASO */}
                                     <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
                                         <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5 mb-2">
@@ -2698,6 +2723,31 @@ export default function InventoryOrdersPage() {
                                 </>
                             ) : (
                                 <>
+                                    {/* MODULE TABS */}
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5 mb-2">
+                                            📂 Module Tabs (What does each one do?)
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">📝 Daily Order</span>
+                                                Main screen to count leftovers, view the system-calculated daily warehouse order, apply manual adjustments, and send it to QuickBooks.
+                                            </div>
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">⚙️ Weekly Config</span>
+                                                Set the daily baseline PAR (inventory levels) from Monday to Sunday, and compare it against the statistically generated Ideal PAR.
+                                            </div>
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">📋 History</span>
+                                                Search, audit, and inspect all past orders that have been successfully finalized and sent to QuickBooks.
+                                            </div>
+                                            <div className="border border-slate-200 p-3 rounded-lg bg-slate-50/50">
+                                                <span className="font-bold text-slate-800 block mb-0.5">📊 Leftovers</span>
+                                                Audit log to verify and track physical leftovers logged in previous weeks to analyze usage patterns.
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     {/* STEP BY STEP */}
                                     <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl">
                                         <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5 mb-2">
