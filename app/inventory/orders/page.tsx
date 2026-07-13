@@ -2138,8 +2138,8 @@ export default function InventoryOrdersPage() {
                                                             {weekDays.map((d, colIndex) => {
                                                                 const val = b ? (b as any)[d.baseField] : undefined
                                                                 const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : undefined
-                                                                const isOver = (val || 0) > (piVal || 0)
-                                                                const isUnder = (val || 0) < (piVal || 0)
+                                                                const isOver = val !== undefined && (val || 0) > (piVal || 0)
+                                                                const isUnder = val !== undefined && (val || 0) < (piVal || 0)
 
                                                                 return (
                                                                     <td key={`bc_${item.id}_${d.key}`} className="p-0 border-b border-emerald-100/50">
@@ -2178,8 +2178,8 @@ export default function InventoryOrdersPage() {
                                                             {(() => {
                                                                 const val = b ? b.mon_par : undefined
                                                                 const piVal = parIdeal[item.id] ? parIdeal[item.id].mon_par : undefined
-                                                                const isOver = (val || 0) > (piVal || 0)
-                                                                const isUnder = (val || 0) < (piVal || 0)
+                                                                const isOver = val !== undefined && (val || 0) > (piVal || 0)
+                                                                const isUnder = val !== undefined && (val || 0) < (piVal || 0)
 
                                                                 return (
                                                                     <td className="p-0 border-b border-emerald-100/50">
