@@ -1,3 +1,13 @@
+/**
+ * @module CreateUserRoute
+ * @description API route to register a new user in Supabase Auth and save their profile in the database.
+ * @businessRules
+ * - Creates a credentials-based entry in Supabase Auth with auto-confirmed email.
+ * - Upserts the user record in public.users to ensure proper role, store scope, and position mappings.
+ * @dataFlow
+ * - Request (email, password, fullName, role, storeId, otherData) -> Create Auth User -> Upsert public.users profile -> Response (success)
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 

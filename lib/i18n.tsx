@@ -12,7 +12,7 @@
  * - Updated to include translations for Roles Hub, checklist reports, and daily lineup views.
  */
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
 type Language = 'es' | 'en';
 
@@ -693,6 +693,14 @@ const dictionaries: Record<Language, Dictionary> = {
                     phone: "Teléfono",
                     hours: "Horario",
                     supervisor: "Supervisor"
+                },
+                errors: {
+                    address_empty: "Por favor ingresa al menos una dirección o ciudad para buscar en el mapa.",
+                    address_not_found: "No se pudo encontrar la dirección en el mapa. Por favor, selecciónala manualmente haciendo click en el mapa.",
+                    geocoding_error: "Error al buscar en el mapa"
+                },
+                buttons: {
+                    locate: "Localizar dirección en mapa"
                 }
             }
         },
@@ -744,7 +752,8 @@ const dictionaries: Record<Language, Dictionary> = {
                     role: "Rol del Usuario",
                     user_role: "Rol del Usuario",
                     assigned_store: "Tienda Asignada",
-                    supervision_scope: "Supervisión (Múltiple)"
+                    supervision_scope: "Supervisión (Múltiple)",
+                    position_type: "Tipo de Puesto"
                 },
                 admin_access_title: "Acceso Global",
                 admin_access_desc: "Los administradores tienen acceso irrestricto a todas las tiendas.",
@@ -761,6 +770,10 @@ const dictionaries: Record<Language, Dictionary> = {
                     manager: "Manager",
                     asistente: "Asistente"
                 },
+                positions: {
+                    kitchen: "Cocina",
+                    cashier: "Cajero"
+                },
                 placeholders: {
                     name: "Ej. Juan Pérez",
                     email: "juan@tacosgavilan.com",
@@ -768,13 +781,18 @@ const dictionaries: Record<Language, Dictionary> = {
                     keep_password: "Dejar vacío para mantener",
                     confirm_password: "Repetir contraseña",
                     select_store: "Seleccionar",
+                    select_position: "Seleccionar puesto",
                     phone: "(555) 000-0000"
                 },
                 errors: {
                     pass_mismatch: "Las contraseñas no coinciden",
                     pass_length: "La contraseña debe tener al menos 6 caracteres",
                     name_email_required: "Nombre y Email son obligatorios",
-                    password_required: "La contraseña es obligatoria"
+                    password_required: "La contraseña es obligatoria",
+                    position_required: "El tipo de puesto es obligatorio para gerentes y asistentes",
+                    store_required: "La tienda asignada es obligatoria para gerentes y asistentes",
+                    store_scope_required: "Se debe seleccionar al menos una tienda para el supervisor",
+                    phone_required: "El número de teléfono es obligatorio"
                 },
                 buttons: {
                     cancel: "Cancelar",
@@ -2799,6 +2817,14 @@ const dictionaries: Record<Language, Dictionary> = {
                     phone: "Phone",
                     hours: "Hours",
                     supervisor: "Supervisor"
+                },
+                errors: {
+                    address_empty: "Please enter at least an address or city to search on the map.",
+                    address_not_found: "Could not find the address on the map. Please select it manually by clicking on the map.",
+                    geocoding_error: "Error searching map"
+                },
+                buttons: {
+                    locate: "Locate address on map"
                 }
             }
         },
@@ -2850,7 +2876,8 @@ const dictionaries: Record<Language, Dictionary> = {
                     role: "User Role",
                     user_role: "User Role",
                     assigned_store: "Assigned Store",
-                    supervision_scope: "Supervision (Multiple)"
+                    supervision_scope: "Supervision (Multiple)",
+                    position_type: "Position Type"
                 },
                 admin_access_title: "Global Access",
                 admin_access_desc: "Administrators have unrestricted access to all stores.",
@@ -2867,6 +2894,10 @@ const dictionaries: Record<Language, Dictionary> = {
                     manager: "Manager",
                     asistente: "Assistant"
                 },
+                positions: {
+                    kitchen: "Kitchen",
+                    cashier: "Cashier"
+                },
                 placeholders: {
                     name: "Ex. John Doe",
                     email: "john@tacosgavilan.com",
@@ -2874,13 +2905,18 @@ const dictionaries: Record<Language, Dictionary> = {
                     keep_password: "Leave empty to keep current",
                     confirm_password: "Repeat password",
                     select_store: "Select",
+                    select_position: "Select position",
                     phone: "(555) 000-0000"
                 },
                 errors: {
                     pass_mismatch: "Passwords do not match",
                     pass_length: "Password must be at least 6 characters",
                     name_email_required: "Name and Email are required",
-                    password_required: "Password is required"
+                    password_required: "Password is required",
+                    position_required: "Position type is required for managers and assistants",
+                    store_required: "Assigned store is required for managers and assistants",
+                    store_scope_required: "At least one store must be selected for the supervisor",
+                    phone_required: "Phone number is required"
                 },
                 buttons: {
                     cancel: "Cancel",
@@ -4246,15 +4282,14 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-    const [language, setLanguage] = useState<Language>(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('teg_language') as Language;
-            if (saved && (saved === 'es' || saved === 'en')) {
-                return saved;
-            }
+    const [language, setLanguage] = useState<Language>('es');
+
+    useEffect(() => {
+        const saved = localStorage.getItem('teg_language') as Language;
+        if (saved && (saved === 'es' || saved === 'en')) {
+            setLanguage(saved);
         }
-        return 'es';
-    });
+    }, []);
 
     const changeLanguage = (lang: Language) => {
         setLanguage(lang);

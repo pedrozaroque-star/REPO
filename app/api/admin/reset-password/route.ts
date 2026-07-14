@@ -1,3 +1,14 @@
+/**
+ * @module ResetPasswordRoute
+ * @description API route to update a user's password in Supabase Auth.
+ * Supports both UUIDs and database integer IDs as target user IDs.
+ * @businessRules
+ * - Synchronizes the hashed credential in Supabase Auth to ensure standard login compatibility.
+ * @dataFlow
+ * - Request (userId/email, password) -> Resolve to Auth UUID -> Supabase admin.updateUserById() -> Response (success)
+ * @notes Resolves database integer IDs (bigint) to Supabase Auth UUIDs using a lookup in the public.users table.
+ */
+
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
@@ -26,6 +37,21 @@ export async function POST(request: Request) {
         })
 
         let targetUserId = userId
+
+        // If targetUserId is an integer (database id), fetch its auth_id (UUID) from database
+        if (targetUserId && !isNaN(Number(targetUserId))) {
+            const { data: dbUser, error: dbError } = await supabaseAdmin
+                .from('users')
+                .select('auth_id')
+                .eq('id', Number(targetUserId))
+                .single()
+            
+            if (dbError) {
+                console.error('Error fetching auth_id for user:', dbError)
+            } else if (dbUser && dbUser.auth_id) {
+                targetUserId = dbUser.auth_id
+            }
+        }
 
         // Si no tenemos ID, intentamos buscar por email (fallback)
         if (!targetUserId && email) {

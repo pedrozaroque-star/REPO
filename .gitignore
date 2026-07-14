@@ -44,3 +44,6 @@ next-env.d.ts
 
 # local quickbooks sandbox tokens
 .sandbox_tokens.json
+
+.vercel
+.env*

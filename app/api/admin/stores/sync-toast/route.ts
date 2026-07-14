@@ -1,3 +1,14 @@
+/**
+ * @module SyncToastStores
+ * @description Sincroniza información de tiendas desde la API de Toast hacia la base de datos (Supabase).
+ * @businessRules
+ * - Procesa GUIDs de Toast y los limpia de prefijos corporativos.
+ * - Mapea a las columnas correctas de la tabla 'stores' (external_id para GUID y zip_code para código postal).
+ * - Mantiene fallbacks para direcciones y coordenadas si la API de Toast no las provee.
+ * @dataFlow
+ * - Toast API (Partners API) -> sync-toast API -> stores Table (Supabase)
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuthToken } from '@/lib/auth-server'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -55,7 +66,7 @@ export async function POST(request: NextRequest) {
         const toastToken = await getAuthToken()
         if (!toastToken) throw new Error('Failed to auth with Toast')
 
-        console.log('🔄 Syncing Deep Details (Master Fallback V4)...')
+        console.log('🔄 Syncing Deep Details (Master Fallback V5 Dynamic)...')
 
         const rawRes = await fetch(`${process.env.TOAST_API_HOST || 'https://ws-api.toasttab.com'}/partners/v1/restaurants`, {
             headers: { 'Authorization': `Bearer ${toastToken}` }
@@ -75,8 +86,16 @@ export async function POST(request: NextRequest) {
             // 🎯 Determine Clean Name
             let cleanName = GUID_TO_CLEAN_NAME[toastId]
             if (!cleanName) {
-                if (rawName.includes(' - ')) cleanName = rawName.split(' - ').pop()?.trim() || rawName
-                else if (rawName.includes('(')) cleanName = rawName.match(/\(([^)]+)\)/)?.[1].trim() || rawName
+                if (rawName.includes(' - ')) {
+                    cleanName = rawName.split(' - ').pop()?.trim() || rawName
+                } else if (rawName.includes('(')) {
+                    cleanName = rawName.match(/\(([^)]+)\)/)?.[1].trim() || rawName
+                } else {
+                    // Remove corporate prefixes dynamically (e.g. "Tacos El Gavilan Ontario" -> "Ontario")
+                    cleanName = rawName
+                        .replace(/tacos\s+(el\s+)?gavilan\s*/gi, '')
+                        .trim()
+                }
             }
 
             // ⚠️ FETCH FULL DETAILS (Standard Toast)
@@ -100,7 +119,6 @@ export async function POST(request: NextRequest) {
             // 🚨 MASTER FALLBACK: If Toast gives empty address, use our Map
             if (!addr1 && FALLBACK_ADDRESSES[cleanName]) {
                 const fb = FALLBACK_ADDRESSES[cleanName]
-                // console.log(`Using Fallback Address for ${cleanName}`)
                 addr1 = fb.address
                 city = fb.city
                 state = fb.state
@@ -121,8 +139,8 @@ export async function POST(request: NextRequest) {
             // DB Operations
             let existing: any = null
 
-            // 1. GUID Match
-            const { data: byGuid } = await supabaseAdmin.from('stores').select('*').eq('toast_guid', toastId).maybeSingle()
+            // 1. GUID Match (using external_id column)
+            const { data: byGuid } = await supabaseAdmin.from('stores').select('*').eq('external_id', toastId).maybeSingle()
             if (byGuid) existing = byGuid
 
             // 2. Name Match
@@ -136,12 +154,12 @@ export async function POST(request: NextRequest) {
             if (dbId) {
                 // UPDATE (Safe Mode)
                 const updatePayload: any = {
-                    toast_guid: toastId,
+                    external_id: toastId,
                     name: cleanName,
                     ...(addr1 ? { address: addr1 } : {}),
                     ...(city ? { city: city } : {}),
                     ...(state ? { state: state } : {}),
-                    ...(zip ? { zip: zip } : {}), // Might fail if column missing
+                    ...(zip ? { zip_code: zip } : {}),
                     ...(phone ? { phone: phone } : {}),
                     ...(hoursFound ? { weekly_hours: derivedHours } : {})
                 }
@@ -182,10 +200,10 @@ export async function POST(request: NextRequest) {
                     address: addr1,
                     city: city,
                     state: state,
-                    zip: zip,
+                    zip_code: zip,
                     phone: phone,
                     is_active: true,
-                    toast_guid: toastId,
+                    external_id: toastId,
                     code: baseCode,
                     latitude: lat,
                     longitude: lng,
@@ -196,8 +214,8 @@ export async function POST(request: NextRequest) {
                 if (insErr) {
                     // Create Fallback
                     const safePayload: any = { ...newStore }
-                    delete safePayload.toast_guid
-                    delete safePayload.zip
+                    delete safePayload.external_id
+                    delete safePayload.zip_code
                     delete safePayload.latitude
                     delete safePayload.longitude
                     delete safePayload.weekly_hours
@@ -206,7 +224,6 @@ export async function POST(request: NextRequest) {
                         safePayload.code = baseCode + Math.floor(Math.random() * 90 + 10)
                     }
                     const { error: retryErr } = await supabaseAdmin.from('stores').insert(safePayload)
-                    // If retry fails (maybe phone missing), try Ultra Safe?
                     if (retryErr) {
                         delete safePayload.phone
                         const { error: finalErr } = await supabaseAdmin.from('stores').insert(safePayload)

@@ -230,6 +230,45 @@ export const TOOL_DECLARATIONS = [
     }
   },
   {
+    name: 'query_safe_counts',
+    description: 'Query vault cash counts and safe history from safe_counts table. Includes bills, coins, drawer counts, and grand totals.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Optional store name filter' },
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' }
+      },
+      required: ['start_date', 'end_date']
+    }
+  },
+  {
+    name: 'query_prep_pace',
+    description: 'Query meat preparation requests and cooking pace from preparador_requests and meat_consumption_history.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Optional store name filter' },
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' }
+      },
+      required: ['start_date', 'end_date']
+    }
+  },
+  {
+    name: 'query_inventory_orders',
+    description: 'Query store inventory orders, statuses, and order line details from inventory_orders and inventory_order_lines.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Optional store name filter' },
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' }
+      },
+      required: ['start_date', 'end_date']
+    }
+  },
+  {
     name: 'execute_custom_sql',
     description: 'Run unrestricted custom PostgreSQL queries (SELECT, joins, aggregates, schema lookups) against any database table for dynamic insights and analysis.',
     parameters: {
@@ -263,6 +302,9 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_forecast': return await queryForecast(args)
       case 'calculate_breaks': return await calculateBreaks(args)
       case 'analyze_performance': return await analyzePerformance(args)
+      case 'query_safe_counts': return await querySafeCounts(args)
+      case 'query_prep_pace': return await queryPrepPace(args)
+      case 'query_inventory_orders': return await queryInventoryOrders(args)
       case 'execute_custom_sql': return await executeCustomSql(args)
       default: return `Tool "${name}" not found.`
     }
@@ -284,6 +326,14 @@ async function getStoreMaps() {
     nameToId[n.toLowerCase()] = s.id
   })
   return { idToName, nameToId, stores: stores || [] }
+}
+
+async function getStoreIdsByName(storeName: string): Promise<number[]> {
+  const { stores } = await getStoreMaps()
+  const sn = storeName.toLowerCase().trim()
+  return stores
+    .filter(s => clean(s.name).toLowerCase().includes(sn))
+    .map(s => Number(s.id))
 }
 
 // ── 1. Sales ──
@@ -431,7 +481,7 @@ async function queryInspections(args: any): Promise<string> {
     .order('inspection_date', { ascending: false })
 
   if (args.store_name) {
-    const storeIds = Object.entries(idToName).filter(([, n]) => n.toLowerCase().includes((args.store_name || '').toLowerCase())).map(([id]) => id)
+    const storeIds = await getStoreIdsByName(args.store_name)
     if (storeIds.length) query = query.in('store_id', storeIds)
   }
 
@@ -610,11 +660,11 @@ async function queryFeedback(args: any): Promise<string> {
 
 // ── 10. Stores ──
 async function queryStores(): Promise<string> {
-  const { data, error } = await supabaseAdmin.from('stores').select('id, name, external_id, address, phone')
+  const { data, error } = await supabaseAdmin.from('stores').select('id, name, code, external_id, address, city, state, zip_code, phone, is_active, has_drive_thru, opening_time, closing_time, supervisor_name')
   if (error) return `Error: ${error.message}`
   if (!data?.length) return 'No stores found.'
 
-  const lines = data.map(s => `${clean(s.name)} | ID: ${s.id} | External: ${s.external_id || '-'} | ${s.address || ''} | ${s.phone || ''}`)
+  const lines = data.map(s => `${clean(s.name)} (Code: ${s.code || '-'}) | ID: ${s.id} | External: ${s.external_id || '-'} | Active: ${s.is_active} | Drive-Thru: ${s.has_drive_thru} | Hours: ${s.opening_time || '-'}-${s.closing_time || '-'} | Supervisor: ${s.supervisor_name || '-'} | ${s.address || ''}, ${s.city || ''}, ${s.state || ''} ${s.zip_code || ''}`)
   return `Stores (${data.length}):\n${lines.join('\n')}`
 }
 
@@ -906,7 +956,7 @@ async function queryProductMix(args: any): Promise<string> {
       .select('business_date, store_id, items')
       .gte('business_date', args.start_date).lte('business_date', args.end_date)
     if (args.store_name) {
-      const matchIds = Object.entries(idToName).filter(([, n]) => n.toLowerCase().includes((args.store_name || '').toLowerCase())).map(([id]) => id)
+      const matchIds = await getStoreIdsByName(args.store_name)
       if (matchIds.length) q = q.in('store_id', matchIds)
     }
     const { data } = await q.limit(500)
@@ -935,7 +985,7 @@ async function queryProductMix(args: any): Promise<string> {
       .gte('business_date', args.start_date).lte('business_date', args.end_date)
       .order('business_date', { ascending: true })
     if (args.store_name) {
-      const matchIds = Object.entries(idToName).filter(([, n]) => n.toLowerCase().includes((args.store_name || '').toLowerCase())).map(([id]) => id)
+      const matchIds = await getStoreIdsByName(args.store_name)
       if (matchIds.length) q = q.in('store_id', matchIds)
     }
     const { data } = await q.limit(500)
@@ -1288,4 +1338,143 @@ async function executeCustomSql(args: any): Promise<string> {
   } catch (e: any) {
     return `Exception running SQL: ${e.message}`
   }
+}
+
+// ── 19. Safe Counts (Caja Fuerte) ──
+async function querySafeCounts(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  let query = supabaseAdmin
+    .from('safe_counts')
+    .select('id, store_id, business_date, grand_total, bills_total, coins_total, drawers_total, uniforms_amount, notes, counted_at')
+    .gte('business_date', args.start_date)
+    .lte('business_date', args.end_date)
+    .order('business_date', { ascending: false })
+
+  if (args.store_name) {
+    const storeIds = await getStoreIdsByName(args.store_name)
+    if (storeIds.length) query = query.in('store_id', storeIds)
+  }
+
+  const { data, error } = await query.limit(500)
+  if (error) return `Error: ${error.message}`
+  if (!data?.length) return `No safe counts found from ${args.start_date} to ${args.end_date}.`
+
+  const lines = data.map(r => {
+    const storeName = idToName[r.store_id] || `Store #${r.store_id}`
+    return `${r.business_date} | ${storeName} | Total: ${fmt$(Number(r.grand_total) || 0)} (Bills: ${fmt$(Number(r.bills_total) || 0)}, Coins: ${fmt$(Number(r.coins_total) || 0)}, Drawers: ${fmt$(Number(r.drawers_total) || 0)}, Uniforms: ${fmt$(Number(r.uniforms_amount) || 0)}) | Notes: ${r.notes || 'None'}`
+  })
+
+  return `Safe Counts (${data.length} records):\n${lines.join('\n')}`
+}
+
+// ── 20. Prep Pace (Preparador) ──
+async function queryPrepPace(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  let query = supabaseAdmin
+    .from('preparador_requests')
+    .select('id, store_id, sender_name, items, status, created_at')
+    .gte('created_at', args.start_date + 'T00:00:00')
+    .lte('created_at', args.end_date + 'T23:59:59')
+    .order('created_at', { ascending: false })
+
+  if (args.store_name) {
+    const storeIds = await getStoreIdsByName(args.store_name)
+    if (storeIds.length) query = query.in('store_id', storeIds)
+  }
+
+  const { data, error } = await query.limit(200)
+  if (error) return `Error: ${error.message}`
+
+  const lines: string[] = []
+  if (data?.length) {
+    data.forEach(r => {
+      const storeName = idToName[r.store_id] || `Store #${r.store_id}`
+      const dateStr = r.created_at ? r.created_at.slice(0, 16).replace('T', ' ') : '?'
+      const itemsList = typeof r.items === 'object' && r.items ? JSON.stringify(r.items) : String(r.items)
+      lines.push(`[${dateStr}] ${storeName} | Sender: ${r.sender_name || '?'} | Status: ${r.status} | Items: ${itemsList.slice(0, 200)}`)
+    })
+  }
+
+  // Also query meat consumption
+  let meatQuery = supabaseAdmin
+    .from('meat_consumption_history')
+    .select('store_id, business_date, meat_type, raw_lbs')
+    .gte('business_date', args.start_date)
+    .lte('business_date', args.end_date)
+    .order('business_date', { ascending: false })
+
+  if (args.store_name) {
+    const storeIds = await getStoreIdsByName(args.store_name)
+    if (storeIds.length) meatQuery = meatQuery.in('store_id', storeIds)
+  }
+
+  const { data: meatData } = await meatQuery.limit(500)
+  const meatLines: string[] = []
+  if (meatData?.length) {
+    meatData.forEach(r => {
+      const storeName = idToName[r.store_id] || `Store #${r.store_id}`
+      meatLines.push(`${r.business_date} | ${storeName} | ${r.meat_type}: ${Number(r.raw_lbs).toFixed(1)} lbs`)
+    })
+  }
+
+  const parts: string[] = []
+  if (lines.length) parts.push(`Prep Requests (Cooking Pace):\n${lines.join('\n')}`)
+  if (meatLines.length) parts.push(`Meat Consumption Logs:\n${meatLines.join('\n')}`)
+
+  return parts.length ? parts.join('\n\n') : `No prep pace or meat data found from ${args.start_date} to ${args.end_date}.`
+}
+
+// ── 21. Inventory Orders ──
+async function queryInventoryOrders(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  let query = supabaseAdmin
+    .from('inventory_orders')
+    .select('id, store_id, order_date, week_start_date, status, created_by, qb_estimate_number')
+    .gte('order_date', args.start_date)
+    .lte('order_date', args.end_date)
+    .order('order_date', { ascending: false })
+
+  if (args.store_name) {
+    const storeIds = await getStoreIdsByName(args.store_name)
+    if (storeIds.length) query = query.in('store_id', storeIds)
+  }
+
+  const { data, error } = await query.limit(200)
+  if (error) return `Error: ${error.message}`
+  if (!data?.length) return `No inventory orders found from ${args.start_date} to ${args.end_date}.`
+
+  // Let's get order lines for the recent orders to show details
+  const orderIds = data.map(o => o.id).slice(0, 5) // details for top 5 orders
+  let lineDetails = ''
+  if (orderIds.length) {
+    const { data: lines } = await supabaseAdmin
+      .from('inventory_order_lines')
+      .select('order_id, inventory_item_id, calculated_qty, adjusted_qty, final_qty')
+      .in('order_id', orderIds)
+      
+    const itemIds = [...new Set(lines?.map(l => l.inventory_item_id) || [])]
+    const { data: items } = await supabaseAdmin.from('inventory_items').select('id, name').in('id', itemIds)
+    const itemMap: Record<string, string> = {}
+    items?.forEach(i => { itemMap[i.id] = i.name })
+
+    const orderLinesMap: Record<string, string[]> = {}
+    lines?.forEach(l => {
+      if (!orderLinesMap[l.order_id]) orderLinesMap[l.order_id] = []
+      const name = itemMap[l.inventory_item_id] || l.inventory_item_id
+      orderLinesMap[l.order_id].push(`  - ${name}: final=${l.final_qty} (calc=${l.calculated_qty}, adj=${l.adjusted_qty})`)
+    })
+
+    lineDetails = '\n\nRecent Order Details:\n' + data.slice(0, 5).map(o => {
+      const storeName = idToName[o.store_id] || `Store #${o.store_id}`
+      const orderLines = orderLinesMap[o.id] || []
+      return `📦 Order ${o.order_date} - ${storeName} [${o.status || 'Pending'}] (QB: ${o.qb_estimate_number || 'N/A'})\n${orderLines.join('\n')}`
+    }).join('\n')
+  }
+
+  const summary = data.map(o => {
+    const storeName = idToName[o.store_id] || `Store #${o.store_id}`
+    return `${o.order_date} | ${storeName} | Status: ${o.status || 'Pending'} | QB: ${o.qb_estimate_number || 'N/A'} | Created By: ${o.created_by || 'System'}`
+  }).join('\n')
+
+  return `Inventory Orders:\n${summary}${lineDetails}`
 }

@@ -20,6 +20,12 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
 
 ---
 
+## 🤖 REGLA OBLIGATORIA: Sincronización de Conocimiento del Asistente (TEG Assistant Sync)
+Cada vez que se cree, modifique, elimine o actualice una característica, lógica de negocio, endpoint de API, o tabla de base de datos en el sistema, **el desarrollador/agente DEBE de inmediato actualizar el prompt del asistente** en `app/api/support-chat/route.ts` y sus herramientas de chat en `lib/chat-tools.ts`. Esto garantiza que el TEG Assistant AI aprenda de cada actualización del sistema y mantenga un dominio preciso del 100% del ecosistema en tiempo real.
+
+---
+
+
 ## 📅 PROTOCOLO DE SEGUIMIENTO Y REGISTRO DE TRABAJO MENSUAL
 1. **Registro Continuo**: El agente debe mantener un registro continuo y detallado de todas las actividades diarias de desarrollo y mantenimiento, incluyendo:
    - Fecha.

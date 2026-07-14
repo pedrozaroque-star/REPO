@@ -1,6 +1,19 @@
+/**
+ * @module UserModal
+ * @description Admin modal component for creating and editing user records.
+ * Supports conditional inputs based on user roles and manages assignments.
+ * @businessRules
+ * - Managers and Assistants require a single store_id and a valid position_type (kitchen/cashier).
+ * - Supervisors require a store_scope array (containing full store names with "Tacos Gavilan " prefix).
+ * @dataFlow
+ * - Props (initialData, stores) -> Modal state -> Form validation -> Save event (onSave).
+ * @notes Implements case-insensitive and prefix-insensitive matching for supervisor checkboxes to prevent data loss.
+ */
+
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, User, Mail, Lock, Phone, Shield, Store, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 
@@ -14,6 +27,13 @@ interface UserModalProps {
 
 export default function UserModal({ isOpen, onClose, onSave, stores, initialData }: UserModalProps) {
   const { t } = useLanguage()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+    return () => setMounted(false)
+  }, [])
+
   // Estado del formulario
   const [formData, setFormData] = useState({
     full_name: '',
@@ -24,6 +44,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
     role: 'asistente',
     store_id: '',
     store_scope: [] as string[],
+    position_type: 'kitchen',
     is_active: true
   })
 
@@ -43,6 +64,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
         role: initialData.role || 'asistente',
         store_id: initialData.store_id || '',
         store_scope: initialData.store_scope || [],
+        position_type: initialData.position_type || '',
         is_active: initialData.is_active ?? true
       })
     } else {
@@ -56,13 +78,14 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
         role: 'asistente',
         store_id: '',
         store_scope: [],
+        position_type: 'kitchen',
         is_active: true
       })
     }
     setPassError('')
   }, [initialData, isOpen])
 
-  if (!isOpen) return null
+  if (!isOpen || !mounted) return null
 
   // Helpers
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -91,22 +114,72 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
     setFormData(prev => ({ ...prev, is_active: !prev.is_active }))
   }
 
+  const isStoreInScope = (storeName: string) => {
+    if (!formData.store_scope) return false
+    return formData.store_scope.some((s: string) => {
+      const normS = s.replace(/^Tacos Gavilan\s+/i, '').toLowerCase().trim()
+      const normStore = storeName.replace(/^Tacos Gavilan\s+/i, '').toLowerCase().trim()
+      return normS === normStore
+    })
+  }
+
   const handleScopeChange = (storeName: string) => {
     setFormData(prev => {
       const currentScope = prev.store_scope || []
-      return currentScope.includes(storeName)
-        ? { ...prev, store_scope: currentScope.filter(s => s !== storeName) }
-        : { ...prev, store_scope: [...currentScope, storeName] }
+      const exists = currentScope.some((s: string) => {
+        const normS = s.replace(/^Tacos Gavilan\s+/i, '').toLowerCase().trim()
+        const normStore = storeName.replace(/^Tacos Gavilan\s+/i, '').toLowerCase().trim()
+        return normS === normStore
+      })
+
+      if (exists) {
+        const newScope = currentScope.filter((s: string) => {
+          const normS = s.replace(/^Tacos Gavilan\s+/i, '').toLowerCase().trim()
+          const normStore = storeName.replace(/^Tacos Gavilan\s+/i, '').toLowerCase().trim()
+          return normS !== normStore
+        })
+        return { ...prev, store_scope: newScope }
+      } else {
+        // Prepend "Tacos Gavilan " to match existing supervisor DB records format
+        const fullName = storeName.toLowerCase().startsWith('tacos gavilan')
+          ? storeName
+          : `Tacos Gavilan ${storeName}`
+        return { ...prev, store_scope: [...currentScope, fullName] }
+      }
     })
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    // Validaciones
+    // Validaciones básicas
     if (!formData.email || !formData.full_name) {
       alert(t('usuarios.modal.errors.name_email_required'))
       return
+    }
+
+    if (!formData.phone) {
+      alert(t('usuarios.modal.errors.phone_required'))
+      return
+    }
+
+    // Role-specific validation
+    if (['manager', 'asistente'].includes(formData.role)) {
+      if (!formData.store_id) {
+        alert(t('usuarios.modal.errors.store_required') || 'Assigned store is required')
+        return
+      }
+      if (!formData.position_type) {
+        alert(t('usuarios.modal.errors.position_required'))
+        return
+      }
+    }
+
+    if (formData.role === 'supervisor') {
+      if (!formData.store_scope || formData.store_scope.length === 0) {
+        alert(t('usuarios.modal.errors.store_scope_required'))
+        return
+      }
     }
 
     // Validación Password
@@ -143,9 +216,9 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
   const passStrength = formData.password.length === 0 ? 0 : formData.password.length < 6 ? 1 : formData.password.length < 10 ? 2 : 3
   const strengthColors = ['bg-gray-200', 'bg-red-400', 'bg-yellow-400', 'bg-green-500']
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl md:rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden transform transition-all scale-100 flex flex-col md:flex-row max-h-[98vh] md:max-h-[90vh] border border-gray-100 dark:border-slate-800">
+  return createPortal(
+    <div className="fixed top-0 bottom-[calc(60px+env(safe-area-inset-bottom))] md:bottom-0 md:inset-0 left-0 right-0 z-40 flex items-center justify-center p-0 md:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+      <div className="bg-white dark:bg-slate-900 w-full h-full md:h-auto md:max-h-[90vh] md:max-w-4xl rounded-none md:rounded-3xl shadow-2xl overflow-hidden transform transition-all scale-100 flex flex-col md:flex-row border-none md:border md:border-gray-100 dark:md:border-slate-800">
 
         {/* SIDEBAR VISUAL (Desktop only) */}
         <div className="hidden md:flex w-1/3 bg-slate-900 dark:bg-black p-8 flex-col justify-between relative overflow-hidden">
@@ -155,7 +228,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
           <div className="relative z-10">
             <h2 className="text-3xl font-black text-white tracking-tight leading-none mb-2">
               {initialData ? t('usuarios.modal.edit_title').split(' ')[0] : t('usuarios.modal.create_title').split(' ')[0]} <br />
-              <span className="text-indigo-400">{t('usuarios.modal.table.user') || 'Usuario'}</span>
+              <span className="text-indigo-400">{t('usuarios.table.user') || 'Usuario'}</span>
             </h2>
             <p className="text-slate-400 text-sm">
               {t('usuarios.modal.subtitle')}
@@ -186,18 +259,18 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
         </div>
 
         {/* FORMULARIO PRINCIPAL */}
-        <div className="flex-1 flex flex-col md:h-auto overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden">
 
           {/* Mobile Header */}
-          <div className="md:hidden p-3 bg-slate-900 dark:bg-black text-white flex justify-between items-center transition-colors shrink-0">
+          <div className="md:hidden p-4 bg-slate-900 dark:bg-black text-white flex justify-between items-center transition-colors shrink-0">
             <h2 className="font-bold text-base">{initialData ? t('usuarios.modal.edit_title') : t('usuarios.modal.create_title')}</h2>
-            <button onClick={onClose}><X size={20} /></button>
+            <button onClick={onClose} className="p-1 hover:bg-slate-800 rounded-lg"><X size={20} /></button>
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-3 md:p-8 space-y-4 md:space-y-8">
+          <div className="flex-1 overflow-y-auto p-5 md:p-8 space-y-6 md:space-y-8">
 
-            <form id="userForm" onSubmit={handleSubmit} className="space-y-4 md:space-y-8">
+            <form id="userForm" onSubmit={handleSubmit} className="space-y-6 md:space-y-8">
 
               {/* SECCIÓN 1: DATOS PERSONALES */}
               <section className="space-y-3 md:space-y-4">
@@ -248,6 +321,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                         type="tel"
                         value={formData.phone}
                         onChange={handleChange}
+                        required
                         className="w-full pl-10 pr-4 py-3.5 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white"
                         placeholder={t('usuarios.modal.placeholders.phone')}
                       />
@@ -289,6 +363,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                           type={showPassword ? "text" : "password"}
                           value={formData.password}
                           onChange={handleChange}
+                          required={!initialData}
                           className="w-full pl-10 pr-10 py-3.5 bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 focus:border-indigo-500 rounded-2xl outline-none transition-all font-bold text-gray-900 dark:text-white"
                           placeholder={initialData ? t('usuarios.modal.placeholders.keep_password') : t('usuarios.modal.placeholders.password')}
                         />
@@ -375,20 +450,38 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                     )}
 
                     {isStaff && (
-                      <div className="space-y-3">
-                        <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('usuarios.modal.fields.assigned_store')}</label>
-                        <select
-                          name="store_id"
-                          value={formData.store_id}
-                          onChange={handleChange}
-                          className="w-full px-4 py-3.5 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-gray-900 dark:text-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                        >
-                          <option value="" className="dark:bg-slate-900">-- {t('usuarios.modal.placeholders.select_store')} --</option>
-                          {stores.map(s => (
-                            <option key={s.id} value={s.id} className="dark:bg-slate-900">{s.name}</option>
-                          ))}
-                        </select>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-600 leading-tight font-bold italic">{t('usuarios.modal.staff_scope.description')}</p>
+                      <div className="space-y-4">
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('usuarios.modal.fields.assigned_store')}</label>
+                          <select
+                            name="store_id"
+                            value={formData.store_id}
+                            onChange={handleChange}
+                            required={isStaff}
+                            className="w-full px-4 py-3.5 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-gray-900 dark:text-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                          >
+                            <option value="" className="dark:bg-slate-900">-- {t('usuarios.modal.placeholders.select_store')} --</option>
+                            {stores.map(s => (
+                              <option key={s.id} value={s.id} className="dark:bg-slate-900">{s.name}</option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-600 leading-tight font-bold italic">{t('usuarios.modal.staff_scope.description')}</p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="block text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('usuarios.modal.fields.position_type')}</label>
+                          <select
+                            name="position_type"
+                            value={formData.position_type}
+                            onChange={handleChange}
+                            required={isStaff}
+                            className="w-full px-4 py-3.5 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-gray-900 dark:text-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                          >
+                            <option value="" className="dark:bg-slate-900">-- {t('usuarios.modal.placeholders.select_position')} --</option>
+                            <option value="kitchen" className="dark:bg-slate-900">{t('usuarios.modal.positions.kitchen')}</option>
+                            <option value="cashier" className="dark:bg-slate-900">{t('usuarios.modal.positions.cashier')}</option>
+                          </select>
+                        </div>
                       </div>
                     )}
 
@@ -400,7 +493,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                             <label key={store.id} className="flex items-center gap-3 p-2.5 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-xl cursor-pointer transition-colors group">
                               <input
                                 type="checkbox"
-                                checked={formData.store_scope.includes(store.name)}
+                                checked={isStoreInScope(store.name)}
                                 onChange={() => handleScopeChange(store.name)}
                                 className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 dark:bg-slate-900 dark:border-slate-700"
                               />
@@ -438,6 +531,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

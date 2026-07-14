@@ -9,7 +9,7 @@
  * - Fits with the custom role mappings of Tacos El Gavilan (Admin, Manager, Supervisor).
  * @dataFlow
  * - User Input/Suggested Prompt Click -> Send request -> POST /api/support-chat -> ReactMarkdown render with RemarkGfm support.
- * @notes Features a visual expandable panel mimicking premium conversational AI assistants (e.g. Meta AI or Toast IQ).
+ * @notes Features a visual expandable panel mimicking premium conversational AI assistants, with a permanent spinning circular floating bubble without periodic size expansion.
  */
 
 import React, { useState, useRef, useEffect } from 'react'
@@ -99,17 +99,9 @@ export default function SupportChatWidget() {
   useEffect(() => { if (isOpen && inputRef.current) setTimeout(() => inputRef.current?.focus(), 300) }, [isOpen, isExpanded, showExplore])
   useEffect(() => { if (isExpanded) { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = '' } } }, [isExpanded])
 
-  // ─── FAB expanding pill animation (Meta AI style) ───
-  const [fabExpanded, setFabExpanded] = useState(true)
-  useEffect(() => {
-    if (isOpen) return
-    const initialTimer = setTimeout(() => setFabExpanded(false), 4000)
-    const interval = setInterval(() => {
-      setFabExpanded(true)
-      setTimeout(() => setFabExpanded(false), 4000)
-    }, 10000)
-    return () => { clearTimeout(initialTimer); clearInterval(interval) }
-  }, [isOpen])
+  // The FAB is a static circular bubble that spins on its own axis without expanding.
+  const fabExpanded = false;
+
 
   if (!mounted) return null
 
@@ -324,7 +316,7 @@ export default function SupportChatWidget() {
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            whileHover={{ scale: 1.05 }}
+            whileHover={{ scale: 1 }}
             whileTap={{ scale: 0.95 }}
             onClick={openChat}
             className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[100] group"

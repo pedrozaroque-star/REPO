@@ -1,7 +1,19 @@
+/**
+ * @module UsuariosPage
+ * @description Administrative dashboard for managing system users, including roles, active credentials, and store scopes.
+ * @businessRules
+ * - Admins have global access.
+ * - Supervisors are assigned multiple store scopes (retaining the "Tacos Gavilan " prefix in the database).
+ * - Managers and Assistants require a single store assignment and a position type (kitchen/cashier).
+ * @dataFlow
+ * - Supabase ('users', 'stores') -> Component state -> Table/Grid Layout -> UserModal form interaction.
+ * @notes Deletes redundant client-side password RPC calls to avoid permission warning popups, since database update is handled server-side.
+ */
+
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin, LayoutGrid, List } from 'lucide-react'
+import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin, LayoutGrid, List, Shield } from 'lucide-react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
@@ -16,7 +28,7 @@ function UsuariosPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list')
 
   // Estado para el Modal
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -82,6 +94,9 @@ function UsuariosPage() {
         store_scope: role === 'supervisor'
           ? formData.store_scope // Array de nombres ['LYNWOOD', 'BELL']
           : null,
+        position_type: ['manager', 'asistente'].includes(role)
+          ? formData.position_type
+          : null,
         // IMPORTANTE: Actualizar también password en public.users porque el Login custom lo usa
         ...(formData.password && formData.password.trim() !== '' ? { password: formData.password } : {})
       }
@@ -121,18 +136,7 @@ function UsuariosPage() {
         console.log('✅ Usuario actualizado exitosamente')
 
         if (formData.password && formData.password.trim() !== '') {
-          // 1. Actualizar contraseña TEXTO PLANO via RPC (Bypassea problemas de RLS/Mayúsculas)
-          const { error: plainError } = await supabase.rpc('update_user_password_plaintext', {
-            target_user_id: formData.id,
-            new_password: formData.password
-          })
-
-          if (plainError) {
-            console.error('Error actualizando password simple:', plainError)
-            alert('Warning: Could not save login password: ' + plainError.message)
-          }
-
-          // 2. Intentar sincronizar con Supabase Auth (Opcional)
+          // Intentar sincronizar con Supabase Auth
           try {
             const response = await fetch('/api/admin/reset-password', {
               method: 'POST',
@@ -145,11 +149,11 @@ function UsuariosPage() {
             })
 
             if (!response.ok) {
-              // Solo avisar si es un error real, no un skip
-              // console.warn('Sync Auth warning:', await response.json())
+              const resData = await response.json()
+              console.warn('Sync Auth warning:', resData.error || 'Failed to sync auth password')
             }
           } catch (syncErr) {
-            // Silencio total para no molestar user
+            console.error('Failed to sync auth password:', syncErr)
           }
         }
 
@@ -169,7 +173,8 @@ function UsuariosPage() {
             otherData: {
               phone: formData.phone,
               is_active: true,
-              store_scope: (formData.role === 'supervisor' && cleanData.store_scope) ? cleanData.store_scope : null
+              store_scope: (formData.role === 'supervisor' && cleanData.store_scope) ? cleanData.store_scope : null,
+              position_type: ['manager', 'asistente'].includes(formData.role) ? formData.position_type : null
             }
           })
         })
@@ -316,7 +321,7 @@ function UsuariosPage() {
         <div className="p-4 md:p-8 max-w-7xl mx-auto pb-24 w-full">
 
           {/* Mobile Search & Filter */}
-          <div className="md:hidden sticky top-0 z-10 -mt-2 mb-6 space-y-3 w-full max-w-[calc(100vw-2rem)] overflow-hidden">
+          <div className="md:hidden mb-6 space-y-3 w-full">
             <div className="relative group shadow-lg shadow-gray-200/50 dark:shadow-none rounded-full">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
@@ -387,9 +392,16 @@ function UsuariosPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${roleColors[user.role] || 'bg-gray-100 text-gray-500'}`}>
-                              {user.role}
-                            </span>
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wide border ${roleColors[user.role] || 'bg-gray-100 text-gray-500'}`}>
+                                {user.role}
+                              </span>
+                              {user.position_type && (
+                                <span className="text-[9px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest pl-1 mt-0.5">
+                                  {t(`usuarios.modal.positions.${user.position_type}`)}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-6 py-4">
                             <span className="text-xs font-bold text-gray-600 dark:text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
@@ -490,6 +502,17 @@ function UsuariosPage() {
                             {user.role}
                           </span>
                         </div>
+
+                        {user.position_type && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-[9px] font-black text-gray-400 dark:text-slate-600 uppercase tracking-[0.2em] flex items-center gap-1.5">
+                              <Shield size={12} /> {t('usuarios.modal.fields.position_type').toUpperCase()}
+                            </span>
+                            <span className="text-xs font-bold text-gray-700 dark:text-slate-400 uppercase tracking-wider">
+                              {t(`usuarios.modal.positions.${user.position_type}`)}
+                            </span>
+                          </div>
+                        )}
 
                         <div className="flex justify-between items-center">
                           <span className="text-[9px] font-black text-gray-400 dark:text-slate-600 uppercase tracking-[0.2em] flex items-center gap-1.5">

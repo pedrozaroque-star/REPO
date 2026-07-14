@@ -201,6 +201,16 @@ export async function getToastRestaurants(token: string) {
                 }
             }
 
+            // 0 B. Try Match by Database external_id (Toast GUID)
+            const dbGuidMatch = dbStores.find(s => s.external_id === toastId)
+            if (dbGuidMatch) {
+                return {
+                    id: toastId,
+                    name: dbGuidMatch.name, // Use pretty DB name
+                    dbId: dbGuidMatch.id
+                }
+            }
+
             // 1. Try Match by Name (Fuzzy: "Tacos Gavilan Azusa" vs "Azusa")
             const match = dbStores.find(s => {
                 const dbName = s.name.toLowerCase().replace('tacos gavilan', '').trim()

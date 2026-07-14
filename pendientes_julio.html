@@ -1,12 +1,12 @@
 <!--
 @module Reporte de Pendientes e Informe de Horas de Julio 2026 (Tacos El Gavilán)
-@description Este archivo HTML contiene el informe consolidado de auditoría, plan de trabajo de los 17 proyectos tecnológicos, y el Reporte Mensual de Horas y Avances de Julio de 2026. Es compatible con WhatsApp WebViews y funciona offline.
+@description Este archivo HTML contiene el informe consolidado de auditoría, plan de trabajo de los 20 proyectos tecnológicos, y el Reporte Mensual de Horas y Avances de Julio de 2026. Es compatible con WhatsApp WebViews y funciona offline.
 @businessRules
   1. No requiere ejecución de JavaScript para renderizar contenido, previniendo fallos en navegadores integrados de aplicaciones.
   2. Todos los estilos están embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS.
   3. No depende de redes CDN externas. Todo es nativo o usa vectores SVG embebidos.
 @notes
-  - Creado específicamente para registrar el avance de Julio de 2026 (50.5 horas acumuladas hasta la fecha).
+  - Creado específicamente para registrar el avance de Julio de 2026 (80.5 horas acumuladas hasta la fecha).
   - Incluye los desgloses diarios de julio 1 y julio 2 con la reestructuración completa del módulo de Pedidos de Bodega, integraciones de QuickBooks y reordenamiento de menús de navegación.
 -->
 <!DOCTYPE html>
@@ -813,7 +813,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number">19</div>
+                <div class="stat-number">20</div>
                 <div class="stat-desc">Tareas registradas</div>
             </div>
         </div>
@@ -851,8 +851,8 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #10b981;">2</div>
-                <div class="stat-desc">2 tareas finalizadas</div>
+                <div class="stat-number" style="color: #10b981;">3</div>
+                <div class="stat-desc">3 tareas finalizadas</div>
             </div>
         </div>
         <div class="stat-card horas">
@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">71.0</div>
+                <div class="stat-number" style="color: #e05638;">80.5</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -910,7 +910,7 @@
             <!-- ────────── COMPLETADOS (1) ────────── -->
             <div class="section-header">
                 <h2>Completado</h2>
-                <span class="section-badge completado">2 Tareas</span>
+                <span class="section-badge completado">3 Tareas</span>
             </div>
  
             <div class="cards-grid" style="margin-bottom: 24px;">
@@ -995,6 +995,49 @@
                             <div class="step-item">
                                 <span class="step-number green-num">✓</span>
                                 <span class="step-text">Migración SQL para tabla safe_counts, tipos TypeScript, sidebar, y 116 claves i18n bilingües.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAREA 20: TIENDAS -->
+                <div class="task-card">
+                    <div>
+                        <div class="card-tags">
+                            <span class="badge badge-sys">💻 Sistemas</span>
+                            <span class="badge badge-hi">🔴 Alta</span>
+                            <span class="badge badge-complete">✓ Completado</span>
+                        </div>
+                        <h3 class="task-title">20. Módulo de Tiendas (Integración Dinámica, Geocodificación y Mapas de Google)</h3>
+                        
+                        <div class="card-section">
+                            <span class="card-section-title">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><path d="M12 2C6.48 2 2 4.02 2 6.5s4.48 4.5 10 4.5 10-2.02 10-4.5S17.52 2 12 2zM2 17c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"/></svg>
+                                Estatus del código / BD
+                            </span>
+                            <div class="audit-box green-box">
+                                <strong>Completado e Integrado (14-Jul-2026).</strong> Vinculación dinámica de sucursales con el resto de los módulos (roles de empleados, sincronización de Toast y QuickBooks). Se implementó un geocodificador inteligente en backend (Google Maps/Nominatim) para auto-ubicar direcciones, y un visor visual interactivo de **Google Maps** con controles de satélite/mapa y pin arrastrable para micro-ajustes precisos. Todo el flujo cuenta con soporte bilingüe completo y se resolvió el desajuste de hidratación de Next.js.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-section" style="margin-top: 14px;">
+                        <span class="card-section-title">
+                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="card-section-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 11 12 14 17 9"></polyline></svg>
+                            Pasos concluidos
+                        </span>
+                        <div class="steps-list">
+                            <div class="step-item">
+                                <span class="step-number green-num">✓</span>
+                                <span class="step-text">Integración dinámica de nuevas sucursales en reportes, empleados y sincronizador de Toast.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number green-num">✓</span>
+                                <span class="step-text">Visor interactivo oficial de Google Maps con soporte para vista satelital y etiquetas de comercio.</span>
+                            </div>
+                            <div class="step-item">
+                                <span class="step-number green-num">✓</span>
+                                <span class="step-text">Geocodificador y configurador de claves en el backend de forma segura y libre de errores de tipos.</span>
                             </div>
                         </div>
                     </div>
@@ -1717,7 +1760,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 71.0 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 80.5 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1829,7 +1872,7 @@
                                  <td>
                                      <div class="lang-split">
                                           <div class="es-desc">- **Visita Presencial a Sucursal Slauson** (6:00 PM - 9:30 PM): Visita de seguimiento en sitio para verificar el estado y funcionamiento de las tabletas piloto de cocina instaladas en la sucursal de Slauson. Revisión de conectividad, carga de módulos del sistema, y validación de la experiencia de usuario con el personal de la tienda.<br>- **Guía de Uso de Uniformes**: Actualización del modal informativo de la página de órdenes para incluir la nueva sección de Uniformes (color violeta) con instrucciones paso a paso.<br>- **Tablero de Actividades - Filtro por Tienda**: Corrección del bug donde la lista de reasignación de empleados mostraba nombres de TODAS las tiendas (ej. Roberto Velásquez aparecía en Slauson sin trabajar allí). Ahora solo muestra empleados del roster de la tienda seleccionada para ese día.<br>- **Tablero de Actividades - ACTIVIDADES EXTRA 1-6**: Renombramiento de 'CIERRE 1' y 'CIERRE 2' a 'ACTIVIDADES EXTRA 1' y '2', y adición de 4 slots nuevos (EXTRA 3, 4, 5, 6) en la sección de Cocina para asignar tareas adicionales.<br>- **Módulo de Caja Fuerte (NUEVO)**: Desarrollo completo del módulo de conteo de caja fuerte para las sucursales. Incluye: formulario para registrar conteos de efectivo con desglose por denominación ($100, $50, $20, $10, $5, $1, monedas), cálculo automático del total, historial de conteos por tienda y fecha, APIs de creación/edición/eliminación, migración SQL para la tabla `safe_counts`, tipos TypeScript completos, entrada en el sidebar de navegación, y soporte bilingüe completo (116 claves i18n).<br>- **Tablero de Actividades - Filtro por Día de la Semana**: Corrección del bug donde actividades exclusivas de ciertos días (ej. 'LAVAR FREIDORAS' solo viernes) aparecían en otros días. Se replicó la lógica de frecuencia del backend de notificaciones al frontend.<br>- **Copiar Semana Anterior (por Día/Turno)**: Botón premium que permite clonar las asignaciones de actividades del mismo día y turno de la semana anterior, descartando las asignaciones actuales del turno activo y reemplazándolas con las clonadas.<br>- **Clonar Semana Completa**: Botón que copia TODAS las asignaciones (ambos turnos, 7 días) de la semana anterior de una sola vez, guardando directamente a la base de datos en una transacción única. Incluye diálogo de confirmación antes de ejecutar.<br>- **Auditoría Profunda de Actividades**: (1) Filtro de `store_model` (Regular vs Drive-Thru) para paridad con el backend de notificaciones. (2) Eliminación de código muerto en operaciones de clonado. (3) Reemplazo de 5 strings hardcodeados en español por llamadas `t()` de i18n. (4) Adición de 4 claves i18n nuevas. (5) Hook `useLanguage()` en componente BoardSlot.</div>
-                                          <div class="en-desc">- **On-Site Visit to Slauson Store** (6:00 PM - 9:30 PM): Follow-up field visit to verify the status and operation of the pilot kitchen tablets installed at the Slauson location. Reviewed connectivity, system module loading, and validated user experience with store staff.<br>- **Uniforms Usage Guide**: Updated orders page info modal to include new Uniforms section (purple color) with step-by-step instructions.<br>- **Activities Board - Store Filter**: Fixed bug where employee reassignment list showed names from ALL stores (e.g. Roberto Velásquez appeared at Slauson without working there). Now only shows employees from selected store's roster for that day.<br>- **Activities Board - EXTRA ACTIVITIES 1-6**: Renamed 'CIERRE 1/2' to 'ACTIVIDADES EXTRA 1/2' and added 4 new slots (EXTRA 3, 4, 5, 6) in the Kitchen section for additional task assignments.<br>- **Safe Counts Module (NEW)**: Complete development of cash safe counting module for stores. Includes: cash count entry form with denomination breakdown ($100, $50, $20, $10, $5, $1, coins), automatic total calculation, count history by store and date, create/edit/delete APIs, SQL migration for `safe_counts` table, full TypeScript types, sidebar navigation entry, and complete bilingual support (116 i18n keys).<br>- **Activities Board - Weekday Frequency Filter**: Fixed bug where day-exclusive activities (e.g. 'WASH FRYERS' Friday-only) appeared on other days. Replicated notification backend frequency logic to frontend.<br>- **Copy Previous Week (by Day/Shift)**: Premium button that clones activity assignments from the same day and shift of the previous week, discarding current active shift assignments and replacing with cloned ones.<br>- **Clone Full Week**: Button that copies ALL assignments (both shifts, 7 days) from the previous week at once, saving directly to database in a single transaction. Includes confirmation dialog before execution.<br>- **Deep Activities Audit**: (1) `store_model` filter (Regular vs Drive-Thru) for parity with notifications backend. (2) Dead code removal in clone operations. (3) Replaced 5 hardcoded Spanish strings with `t()` i18n calls. (4) Added 4 new i18n keys. (5) `useLanguage()` hook in BoardSlot component.</div>
+                                          <div class="en-desc">- **On-Site Visit to Slauson Store** (6:00 PM - 9:30 PM): Follow-up field visit to verify the status and operation of the pilot kitchen tablets installed at the Slauson location. Reviewed connectivity, system module loading, and validated user experience with store staff.<br>- **Uniforms Usage Guide**: Updated orders page info modal to include new Uniforms section (purple color) with step-by-step instructions.<br>- **Activities Board - Store Filter**: Fixed bug where employee reassignment list showed names from ALL stores (e.g. Roberto Velásquez appeared at Slauson without working there). Now only shows employees from selected store's roster for that day.<br>- **Activities Board - EXTRA ACTIVITIES 1-6**: Renamed 'CIERRE 1/2' to 'ACTIVIDADES EXTRA 1/2' and added 4 new slots (EXTRA 3, 4, 5, 6) in the Kitchen section for additional task assignments.<br>- **Safe Counts Module (NEW)**: Complete development of cash safe counting module for stores. Includes: cash count entry form with denomination breakdown ($100, $50, $20, $10, $5, $1, coins), automatic total calculation, count history by store and date, create/edit/delete APIs, SQL migration for `safe_counts` table, full TypeScript types, sidebar navigation entry, and complete bilingual support (116 i18n keys).<br>- **Activities Board - Weekday Frequency Filter**: Fixed bug where day-exclusive activities (e.g. 'WASH FRYERS' Friday-only) appeared on other days. Replicated notification backend frequency logic to frontend.<br>- **Copy Previous Week (by Day/Shift)**: Premium button that clones activity assignments from the same day and shift of the previous week, discarding current active shift assignments and replacing with cloned ones.<br>- **Clone Full Week**: Button that copies ALL assignments (both shifts, 7 days) of the previous week at once, saving directly to database in a single transaction. Includes confirmation dialog before execution.<br>- **Deep Activities Audit**: (1) `store_model` filter (Regular vs Drive-Thru) for parity with notifications backend. (2) Dead code removal in clone operations. (3) Replaced 5 hardcoded Spanish strings with `t()` i18n calls. (4) Added 4 new i18n keys. (5) `useLanguage()` hook in BoardSlot component.</div>
                                      </div>
                                  </td>
                              </tr>
@@ -1842,6 +1885,18 @@
                                      <div class="lang-split">
                                           <div class="es-desc">- **Rediseño Completo de Pestaña Sobrantes v2**: Nuevo layout con semáforo de colores (verde/ámbar/rojo) basado en el porcentaje sobrante vs PAR. PAR como etiqueta sutil, sobrante como número protágono grande en negrita, y porcentaje como pastilla coloreada. Fondo completo de celda con color de semáforo. Leyenda como pastillas limpias en vez de tarjetas voluminosas.<br>- **PAR Ideal Inline**: Movimiento del PAR Ideal de tabla separada a columnas violeta integradas directamente al lado derecho de la cuadrícula de configuración semanal (7 columnas para diario, 1 para líquidos/uniformes).<br>- **Bug Crítico: PAR Ideal excluía semana actual**: La función `recalculateParIdeal` usaba filtro `lt()` que excluía los datos de cierre de la semana actual del cálculo. Cambiado a `lte()`. Además, `executeWeekRollover` clonaba el PAR ANTES de recalcular — ahora recalcula PRIMERO y luego copia el PAR Ideal actualizado.<br>- **Ventana de cálculo 8→4 semanas**: Reducción de la ventana de promedio del PAR Ideal de 8 a 4 semanas para reaccionar más rápido a patrones recientes (ej. 2 Horchatas sobrantes el viernes ahora pesa 25% en vez de 12.5%).<br>- **Ampliación de Umbrales PAR**: L-V: riesgo &lt;20% (era &lt;10%), ideal 20-60% (era 10-50%), exceso ≥60% (era ≥50%). Sáb: riesgo &lt;15%, ideal 15-40%, exceso ≥40%. Filosofía: quedarse sin producto fuerza al gerente a ir a otra tienda lejana, lo cual es mucho más costoso que tener sobrante.<br>- **Auditoría Integral del Módulo**: Eliminación de función muerta `getOrderHistory`. Corrección de anti-patrón `document.getElementById` de React para copiar PAR. Implementación de soporte bilingüe completo (50+ claves i18n) para alertas, confirmaciones, flujos de QuickBooks y modales de guía. Limpieza de dependencia de Supabase en React.<br>- **Reglas de Redondeo Especiales**: Implementación de `ceiling_60` para Papelito Para Torta (charolas de 60 paquetes). Redondeo automático de ajustes manuales de PAR según reglas del item. Aplicación de reglas de redondeo durante el cálculo de promedios de PAR Ideal en el rollover semanal.<br>- **Limpieza dinámica de datos legacy**: Aplicación automática de reglas de redondeo sobre el PAR Ideal y bases semanales al cargarlos de la base de datos, reparando registros viejos que no cumplían las reglas.<br>- **Boost de Emergencia PAR (+10/15/20/25%)**: Dropdown en la pestaña de orden diaria que permite subir temporalmente el PAR de TODOS los productos para días especiales o de alta demanda. Las cantidades boosteadas respetan las reglas de redondeo y muestran una pastilla visual (+X%) bajo los valores de PAR en la tabla.</div>
                                           <div class="en-desc">- **Sobrantes Tab Redesign v2**: New traffic-light layout (green/amber/red) based on leftover % vs PAR. PAR as subtle label, leftover as bold protagonist number, percentage as colored pill badge. Full cell background with traffic-light color. Clean pill legend.<br>- **PAR Ideal Inline**: Moved PAR Ideal from separate table to violet inline columns on the right side of weekly config grid.<br>- **Critical Bug: PAR Ideal excluded current week**: `recalculateParIdeal` used `lt()` filter excluding closing week data. Changed to `lte()`. Also `executeWeekRollover` now recalculates FIRST then copies updated PAR Ideal.<br>- **Calculation window 8→4 weeks**: Faster reaction to recent leftover patterns (e.g. 2 Horchata leftovers on Friday now weighs 25% instead of 12.5%).<br>- **PAR Threshold Widening**: M-F: risk &lt;20% (was &lt;10%), ideal 20-60% (was 10-50%), excess ≥60% (was ≥50%). Sat: risk &lt;15%, ideal 15-40%, excess ≥40%. Running out forces manager to drive to distant store for restock.<br>- **Comprehensive Module Audit**: Dead `getOrderHistory` removal. React anti-pattern fix for PAR copy. Full i18n (50+ keys) for alerts, confirmations, QB flows, help modals. Supabase dependency cleanup.<br>- **Special Rounding Rules**: `ceiling_60` for Papelito Para Torta (60-pack trays). Auto-round manual PAR adjustments. Enforce rounding during PAR Ideal rollover averages.<br>- **Dynamic Legacy Data Cleanup**: Auto-apply rounding rules on fetched PAR Ideal and weekly bases to repair old database records.<br>- **Emergency PAR Boost (+10/15/20/25%)**: Dropdown in daily order tab to temporarily increase PAR for ALL products on high-demand days. Boosted values respect rounding rules and show visual (+X%) pill badge.</div>
+                                     </div>
+                                 </td>
+                             </tr>
+                             <tr>
+                                 <td><strong>14-Jul-2026</strong></td>
+                                 <td>10:00 AM - 7:30 PM</td>
+                                 <td style="text-align: center; font-weight: 700;">9.5</td>
+                                 <td><span class="table-badge-module">Tiendas</span> <span class="table-badge-module">Google Maps</span> <span class="table-badge-module">Base de Datos</span> <span class="table-badge-module">i18n</span></td>
+                                 <td>
+                                     <div class="lang-split">
+                                          <div class="es-desc">- **Módulo de Tiendas (Integración Toast)**: Refactorización de `lib/toast-api.ts` y APIs de sincronización de empleados para enlazar dinámicamente las sucursales basadas en bases de datos en lugar de mapeos estáticos.<br>- **Buscador de Direcciones (Geocoding)**: Creación de API segura en el backend que traduce direcciones en coordenadas geográficas usando Google Maps Geocoding (con respaldo automático a Nominatim/OSM).<br>- **Google Maps con Satélite**: Migración completa de Leaflet a un componente nativo de **Google Maps** (`StoreMapPicker`), configurando la recuperación segura de la clave del servidor, la opción de arrastre de marcador (pin), visualización de pantalla completa, visualización de etiquetas de comercios y selector interactivo de vista tradicional/satélite.<br>- **Configuración en Vercel**: Vinculación de la base de código local con el proyecto de Vercel `tacosgavilan` e inyección de las variables de entorno `GOOGLE_MAPS_API_KEY` y `GOOGLE_MAPS_KEY` en todos los ambientes (Production, Preview, Development) para despliegues sin interrupciones.<br>- **Solución de Hydration Mismatch**: Corrección del error de desajuste de hidratación de Next.js al cargar el idioma preferido en `LanguageProvider` moviendo la lógica de `localStorage` a un hook `useEffect` del lado del cliente.<br>- **Resolución de Error de Base de Datos (PATCH)**: Eliminación del campo inexistente `hours` del payload de guardado de tiendas en `app/tiendas/page.tsx`, solucionando el error `PGRST204` de PostgREST al guardar sucursales.</div>
+                                          <div class="en-desc">- **Stores Module (Toast Integration)**: Refactored `lib/toast-api.ts` and employee sync endpoints to dynamically connect store locations via database queries instead of static lists.<br>- **Backend Geocoding**: Created a secure backend API endpoint converting addresses to geographic coordinates using Google Maps Geocoding with automatic Nominatim fallback.<br>- **Google Maps & Satellite View**: Replaced Leaflet with a native **Google Maps** view (`StoreMapPicker`), implementing secure key fetching, draggable pins, fullscreen controls, POI/business labels, and Roadmap/Satellite switching.<br>- **Vercel Deploy Configuration**: Linked the project and uploaded `GOOGLE_MAPS_API_KEY` / `GOOGLE_MAPS_KEY` environments to all Vercel stages (Production, Preview, Development) for smooth deployment builds.<br>- **Hydration Mismatch Fix**: Resolved Next.js client/server hydration errors in `LanguageProvider` by shifting `localStorage` reading logic into a client-side `useEffect` hook.<br>- **Supabase PATCH Error Fix**: Removed nonexistent `hours` field from the store save payload, fixing Supabase `PGRST204` errors when editing location metadata.</div>
                                      </div>
                                  </td>
                              </tr>

@@ -1,5 +1,17 @@
 'use client'
 
+/**
+ * @module TiendasPage
+ * @description Panel de control y administración para las tiendas de Tacos El Gavilán.
+ * @businessRules
+ * - Permite crear y editar sucursales.
+ * - Sincroniza direcciones, teléfonos y GUIDs desde la API de Toast.
+ * - Integra campos dinámicos como Toast GUID (external_id), código postal (zip_code), Auto-Servicio (has_drive_thru) y estado activo (is_active).
+ * - Las coordenadas de ubicación se eligen interactivamente en un mapa Picker de Leaflet.
+ * @dataFlow
+ * - Supabase ('stores' table) <-> TiendasPage (state)
+ */
+
 import { useEffect, useState } from 'react'
 import { Store, MapPin, Search, Plus, X, Save, Trash2, Edit, RefreshCw } from 'lucide-react'
 import { getSupabaseClient, formatStoreName } from '@/lib/supabase'
@@ -121,7 +133,10 @@ export default function TiendasPage() {
       closing_time: '',
       weekly_hours: [],
       latitude: null,
-      longitude: null
+      longitude: null,
+      external_id: '',
+      has_drive_thru: false,
+      zip_code: ''
     })
     setIsEditing(true)
   }
@@ -142,7 +157,10 @@ export default function TiendasPage() {
       closing_time: store.closing_time || '',
       weekly_hours: store.weekly_hours || [],
       latitude: store.latitude,
-      longitude: store.longitude
+      longitude: store.longitude,
+      external_id: store.external_id || '',
+      has_drive_thru: store.has_drive_thru || false,
+      zip_code: store.zip_code || ''
     })
     setIsEditing(true)
   }
@@ -161,14 +179,16 @@ export default function TiendasPage() {
         state: editingStore.state,
         address: editingStore.address,
         phone: editingStore.phone,
-        hours: editingStore.hours,
         supervisor_name: editingStore.supervisor_name,
-        is_active: editingStore.is_active,
+        is_active: !!editingStore.is_active,
         opening_time: editingStore.opening_time || null,
         closing_time: editingStore.closing_time || null,
         weekly_hours: editingStore.weekly_hours || null,
         latitude: editingStore.latitude,
-        longitude: editingStore.longitude
+        longitude: editingStore.longitude,
+        external_id: editingStore.external_id || null,
+        has_drive_thru: !!editingStore.has_drive_thru,
+        zip_code: editingStore.zip_code || null
       }
 
       if (editingStore.id) {
@@ -195,6 +215,42 @@ export default function TiendasPage() {
       alert('Error saving location')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const [geocoding, setGeocoding] = useState(false)
+
+  const handleGeocode = async () => {
+    const address = editingStore.address || ''
+    const city = editingStore.city || ''
+    const state = editingStore.state || ''
+    const zip = editingStore.zip_code || ''
+
+    if (!address && !city) {
+      alert(t('tiendas.modal.errors.address_empty'))
+      return
+    }
+
+    setGeocoding(true)
+    try {
+      const url = `/api/admin/stores/geocode?address=${encodeURIComponent(address)}&city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&zip=${encodeURIComponent(zip)}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(t('tiendas.modal.errors.address_not_found'))
+      const data = await res.json()
+      if (data && data.success) {
+        setEditingStore((prev: any) => ({
+          ...prev,
+          latitude: data.lat,
+          longitude: data.lng
+        }))
+      } else {
+        alert(t('tiendas.modal.errors.address_not_found'))
+      }
+    } catch (err: any) {
+      console.error('Error geocoding address:', err)
+      alert(err.message || t('tiendas.modal.errors.geocoding_error'))
+    } finally {
+      setGeocoding(false)
     }
   }
 
@@ -392,7 +448,7 @@ export default function TiendasPage() {
                         value={editingStore.name}
                         onChange={e => setEditingStore({ ...editingStore, name: e.target.value })}
                         required
-                        placeholder="e.g.: Reforma"
+                        placeholder="e.g.: Slauson"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -402,7 +458,7 @@ export default function TiendasPage() {
                         value={editingStore.code}
                         onChange={e => setEditingStore({ ...editingStore, code: e.target.value })}
                         required
-                        placeholder="e.g.: S001"
+                        placeholder="e.g.: SLA"
                       />
                     </div>
                     <div className="space-y-1.5 md:col-span-2">
@@ -412,8 +468,26 @@ export default function TiendasPage() {
                         value={editingStore.address}
                         onChange={e => setEditingStore({ ...editingStore, address: e.target.value })}
                         rows={2}
-                        placeholder="Street, Number, Suite..."
+                        placeholder="e.g.: 200 W Slauson Ave"
                       />
+                      <button
+                        type="button"
+                        onClick={handleGeocode}
+                        disabled={geocoding}
+                        className="mt-2 w-full md:w-auto px-5 py-2.5 bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 font-black text-[10px] uppercase tracking-wider rounded-xl border border-orange-100 dark:border-orange-900/30 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        {geocoding ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-orange-600 dark:border-orange-400 border-t-transparent animate-spin rounded-full"></span>
+                            {t('tiendas.modal.saving') || 'Buscando...'}
+                          </>
+                        ) : (
+                          <>
+                            <span>📍</span>
+                            {t('tiendas.modal.buttons.locate') || 'Localizar en mapa'}
+                          </>
+                        )}
+                      </button>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">{t('tiendas.modal.fields.city')}</label>
@@ -439,7 +513,7 @@ export default function TiendasPage() {
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.phone}
                         onChange={e => setEditingStore({ ...editingStore, phone: e.target.value })}
-                        placeholder="Ej: 5512345678"
+                        placeholder="e.g.: (323) 234-0100"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -448,8 +522,50 @@ export default function TiendasPage() {
                         className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
                         value={editingStore.supervisor_name}
                         onChange={e => setEditingStore({ ...editingStore, supervisor_name: e.target.value })}
-                        placeholder="Supervisor name"
+                        placeholder="e.g.: Carlos Perez"
                       />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Zip Code</label>
+                      <input
+                        className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border-none rounded-2xl font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20"
+                        value={editingStore.zip_code || ''}
+                        onChange={e => setEditingStore({ ...editingStore, zip_code: e.target.value })}
+                        placeholder="e.g. 90003"
+                      />
+                    </div>
+                    <div className="space-y-1.5 opacity-60">
+                      <label className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest ml-1">Toast GUID (External ID)</label>
+                      <input
+                        className="w-full px-4 py-3 bg-gray-100 dark:bg-slate-800/80 border-none rounded-2xl font-bold text-gray-400 dark:text-slate-400 outline-none cursor-not-allowed"
+                        value={editingStore.external_id || ''}
+                        readOnly
+                        placeholder="Autogenerado por Toast / Auto-assigned from Toast"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-gray-100 dark:border-slate-800/50">
+                      <input
+                        type="checkbox"
+                        id="is_active"
+                        checked={!!editingStore.is_active}
+                        onChange={e => setEditingStore({ ...editingStore, is_active: e.target.checked })}
+                        className="w-5 h-5 accent-orange-600 rounded-lg cursor-pointer"
+                      />
+                      <label htmlFor="is_active" className="text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider cursor-pointer">
+                        {t('usuarios.modal.fields.is_active') || 'Active Store'}
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-slate-800/50 rounded-2xl border border-gray-100 dark:border-slate-800/50">
+                      <input
+                        type="checkbox"
+                        id="has_drive_thru"
+                        checked={!!editingStore.has_drive_thru}
+                        onChange={e => setEditingStore({ ...editingStore, has_drive_thru: e.target.checked })}
+                        className="w-5 h-5 accent-orange-600 rounded-lg cursor-pointer"
+                      />
+                      <label htmlFor="has_drive_thru" className="text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider cursor-pointer">
+                        Has Drive-Thru
+                      </label>
                     </div>
                   </div>
 

@@ -1,3 +1,12 @@
+/**
+ * @module UpdateUserRoute
+ * @description API route to update a user profile in the database.
+ * @businessRules
+ * - Executes profile updates in public.users using service role credentials to bypass RLS policies.
+ * @dataFlow
+ * - Request (userId, userData) -> Supabase admin.from('users').update() -> Response (success, data)
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
