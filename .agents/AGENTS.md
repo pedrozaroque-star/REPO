@@ -23,6 +23,12 @@ Antes de modificar, analizar o trabajar con cualquier módulo del sistema, **el 
 ## 🤖 REGLA OBLIGATORIA: Sincronización de Conocimiento del Asistente (TEG Assistant Sync)
 Cada vez que se cree, modifique, elimine o actualice una característica, lógica de negocio, endpoint de API, o tabla de base de datos en el sistema, **el desarrollador/agente DEBE de inmediato actualizar el prompt del asistente** en `app/api/support-chat/route.ts` y sus herramientas de chat en `lib/chat-tools.ts`. Esto garantiza que el TEG Assistant AI aprenda de cada actualización del sistema y mantenga un dominio preciso del 100% del ecosistema en tiempo real.
 
+### 📌 REGLA DE COMMIT Y PUSH: Sincronización Obligatoria de Documentación
+Cada vez que se realice un commit a GitHub y se haga push, **el desarrollador/agente DEBE actualizar de manera obligatoria**:
+1. El documento de seguimiento de tareas y actividades del mes correspondiente (`pendientes_julio.html` o similar), registrando el desglose de horas y descripción bilingüe de actividades.
+2. El prompt y herramientas de chat de soporte del Asistente IA para reflejar los cambios realizados en el sistema.
+No se debe realizar ningún push sin haber completado previamente esta sincronización de documentación.
+
 ---
 
 
