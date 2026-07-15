@@ -28,7 +28,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
     // ========== INTELLIGENCE ENGINE (PRIMARY) ==========
     const generateViaIntelligenceAPI = async (weekStartStr: string, force = false): Promise<Record<string, string> | null> => {
         try {
-            console.log('🧠 [Intelligence] Calling API...')
+
 
             const response = await fetch('/api/projections/generate', {
                 method: 'POST',
@@ -56,22 +56,19 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
                 result[date] = String(Math.round(value as number))
             }
 
-            console.log('🧠 [Intelligence] Success!', {
-                model: data.meta?.model,
-                days: Object.keys(result).length
-            })
+
 
             return result
 
         } catch (error: any) {
-            console.warn('🧠 [Intelligence] API Failed:', error.message)
+
             return null
         }
     }
 
     // ========== LEGACY ENGINE (FALLBACK) ==========
     const generateViaLegacy = async (): Promise<Record<string, string>> => {
-        console.log('👴 [Legacy] Using local calculation...')
+
 
         const supabase = await getSupabaseClient()
 
@@ -248,7 +245,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             }
         }
 
-        console.log('👴 [Legacy] Complete:', Object.keys(newProjections).length, 'days')
+
         return newProjections
     }
 
@@ -275,10 +272,10 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
 
             if (intelligenceResult && Object.keys(intelligenceResult).length > 0) {
                 newProjections = intelligenceResult
-                console.log('✅ [Hybrid] Using Intelligence Engine results')
+
             } else {
                 // FALLBACK TO LEGACY
-                console.log('⚠️ [Hybrid] Intelligence failed, falling back to Legacy...')
+
                 newProjections = await generateViaLegacy()
             }
         } else {
@@ -286,7 +283,7 @@ export function useSmartProjections(storeGuid: string | undefined, weekStartInpu
             newProjections = await generateViaLegacy()
         }
 
-        console.log('🧩 [HOOK] Generated Keys:', Object.keys(newProjections))
+
         if (Object.keys(newProjections).length > 0) {
             setProjections(prev => ({ ...prev, ...newProjections }))
         }

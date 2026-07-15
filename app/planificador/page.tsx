@@ -147,7 +147,7 @@ export default function SchedulePlanner() {
     // 🧠 AUTO-TRIGGER AI PROJECTIONS (Cerebrito)
     useEffect(() => {
         if (storeGuid && weekStart) {
-            console.log('🧠 [Auto-AI] Store or Week changed, recalculating meta...')
+
             calculateProjections()
         }
     }, [storeGuid, weekStart, calculateProjections])
@@ -428,17 +428,17 @@ export default function SchedulePlanner() {
                     // If we have RT, save it. If not, maybe we just got the email (re-login without offline access)
                     const updates: any = { google_email_connected: ge }
                     if (rt) {
-                        console.log('✅ Refresh Token Received in URL')
+
                         updates.google_refresh_token = rt
                     } else {
-                        console.warn('⚠️ No Refresh Token in URL (User might need to revoke access in Google Permissions)')
+
                     }
 
-                    console.log('Wait... Updating User...', { userId: user?.id, updates })
+
                     const { error } = await supabase.from('users').update(updates).eq('id', user?.id)
 
                     if (!error) {
-                        console.log('✅ User updated successfully')
+
                         toast.success(`Gmail conectado: ${ge}`)
                         setGoogleConnected(true)
                         setGoogleEmail(ge)
@@ -477,7 +477,7 @@ export default function SchedulePlanner() {
                 storeQuery = storeQuery.eq('id', userStoreId)
             } else if (userRole !== 'admin' && !userStoreId) {
                 // Manager without store assigned? Show nothing or warn
-                console.warn('User is not admin but has no store assigned')
+
                 // For safety, maybe select nothing or let them see all? 
                 // Better to secure:
                 // storeQuery = storeQuery.eq('id', -1) // Returns empty
@@ -692,7 +692,7 @@ export default function SchedulePlanner() {
             }
 
             if (missingShifts.length > 0) {
-                console.log(`🚀 [Auto-Shift] Inserting ${missingShifts.length} missing shifts from Toast punches...`)
+
                 const { data: insertedShifts, error: insertErr } = await supabase
                     .from('shifts')
                     .insert(missingShifts)
@@ -738,7 +738,7 @@ export default function SchedulePlanner() {
                         filter: `store_id=eq.${storeGuid}`
                     },
                     (payload: any) => {
-                        console.log('🔄 Realtime shift change detected:', payload.eventType)
+
                         // Reload data when any shift changes
                         loadStoreData()
                     }
@@ -804,7 +804,7 @@ export default function SchedulePlanner() {
     }
 
     const handleGenerateSmart = async () => {
-        console.log('🤖 Smart Gen Triggered. StoreGuid:', storeGuid)
+
         if (!storeGuid) return toast.error(t('planner.toasts.no_store'))
         const startStr = formatDateISO(weekStart)
         const endStr = formatDateISO(addDays(weekStart, 6))
@@ -1304,7 +1304,7 @@ export default function SchedulePlanner() {
             let finalProjections = { ...projections }
 
             if (missingDates.length > 0) {
-                console.warn('⚠️ [BUDGET] Missing projections for:', missingDates.join(', '))
+
 
                 // Attempt to regenerate missing projections
                 try {
@@ -1312,7 +1312,7 @@ export default function SchedulePlanner() {
                     if (freshProjections && Object.keys(freshProjections).length > 0) {
                         // Merge: existing overwrites fresh (keep user edits)
                         finalProjections = { ...freshProjections, ...projections }
-                        console.log('🔄 [BUDGET] Regenerated missing projections')
+
                     }
                 } catch (regenError) {
                     console.error('❌ Failed to regenerate projections:', regenError)
@@ -1321,12 +1321,12 @@ export default function SchedulePlanner() {
                 // Re-check after regeneration
                 const stillMissing = requiredDates.filter(d => !finalProjections[d] || Number(finalProjections[d]) <= 0)
                 if (stillMissing.length > 0) {
-                    console.warn('⚠️ [BUDGET] Still missing after regen:', stillMissing.join(', '))
+
                     toast.info(t('planner.toasts.projections_incomplete') || `Warning: Projections incomplete for ${stillMissing.length} day(s)`)
                 }
             }
 
-            console.log('💾 Saving Budget Snapshot...', { storeGuid, startStr, projCount: Object.keys(finalProjections).length, days: Object.keys(finalProjections) })
+
 
             const { data: savedBudget, error: budgetError } = await supabase.from('weekly_budgets').upsert({
                 store_id: storeGuid,
@@ -1339,7 +1339,7 @@ export default function SchedulePlanner() {
                 console.error('❌ Error saving budget snapshot:', budgetError)
                 toast.error(t('planner.toasts.budget_error') + ': ' + budgetError.message)
             } else {
-                console.log('✅ Budget Saved:', savedBudget)
+
                 // Update local state with the complete projections
                 if (Object.keys(finalProjections).length > Object.keys(projections).length) {
                     setProjections(finalProjections)

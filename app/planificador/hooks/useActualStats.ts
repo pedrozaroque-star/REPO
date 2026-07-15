@@ -123,7 +123,6 @@ export function useActualStats(storeGuid: string | undefined, weekStart: Date) {
 
         // 🔄 Poll for Live Data every 2 minutes
         const pollInterval = setInterval(() => {
-            console.log('🔄 Auto-Refreshing Live Stats (2m Timer)...')
             forceRefresh()
         }, 2 * 60 * 1000)
 

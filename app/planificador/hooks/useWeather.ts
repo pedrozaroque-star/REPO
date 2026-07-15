@@ -17,14 +17,14 @@ export function useWeather(storeId: string | null) {
 
         async function fetchWeather() {
             setLoading(true)
-            console.log("🌦️ [useWeather] Fetching for:", storeId)
+
             try {
                 // Fetch via our local API proxy
                 const res = await fetch(`/api/external/weather?storeId=${storeId}`)
                 if (!res.ok) throw new Error('Weather fetch failed')
 
                 const json = await res.json()
-                console.log("🌦️ [useWeather] Response:", json)
+
 
                 if (json.data) {
                     const map: Record<string, WeatherDay> = {}
@@ -47,7 +47,7 @@ export function useWeather(storeId: string | null) {
                     setWeather(map)
                 }
             } catch (e) {
-                console.warn("🌦️ Weather data unavailable (non-critical):", e)
+                // Weather is non-critical, fail silently
             } finally {
                 setLoading(false)
             }
