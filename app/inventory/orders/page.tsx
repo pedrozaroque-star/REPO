@@ -704,7 +704,7 @@ export default function InventoryOrdersPage() {
         if (!validateFlanAndCheesecake(orderLines)) return
         setSaving(true)
         const lines = orderLines.filter(l => {
-            if (l.leftover_value === null || l.leftover_value === undefined) return false
+            if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
             const adj = adjustments[l.inventory_item_id]
             const finalQty = adj !== undefined ? adj : l.calculated_qty
             return finalQty > 0
@@ -730,7 +730,7 @@ export default function InventoryOrdersPage() {
         // incluso si la orden ya existe (podría tener 0 líneas de un guardado parcial previo)
         setSaving(true)
         const lines = orderLines.filter(l => {
-            if (l.leftover_value === null || l.leftover_value === undefined) return false
+            if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
             const adj = adjustments[l.inventory_item_id]
             const finalQty = adj !== undefined ? adj : l.calculated_qty
             return finalQty > 0
@@ -939,7 +939,7 @@ export default function InventoryOrdersPage() {
 
     // Summary cards for Order tab
     const itemsToOrder = orderLines.filter(l => {
-        if (l.leftover_value === null || l.leftover_value === undefined) return false
+        if (!l.is_extraordinary && (l.leftover_value === null || l.leftover_value === undefined)) return false
         const adj = adjustments[l.inventory_item_id]
         const finalQty = adj !== undefined ? adj : l.calculated_qty
         return finalQty > 0
