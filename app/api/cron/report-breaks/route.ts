@@ -5,8 +5,8 @@ import nodemailer from 'nodemailer'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300 // Allow up to 5 minutes so Vercel does not kill it in the middle of fetching/emailing 
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 // Función para obtener transporte (ESTRICTO: Solo Carlos)

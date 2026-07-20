@@ -98,8 +98,8 @@ const STATION_BACKUPS: Record<string, string[]> = {
 };
 
 // Initialize clients
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 
@@ -190,8 +190,8 @@ export async function POST(req: Request) {
         const body = await req.json()
         const { store_id, start_date, end_date, sender_user_id } = body
 
-        if (!store_id || (!start_date && !body.shift_ids)) {
-            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+        if (!store_id || !start_date || !end_date) {
+            return NextResponse.json({ error: 'Missing required fields: store_id, start_date, end_date' }, { status: 400 })
         }
 
         // 1. Init Credentials
@@ -252,12 +252,8 @@ export async function POST(req: Request) {
             .select('*')
             .eq('store_id', store_id)
             .eq('status', 'published')
-
-        if (body.shift_ids && Array.isArray(body.shift_ids) && body.shift_ids.length > 0) {
-            query = query.in('id', body.shift_ids)
-        } else {
-            query = query.gte('shift_date', start_date).lte('shift_date', end_date)
-        }
+            .gte('shift_date', start_date)
+            .lte('shift_date', end_date)
 
         const { data: shifts, error: shiftError } = await query
 
