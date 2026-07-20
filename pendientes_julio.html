@@ -1899,8 +1899,20 @@
                                           <div class="en-desc">- **Stores Module (Toast Integration)**: Refactored `lib/toast-api.ts` and employee sync endpoints to dynamically connect store locations via database queries instead of static lists.<br>- **Backend Geocoding**: Created a secure backend API endpoint converting addresses to geographic coordinates using Google Maps Geocoding with automatic Nominatim fallback.<br>- **Google Maps & Satellite View**: Replaced Leaflet with a native **Google Maps** view (`StoreMapPicker`), implementing secure key fetching, draggable pins, fullscreen controls, POI/business labels, and Roadmap/Satellite switching.<br>- **Vercel Deploy Configuration**: Linked the project and uploaded `GOOGLE_MAPS_API_KEY` / `GOOGLE_MAPS_KEY` environments to all Vercel stages (Production, Preview, Development) for smooth deployment builds.<br>- **Hydration Mismatch Fix**: Resolved Next.js client/server hydration errors in `LanguageProvider` by shifting `localStorage` reading logic into a client-side `useEffect` hook.<br>- **Supabase PATCH Error Fix**: Removed nonexistent `hours` field from the store save payload, fixing Supabase `PGRST204` errors when editing location metadata.</div>
                                      </div>
                                  </td>
-                             </tr>
-                        </tbody>
+                              </tr>
+                              <tr>
+                                  <td><strong>20-Jul-2026</strong></td>
+                                  <td>12:45 PM - 2:45 PM</td>
+                                  <td style="text-align: center; font-weight: 700;">2.0</td>
+                                  <td><span class="table-badge-module">Planificador</span> <span class="table-badge-module">i18n</span></td>
+                                  <td>
+                                      <div class="lang-split">
+                                           <div class="es-desc">- **Envío de Horario Semanal Completo al Modificar Turnos**: Refactorización de la API de publicación de horarios (`/api/notifications/publish-schedule`) para que, al realizar un ajuste o modificación de un turno después de haber publicado la semana, se envíe el horario semanal completo y actualizado de los empleados afectados en lugar de solamente enviar la modificación aislada del turno editado. Esto evita confusiones entre el personal sobre sus demás días asignados.</div>
+                                           <div class="en-desc">- **Full Weekly Schedule Delivery on Edit**: Refactored the schedule publishing API (`/api/notifications/publish-schedule`) so that when a shift is edited or adjusted post-publication, affected employees receive their entire updated weekly schedule instead of only the isolated edited shift. This avoids confusion regarding other scheduled days.</div>
+                                      </div>
+                                  </td>
+                              </tr>
+                         </tbody>
                     </table>
                 </div>
  
@@ -1948,7 +1960,7 @@
                 <div class="modules-summary">
                     <div class="module-summary-item">
                         <span>Actividades, Planificador y Horarios / Activities & Scheduling</span>
-                        <span class="hours">18.0 hrs</span>
+                        <span class="hours">20.0 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Clon y Sincronizador de Basecamp / Basecamp Integration</span>

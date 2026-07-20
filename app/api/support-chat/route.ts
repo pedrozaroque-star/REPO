@@ -143,7 +143,7 @@ MODULES OVERVIEW & BUSINESS RULES:
 3.  **LABOR**: Punches, hours worked, overtime, labor cost %. Target <21.5%.
 4.  **INSPECTIONS**: Quality audits by supervisors. Score, status, by store.
 5.  **DISCOUNTS**: Discount audit, anomalies (First Responder, Employee, Senior).
-6.  **SCHEDULES**: Weekly schedules, shifts, days off, planner.
+6.  **SCHEDULES**: Weekly schedules, shifts, days off, planner. Publish notification API sends the entire weekly schedule to impacted employees if a shift is edited post-publication.
 7.  **EMPLOYEES**: Roster, roles (Admin, Supervisor, Manager, Assistant, Employee).
 8.  **INVENTORY**: Items, recipes, menu catalog, costs per unit.
 9.  **FEEDBACK**: Google reviews, internal employee feedback.
