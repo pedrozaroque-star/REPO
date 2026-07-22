@@ -6,7 +6,7 @@
   2. Todos los estilos están embebidos directamente (inline y en bloque style) utilizando colores en hexadecimal en lugar de variables CSS.
   3. No depende de redes CDN externas. Todo es nativo o usa vectores SVG embebidos.
 @notes
-  - Creado específicamente para registrar el avance de Julio de 2026 (80.5 horas acumuladas hasta la fecha).
+  - Creado específicamente para registrar el avance de Julio de 2026 (87.0 horas acumuladas hasta la fecha).
   - Incluye los desgloses diarios de julio 1 y julio 2 con la reestructuración completa del módulo de Pedidos de Bodega, integraciones de QuickBooks y reordenamiento de menús de navegación.
 -->
 <!DOCTYPE html>
@@ -864,7 +864,7 @@
                 </svg>
             </div>
             <div>
-                <div class="stat-number" style="color: #e05638;">80.5</div>
+                <div class="stat-number" style="color: #e05638;">87.0</div>
                 <div class="stat-desc">Horas trabajadas</div>
             </div>
         </div>
@@ -1760,7 +1760,7 @@
             <div class="report-section">
                 <div class="report-title-row">
                     <h2>Reporte de Horas Trabajadas y Actualizaciones</h2>
-                    <span class="hours-badge-large">Total de Horas: 80.5 hrs</span>
+                    <span class="hours-badge-large">Total de Horas: 87.0 hrs</span>
                 </div>
                 
                 <p class="report-subtitle-text">
@@ -1912,6 +1912,18 @@
                                       </div>
                                   </td>
                               </tr>
+                              <tr>
+                                  <td><strong>21-Jul-2026</strong></td>
+                                  <td>2:58 PM - 9:23 PM</td>
+                                  <td style="text-align: center; font-weight: 700;">6.5</td>
+                                  <td><span class="table-badge-module">Actividades</span> <span class="table-badge-module">Navegación</span> <span class="table-badge-module">Asistente IA</span></td>
+                                  <td>
+                                      <div class="lang-split">
+                                           <div class="es-desc">- **Eliminación Segura de Módulos Roles y Procedimientos**: Análisis exhaustivo de dependencias cruzadas (15+ búsquedas de grep, 3 subagentes de investigación en paralelo) para verificar que el Planificador, Breaks, Horarios, Auto-Schedule, Notificaciones, Checklists y Cron Jobs de Vercel NO dependan de los módulos Roles ni Procedimientos antes de proceder a eliminarlos.<br>- **Eliminación de 3,797 Líneas de Código Obsoleto**: Borrado de `app/roles/page.tsx` (176 KB), `app/procedimientos/page.tsx`, y `app/api/roles/templates/route.ts`. Conservación segura de las API routes compartidas (`/api/roles`, `/api/roles/activities`, `/api/procedimientos`) y del componente `ProceduresTimeline` que el módulo Actividades sigue usando internamente.<br>- **Actualización del Menú de Navegación**: Eliminación de las entradas 'Procedimientos' y 'Roles' del sidebar (`AppSidebar.tsx`). Actualización de la barra de navegación inferior para móviles (`BottomTabBar.tsx`) redirigiendo de '/roles' a '/actividades' con label bilingüe.<br>- **Sincronización del Asistente IA**: Actualización del prompt del asistente de soporte (`support-chat/route.ts`) para reflejar que Actividades es ahora el módulo unificado que reemplaza Roles y Procedimientos, incluyendo la descripción completa de sus sub-módulos (Catálogo, Configurar Posiciones, Asignación Diaria, Tablero, Checklists y Reportes).<br>- **Verificación de TypeScript**: 0 errores confirmados con `tsc --noEmit` antes del commit.</div>
+                                           <div class="en-desc">- **Safe Removal of Roles & Procedures Modules**: Exhaustive cross-dependency analysis (15+ grep searches, 3 parallel research subagents) verifying that Planner, Breaks, Schedules, Auto-Schedule, Notifications, Checklists, and Vercel Cron Jobs do NOT depend on the Roles or Procedures modules before deletion.<br>- **3,797 Lines of Legacy Code Removed**: Deleted `app/roles/page.tsx` (176 KB), `app/procedimientos/page.tsx`, and `app/api/roles/templates/route.ts`. Safely preserved shared API routes (`/api/roles`, `/api/roles/activities`, `/api/procedimientos`) and the `ProceduresTimeline` component still used internally by the Actividades module.<br>- **Navigation Menu Update**: Removed 'Procedimientos' and 'Roles' entries from the sidebar (`AppSidebar.tsx`). Updated mobile bottom tab bar (`BottomTabBar.tsx`) redirecting '/roles' to '/actividades' with bilingual label.<br>- **AI Assistant Sync**: Updated the support chat assistant prompt (`support-chat/route.ts`) to reflect Actividades as the unified module replacing Roles and Procedures, including full description of its sub-modules (Catalog, Configure Positions, Daily Assignment, Board, Checklists, and Reports).<br>- **TypeScript Verification**: 0 errors confirmed via `tsc --noEmit` before commit.</div>
+                                      </div>
+                                  </td>
+                              </tr>
                          </tbody>
                     </table>
                 </div>
@@ -1960,7 +1972,7 @@
                 <div class="modules-summary">
                     <div class="module-summary-item">
                         <span>Actividades, Planificador y Horarios / Activities & Scheduling</span>
-                        <span class="hours">20.0 hrs</span>
+                        <span class="hours">26.5 hrs</span>
                     </div>
                     <div class="module-summary-item">
                         <span>Clon y Sincronizador de Basecamp / Basecamp Integration</span>
