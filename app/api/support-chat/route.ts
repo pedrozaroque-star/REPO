@@ -170,7 +170,6 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY):
     *   **Manager**: \`/checklists-manager\`. Access: Manager, Supervisor, Admin. Purpose: Checklists for manager walk-throughs, opening/closing logs.
     *   **Asistentes (Assistants)**: \`/checklists\`. Access: Assistant (asistente), Manager, Supervisor, Admin. Purpose: Opening, closing, temperature logs, and assistant daily checklists.
     *   **Horarios (Schedules)**: \`/horarios\`. Access: Manager, Supervisor, Admin. Purpose: View current publish statuses, shift assignments, and daily schedules.
-    *   **Procedimientos (Procedures)**: \`/procedimientos\`. Access: All. Purpose: Read standard operating procedures (SOPs) and task checklists.
     *   **Dashboard**: \`/dashboard\`. Access: Manager, Supervisor, Admin. Purpose: Operational landing home.
     *   **Caja Fuerte (Safe)**: \`/caja-fuerte\`. Access: Admin, Supervisor, Manager, Assistant (asistente). Purpose: Cash vault counts, bills, coins rolls, uniform logs, and safe balance audit logs.
     *   **Basecamp**: \`/basecamp\`. Access: Manager, Supervisor, Admin, Assistant (asistente). Purpose: Campfire messages, documents, questionnaires, and team task tracking.
@@ -189,8 +188,7 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY):
     *   **Kiosk Feedback**: \`/clientes\`. Access: Admin, Manager, Supervisor. Purpose: Customer QR-code feedback surveys.
     *   **Eval. Staff**: \`/evaluacion\`. Access: Admin, Manager, Supervisor. Purpose: Staff evaluations and performance reports.
 6.  **EQUIPO (Team Group)**:
-    *   **Actividades**: \`/actividades\`. Access: Manager, Supervisor, Admin, Assistant (asistente). Purpose: Shift activities logs and task trackers.
-    *   **Roles**: \`/roles\`. Access: Manager, Supervisor, Admin, Assistant (asistente). Purpose: Assign station roles (Grill, Drive-Thru, Register, Prep) via drag-and-drop.
+    *   **Actividades**: \`/actividades\`. Access: Manager, Supervisor, Admin, Assistant (asistente). Purpose: Unified station activity center — includes SOPs catalog (Catálogo), position-to-activity configuration (Configurar Posiciones), daily shift assignments (Asignación Diaria) with visual board (Tablero), employee checklists, and activity completion reports.
     *   **Mi Horario**: \`/mis-horarios\`. Access: Assistant, Manager, Supervisor, Admin. Purpose: View logged-in employee shift schedule.
     *   **Auto-Schedule**: \`/gestion/auto-schedule\`. Access: Supervisor, Admin. Purpose: Auto-scheduling algorithm settings.
 7.  **FOOD COST (Food Cost Group)**:
@@ -255,7 +253,7 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 - In SM TEG, NPS is collected from customer feedback surveys and Google Reviews. Visible in the Feedback module.
 
 ## OPERATIONS GUIDE
-- **Tablero de Roles (Roles Board)**: Located at /admin → Supervisors. Assign kitchen stations (Grill, Prep, Register, Drive-Thru) to employees for each shift. Drag and drop interface.
+- **Tablero de Actividades (Activity Board)**: Located at /actividades → Asignación Diaria → Tablero. Assign kitchen stations (Grill, Prep, Register, Drive-Thru) to employees for each shift. Includes SOPs catalog, position configuration, daily assignments, visual board, and activity checklists.
 - **Modo Inmersivo (Immersive Mode)**: In TV Menús, click the fullscreen icon to launch a display-only mode optimized for kitchen monitors or lobby TVs. Auto-refreshes.
 - **Preparador (Prep Tool)**: Located at /admin → Preparador. Calculates production quantities based on sales forecasts and par levels. Tells the team exactly how much to prep for each item.
 - **Descansos AI (AI Breaks Engine)**: Automatically calculates and schedules California-compliant meal and rest breaks based on shift length. California law requires: 10-min rest break per 4 hours, 30-min meal break before 5th hour, second meal break before 10th hour.

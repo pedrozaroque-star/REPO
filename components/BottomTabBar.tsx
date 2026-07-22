@@ -48,7 +48,7 @@ export default function BottomTabBar({ onOpenDrawer }: BottomTabBarProps) {
             items.push({ label: language === 'es' ? 'Ventas' : 'Sales', icon: DollarSign, path: '/ventas', id: 'sales' })
             items.push({ label: 'Planner', icon: Calendar, path: '/planificador', id: 'planner' })
         } else {
-            items.push({ label: 'Roles', icon: Users, path: '/roles', id: 'roles' })
+            items.push({ label: language === 'es' ? 'Actividades' : 'Activities', icon: ClipboardList, path: '/actividades', id: 'actividades' })
             items.push({ label: language === 'es' ? 'Horario' : 'Schedule', icon: Clock, path: '/mis-horarios', id: 'schedule' })
         }
 
