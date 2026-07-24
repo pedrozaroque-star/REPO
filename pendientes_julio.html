@@ -1924,6 +1924,18 @@
                                       </div>
                                   </td>
                               </tr>
+                              <tr>
+                                  <td><strong>24-Jul-2026</strong></td>
+                                  <td>3:07 PM - 7:18 PM</td>
+                                  <td style="text-align: center; font-weight: 700;">4.2</td>
+                                  <td><span class="table-badge-module">Usuarios</span> <span class="table-badge-module">Toast</span> <span class="table-badge-module">Base de Datos</span> <span class="table-badge-module">i18n</span></td>
+                                  <td>
+                                      <div class="lang-split">
+                                           <div class="es-desc">- **Módulo de Usuarios - Promociones y Sincronización Directa Toast**: Implementación del flujo de mapeo directo de roles Toast hacia la tabla de usuarios del sistema (`users`).<br>- **Escalera de Mando (Niveles 1-6)**: Configuración de reglas donde solo los niveles 3 (Asistente), 4 (Manager), 5 (Supervisor) y 6 (Admin) generan cuenta en el sistema, mientras que los niveles 1 (Cocinero/Cajera) y 2 (Shift Leader) se alimentan directamente de Toast para el módulo Planificador.<br>- **Detección Automática de Promociones y Degradaciones**: Creación del endpoint `/api/admin/users/sync-toast` (GET/POST) que analiza empleados en `toast_employees`, identifica nuevos puestos de Manager/Asistente y marca usuarios inactivos o degradados en Toast.<br>- **Resolución de Conflictos de Sucursal**: Detección de managers/asistentes activos existentes por sucursal con casilla interactiva para desactivar automáticamente al manager/asistente anterior al promover al nuevo.<br>- **Autocompletado de Usuarios desde Toast (Planificador)**: Integración en `UserModal` del selector '¿El usuario ya existe en Toast (Planificador)?' que autocompleta nombre, email, teléfono, rol y sucursal de forma automática.</div>
+                                           <div class="en-desc">- **Users Module - Direct Toast Promotion & Role Sync**: Implemented direct mapping from Toast job roles to system user profiles (`users` table).<br>- **Command Ladder (Levels 1-6)**: Enforced business rule where only levels 3 (Assistant), 4 (Manager), 5 (Supervisor), and 6 (Admin) get portal credentials, while levels 1 (Cook/Cashier) and 2 (Shift Leader) are fed from Toast for the Planner module.<br>- **Automatic Promotion & Demotion Detection**: Built `/api/admin/users/sync-toast` (GET/POST) endpoint detecting Toast Manager/Assistant promotions and flagging demoted or deleted employees.<br>- **Store-Level Conflict Resolution**: Automatic detection of active store managers/assistants with single-click conflict deactivation checkboxes when promoting new ones.<br>- **Toast Employee Auto-Fill**: Integrated 'Does user exist in Toast (Planner)?' selector into `UserModal`, auto-populating full name, email, phone, role, and store.</div>
+                                      </div>
+                                  </td>
+                              </tr>
                          </tbody>
                     </table>
                 </div>

@@ -23,11 +23,15 @@ interface UserModalProps {
   onSave: (data: any, isEdit: boolean) => void
   stores: any[]
   initialData?: any
+  toastEmployees?: any[]
+  existingUsers?: any[]
 }
 
-export default function UserModal({ isOpen, onClose, onSave, stores, initialData }: UserModalProps) {
+export default function UserModal({ isOpen, onClose, onSave, stores, initialData, toastEmployees = [], existingUsers = [] }: UserModalProps) {
   const { t } = useLanguage()
   const [mounted, setMounted] = useState(false)
+  const [selectedToastGuid, setSelectedToastGuid] = useState('')
+  const [deactivateConflict, setDeactivateConflict] = useState(true)
 
   useEffect(() => {
     setMounted(true)
@@ -149,6 +153,32 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
     })
   }
 
+  const handleSelectToastEmployee = (guid: string) => {
+    setSelectedToastGuid(guid)
+    const emp = toastEmployees.find(e => e.toast_guid === guid)
+    if (emp) {
+      setFormData(prev => ({
+        ...prev,
+        full_name: emp.full_name || prev.full_name,
+        email: emp.email || prev.email,
+        phone: emp.phone || prev.phone,
+        role: emp.suggested_role || prev.role,
+        store_id: emp.store_id ? String(emp.store_id) : prev.store_id
+      }))
+    }
+  }
+
+  // Detect active store manager/assistant conflict
+  const conflictingUser = (['manager', 'asistente'].includes(formData.role) && formData.store_id)
+    ? existingUsers.find(u =>
+      u.is_active &&
+      u.role === formData.role &&
+      String(u.store_id) === String(formData.store_id) &&
+      u.id !== initialData?.id &&
+      u.email?.trim().toLowerCase() !== formData.email.trim().toLowerCase()
+    )
+    : null
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -204,7 +234,11 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
 
     // Limpiar campos auxiliares antes de enviar
     const { confirmPassword, ...dataToSend } = formData
-    onSave({ ...dataToSend, id: initialData?.id }, !!initialData)
+    onSave({
+      ...dataToSend,
+      id: initialData?.id,
+      deactivateCurrentId: (deactivateConflict && conflictingUser) ? conflictingUser.id : null
+    }, !!initialData)
   }
 
   // UI Helpers
@@ -278,6 +312,47 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
                   <span className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs">1</span>
                   <h3 className="font-black text-gray-900 dark:text-white text-base md:text-lg tracking-tight">{t('usuarios.modal.sections.personal')}</h3>
                 </div>
+
+                {!initialData && toastEmployees && toastEmployees.length > 0 && (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1.5 mb-2">
+                    <label className="block text-[10px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-widest">
+                      ⚡ ¿El usuario ya existe en Toast (Planificador)?
+                    </label>
+                    <select
+                      value={selectedToastGuid}
+                      onChange={(e) => handleSelectToastEmployee(e.target.value)}
+                      className="w-full py-2 px-3 bg-white dark:bg-slate-800 border border-amber-500/30 rounded-xl text-xs font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500/20"
+                    >
+                      <option value="">-- Seleccionar Empleado de Toast (Autocompletar) --</option>
+                      {toastEmployees.map((emp) => (
+                        <option key={emp.toast_guid} value={emp.toast_guid}>
+                          {emp.full_name} {emp.email ? `(${emp.email})` : ''} {emp.suggested_role ? `• ${emp.suggested_role}` : ''} {emp.store_name ? `• ${emp.store_name}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {conflictingUser && (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs space-y-2 mb-2">
+                    <div className="flex items-center gap-2 font-bold">
+                      <AlertCircle size={16} className="text-amber-500 shrink-0" />
+                      <span>⚠️ Conflicto: Esta sucursal ya tiene un {formData.role === 'manager' ? 'Manager' : 'Asistente'} activo</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 pl-6">
+                      Usuario actual: <strong>{conflictingUser.full_name}</strong> ({conflictingUser.email})
+                    </p>
+                    <label className="flex items-center gap-2 pl-6 pt-1 font-bold text-amber-900 dark:text-amber-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deactivateConflict}
+                        onChange={(e) => setDeactivateConflict(e.target.checked)}
+                        className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 accent-amber-600"
+                      />
+                      Desactivar a {conflictingUser.full_name} automáticamente al guardar
+                    </label>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-5">
                   <div className="group">

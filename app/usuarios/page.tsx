@@ -13,11 +13,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin, LayoutGrid, List, Shield } from 'lucide-react'
+import { Users, Search, Plus, Filter, User, MoreHorizontal, MapPin, LayoutGrid, List, Shield, Sparkles } from 'lucide-react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import SurpriseLoader from '@/components/SurpriseLoader'
 
 import UserModal from '@/components/UserModal'
+import ToastSyncModal from '@/components/ToastSyncModal'
 import { getSupabaseClient, getSupabaseAdminClient, formatStoreName } from '@/lib/supabase'
 import { useLanguage } from '@/lib/i18n'
 
@@ -25,6 +26,7 @@ function UsuariosPage() {
   const { t } = useLanguage()
   const [users, setUsers] = useState<any[]>([])
   const [stores, setStores] = useState<any[]>([])
+  const [toastEmployees, setToastEmployees] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
@@ -32,6 +34,7 @@ function UsuariosPage() {
 
   // Estado para el Modal
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isToastSyncOpen, setIsToastSyncOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<any>(null)
 
   useEffect(() => {
@@ -59,6 +62,17 @@ function UsuariosPage() {
 
       if (storeError) throw storeError
 
+      // Traemos empleados de Toast formateados para autocompletado
+      try {
+        const syncRes = await fetch('/api/admin/users/sync-toast')
+        const syncJson = await syncRes.json()
+        if (syncJson.success) {
+          setToastEmployees(syncJson.toastEmployees || [])
+        }
+      } catch (err) {
+        console.error('Error fetching toast employees list:', err)
+      }
+
       setUsers(usersData || [])
       setStores(storesData || [])
     } catch (err: any) {
@@ -73,6 +87,15 @@ function UsuariosPage() {
     try {
       // ⚠️ USAR CLIENTE ADMIN para bypasear RLS en operaciones de gestión de usuarios
       const supabase = await getSupabaseAdminClient()
+
+      // Si había un conflicto de sucursal y se solicitó desactivar al manager/asistente anterior
+      if (formData.deactivateCurrentId) {
+        console.log('🔄 Desactivando usuario conflictivo anterior:', formData.deactivateCurrentId)
+        await supabase
+          .from('users')
+          .update({ is_active: false })
+          .eq('id', formData.deactivateCurrentId)
+      }
 
       // 1. Preparar datos limpios según el rol
       const role = formData.role
@@ -307,6 +330,15 @@ function UsuariosPage() {
               </div>
 
               <button
+                onClick={() => setIsToastSyncOpen(true)}
+                className="px-3 md:px-4 py-1.5 rounded-full bg-amber-400 dark:bg-amber-500 text-slate-900 font-black text-[10px] tracking-[0.05em] uppercase flex items-center justify-center gap-1.5 hover:bg-amber-300 transition-all active:scale-[0.98] shadow-md shadow-amber-500/20"
+                title="Sincronizar Promociones desde Toast"
+              >
+                <Sparkles size={14} className="fill-slate-900" />
+                <span className="hidden md:inline">Promociones Toast</span>
+              </button>
+
+              <button
                 onClick={() => { setEditingUser(null); setIsModalOpen(true); }}
                 className="w-8 h-8 md:w-auto md:h-auto md:px-4 md:py-1.5 rounded-full bg-gray-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center gap-2 hover:bg-black dark:hover:bg-white transition-all active:scale-[0.98] shadow-lg shadow-gray-200 dark:shadow-none"
               >
@@ -538,6 +570,15 @@ function UsuariosPage() {
           onSave={handleSaveUser}
           stores={stores}
           initialData={editingUser}
+          toastEmployees={toastEmployees}
+          existingUsers={users}
+        />
+
+        {/* Modal Sincronización y Promociones Toast */}
+        <ToastSyncModal
+          isOpen={isToastSyncOpen}
+          onClose={() => setIsToastSyncOpen(false)}
+          onSuccess={() => fetchData()}
         />
       </main>
     </div>

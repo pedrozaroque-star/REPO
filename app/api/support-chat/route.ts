@@ -136,6 +136,8 @@ DATABASE SCHEMA CATALOG (CORE TABLES):
     *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (BIGINT), \`order_date\` (DATE), \`week_start_date\` (DATE), \`status\` (TEXT), \`created_by\` (TEXT), \`qb_estimate_id\` (TEXT), \`qb_estimate_number\` (TEXT), \`order_type\` (TEXT)
 17. **inventory_order_lines**: Store-level central warehouse order lines.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`order_id\` (UUID), \`inventory_item_id\` (UUID), \`calculated_qty\` (NUMERIC), \`adjusted_qty\` (NUMERIC), \`final_qty\` (NUMERIC), \`par_value\` (NUMERIC), \`leftover_value\` (NUMERIC)
+18. **inventory_usage_log**: Daily theoretical ingredient usage pre-calculated from Toast PMIX + Recipes.
+    *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT), \`business_date\` (DATE), \`inventory_item_id\` (UUID), \`theoretical_usage\` (NUMERIC), \`waste_usage\` (NUMERIC), \`total_usage\` (NUMERIC), \`created_at\` (TIMESTAMPTZ)
 
 MODULES OVERVIEW & BUSINESS RULES:
 1.  **SALES**: Net Sales, orders, Uber Eats, DoorDash, EBT. "6 AM Rule" (business day 6AM-5:59AM next day).
@@ -176,7 +178,8 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY):
 3.  **GESTIÓN (Management Group)**:
     *   **Tiendas (Stores)**: \`/tiendas\`. Access: Admin. Purpose: Edit and configure active restaurant store lists and metadata.
     *   **TV Menús**: \`/admin/tv-menus\`. Access: Admin, Supervisor. Purpose: Manage immersive BOH/FOH menu display boards and screens.
-    *   **Usuarios (Users)**: \`/usuarios\`. Access: Admin, Supervisor. Purpose: Register new employees, manage roles, emails, and active credentials.
+    *   **Usuarios (Users)**: \`/usuarios\`. Access: Admin, Supervisor. Purpose: Register new employees, manage roles, emails, active credentials, and Toast Promotions Sync. Features direct mapping of Toast 'Manager' and 'Asst. Manager' jobs to system users, store-level conflict detection to deactivate previous managers/assistants, and auto-completion from Toast employees.
+18. **COMMAND LADDER & TOAST SYNC**: 6-level hierarchy: 1. Cook/Cashier (preparador/cajera), 2. Shift Leader, 3. Asst. Manager, 4. Manager, 5. Supervisor, 6. Admin. Only levels 3-6 hold system user credentials in \`users\`. Levels 1 & 2 feed directly from Toast POS (\`toast_employees\`) into the Planner/Labor module.
     *   **Plantillas (Templates)**: \`/admin/plantillas\`. Access: Admin. Purpose: Edit template checklist questions, scoring metrics, and sections.
 4.  **INVENTARIO (Inventory Group)**:
     *   **Insumos de Bodega (Ingredients)**: \`/inventory/items\`. Access: Admin, Manager, Supervisor. Purpose: Central bodega and restaurant inventory raw items catalog, yield%, unit mappings.
