@@ -174,6 +174,16 @@ export function RecipeModal({ isOpen, onClose, item, onSaveSuccess }: RecipeModa
                 throw new Error(errData.error || 'Failed to save')
             }
 
+            // Check for anomaly warnings from the validation layer
+            const resData = await res.json().catch(() => ({}))
+            if (resData.warnings && resData.warnings.length > 0) {
+                const warningMsg = resData.warnings.map((w: string) => `• ${w}`).join('\n\n')
+                alert(
+                    `⚠️ RECIPE SAVED — but anomalies detected:\n\n${warningMsg}\n\n` +
+                    `Please verify ingredient quantities and inventory unit configurations.`
+                )
+            }
+
             onSaveSuccess()
             onClose()
         } catch (e: any) {

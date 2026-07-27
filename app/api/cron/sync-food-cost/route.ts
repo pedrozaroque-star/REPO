@@ -47,6 +47,9 @@
  * - La llamada interna a `/api/inventory/food-cost` no requiere auth header
  *   porque es una API pública interna.
  * - En desarrollo local usa `http://localhost:3000` como baseUrl.
+ * - [2026-07-27] CAPA B: Agregada detección automática de anomalías.
+ *   Después de calcular cada día, escanea items con FC > 100% y los reporta
+ *   en logs. Previene bugs tipo Milaneza (FC 560% sin detectar por 5 meses).
  */
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -171,6 +174,64 @@ export async function GET(request: Request) {
 
                 const json = await res.json()
                 const itemCount = json.data?.length || 0
+
+                // ═══ CAPA B: Detección automática de anomalías de Food Cost ═══
+                // Previene bugs tipo Milaneza (FC 560% por 5 meses sin detectar)
+                // Escanea items con FC > 100% y los PERSISTE en food_cost_anomalies
+                try {
+                    const items = json.data || []
+                    const anomalies = items.filter((item: any) =>
+                        item.has_recipe &&
+                        item.food_cost_percent > 100 &&
+                        item.total_cost > 10
+                    )
+
+                    if (anomalies.length > 0) {
+                        console.warn(`🚨 [CRON FOOD-COST] ¡ANOMALÍAS DETECTADAS en ${dateStr}! ${anomalies.length} items con FC > 100%:`)
+                        anomalies.slice(0, 10).forEach((a: any) => {
+                            console.warn(`   🔴 "${a.name}" — FC: ${Number(a.food_cost_percent).toFixed(1)}% | Cost: $${Number(a.total_cost).toFixed(2)} | Qty: ${a.quantity}`)
+                        })
+
+                        // Persistir anomalías en la tabla food_cost_anomalies
+                        const anomalyRows = anomalies.map((a: any) => ({
+                            business_date: dateStr,
+                            item_name: a.name,
+                            toast_item_guid: a.toast_guid || null,
+                            food_cost_percent: Number(a.food_cost_percent),
+                            total_cost: Number(a.total_cost),
+                            quantity: Number(a.quantity) || 0,
+                            severity: Number(a.food_cost_percent) > 200 ? 'critical' : 'warning'
+                        }))
+
+                        // Borrar anomalías previas del mismo día para evitar duplicados
+                        await supabase
+                            .from('food_cost_anomalies')
+                            .delete()
+                            .eq('business_date', dateStr)
+                            .eq('resolved', false)
+
+                        const { error: insertErr } = await supabase
+                            .from('food_cost_anomalies')
+                            .insert(anomalyRows)
+
+                        if (insertErr) {
+                            console.error(`⚠️ [CRON FOOD-COST] Error persistiendo anomalías:`, insertErr.message)
+                        } else {
+                            console.warn(`   💾 ${anomalyRows.length} anomalías guardadas en food_cost_anomalies`)
+                        }
+                    } else {
+                        // Si NO hay anomalías para este día, auto-resolver las viejas
+                        await supabase
+                            .from('food_cost_anomalies')
+                            .update({ resolved: true, resolved_at: new Date().toISOString(), resolved_by: 'cron-auto' })
+                            .eq('business_date', dateStr)
+                            .eq('resolved', false)
+                    }
+                } catch (anomalyErr: any) {
+                    // Non-blocking: anomaly detection should never break the cron
+                    console.error(`⚠️ [CRON FOOD-COST] Anomaly scan error (non-blocking):`, anomalyErr.message)
+                }
+                // ═══ END CAPA B ═══
 
                 // Sincronizar consumo teórico desglosado por ingrediente en inventory_usage_log
                 try {

@@ -23,7 +23,7 @@
  *     porque el net_sales se overridea desde sales_daily_cache (not from PMIX).
  */
 import React, { useState, useEffect, useMemo } from 'react'
-import { ChevronDown, ChevronUp, Store, RefreshCw, Download, ArrowUpDown, Search, CheckCircle2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Store, RefreshCw, Download, ArrowUpDown, Search, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import SurpriseLoader from '@/components/SurpriseLoader'
 import FoodCostSummary from '@/components/food-cost/FoodCostSummary'
@@ -93,6 +93,9 @@ export default function FoodCostPage() {
     // Only used for KPI totals — individual product data stays untouched
     const [salesNetSales, setSalesNetSales] = useState<Record<string, number> | null>(null)
 
+    // Anomaly alert state
+    const [anomalies, setAnomalies] = useState<any[]>([])
+
     // We now sort by the aggregated store metrics
     type SortKey = 'storeName' | 'quantity' | 'totalSales' | 'totalCost' | 'costPercent' | 'missing_prices' | 'totalDiscounts' | 'totalMeatLbs'
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>({ key: 'costPercent', direction: 'desc' })
@@ -103,6 +106,30 @@ export default function FoodCostPage() {
             direction = 'asc'
         }
         setSortConfig({ key, direction })
+    }
+
+    // Fetch unresolved anomalies on mount
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await fetch('/api/inventory/anomalies')
+                if (res.ok) {
+                    const json = await res.json()
+                    setAnomalies(json.data || [])
+                }
+            } catch {}
+        })()
+    }, [])
+
+    const resolveAnomaly = async (id: string) => {
+        try {
+            await fetch('/api/inventory/anomalies', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id })
+            })
+            setAnomalies(prev => prev.filter(a => a.id !== id))
+        } catch {}
     }
 
     const refreshData = React.useCallback(async () => {
@@ -368,6 +395,42 @@ export default function FoodCostPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* ═══ ANOMALY ALERT BANNER ═══ */}
+                {anomalies.length > 0 && (
+                    <div className="mt-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl p-4 animate-in slide-in-from-top-2">
+                        <div className="flex items-center gap-2 mb-3">
+                            <AlertTriangle size={20} className="text-rose-600 dark:text-rose-400" />
+                            <span className="font-bold text-rose-700 dark:text-rose-300 text-sm">
+                                🚨 {anomalies.length} {t('food_cost.anomalies_detected')}
+                            </span>
+                        </div>
+                        <div className="space-y-2">
+                            {anomalies.slice(0, 5).map((a: any) => (
+                                <div key={a.id} className="flex items-center justify-between bg-white/80 dark:bg-slate-900/60 rounded-xl px-3 py-2 text-sm">
+                                    <div>
+                                        <span className={`font-mono font-bold mr-2 ${a.severity === 'critical' ? 'text-rose-600' : 'text-amber-600'}`}>
+                                            {Number(a.food_cost_percent).toFixed(0)}%
+                                        </span>
+                                        <span className="text-slate-700 dark:text-slate-300 font-medium">{a.item_name}</span>
+                                        <span className="text-slate-400 ml-2 text-xs">({a.business_date})</span>
+                                    </div>
+                                    <button
+                                        onClick={() => resolveAnomaly(a.id)}
+                                        className="text-xs bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 px-3 py-1 rounded-lg hover:bg-emerald-200 dark:hover:bg-emerald-900 transition-colors"
+                                    >
+                                        ✓ {t('food_cost.resolve')}
+                                    </button>
+                                </div>
+                            ))}
+                            {anomalies.length > 5 && (
+                                <p className="text-xs text-rose-500 dark:text-rose-400 pl-2">
+                                    ... {t('food_cost.and_more').replace('{count}', String(anomalies.length - 5))}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {loading && !data.length ? (
                     <div className="mt-8 flex flex-col items-center justify-center gap-4">

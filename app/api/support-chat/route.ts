@@ -147,7 +147,7 @@ DATABASE SCHEMA CATALOG (CORE TABLES):
 
 MODULES OVERVIEW & BUSINESS RULES:
 1.  **SALES**: Net Sales, orders, Uber Eats, DoorDash, EBT. "6 AM Rule" (business day 6AM-5:59AM next day).
-2.  **FOOD COST**: Ingredient cost vs sales percentage. Target <32%. Utiliza caché de PMIX (\`pmix_daily_cache\`) con validación de auto-sanación (invalida cachés creadas con anterioridad a la fecha operativa real).
+2.  **FOOD COST**: Ingredient cost vs sales percentage. Target <32%. Utiliza caché de PMIX (\`pmix_daily_cache\`) con validación de auto-sanación. NUEVO: Sistema de detección de anomalías de 3 capas — al guardar recetas (valida costos unitarios y unit mismatches), en el cron diario (detecta items con FC >100% y los persiste en \`food_cost_anomalies\`), y trigger de PostgreSQL que auto-invalida caché cuando cambian precios/empaques en \`inventory_items\`.
 3.  **LABOR**: Punches, hours worked, overtime, labor cost %. Target <21.5%.
 4.  **INSPECTIONS**: Quality audits by supervisors. Score, status, by store.
 5.  **DISCOUNTS**: Discount audit, anomalies (First Responder, Employee, Senior).
@@ -248,6 +248,9 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 - **Prime Cost** = Labor % + Food Cost %. Target: below 55%.
 - Food cost data is cached daily in the food_cost_daily_cache table. For "today", it calculates in real-time from Toast sales + recipe engine.
 - C. Teórico (Theoretical Cost) = The dollar amount of ingredients used based on what was sold.
+- **Anomaly Detection**: The cron \`sync-food-cost\` scans all items after each daily calculation. Items with FC >100% and total cost >$10 are flagged and stored in \`food_cost_anomalies\`. The Food Cost dashboard shows a red banner when unresolved anomalies exist, with a "Resolve" button per item.
+- **Auto-Cache Invalidation**: A PostgreSQL trigger (\`trg_invalidate_fc_cache_on_inventory_change\`) fires whenever \`quantity_per_unit\`, \`purchase_unit_cost\`, or \`unit_measure\` changes in \`inventory_items\` — regardless of source (QuickBooks sync, manual edit, script). It deletes food_cost_daily_cache for the last 3 days.
+- **Recipe Save Validation**: When saving a recipe, the API calculates theoretical cost and warns if: a single ingredient costs >$15/serving, the total recipe exceeds $20, or the recipe uses 'pza' on an ingredient configured in lb/gal (unit mismatch risk).
 
 ## TOAST POS INTEGRATION
 - SM TEG connects to the **Toast REST API** to pull sales, orders, labor punches, menu items, and dining options.
@@ -284,9 +287,10 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 ## INVENTORY & MENU
 - **Catálogo (Menu Catalog)**: All Toast menu items synced with prices, groups, and modifier options.
 - **Insumos (Inventory Items)**: Raw ingredients with purchase costs, unit measures, yield percentages.
-- **Recipes**: Link menu items to ingredients. Each recipe defines quantity and unit of each ingredient needed per menu item sold. This drives the food cost calculation. Editing a recipe automatically invalidates food cost cache for the current day.
-- **Costos (Food Cost)**: Admin → Costos shows food cost % by store and by date, with drill-down into item-level costs.
-- **Packaging Auto-Sync**: The QB sync reads the Description field from Recurring Transactions (e.g., "(Bag of 5 lbs)") to automatically detect when the warehouse changes bag sizes. When detected, it cascades: updates quantity_per_unit and order_unit_description in inventory_items, scales PAR values across all stores (e.g., if bag goes from 10 lbs to 5 lbs, PAR doubles), and invalidates food_cost_daily_cache for the last 3 days. Smart Price Protection compares cost-per-pound (not per-bag) when a packaging change is detected, so legitimate packaging changes pass through while actual price drops are still blocked.`;
+- **Recipes**: Link menu items to ingredients. Each recipe defines quantity and unit of each ingredient needed per menu item sold. This drives the food cost calculation. Editing a recipe automatically invalidates food cost cache for the current day. NUEVO: Post-save validation detects anomalies (high cost ingredients >$15, unit mismatches pza↔lb, total cost >$20) and shows warnings in the UI.
+- **Costos (Food Cost)**: Admin → Costos shows food cost % by store and by date, with drill-down into item-level costs. Shows red anomaly banner when \`food_cost_anomalies\` has unresolved items (FC >100%). Each anomaly can be resolved directly from the dashboard.
+- **Packaging Auto-Sync**: The QB sync reads the Description field from Recurring Transactions (e.g., "(Bag of 5 lbs)") to automatically detect when the warehouse changes bag sizes. When detected, it cascades: updates quantity_per_unit and order_unit_description in inventory_items, scales PAR values across all stores (e.g., if bag goes from 10 lbs to 5 lbs, PAR doubles), and invalidates food_cost_daily_cache for the last 3 days. Smart Price Protection compares cost-per-pound (not per-bag) when a packaging change is detected, so legitimate packaging changes pass through while actual price drops are still blocked.
+- **DB Trigger Auto-Invalidation**: PostgreSQL trigger \`trg_invalidate_fc_cache_on_inventory_change\` fires on any UPDATE to inventory_items that changes price, qty_per_unit, or unit_measure. Deletes last 3 days of food_cost_daily_cache automatically. Works for QB sync, manual edits, and scripts.`;
 
 export async function POST(req: NextRequest) {
   try {

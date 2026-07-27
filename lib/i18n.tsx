@@ -1094,6 +1094,9 @@ const dictionaries: Record<Language, Dictionary> = {
             badge_critical: 'Crítico > 35%',
             badge_warning: 'Alerta 25-35%',
             badge_optimal: 'Óptimo < 25%',
+            anomalies_detected: 'Anomalías de Food Cost Detectadas',
+            resolve: 'Resolver',
+            and_more: '{count} anomalías más...',
         },
         // FEEDBACK PAGE
         feedback_page: {
@@ -3381,6 +3384,9 @@ const dictionaries: Record<Language, Dictionary> = {
             badge_critical: 'Critical > 35%',
             badge_warning: 'Warning 25-35%',
             badge_optimal: 'Optimal < 25%',
+            anomalies_detected: 'Food Cost Anomalies Detected',
+            resolve: 'Resolve',
+            and_more: '{count} more anomalies...',
         },
         // FEEDBACK PAGE
         feedback_page: {
