@@ -161,24 +161,31 @@ export async function GET(request: NextRequest) {
         const targetDate = `${endDate}T23:59:59.999Z`
         const { data: historyData } = await supabase
             .from('inventory_price_history')
-            .select('inventory_item_id, purchase_unit_cost, effective_date')
+            .select('inventory_item_id, purchase_unit_cost, quantity_per_unit, effective_date')
             .lte('effective_date', targetDate)
             .order('effective_date', { ascending: false })
             
         if (historyData && inventoryData) {
-            const latestValidPrices = new Map<string, number>()
+            const latestValidPrices = new Map<string, { price: number; qty?: number }>()
             historyData.forEach(h => {
                 // Al estar ordenado Descendente, el primer registro que leamos es el correcto para la fecha
                 if (!latestValidPrices.has(h.inventory_item_id)) {
-                    latestValidPrices.set(h.inventory_item_id, h.purchase_unit_cost)
+                    latestValidPrices.set(h.inventory_item_id, {
+                        price: h.purchase_unit_cost,
+                        qty: h.quantity_per_unit ? Number(h.quantity_per_unit) : undefined
+                    })
                 }
             })
             
-            inventoryData = inventoryData.map(item => ({
-                ...item,
-                purchase_unit_cost: latestValidPrices.has(item.id) ? latestValidPrices.get(item.id)! : item.purchase_unit_cost
-            }))
-            console.log(`[FoodCostAPI] 🕰️ Historical Pricing Applied for date: ${targetDate}`)
+            inventoryData = inventoryData.map(item => {
+                const hist = latestValidPrices.get(item.id)
+                return {
+                    ...item,
+                    purchase_unit_cost: hist ? hist.price : item.purchase_unit_cost,
+                    quantity_per_unit: (hist && hist.qty) ? hist.qty : item.quantity_per_unit
+                }
+            })
+            console.log(`[FoodCostAPI] 🕰️ Historical Pricing & Packaging Applied for date: ${targetDate}`)
         }
         // --- FIN SCENARIO B ---
 
@@ -611,31 +618,26 @@ export async function GET(request: NextRequest) {
         }
         // ═══ END DEBUG ═══
 
-        // Default Sort: Quantity Desc
-        report.sort((a, b) => b.quantity - a.quantity)
-
-        // ═══ WRITE-THROUGH CACHE ═══
-        // When this is a single-day request, cache the aggregate per store
-        // so the Sales module can read it instantly instead of recalculating
-        // IMPORTANT: We use sales_daily_cache net_sales as the denominator (source of truth)
-        // to ensure parity with the Ventas dashboard.
+        // ═══ WRITE-THROUGH CACHE & AUTHORITATIVE SALES ═══
+        // Fetch authoritative net_sales from sales_daily_cache (same source as Ventas page)
+        // regardless of range, so the frontend can align sales numbers.
         let salesNetSalesMap: Map<string, number> | null = null
+        try {
+            const supabaseAdmin = await getSupabaseAdminClient()
+            const { data: salesRows } = await supabaseAdmin
+                .from('sales_daily_cache')
+                .select('store_id, net_sales')
+                .gte('business_date', startDate)
+                .lte('business_date', endDate)
 
-        if (startDate === endDate) {
-            try {
-                const supabaseAdmin = await getSupabaseAdminClient()
+            salesNetSalesMap = new Map<string, number>()
+            salesRows?.forEach((r: any) => {
+                const current = salesNetSalesMap!.get(r.store_id) || 0
+                salesNetSalesMap!.set(r.store_id, current + (Number(r.net_sales) || 0))
+            })
 
-                // Fetch authoritative net_sales from sales_daily_cache (same source as Ventas page)
-                const { data: salesRows } = await supabaseAdmin
-                    .from('sales_daily_cache')
-                    .select('store_id, net_sales')
-                    .eq('business_date', startDate)
-
-                salesNetSalesMap = new Map<string, number>()
-                salesRows?.forEach((r: any) => {
-                    salesNetSalesMap!.set(r.store_id, Number(r.net_sales) || 0)
-                })
-
+            // Write-through cache ONLY for single-day requests
+            if (startDate === endDate) {
                 const storeAgg = new Map<string, any>()
                 report.forEach(item => {
                     const sid = item.store_id || 'unknown'
@@ -678,11 +680,11 @@ export async function GET(request: NextRequest) {
                 if (cacheError) {
                     console.warn('[FoodCostAPI] ⚠️ Cache write failed:', cacheError.message)
                 } else {
-                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate} (using sales_daily_cache net_sales)`)
+                    console.log(`[FoodCostAPI] 📦 Cached ${cacheRows.length} store aggregates for ${startDate}`)
                 }
-            } catch (cacheErr) {
-                console.warn('[FoodCostAPI] Cache write error (non-blocking):', cacheErr)
             }
+        } catch (err: any) {
+            console.warn('[FoodCostAPI] Authoritative sales fetch error:', err.message)
         }
         // ═══ END WRITE-THROUGH CACHE ═══
 
@@ -691,6 +693,9 @@ export async function GET(request: NextRequest) {
         if (salesNetSalesMap) {
             salesNetSalesMap.forEach((v, k) => salesNetSales[k] = v)
         }
+
+        // Default Sort: Quantity Desc
+        report.sort((a, b) => b.quantity - a.quantity)
 
         return NextResponse.json({ data: report, salesNetSales })
 

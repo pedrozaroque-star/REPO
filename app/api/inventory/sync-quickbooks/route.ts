@@ -301,14 +301,16 @@ export async function POST() {
                 // 3. Price is acceptable (increase or small drop) — apply update
                 // Save price history ONLY if the price actually changed
                 if (Math.abs(oldPrice - rate) > 0.001 && rate > 0) {
+                    const currentQty = packagingMap.get(qbItem.Id)?.qty || currentQtyPerUnitMap.get(existingMapping.inventory_item_id) || 1;
                     await supabase.from('inventory_price_history').insert({
                         inventory_item_id: existingMapping.inventory_item_id,
                         purchase_unit_cost: rate,
-                        effective_date: now.toISOString()
+                        effective_date: now.toISOString(),
+                        quantity_per_unit: currentQty
                     });
                     priceChanges++;
                     const direction = rate > oldPrice ? '⬆️' : '⬇️';
-                    console.log(`[QB-Sync] ${direction} Price change: ${qbItem.Name} $${oldPrice.toFixed(2)} → $${rate.toFixed(2)}`);
+                    console.log(`[QB-Sync] ${direction} Price change: ${qbItem.Name} $${oldPrice.toFixed(2)} → $${rate.toFixed(2)} (qty_per_unit: ${currentQty})`);
                 }
 
                 await supabase.from('inventory_items').update({ purchase_unit_cost: rate, updated_at: now }).eq('id', existingMapping.inventory_item_id);
