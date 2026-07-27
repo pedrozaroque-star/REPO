@@ -64,7 +64,8 @@ async function rebuild() {
                     const { error: upsertError } = await supabase.from('pmix_daily_cache').upsert({
                         store_id: store.external_id,
                         business_date: dateStr,
-                        items: items
+                        items: items,
+                        updated_at: new Date().toISOString()
                     }, { onConflict: 'store_id,business_date' })
 
                     if (upsertError) {

@@ -50,6 +50,7 @@
  */
 import { NextResponse } from 'next/server'
 import { getSupabaseAdminClient } from '@/lib/supabase'
+import { syncDailyInventoryUsage } from '@/lib/inventory/usage-sync'
 
 export const maxDuration = 300 // 5 minutos máximo en Vercel (Pro)
 
@@ -170,6 +171,18 @@ export async function GET(request: Request) {
 
                 const json = await res.json()
                 const itemCount = json.data?.length || 0
+
+                // Sincronizar consumo teórico desglosado por ingrediente en inventory_usage_log
+                try {
+                    const { data: activeStores } = await supabase.from('stores').select('external_id').eq('is_active', true)
+                    for (const s of (activeStores || [])) {
+                        if (s.external_id) {
+                            await syncDailyInventoryUsage(s.external_id, dateStr)
+                        }
+                    }
+                } catch (usageErr: any) {
+                    console.error(`⚠️ [CRON FOOD-COST] Error al sincronizar inventory_usage_log para ${dateStr}:`, usageErr.message)
+                }
 
                 console.log(`✅ [CRON FOOD-COST] ${dateStr}: ${itemCount} items procesados y cacheados.`)
                 results.push({ date: dateStr, status: 'calculated_and_cached', items: itemCount })

@@ -24,6 +24,7 @@ export interface User {
   is_active: boolean;
   last_login: string | null; // timestamp
   created_at: string;
+  toast_guid?: string | null; // Vinculo permanente con toast_employees.toast_guid
 }
 
 export interface AssistantChecklist {

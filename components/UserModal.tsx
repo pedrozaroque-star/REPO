@@ -168,11 +168,11 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
     }
   }
 
-  // Detect active store manager/assistant conflict
-  const conflictingUser = (['manager', 'asistente'].includes(formData.role) && formData.store_id)
+  // Detect active store manager conflict (Only managers are 1-per-store; stores can have multiple assistants like AM/PM)
+  const conflictingUser = (formData.role === 'manager' && formData.store_id)
     ? existingUsers.find(u =>
       u.is_active &&
-      u.role === formData.role &&
+      u.role === 'manager' &&
       String(u.store_id) === String(formData.store_id) &&
       u.id !== initialData?.id &&
       u.email?.trim().toLowerCase() !== formData.email.trim().toLowerCase()
@@ -237,6 +237,7 @@ export default function UserModal({ isOpen, onClose, onSave, stores, initialData
     onSave({
       ...dataToSend,
       id: initialData?.id,
+      toast_guid: selectedToastGuid || undefined,
       deactivateCurrentId: (deactivateConflict && conflictingUser) ? conflictingUser.id : null
     }, !!initialData)
   }

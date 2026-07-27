@@ -1,0 +1,1742 @@
+'use client';
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Shirt, Package, ShoppingCart, ClipboardList, Truck, AlertTriangle, 
+  CheckCircle, Search, Plus, Save, X, Settings, ArrowRight, RefreshCw,
+  Building, DollarSign, Activity, AlertCircle, Edit2, RotateCcw
+} from 'lucide-react';
+import ProtectedRoute, { useAuth } from '@/components/ProtectedRoute';
+import { useLanguage } from '@/lib/i18n';
+import {
+  fetchUniformsPricing, fetchUniformsStock, saveInitialCount,
+  saveManualAudit, recordUniformSale, recordNewHirePackage,
+  recordDamageExchange, fetchTransactionHistory, fetchEmployeeKardex,
+  fetchExecutiveDashboard, updateUniformPricing, fetchDailySalesTotal,
+  confirmOrderReception, resetInitialCount, fetchQBEstimateForReception,
+  fetchRecentStoreEstimates, fetchEmployeesForStore
+} from './actions';
+import {
+  UniformCategory, UniformSize, SIZES_BY_CATEGORY, NEW_HIRE_PACKAGE,
+  CATEGORY_GROUPS, PricingRecord, StockItem, UniformTransaction,
+  ExecutiveDashboardData, getBusinessDate, formatCurrency, getCategoryDisplayName,
+  getTransactionTypeLabel, ALL_CATEGORIES, ExecutiveStoreData, TransactionType
+} from './utils';
+
+/**
+ * @module UniformsPage
+ * @description Módulo de Control de Inventario y Entrega de Uniformes para Tacos El Gavilan.
+ * @businessRules
+ * - Gerentes y Asistentes operan su tienda asignada. Admins y Supervisores ven tablero global (15 tiendas).
+ * - Primera vez en una tienda muestra el Asistente de Conteo Inicial (Setup Wizard).
+ * - 4 pestañas: Stock y Auditoría, Ventas y Entregas, Recepción de Órdenes, Historial y Kardex.
+ * - Permite reiniciar el conteo inicial con confirmación explícita.
+ * @dataFlow Cliente (React) <-> Server Actions <-> Supabase DB
+ * @notes i18n 100% bilingüe (es/en) usando useLanguage().
+ */
+
+export default function UniformsPage() {
+  return (
+    <ProtectedRoute allowedRoles={['admin', 'supervisor', 'manager', 'asistente']}>
+      <UniformsContent />
+    </ProtectedRoute>
+  );
+}
+
+function UniformsContent() {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  
+  const isExecutive = user?.role === 'admin' || user?.role === 'supervisor';
+  
+  const [stores, setStores] = useState<{id: number, name: string}[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'stock' | 'sales' | 'reception' | 'history'>('stock');
+  
+  const [loading, setLoading] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [stockData, setStockData] = useState<StockItem[]>([]);
+  const [pricingData, setPricingData] = useState<PricingRecord[]>([]);
+  
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error' | 'warning'} | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // Fetch stores and pricing on mount
+  useEffect(() => {
+    const initData = async () => {
+      try {
+        setLoading(true);
+        const token = localStorage.getItem('teg_token');
+        const res = await fetch('/api/stores', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const storeList = data.map((s: any) => ({ id: s.id, name: s.name }));
+          setStores(storeList);
+          
+          if (!isExecutive && user?.store_id) {
+            const userStore = storeList.find(s => String(s.id) === String(user.store_id));
+            if (userStore) setSelectedStoreId(userStore.id);
+          } else if (storeList.length > 0) {
+            setSelectedStoreId(storeList[0].id);
+          }
+        }
+
+        const pricing = await fetchUniformsPricing();
+        setPricingData(pricing);
+      } catch (err) {
+        showToast(t('uniforms.toast.error'), 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+    initData();
+  }, [isExecutive, t, user?.store_id]);
+
+  // Load stock when selectedStoreId changes
+  useEffect(() => {
+    const loadStoreStock = async () => {
+      if (!selectedStoreId) return;
+      
+      try {
+        setLoading(true);
+        const stock = await fetchUniformsStock(selectedStoreId);
+        setStockData(stock);
+        
+        if (stock.length === 0) {
+          setNeedsSetup(true);
+        } else {
+          setNeedsSetup(false);
+        }
+      } catch (err) {
+        showToast(t('uniforms.toast.error'), 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadStoreStock();
+  }, [selectedStoreId, t]);
+
+  const handleSetupComplete = async () => {
+    if (selectedStoreId) {
+      const stock = await fetchUniformsStock(selectedStoreId);
+      setStockData(stock);
+      setNeedsSetup(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-6 font-sans">
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={`fixed top-20 right-6 z-[99999] px-6 py-4 rounded-xl shadow-2xl text-white font-medium flex items-center gap-3 border border-white/20
+              ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-rose-600' : 'bg-amber-500'}`}
+          >
+            {toast.type === 'success' && <CheckCircle className="w-5 h-5" />}
+            {toast.type === 'error' && <AlertCircle className="w-5 h-5" />}
+            {toast.type === 'warning' && <AlertTriangle className="w-5 h-5" />}
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Shirt className="w-7 h-7 text-blue-500" />
+              {t('uniforms.title')}
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+              {t('uniforms.subtitle')}
+            </p>
+          </div>
+
+          {/* Store Selector */}
+          <div className="flex items-center gap-3">
+            <Building className="w-5 h-5 text-gray-400" />
+            <select
+              className="bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white rounded-xl px-4 py-2 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+              value={selectedStoreId || ''}
+              onChange={(e) => setSelectedStoreId(Number(e.target.value))}
+            >
+              {stores.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Content Body */}
+        {loading ? (
+          <div className="flex items-center justify-center p-20">
+            <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+          </div>
+        ) : needsSetup && selectedStoreId ? (
+          <SetupWizard 
+            storeId={selectedStoreId} 
+            onComplete={handleSetupComplete} 
+            showToast={showToast} 
+          />
+        ) : selectedStoreId ? (
+          <div className="space-y-6">
+            {/* Tabs Bar */}
+            <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-700 pb-2">
+              <TabButton
+                active={activeTab === 'stock'}
+                onClick={() => setActiveTab('stock')}
+                icon={<Package className="w-4 h-4" />}
+                label={t('uniforms.tabs.stock')}
+              />
+              <TabButton
+                active={activeTab === 'sales'}
+                onClick={() => setActiveTab('sales')}
+                icon={<ShoppingCart className="w-4 h-4" />}
+                label={t('uniforms.tabs.sales')}
+              />
+              <TabButton
+                active={activeTab === 'reception'}
+                onClick={() => setActiveTab('reception')}
+                icon={<Truck className="w-4 h-4" />}
+                label={t('uniforms.tabs.reception')}
+              />
+              <TabButton
+                active={activeTab === 'history'}
+                onClick={() => setActiveTab('history')}
+                icon={<ClipboardList className="w-4 h-4" />}
+                label={t('uniforms.tabs.history')}
+              />
+            </div>
+
+            {/* Active Tab View */}
+            <main>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeTab}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {activeTab === 'stock' && (
+                    <TabStockAndAudit 
+                      storeId={selectedStoreId}
+                      stockData={stockData} 
+                      setStockData={setStockData}
+                      pricingData={pricingData}
+                      setPricingData={setPricingData}
+                      showToast={showToast}
+                      isAdmin={user?.role === 'admin'}
+                      setNeedsSetup={setNeedsSetup}
+                    />
+                  )}
+                  {activeTab === 'sales' && (
+                    <TabSalesAndIssues 
+                      storeId={selectedStoreId}
+                      stockData={stockData}
+                      pricingData={pricingData}
+                      showToast={showToast}
+                      onTransactionComplete={() => {
+                        fetchUniformsStock(selectedStoreId).then(setStockData);
+                      }}
+                    />
+                  )}
+                  {activeTab === 'reception' && (
+                    <TabOrderReception 
+                      storeId={selectedStoreId}
+                      showToast={showToast}
+                      onComplete={() => {
+                        fetchUniformsStock(selectedStoreId).then(setStockData);
+                      }}
+                    />
+                  )}
+                  {activeTab === 'history' && (
+                    <TabHistoryAndKardex storeId={selectedStoreId} showToast={showToast} />
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </main>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center p-20 text-gray-500">
+            {t('uniforms.select_store')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all whitespace-nowrap
+        ${active 
+          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+        }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+// --- SUB-COMPONENTS ---
+
+function SetupWizard({ storeId, onComplete, showToast }: { storeId: number, onComplete: () => void, showToast: any }) {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const categories: UniformCategory[] = ALL_CATEGORIES;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmitting(true);
+      const payload: Array<{item_category: string, size: string, quantity: number}> = [];
+      
+      categories.forEach(cat => {
+        const sizes = SIZES_BY_CATEGORY[cat] || [];
+        sizes.forEach(size => {
+          const key = `${cat}:${size}`;
+          const qty = counts[key] || 0;
+          payload.push({ item_category: cat, size, quantity: qty });
+        });
+      });
+
+      await saveInitialCount(storeId, payload, user?.email || '');
+      showToast(t('uniforms.toast.initial_saved'), 'success');
+      onComplete();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 shadow-sm max-w-4xl mx-auto">
+      <div className="text-center max-w-xl mx-auto mb-8">
+        <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Shirt className="w-6 h-6" />
+        </div>
+        <h2 className="text-2xl font-bold mb-2">{t('uniforms.wizard.title')}</h2>
+        <p className="text-gray-500 dark:text-gray-400">{t('uniforms.wizard.description')}</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-8">
+        <div className="grid grid-cols-1 gap-6">
+          {categories.map(cat => {
+            const sizes = SIZES_BY_CATEGORY[cat] || [];
+            return (
+              <div key={cat} className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-xl border border-gray-100 dark:border-gray-700">
+                <h3 className="font-bold text-lg mb-4">{getCategoryDisplayName(cat, language as 'es' | 'en')}</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                  {sizes.map(size => {
+                    const key = `${cat}:${size}`;
+                    return (
+                      <div key={size} className="text-center">
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">{size}</label>
+                        <input
+                          type="number"
+                          min="0"
+                          className="w-full text-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                          value={counts[key] || 0}
+                          onChange={(e) => setCounts({
+                            ...counts,
+                            [key]: parseInt(e.target.value) || 0
+                          })}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-medium transition-colors disabled:opacity-50"
+          >
+            {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+            {t('uniforms.wizard.save')}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TabStockAndAudit({ storeId, stockData, setStockData, pricingData, setPricingData, showToast, isAdmin, setNeedsSetup }: any) {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [auditMode, setAuditMode] = useState(false);
+  const [editedStock, setEditedStock] = useState<Record<string | number, number>>({});
+  const [auditReason, setAuditReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [showPricingModal, setShowPricingModal] = useState(false);
+
+  const fullStockData = useMemo(() => {
+    const existingMap = new Map<string, any>();
+    (stockData || []).forEach((item: any) => {
+      existingMap.set(`${item.item_category}:${item.size}`, item);
+    });
+
+    const fullList: any[] = [];
+    ALL_CATEGORIES.forEach(cat => {
+      const sizes = SIZES_BY_CATEGORY[cat] || [];
+      sizes.forEach(size => {
+        const key = `${cat}:${size}`;
+        if (existingMap.has(key)) {
+          fullList.push(existingMap.get(key));
+        } else {
+          fullList.push({
+            id: `virtual-${cat}-${size}`,
+            store_id: storeId,
+            item_category: cat,
+            size,
+            quantity_on_hand: 0,
+            min_stock: 0,
+            updated_at: new Date().toISOString(),
+            display_name_es: getCategoryDisplayName(cat, 'es'),
+            display_name_en: getCategoryDisplayName(cat, 'en')
+          });
+        }
+      });
+    });
+
+    return fullList;
+  }, [stockData, storeId]);
+
+  const handleSaveAudit = async () => {
+    if (!auditReason.trim()) {
+      showToast(t('uniforms.toast.error'), 'warning');
+      return;
+    }
+    
+    try {
+      setSubmitting(true);
+      const changes = Object.entries(editedStock).map(([idStr, newQty]) => {
+        const item = fullStockData.find((s: any) => String(s.id) === String(idStr));
+        if (!item) return null;
+        return {
+          item_category: item.item_category,
+          size: item.size,
+          newQty,
+          reason: auditReason
+        };
+      }).filter((c): c is NonNullable<typeof c> => c !== null);
+
+      if (changes.length === 0) {
+        setAuditMode(false);
+        return;
+      }
+
+      await saveManualAudit(storeId, changes, user?.email || '');
+      
+      const updatedStock = await fetchUniformsStock(storeId);
+      setStockData(updatedStock);
+      setAuditMode(false);
+      setEditedStock({});
+      setAuditReason('');
+      showToast(t('uniforms.toast.audit_saved'), 'success');
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResetInitial = async () => {
+    if (window.confirm(t('uniforms.stock.reset_confirm'))) {
+      try {
+        setSubmitting(true);
+        await resetInitialCount(storeId, user?.email || '');
+        showToast(t('uniforms.toast.reset_success'), 'success');
+        setStockData([]);
+        if (setNeedsSetup) setNeedsSetup(true);
+      } catch (err) {
+        showToast(t('uniforms.toast.error'), 'error');
+      } finally {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  const renderGroup = (title: string, items: StockItem[]) => {
+    return (
+      <div className="mb-8 last:mb-0">
+        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+          <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
+          {title}
+        </h3>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 dark:bg-gray-700/50">
+            <tr>
+              <th className="p-4 font-semibold">{t('uniforms.stock.item')}</th>
+              <th className="p-4 font-semibold">{t('uniforms.stock.size')}</th>
+              <th className="p-4 font-semibold">{t('uniforms.stock.qty_on_hand')}</th>
+              <th className="p-4 font-semibold">{t('uniforms.stock.min_stock')}</th>
+              <th className="p-4 font-semibold">{t('uniforms.stock.status')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {items.map(item => {
+              const qty = auditMode && editedStock[item.id] !== undefined ? editedStock[item.id] : item.quantity_on_hand;
+              const isLow = qty <= (item.min_stock || 5);
+              const isOut = qty <= 0;
+
+              return (
+                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                  <td className="p-4 font-medium flex items-center gap-2">
+                    <span>{getCategoryDisplayName(item.item_category, language as 'es' | 'en')}</span>
+                  </td>
+                  <td className="p-4">
+                    <span className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 rounded-md text-xs font-semibold">
+                      {item.size}
+                    </span>
+                  </td>
+                  <td className="p-4 font-bold">
+                    {auditMode ? (
+                      <input
+                        type="number"
+                        min="0"
+                        className="w-20 px-2 py-1 bg-white dark:bg-gray-900 border border-blue-500 rounded-md outline-none"
+                        value={qty}
+                        onChange={(e) => setEditedStock({
+                          ...editedStock,
+                          [item.id]: parseInt(e.target.value) || 0
+                        })}
+                      />
+                    ) : (
+                      <span className={isOut ? 'text-red-500' : isLow ? 'text-yellow-500' : ''}>
+                        {qty}
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-4 text-gray-500">{item.min_stock || 0}</td>
+                  <td className="p-4">
+                    {isOut ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span> {t('uniforms.stock.out')}
+                      </span>
+                    ) : isLow ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span> {t('uniforms.stock.low')}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> {t('uniforms.stock.ok')}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
+        <h2 className="text-xl font-bold">{t('uniforms.stock.title')}</h2>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button
+              onClick={() => setShowPricingModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg font-medium transition-colors"
+            >
+              <DollarSign className="w-4 h-4" />
+              {t('uniforms.stock.edit_pricing')}
+            </button>
+          )}
+
+          <button
+            onClick={handleResetInitial}
+            disabled={submitting}
+            className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-300 rounded-lg font-medium transition-colors border border-red-200 dark:border-red-800"
+          >
+            <RotateCcw className="w-4 h-4" />
+            {t('uniforms.stock.reset_initial')}
+          </button>
+          
+          {auditMode ? (
+            <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 p-2 rounded-lg border border-blue-100 dark:border-blue-800">
+              <input
+                type="text"
+                placeholder={t('uniforms.stock.reason')}
+                className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1.5 text-sm w-48"
+                value={auditReason}
+                onChange={(e) => setAuditReason(e.target.value)}
+              />
+              <button
+                onClick={() => { setAuditMode(false); setEditedStock({}); setAuditReason(''); }}
+                className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-sm font-medium"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSaveAudit}
+                disabled={submitting}
+                className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {t('uniforms.stock.save_audit')}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAuditMode(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg font-medium transition-colors shadow-sm"
+            >
+              <Edit2 className="w-4 h-4" />
+              {t('uniforms.stock.audit_mode')}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-8">
+        {renderGroup('Team Members Red (Equipo)', fullStockData.filter((i: any) => CATEGORY_GROUPS.RED_TEAM.includes(i.item_category)))}
+        {renderGroup('Shift Leader Black', fullStockData.filter((i: any) => CATEGORY_GROUPS.SHIFT_LEADER.includes(i.item_category)))}
+        {renderGroup('Assistant Manager Polo Black', fullStockData.filter((i: any) => CATEGORY_GROUPS.ASSISTANT_MANAGER.includes(i.item_category)))}
+        {renderGroup('Camisa Store Manager Negra (Regalía $0.00)', fullStockData.filter((i: any) => CATEGORY_GROUPS.STORE_MANAGER.includes(i.item_category)))}
+        {renderGroup('Gorras & Chamarras Negras', fullStockData.filter((i: any) => CATEGORY_GROUPS.BLACK_ACCESSORIES.includes(i.item_category)))}
+      </div>
+
+      {showPricingModal && (
+        <PricingModal 
+          onClose={() => setShowPricingModal(false)}
+          pricingData={pricingData}
+          setPricingData={setPricingData}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+function PricingModal({ onClose, pricingData, setPricingData, showToast }: any) {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const initial: Record<string, number> = {};
+    pricingData.forEach((p: any) => {
+      initial[p.item_category] = p.sale_price;
+    });
+    setPrices(initial);
+  }, [pricingData]);
+
+  const handleSave = async () => {
+    try {
+      setSubmitting(true);
+      for (const [item_category, sale_price] of Object.entries(prices)) {
+        const record = pricingData.find((p: any) => p.item_category === item_category);
+        if (record) {
+          await updateUniformPricing(record.id, { sale_price }, user?.email || '');
+        }
+      }
+      const newPricing = await fetchUniformsPricing();
+      setPricingData(newPricing);
+      showToast(t('uniforms.toast.pricing_saved'), 'success');
+      onClose();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden"
+      >
+        <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+          <h3 className="text-xl font-bold flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-green-500" />
+            {t('uniforms.pricing.title')}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+          {ALL_CATEGORIES.map(cat => (
+            <div key={cat} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700">
+              <span className="font-medium">{getCategoryDisplayName(cat, language as "es" | "en")}</span>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="w-24 pl-7 pr-3 py-1.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-right font-medium"
+                  value={prices[cat] || 0}
+                  onChange={(e) => setPrices(prev => ({...prev, [cat]: parseFloat(e.target.value) || 0}))}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="p-6 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end gap-3 bg-gray-50 dark:bg-gray-800/50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg font-medium transition-colors"
+          >
+            {t('common.cancel')}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={submitting}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+          >
+            {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {t('common.save')}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function TabSalesAndIssues({ storeId, stockData, pricingData, showToast, onTransactionComplete }: any) {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [empName, setEmpName] = useState('');
+  const [empGuid, setEmpGuid] = useState('');
+  const [employeeList, setEmployeeList] = useState<Array<{id: string, name: string, toast_guid: string}>>([]);
+  const [selectedEmpId, setSelectedEmpId] = useState<string>('');
+  const [isCustomNameMode, setIsCustomNameMode] = useState(false);
+  const [txType, setTxType] = useState<'sale' | 'new_hire' | 'damage'>('sale');
+
+  useEffect(() => {
+    fetchEmployeesForStore(storeId).then(emps => {
+      setEmployeeList(emps);
+      if (emps.length > 0 && !isCustomNameMode) {
+        setSelectedEmpId(emps[0].id);
+        setEmpName(emps[0].name);
+        setEmpGuid(emps[0].toast_guid);
+      }
+    }).catch(console.error);
+  }, [storeId]);
+  
+  // Sale specific
+  const [saleCategory, setSaleCategory] = useState<UniformCategory>('shirt_red');
+  const [saleSize, setSaleSize] = useState<UniformSize>('M');
+  const [saleQty, setSaleQty] = useState(1);
+  
+  // Damage specific
+  const [damageReason, setDamageReason] = useState('');
+
+  // New hire specific
+  const [newHireShirtSize, setNewHireShirtSize] = useState<UniformSize>('M');
+  const [newHireJacketSize, setNewHireJacketSize] = useState<UniformSize>('M');
+
+  const [submitting, setSubmitting] = useState(false);
+
+  const currentPrice = useMemo(() => {
+    if (txType === 'sale') {
+      const p = pricingData.find((x: any) => x.item_category === saleCategory)?.sale_price || 0;
+      return p * saleQty;
+    }
+    return 0;
+  }, [txType, saleCategory, saleQty, pricingData]);
+
+  const availableStock = useMemo(() => {
+    if (txType === 'sale' || txType === 'damage') {
+      return stockData.find((s: any) => s.item_category === saleCategory && s.size === saleSize)?.quantity_on_hand || 0;
+    }
+    return null;
+  }, [txType, saleCategory, saleSize, stockData]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!empName.trim()) {
+      showToast(t('uniforms.toast.error'), 'warning');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      if (txType === 'sale') {
+        if (availableStock !== null && availableStock < saleQty) {
+           showToast(t('uniforms.toast.no_stock'), 'error');
+           setSubmitting(false);
+           return;
+        }
+        await recordUniformSale({ 
+          storeId, 
+          userEmail: user?.email || '',
+          employeeName: empName,
+          employeeToastGuid: empGuid || undefined,
+          item_category: saleCategory,
+          size: saleSize,
+          quantity: saleQty,
+          businessDate: getBusinessDate()
+        });
+      } else if (txType === 'new_hire') {
+        await recordNewHirePackage({ 
+          storeId, 
+          userEmail: user?.email || '',
+          employeeName: empName,
+          employeeToastGuid: empGuid || undefined,
+          sizes: { shirt: newHireShirtSize, cap: "ONE_SIZE", jacket: newHireJacketSize },
+          businessDate: getBusinessDate()
+        });
+      } else if (txType === 'damage') {
+        if (!damageReason.trim()) {
+          showToast(t('uniforms.toast.error'), 'warning');
+          setSubmitting(false);
+          return;
+        }
+        await recordDamageExchange({ 
+          storeId, 
+          userEmail: user?.email || '',
+          employeeName: empName,
+          employeeToastGuid: empGuid || undefined,
+          item_category: saleCategory,
+          size: saleSize,
+          reason: damageReason,
+          businessDate: getBusinessDate()
+        });
+      }
+      
+      showToast(t('uniforms.toast.sale_success'), 'success');
+      // Reset form
+      if (employeeList.length > 0 && !isCustomNameMode) {
+        setSelectedEmpId(employeeList[0].id);
+        setEmpName(employeeList[0].name);
+        setEmpGuid(employeeList[0].toast_guid);
+      } else {
+        setEmpName('');
+        setEmpGuid('');
+      }
+      setDamageReason('');
+      setSaleQty(1);
+      onTransactionComplete();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="lg:col-span-2 space-y-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center justify-between">
+                  <span>{t('uniforms.sales.employee_name')} *</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomNameMode(!isCustomNameMode);
+                      if (!isCustomNameMode) {
+                        setEmpName('');
+                        setEmpGuid('');
+                      } else if (employeeList.length > 0) {
+                        setSelectedEmpId(employeeList[0].id);
+                        setEmpName(employeeList[0].name);
+                        setEmpGuid(employeeList[0].toast_guid);
+                      }
+                    }}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-normal"
+                  >
+                    {isCustomNameMode ? '← Seleccionar de la lista de empleados' : '+ Ingresar nombre no registrado'}
+                  </button>
+                </label>
+
+                {!isCustomNameMode ? (
+                  <select
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none font-medium text-sm"
+                    value={selectedEmpId}
+                    onChange={e => {
+                      const empId = e.target.value;
+                      setSelectedEmpId(empId);
+                      const found = employeeList.find(x => x.id === empId);
+                      if (found) {
+                        setEmpName(found.name);
+                        setEmpGuid(found.toast_guid);
+                      }
+                    }}
+                  >
+                    {employeeList.map(emp => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    required
+                    placeholder="Escribe el nombre completo del empleado..."
+                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
+                    value={empName}
+                    onChange={e => {
+                      setEmpName(e.target.value);
+                      setEmpGuid('');
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {t('uniforms.sales.transaction_type')}
+              </label>
+              <div className="flex flex-wrap gap-3">
+                {(['sale', 'new_hire', 'damage'] as const).map(type => (
+                  <label 
+                    key={type}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-xl border cursor-pointer transition-all
+                      ${txType === type 
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' 
+                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                  >
+                    <input
+                      type="radio"
+                      name="txType"
+                      className="hidden"
+                      checked={txType === type}
+                      onChange={() => setTxType(type)}
+                    />
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center
+                      ${txType === type ? 'border-blue-500' : 'border-gray-400'}`}
+                    >
+                      {txType === type && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+                    </div>
+                    <span className="font-medium">{t(`uniforms.sales.type_${type}` as any)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-gray-50 dark:bg-gray-900/50 p-6 rounded-xl border border-gray-100 dark:border-gray-700">
+              {txType === 'new_hire' ? (
+                <div className="space-y-4">
+                  <h4 className="font-medium text-blue-600 dark:text-blue-400 mb-4 flex items-center gap-2">
+                    <Package className="w-5 h-5" />
+                    {t('uniforms.sales.new_hire_auto')}
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('uniforms.sales.shirt_size')}
+                      </label>
+                      <select 
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                        value={newHireShirtSize}
+                        onChange={e => setNewHireShirtSize(e.target.value as UniformSize)}
+                      >
+                        {(SIZES_BY_CATEGORY['shirt_red'] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('uniforms.sales.jacket_size')}
+                      </label>
+                      <select 
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                        value={newHireJacketSize}
+                        onChange={e => setNewHireJacketSize(e.target.value as UniformSize)}
+                      >
+                        {(SIZES_BY_CATEGORY['jacket_red'] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('uniforms.sales.category')}
+                      </label>
+                      <select 
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                        value={saleCategory}
+                        onChange={e => {
+                          const newCat = e.target.value as UniformCategory;
+                          setSaleCategory(newCat);
+                          setSaleSize((SIZES_BY_CATEGORY[newCat] || ['M'])[0]);
+                        }}
+                      >
+                        {ALL_CATEGORIES.map(c => <option key={c} value={c}>{getCategoryDisplayName(c, language as "es" | "en")}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('uniforms.sales.size')}
+                      </label>
+                      <select 
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                        value={saleSize}
+                        onChange={e => setSaleSize(e.target.value as UniformSize)}
+                      >
+                        {(SIZES_BY_CATEGORY[saleCategory] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                      </select>
+                    </div>
+                    {txType === 'sale' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          {t('uniforms.sales.quantity')}
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                          value={saleQty}
+                          onChange={e => setSaleQty(parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {availableStock !== null && (
+                    <div className="flex items-center gap-2 text-sm mt-2">
+                      <span className="text-gray-500">{t('uniforms.sales.available_stock')}:</span>
+                      <span className={`font-bold ${availableStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {availableStock}
+                      </span>
+                    </div>
+                  )}
+
+                  {txType === 'damage' && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {t('uniforms.sales.reason')} *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 outline-none"
+                        value={damageReason}
+                        onChange={e => setDamageReason(e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="text-2xl font-bold">
+                {txType === 'sale' ? (
+                  <span className="text-blue-600 dark:text-blue-400">{formatCurrency(currentPrice)}</span>
+                ) : (
+                  <span className="text-green-600 dark:text-green-400">$0.00</span>
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 shadow-md"
+              >
+                {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+                {t('uniforms.sales.submit')}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+      
+      <div className="space-y-6">
+        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-md">
+          <h3 className="text-lg font-bold mb-2 opacity-90">{t('uniforms.kpi.monthly_sales')}</h3>
+          <p className="text-4xl font-bold mb-1">{formatCurrency(currentPrice)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabOrderReception({ storeId, showToast, onComplete }: any) {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [receptionMode, setReceptionMode] = useState<'manual' | 'estimate'>('estimate');
+  const [estimateNum, setEstimateNum] = useState('');
+  
+  // Manual mode items
+  const [manualItems, setManualItems] = useState<{id: string, category: UniformCategory, size: UniformSize, qty: number}[]>([
+    { id: '1', category: 'shirt_red', size: 'M', qty: 1 }
+  ]);
+
+  // QB Estimate items (ordered vs received with discrepancy tracking)
+  const [orderItems, setOrderItems] = useState<Array<{
+    id: string,
+    category: UniformCategory,
+    size: UniformSize,
+    orderedQty: number,
+    receivedQty: number,
+    isMissing: boolean,
+    notes: string
+  }>>([]);
+
+  const loadStandardTemplate = () => {
+    setOrderItems([
+      { id: '1', category: 'shirt_red', size: 'S', orderedQty: 6, receivedQty: 6, isMissing: false, notes: '' },
+      { id: '2', category: 'shirt_red', size: 'M', orderedQty: 12, receivedQty: 12, isMissing: false, notes: '' },
+      { id: '3', category: 'shirt_red', size: 'L', orderedQty: 12, receivedQty: 12, isMissing: false, notes: '' },
+      { id: '4', category: 'shirt_red', size: 'XL', orderedQty: 6, receivedQty: 6, isMissing: false, notes: '' },
+      { id: '5', category: 'cap_red', size: 'ONE_SIZE', orderedQty: 6, receivedQty: 6, isMissing: false, notes: '' },
+      { id: '6', category: 'jacket_red', size: 'M', orderedQty: 2, receivedQty: 2, isMissing: false, notes: '' }
+    ]);
+  };
+
+  const [submitting, setSubmitting] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [recentEstimates, setRecentEstimates] = useState<Array<{id: string, qb_estimate_number: string, qb_estimate_id: string, created_at: string}>>([]);
+
+  useEffect(() => {
+    if (receptionMode === 'estimate') {
+      fetchRecentStoreEstimates(storeId).then(setRecentEstimates).catch(console.error);
+    }
+  }, [storeId, receptionMode]);
+
+  const loadEstimateByNum = async (num: string) => {
+    setEstimateNum(num);
+    try {
+      setSearching(true);
+      const res = await fetchQBEstimateForReception(storeId, num);
+      if (res.found && res.items.length > 0) {
+        setOrderItems(res.items.map(i => ({
+          id: i.id,
+          category: i.category as UniformCategory,
+          size: i.size as UniformSize,
+          orderedQty: i.orderedQty,
+          receivedQty: i.receivedQty,
+          isMissing: i.isMissing,
+          notes: i.notes
+        })));
+        showToast(`Orden #${res.orderNumber || num} cargada exitosamente`, 'success');
+      } else {
+        showToast(res.message || 'No se encontró la orden. Puedes agregar los artículos manualmente.', 'warning');
+      }
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSearchEstimate = async () => {
+    if (!estimateNum.trim()) {
+      showToast(t('uniforms.toast.error'), 'warning');
+      return;
+    }
+    await loadEstimateByNum(estimateNum);
+  };
+
+  // Manual items handlers
+  const addManualItem = () => {
+    setManualItems([...manualItems, { id: Math.random().toString(), category: 'shirt_red', size: 'M', qty: 1 }]);
+  };
+
+  const removeManualItem = (id: string) => {
+    if (manualItems.length > 1) {
+      setManualItems(manualItems.filter(i => i.id !== id));
+    }
+  };
+
+  const updateManualItem = (id: string, field: string, value: any) => {
+    setManualItems(manualItems.map(i => {
+      if (i.id === id) {
+        const updated = { ...i, [field]: value };
+        if (field === 'category') {
+          updated.size = (SIZES_BY_CATEGORY[value as UniformCategory] || ['M'])[0];
+        }
+        return updated;
+      }
+      return i;
+    }));
+  };
+
+  // Estimate items handlers
+  const updateOrderItem = (id: string, field: string, value: any) => {
+    setOrderItems(orderItems.map(item => {
+      if (item.id === id) {
+        const updated = { ...item, [field]: value };
+        if (field === 'receivedQty') {
+          const rQty = parseInt(value) || 0;
+          updated.isMissing = rQty < item.orderedQty;
+        } else if (field === 'isMissing' && !value) {
+          updated.receivedQty = item.orderedQty;
+        }
+        return updated;
+      }
+      return item;
+    }));
+  };
+
+  const addOrderItem = () => {
+    setOrderItems([...orderItems, {
+      id: Math.random().toString(),
+      category: 'shirt_red',
+      size: 'M',
+      orderedQty: 1,
+      receivedQty: 1,
+      isMissing: false,
+      notes: ''
+    }]);
+  };
+
+  const handleSubmitManual = async () => {
+    const validItems = manualItems.filter(i => i.qty > 0).map(i => ({
+      item_category: i.category,
+      size: i.size,
+      receivedQty: i.qty
+    }));
+    if (validItems.length === 0) {
+      showToast(t('uniforms.toast.error'), 'warning');
+      return;
+    }
+    
+    try {
+      setSubmitting(true);
+      await confirmOrderReception({ 
+        storeId, 
+        orderId: '00000000-0000-0000-0000-000000000000', 
+        items: validItems, 
+        userEmail: user?.email || '' 
+      });
+      showToast(t('uniforms.toast.reception_success'), 'success');
+      setManualItems([{ id: Math.random().toString(), category: 'shirt_red', size: 'M', qty: 1 }]);
+      onComplete();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmitEstimate = async () => {
+    const validItems = orderItems.filter(i => i.receivedQty > 0).map(i => {
+      let notes = i.notes.trim();
+      if (i.receivedQty < i.orderedQty && !notes) {
+        notes = `Faltaron ${i.orderedQty - i.receivedQty} unidades (Pedidas: ${i.orderedQty}, Recibidas: ${i.receivedQty})`;
+      }
+      return {
+        item_category: i.category,
+        size: i.size,
+        receivedQty: i.receivedQty,
+        notes
+      };
+    });
+
+    if (validItems.length === 0) {
+      showToast(t('uniforms.toast.error'), 'warning');
+      return;
+    }
+
+    // Build consolidated notes
+    const discrepancies = orderItems.filter(i => i.isMissing || i.receivedQty < i.orderedQty || i.notes.trim());
+    let orderNotes = estimateNum ? `QB Estimate: ${estimateNum}` : 'Recepcion de Orden QB';
+    if (discrepancies.length > 0) {
+      const details = discrepancies.map(d => 
+        `${getCategoryDisplayName(d.category, language as 'es'|'en')} (${d.size}): Pedidas ${d.orderedQty}, Recibidas ${d.receivedQty}. ${d.notes}`
+      ).join(' | ');
+      orderNotes += ` — Observaciones: ${details}`;
+    }
+
+    try {
+      setSubmitting(true);
+      await confirmOrderReception({
+        storeId,
+        orderId: '00000000-0000-0000-0000-000000000000',
+        items: validItems.map(v => ({ item_category: v.item_category, size: v.size, receivedQty: v.receivedQty })),
+        notes: orderNotes,
+        userEmail: user?.email || ''
+      });
+
+      showToast(t('uniforms.toast.reception_success'), 'success');
+      onComplete();
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="max-w-4xl space-y-6">
+      {/* Header & Mode Switcher */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div>
+          <h2 className="text-xl font-bold">{t('uniforms.reception.title')}</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {receptionMode === 'estimate' ? t('uniforms.reception.mode_qb_estimate') : t('uniforms.reception.mode_manual')}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-900 p-1.5 rounded-xl border border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setReceptionMode('estimate')}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2
+              ${receptionMode === 'estimate' 
+                ? 'bg-blue-600 text-white shadow-sm' 
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
+          >
+            <Truck className="w-4 h-4" />
+            {t('uniforms.reception.mode_qb_estimate')}
+          </button>
+          <button
+            onClick={() => setReceptionMode('manual')}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2
+              ${receptionMode === 'manual' 
+                ? 'bg-blue-600 text-white shadow-sm' 
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'}`}
+          >
+            <Plus className="w-4 h-4" />
+            {t('uniforms.reception.mode_manual')}
+          </button>
+        </div>
+      </div>
+
+      {receptionMode === 'estimate' ? (
+        <div className="space-y-6">
+          {/* QB Estimate Header Info */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex-1 w-full">
+              <label className="block text-xs font-semibold text-gray-500 mb-1"># Estimate / Orden QuickBooks</label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder={t('uniforms.reception.search_estimate_placeholder')}
+                    className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                    value={estimateNum}
+                    onChange={e => setEstimateNum(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSearchEstimate(); }}
+                  />
+                </div>
+                <button
+                  onClick={handleSearchEstimate}
+                  disabled={searching}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm"
+                >
+                  {searching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  {t('uniforms.reception.fetch_order')}
+                </button>
+              </div>
+
+              {recentEstimates.length > 0 && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400 font-medium">Órdenes / Estimates Recientes:</span>
+                  {recentEstimates.slice(0, 5).map(est => (
+                    <button
+                      key={est.id}
+                      onClick={() => loadEstimateByNum(est.qb_estimate_number)}
+                      className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 hover:text-blue-600 dark:hover:text-blue-300 rounded-md text-xs font-mono font-semibold transition-colors"
+                    >
+                      #{est.qb_estimate_number}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 self-end">
+              <button
+                onClick={loadStandardTemplate}
+                className="flex items-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-300 rounded-lg font-medium text-xs transition-colors"
+              >
+                <ClipboardList className="w-4 h-4" />
+                Cargar Plantilla Estándar
+              </button>
+              <button
+                onClick={addOrderItem}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg font-medium text-sm transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                {t('uniforms.reception.add_item')}
+              </button>
+            </div>
+          </div>
+
+          {/* Items Checklist with Discrepancies */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+            <div className="p-6 space-y-4">
+              {orderItems.length === 0 ? (
+                <div className="p-12 text-center text-gray-500 space-y-4">
+                  <Truck className="w-12 h-12 text-gray-300 mx-auto" />
+                  <div>
+                    <p className="font-semibold text-gray-700 dark:text-gray-300">No hay artículos agregados a esta recepción</p>
+                    <p className="text-xs text-gray-400 mt-1">Ingresa el # de Estimate de QB arriba o agrega artículos para confirmar la entrega.</p>
+                  </div>
+                  <div className="flex justify-center gap-3 pt-2">
+                    <button
+                      onClick={addOrderItem}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      {t('uniforms.reception.add_item')}
+                    </button>
+                    <button
+                      onClick={loadStandardTemplate}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <ClipboardList className="w-4 h-4" />
+                      Cargar Plantilla Estándar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                orderItems.map((item, idx) => (
+                <div 
+                  key={item.id} 
+                  className={`p-4 rounded-xl border transition-all space-y-3
+                    ${item.isMissing || item.receivedQty < item.orderedQty 
+                      ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-700' 
+                      : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700'}`}
+                >
+                  <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-gray-400">{idx + 1}.</span>
+                      <select 
+                        className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 outline-none text-sm font-semibold"
+                        value={item.category}
+                        onChange={e => updateOrderItem(item.id, 'category', e.target.value)}
+                      >
+                        {ALL_CATEGORIES.map(c => <option key={c} value={c}>{getCategoryDisplayName(c, language as 'es'|'en')}</option>)}
+                      </select>
+                      <select 
+                        className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 outline-none text-sm font-semibold"
+                        value={item.size}
+                        onChange={e => updateOrderItem(item.id, 'size', e.target.value)}
+                      >
+                        {(SIZES_BY_CATEGORY[item.category] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-6">
+                      <div className="text-center">
+                        <span className="block text-xs text-gray-500 font-medium">{t('uniforms.reception.ordered_qty')}</span>
+                        <span className="font-bold text-base text-blue-600 dark:text-blue-400">{item.orderedQty}</span>
+                      </div>
+
+                      <div className="text-center">
+                        <span className="block text-xs text-gray-500 font-medium">{t('uniforms.reception.qty_received')}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          className="w-20 text-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 outline-none font-bold text-base"
+                          value={item.receivedQty}
+                          onChange={e => updateOrderItem(item.id, 'receivedQty', e.target.value)}
+                        />
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer select-none text-sm font-medium text-amber-700 dark:text-amber-400">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
+                          checked={item.isMissing || item.receivedQty < item.orderedQty}
+                          onChange={e => updateOrderItem(item.id, 'isMissing', e.target.checked)}
+                        />
+                        {t('uniforms.reception.mark_incomplete')}
+                      </label>
+                    </div>
+                  </div>
+
+                  {(item.isMissing || item.receivedQty < item.orderedQty) && (
+                    <div className="pt-2 border-t border-amber-200 dark:border-amber-800">
+                      <label className="block text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">
+                        ⚠️ {t('uniforms.reception.discrepancy_notes')}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={t('uniforms.reception.discrepancy_placeholder')}
+                        className="w-full bg-white dark:bg-gray-900 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                        value={item.notes}
+                        onChange={e => updateOrderItem(item.id, 'notes', e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              )))}
+            </div>
+
+            <div className="p-6 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4 text-sm font-medium">
+                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                  <CheckCircle className="w-4 h-4" />
+                  Recibidos: {orderItems.reduce((acc, i) => acc + i.receivedQty, 0)} items
+                </span>
+                {orderItems.some(i => i.isMissing || i.receivedQty < i.orderedQty) && (
+                  <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4" />
+                    {orderItems.filter(i => i.isMissing || i.receivedQty < i.orderedQty).length} con observaciones
+                  </span>
+                )}
+              </div>
+
+              <button
+                onClick={handleSubmitEstimate}
+                disabled={submitting}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 shadow-md"
+              >
+                {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Truck className="w-5 h-5" />}
+                {t('uniforms.reception.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Manual Mode Form */
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+          <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <h3 className="font-bold">{t('uniforms.reception.mode_manual')}</h3>
+            <button
+              onClick={addManualItem}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg font-medium transition-colors text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              {t('uniforms.reception.add_item')}
+            </button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            {manualItems.map((item, idx) => (
+              <div key={item.id} className="flex flex-wrap md:flex-nowrap items-end gap-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                <div className="w-8 font-bold text-gray-400 pb-2">{idx + 1}.</div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">{t('uniforms.sales.category')}</label>
+                  <select 
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 outline-none text-sm font-medium"
+                    value={item.category}
+                    onChange={e => updateManualItem(item.id, 'category', e.target.value)}
+                  >
+                    {ALL_CATEGORIES.map(c => <option key={c} value={c}>{getCategoryDisplayName(c, language as 'es' | 'en')}</option>)}
+                  </select>
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">{t('uniforms.sales.size')}</label>
+                  <select 
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 outline-none text-sm font-medium"
+                    value={item.size}
+                    onChange={e => updateManualItem(item.id, 'size', e.target.value)}
+                  >
+                    {(SIZES_BY_CATEGORY[item.category] || []).map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                  </select>
+                </div>
+                <div className="w-32">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">{t('uniforms.reception.qty_received')}</label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 outline-none text-sm font-medium"
+                    value={item.qty}
+                    onChange={e => updateManualItem(item.id, 'qty', parseInt(e.target.value) || 0)}
+                  />
+                </div>
+                <button
+                  onClick={() => removeManualItem(item.id)}
+                  disabled={manualItems.length === 1}
+                  className="p-2 text-gray-400 hover:text-red-500 disabled:opacity-30 transition-colors mb-0.5"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="p-6 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+            <button
+              onClick={handleSubmitManual}
+              disabled={submitting}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 shadow-md"
+            >
+              {submitting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Truck className="w-5 h-5" />}
+              {t('uniforms.reception.confirm')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabHistoryAndKardex({ storeId, showToast }: { storeId: number, showToast: any }) {
+  const { t, language } = useLanguage();
+  const [history, setHistory] = useState<UniformTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchGuid, setSearchGuid] = useState('');
+  const [kardexMode, setKardexMode] = useState(false);
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        setLoading(true);
+        const data = await fetchTransactionHistory(storeId);
+        setHistory(data);
+        setKardexMode(false);
+      } catch (err) {
+        showToast(t('uniforms.toast.error'), 'error');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadHistory();
+  }, [storeId, t]);
+
+  const handleSearchKardex = async () => {
+    if (!searchGuid.trim()) return;
+    try {
+      setLoading(true);
+      const data = await fetchEmployeeKardex(searchGuid.trim());
+      setHistory(data);
+      setKardexMode(true);
+    } catch (err) {
+      showToast(t('uniforms.toast.error'), 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearKardex = async () => {
+    setSearchGuid('');
+    setKardexMode(false);
+    setLoading(true);
+    const data = await fetchTransactionHistory(storeId);
+    setHistory(data);
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <h2 className="text-xl font-bold">
+          {kardexMode ? `${t('uniforms.history.kardex_title')}: ${searchGuid}` : t('uniforms.history.title')}
+        </h2>
+        
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder={t('uniforms.history.kardex_search')}
+              className="pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 w-64 text-sm"
+              value={searchGuid}
+              onChange={e => setSearchGuid(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSearchKardex()}
+            />
+          </div>
+          <button
+            onClick={handleSearchKardex}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors"
+          >
+            {t('common.search')}
+          </button>
+          {kardexMode && (
+            <button
+              onClick={handleClearKardex}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium text-sm transition-colors"
+            >
+              {t('common.clear')}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+        {loading ? (
+          <div className="p-12 text-center text-gray-500 flex justify-center items-center gap-2">
+            <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 dark:bg-gray-700/50">
+                <tr>
+                  <th className="p-4 font-semibold">{t('uniforms.history.date')}</th>
+                  <th className="p-4 font-semibold">{t('uniforms.history.type')}</th>
+                  <th className="p-4 font-semibold">{t('uniforms.history.item')}</th>
+                  <th className="p-4 font-semibold">{t('uniforms.history.qty')}</th>
+                  <th className="p-4 font-semibold">{t('uniforms.history.employee')}</th>
+                  <th className="p-4 font-semibold">{t('uniforms.history.amount')}</th>
+                  <th className="p-4 font-semibold">{t('uniforms.history.created_by')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {history.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-gray-500">
+                      {t('uniforms.history.no_results')}
+                    </td>
+                  </tr>
+                ) : (
+                  history.map(tx => (
+                    <tr key={tx.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                      <td className="p-4 text-sm text-gray-500">
+                        {new Date(tx.created_at).toLocaleDateString()} {new Date(tx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="p-4">
+                        <span className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 rounded-md text-xs font-semibold">
+                          {getTransactionTypeLabel(tx.transaction_type, language as 'es' | 'en')}
+                        </span>
+                      </td>
+                      <td className="p-4 font-medium">
+                        {getCategoryDisplayName(tx.item_category, language as 'es' | 'en')} ({tx.size})
+                      </td>
+                      <td className={`p-4 font-bold ${tx.quantity > 0 ? 'text-green-600' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {tx.quantity > 0 ? `+${tx.quantity}` : tx.quantity}
+                      </td>
+                      <td className="p-4 text-sm">
+                        {tx.employee_name || '-'}
+                      </td>
+                      <td className="p-4 font-medium">
+                        {tx.total_amount ? formatCurrency(tx.total_amount) : '$0.00'}
+                      </td>
+                      <td className="p-4 text-sm text-gray-500">
+                        {tx.created_by || '-'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

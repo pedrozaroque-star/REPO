@@ -1,3 +1,18 @@
+/**
+ * @module api/cron/sync-pmix
+ * @description Vercel Cron Job daily sync that pulls the Product Mix (PMIX) from Toast API and updates the local daily cache.
+ * 
+ * @businessRules
+ * - **Rango de Sincronización**: Sincroniza los últimos 4 días finalizados (omitiendo hoy) para capturar ajustes retroactivos de gerentes o facturaciones de catering tardías.
+ * - **Sincronización Secuencial**: Ejecuta las consultas de tiendas y días de manera estrictamente secuencial para evitar exceder los límites de llamadas de la API de Toast (Error 429).
+ * - **Persistencia Explícita**: Guarda los registros en `pmix_daily_cache` con un timestamp de actualización explícito (`updated_at`) para facilitar la lógica de auto-sanación de caché.
+ * 
+ * @dataFlow
+ * - Supabase Stores table (Active Stores only) -> reads store external IDs -> triggers Toast Orders bulk endpoint via `getProductMix(skipCache: true)` -> upserts returned items into `pmix_daily_cache`.
+ * 
+ * @notes
+ * - La caché autosanable invalidará estos registros en futuras consultas si la fecha de actualización `updated_at` es anterior a la fecha operativa.
+ */
 import { NextResponse } from 'next/server'
 import { getProductMix } from '@/lib/toast-pmix'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -51,12 +66,12 @@ export async function GET(request: Request) {
                         skipCache: true
                     })
 
-                    // Aseguramos la persistencia "Awaitable" (Fire-and-forget puede morir en Serverless)
                     if (items.length > 0) {
                         const { error } = await supabase.from('pmix_daily_cache').upsert({
                             store_id: store.external_id,
                             business_date: dateStr,
-                            items: items
+                            items: items,
+                            updated_at: new Date().toISOString()
                         }, { onConflict: 'store_id,business_date' })
 
                         if (error) throw error

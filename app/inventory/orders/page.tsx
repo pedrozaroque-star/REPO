@@ -1456,15 +1456,41 @@ export default function InventoryOrdersPage() {
                                         </h2>
                                         
                                         <div className="flex flex-wrap items-center gap-3">
-                                            {/* Selector de fecha de conteo */}
-                                            <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm text-xs">
-                                                <span className="font-bold text-slate-500">📅 Fecha de Conteo:</span>
+                                            {/* Selector de fecha de conteo con botones de navegación rápida */}
+                                            <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-xl p-1 shadow-sm text-xs">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOrderDateChange(addDays(selectedOrderDate, -1))}
+                                                    className="px-2 py-1 bg-white hover:bg-blue-100 text-blue-800 font-bold rounded-lg border border-blue-200 shadow-2xs transition-all active:scale-95"
+                                                    title="Ver fecha anterior (ej. Ayer)"
+                                                >
+                                                    ◀ Ayer
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOrderDateChange(todayStr)}
+                                                    className={`px-2 py-1 font-bold rounded-lg transition-all ${
+                                                        selectedOrderDate === todayStr 
+                                                            ? 'bg-blue-600 text-white shadow-2xs' 
+                                                            : 'bg-white text-blue-700 hover:bg-blue-50 border border-blue-200'
+                                                    }`}
+                                                >
+                                                    Hoy
+                                                </button>
                                                 <input
                                                     type="date"
                                                     value={selectedOrderDate}
                                                     onChange={e => handleOrderDateChange(e.target.value)}
-                                                    className="bg-transparent text-slate-700 font-bold outline-none cursor-pointer focus:text-blue-600 font-sans border-0 p-0"
+                                                    className="bg-white text-blue-900 font-black outline-none cursor-pointer focus:ring-2 focus:ring-blue-500 rounded-lg px-2 py-1 border border-blue-300 font-sans"
                                                 />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOrderDateChange(addDays(selectedOrderDate, 1))}
+                                                    className="px-2 py-1 bg-white hover:bg-blue-100 text-blue-800 font-bold rounded-lg border border-blue-200 shadow-2xs transition-all active:scale-95"
+                                                    title="Ver fecha siguiente"
+                                                >
+                                                    Mañana ▶
+                                                </button>
                                             </div>
 
                                             {/* Dropdown to override PAR base day field */}
@@ -1502,6 +1528,24 @@ export default function InventoryOrdersPage() {
                                                 </select>
                                             </div>
                                         </div>
+                                    </div>
+
+                                    {/* ---- Banner Explicativo del Cálculo Teórico ---- */}
+                                    <div className="mx-5 mb-3 p-3 bg-cyan-50/80 border border-cyan-200 rounded-xl flex items-center justify-between gap-3 text-xs text-cyan-900 shadow-2xs">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-base">🤖</span>
+                                            <div>
+                                                <span className="font-bold text-cyan-950">Fórmula de Sobrante Teórico Sugerido: </span>
+                                                <span className="font-mono font-semibold bg-white px-2 py-0.5 rounded border border-cyan-200 text-cyan-900">
+                                                    Sobrante Ayer + Llegó Hoy AM − Ventas Toast ({selectedOrderDate})
+                                                </span>
+                                            </div>
+                                        </div>
+                                        {selectedOrderDate === todayStr && (
+                                            <span className="text-[11px] font-semibold text-cyan-800 bg-cyan-100 px-2 py-1 rounded-lg border border-cyan-300">
+                                                💡 Consejo: Cambia a una fecha pasada (ej. <b>◀ Ayer</b>) para auditar ventas cerradas.
+                                            </span>
+                                        )}
                                     </div>
 
                                     {/* ---- Success banner if already sent to QB ---- */}
@@ -1616,6 +1660,11 @@ export default function InventoryOrdersPage() {
                                                     <th className="p-3 text-center w-20 bg-emerald-50 text-emerald-700 border-b-2 border-emerald-200">
                                                         {orderType === 'daily' ? t('bodegaOrders.parTomorrow') : 'PAR'}
                                                     </th>
+                                                    <th className="p-3 text-center w-24 bg-cyan-50 text-cyan-800 border-b-2 border-cyan-200">
+                                                        <div className="flex items-center justify-center gap-1" title="Sobrante Teórico sugerido automáticamente por el sistema">
+                                                            <span>🤖 {t('bodegaOrders.suggested')}</span>
+                                                        </div>
+                                                    </th>
                                                     <th className="p-3 text-center w-24 bg-orange-50 text-orange-700 border-b-2 border-orange-200">
                                                         {t('bodegaOrders.leftover')}
                                                     </th>
@@ -1662,18 +1711,42 @@ export default function InventoryOrdersPage() {
                                                                     <span className="text-[9px] text-indigo-600 font-semibold block mt-0.5 animate-pulse">+{parBoostPercent}%</span>
                                                                 )}
                                                             </td>
+                                                            {/* Sugerido (Teórico) */}
+                                                            <td className="p-2 text-center font-bold text-cyan-800 bg-cyan-50/40 border-b border-cyan-100">
+                                                                {line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
+                                                                    <span className="flex items-center justify-center gap-1" title={line.is_burn_rate ? "Promedio histórico diario (Burn Rate)" : "Ventas Toast × Recetas"}>
+                                                                        <span>{line.suggested_leftover}</span>
+                                                                        <span className="text-[10px]">{line.is_burn_rate ? '📊' : '🤖'}</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    '—'
+                                                                )}
+                                                            </td>
                                                             {/* Sobrante (EDITABLE) */}
                                                             <td className="p-0 border-b border-orange-200 bg-orange-50/30">
-                                                                <input
-                                                                    id={`input_${rowIndex}_0`}
-                                                                    type="number"
-                                                                    placeholder={t('bodegaOrders.enterLeftover')}
-                                                                    className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-400"
-                                                                    value={currentLeftover !== undefined ? currentLeftover : ''}
-                                                                    onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
-                                                                    onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
-                                                                    onFocus={e => e.target.select()}
-                                                                />
+                                                                <div className="relative flex items-center">
+                                                                    <input
+                                                                        id={`input_${rowIndex}_0`}
+                                                                        type="number"
+                                                                        placeholder={t('bodegaOrders.enterLeftover')}
+                                                                        className="w-full p-2.5 text-center outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-sm placeholder:text-orange-300 placeholder:text-xs placeholder:font-normal border-l-[3px] border-l-orange-400"
+                                                                        value={currentLeftover !== undefined ? currentLeftover : ''}
+                                                                        onChange={e => handleInlineLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                        onKeyDown={e => handleGridKeyDown(e, rowIndex, 0)}
+                                                                        onFocus={e => e.target.select()}
+                                                                    />
+                                                                    {line.variance !== null && line.variance !== undefined && currentLeftover !== undefined && (
+                                                                        <span className={`absolute right-1 text-[9px] px-1 py-0.5 rounded font-black ${
+                                                                            line.variance === 0
+                                                                                ? 'bg-emerald-100 text-emerald-800'
+                                                                                : line.variance < 0
+                                                                                ? 'bg-amber-100 text-amber-800'
+                                                                                : 'bg-red-100 text-red-800'
+                                                                        }`} title={`Varianza: ${line.variance > 0 ? '+' : ''}${line.variance}`}>
+                                                                            {line.variance > 0 ? `+${line.variance}` : line.variance}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                             {/* Pedir (calculated) */}
                                                             <td className={`p-2 text-center font-bold border-b ${

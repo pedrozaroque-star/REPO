@@ -1,0 +1,488 @@
+{
+  "timestamp": "2026-07-01T19:25:42.744Z",
+  "storesAudited": 15,
+  "totalUniqueItems": 58,
+  "universalCount": 46,
+  "differenceCount": 12,
+  "storeCounts": {
+    "Azusa": 51,
+    "Bell": 50,
+    "Downey": 49,
+    "Hollywood": 49,
+    "Huntington Park": 48,
+    "LA Broadway": 51,
+    "LA Central": 49,
+    "La Puente": 52,
+    "Lynwood": 48,
+    "Norwalk": 50,
+    "Rialto": 50,
+    "Santa Ana": 51,
+    "Slauson": 49,
+    "South Gate": 49,
+    "West Covina": 50
+  },
+  "universalItems": [
+    {
+      "name": "COOLER EDIBLE ITEMS:1 oz Bolsa de Mixta",
+      "qbId": "522"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:1.5 oz Salsa Roja Pack",
+      "qbId": "208"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:1.5 oz Salsa Verde Pack",
+      "qbId": "207"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:2 oz Bolsas de Rajas con Zanahoria",
+      "qbId": "524"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Arroz",
+      "qbId": "220"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Bolsa Aguacate",
+      "qbId": "236"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Bolsa Crema",
+      "qbId": "227"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Bolsa Lima   5 LB",
+      "qbId": "542"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Bolsa Mayonesa",
+      "qbId": "228"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Buche 6 oz",
+      "qbId": "597"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Cabeza",
+      "qbId": "211"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Carne Asada",
+      "qbId": "209"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Carnitas 6 oz",
+      "qbId": "598"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Champurrado Mix",
+      "qbId": "241"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Chorizo 8 oz",
+      "qbId": "599"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Frijol Entero",
+      "qbId": "221"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Frijol Molido",
+      "qbId": "222"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Horchata",
+      "qbId": "201"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Huevo",
+      "qbId": "238"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Jamaica Concentrate",
+      "qbId": "203"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Jamon Pack",
+      "qbId": "219"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Lengua",
+      "qbId": "212"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Lima Bolsita",
+      "qbId": "539"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Milaneza",
+      "qbId": "216"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Mulitas  Con Queso",
+      "qbId": "534"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Onion Pepper Mix",
+      "qbId": "551"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Onion/ Cil. Mix 1/4",
+      "qbId": "225"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Papelito Para Torta",
+      "qbId": "540"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Piña Concentrate",
+      "qbId": "204"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Quesadilla Bodega",
+      "qbId": "240"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Queso Cotija 021",
+      "qbId": "555"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Queso Rayado",
+      "qbId": "229"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Queso Tortas/platos/Desayuno",
+      "qbId": "232"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Salchicha Bag",
+      "qbId": "217"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Salsa Huevos Rancheros",
+      "qbId": "237"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Salsa Roja",
+      "qbId": "205"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Salsa Verde",
+      "qbId": "206"
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Tamarindo Concentrate",
+      "qbId": "202"
+    },
+    {
+      "name": "EDIBLE ITEMS:1100  Tortilla,White Corn 4.7OZ 60CT",
+      "qbId": "601"
+    },
+    {
+      "name": "EDIBLE ITEMS:358_9604BT  Tortilla Regular 8 in",
+      "qbId": "247"
+    },
+    {
+      "name": "EDIBLE ITEMS:358-9673BT  13” Flour Tortilla",
+      "qbId": "541"
+    },
+    {
+      "name": "EDIBLE ITEMS:Amarillo Cheese",
+      "qbId": "249"
+    },
+    {
+      "name": "EDIBLE ITEMS:Rajas y Zanahorias",
+      "qbId": "244"
+    },
+    {
+      "name": "EDIBLE ITEMS:Sopes",
+      "qbId": "248"
+    },
+    {
+      "name": "EDIBLE ITEMS:Teleras",
+      "qbId": "233"
+    },
+    {
+      "name": "EDIBLE ITEMS:Tortilla Nachos",
+      "qbId": "489"
+    }
+  ],
+  "differences": [
+    {
+      "name": "COOLER EDIBLE ITEMS:103 Lettuce Shredded",
+      "qbId": "223",
+      "presentIn": [
+        "LA Broadway"
+      ],
+      "missingFrom": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Tomate Entero",
+      "qbId": "239",
+      "presentIn": [
+        "LA Broadway"
+      ],
+      "missingFrom": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "DISPOSABLE GOODS:Galones Vacios",
+      "qbId": "469",
+      "presentIn": [
+        "Santa Ana"
+      ],
+      "missingFrom": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:1.5 oz Salsa Roja Taquera pack",
+      "qbId": "556",
+      "presentIn": [
+        "Slauson"
+      ],
+      "missingFrom": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "South Gate",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Pastor 3 lbs",
+      "qbId": "214",
+      "presentIn": [
+        "Slauson"
+      ],
+      "missingFrom": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "South Gate",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Pollo 3 lbs",
+      "qbId": "213",
+      "presentIn": [
+        "Slauson"
+      ],
+      "missingFrom": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "South Gate",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "DISPOSABLE GOODS:Cover Para Taco",
+      "qbId": "593",
+      "presentIn": [
+        "Azusa",
+        "La Puente"
+      ],
+      "missingFrom": [
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "Slauson",
+        "South Gate",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "DISPOSABLE GOODS:Gavilan Catering box 231880",
+      "qbId": "444",
+      "presentIn": [
+        "La Puente",
+        "Santa Ana",
+        "West Covina"
+      ],
+      "missingFrom": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Slauson",
+        "South Gate"
+      ]
+    },
+    {
+      "name": "EDIBLE ITEMS:Agua Gavilan",
+      "qbId": "251",
+      "presentIn": [
+        "Azusa",
+        "Bell",
+        "La Puente",
+        "Norwalk",
+        "Rialto",
+        "South Gate"
+      ],
+      "missingFrom": [
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "Lynwood",
+        "Santa Ana",
+        "Slauson",
+        "West Covina"
+      ]
+    },
+    {
+      "name": "KITCHEN INTERNAL SUPPLIES:Viva Lard 8602773",
+      "qbId": "287",
+      "presentIn": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "West Covina"
+      ],
+      "missingFrom": [
+        "Huntington Park",
+        "Lynwood",
+        "Slauson",
+        "South Gate"
+      ]
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Pastor",
+      "qbId": "210",
+      "presentIn": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "South Gate",
+        "West Covina"
+      ],
+      "missingFrom": [
+        "Slauson"
+      ]
+    },
+    {
+      "name": "COOLER EDIBLE ITEMS:Pollo",
+      "qbId": "215",
+      "presentIn": [
+        "Azusa",
+        "Bell",
+        "Downey",
+        "Hollywood",
+        "Huntington Park",
+        "LA Broadway",
+        "LA Central",
+        "La Puente",
+        "Lynwood",
+        "Norwalk",
+        "Rialto",
+        "Santa Ana",
+        "South Gate",
+        "West Covina"
+      ],
+      "missingFrom": [
+        "Slauson"
+      ]
+    }
+  ]
+}

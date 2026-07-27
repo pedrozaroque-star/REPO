@@ -23,6 +23,12 @@ type Dictionary = {
 // DICCIONARIOS
 const dictionaries: Record<Language, Dictionary> = {
     es: {
+        common: {
+            cancel: 'Cancelar',
+            save: 'Guardar',
+            search: 'Buscar',
+            clear: 'Limpiar',
+        },
         // TOP NAV
         nav: {
             title: 'Sistema de Monitoreo',
@@ -42,6 +48,7 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // ITEMS
         items: {
+            uniforms_control: 'Control de Uniformes',
             supervisor: 'Supervisor',
             manager: 'Manager',
             assistants: 'Asistentes',
@@ -2148,8 +2155,167 @@ const dictionaries: Record<Language, Dictionary> = {
             uniforms: 'Uniformes',
             store: 'Tienda',
         },
+
+        // UNIFORMS
+        uniforms: {
+            title: 'Control de Uniformes',
+            subtitle: 'Gestión de inventario y entregas de uniformes',
+            executive_dashboard: 'Tablero Ejecutivo',
+            store_dashboard: 'Panel de Tienda',
+            select_store: 'Seleccionar Tienda',
+            all_stores: 'Todas las Tiendas (Global)',
+            loading: 'Cargando...',
+            kpi: {
+                total_stock: 'Stock Total',
+                total_sales: 'Ventas Totales',
+                damage_exchanges: 'Cambios por Daño',
+                active_stores: 'Tiendas Activas',
+                pending_stores: 'Tiendas Pendientes',
+                inventory_value: 'Valor de Inventario',
+                monthly_sales: 'Ventas del Mes'
+            },
+            matrix: {
+                title: 'Matriz Global de Tiendas',
+                store_name: 'Tienda',
+                status: 'Estado',
+                stock_count: 'Piezas en Stock',
+                stock_value: 'Valor',
+                last_audit: 'Última Auditoría',
+                active: 'Activa',
+                pending: 'Pendiente',
+                no_audit: 'Sin auditoría'
+            },
+            tabs: {
+                stock: 'Stock & Auditoría',
+                sales: 'Ventas & Entregas',
+                reception: 'Recepción de Órdenes',
+                history: 'Historial & Kardex'
+            },
+            wizard: {
+                title: 'Bienvenido al Control de Uniformes',
+                description: 'Es la primera vez que usas este módulo en esta tienda. Ingresa el conteo físico inicial de uniformes.',
+                start: 'Comenzar Conteo Inicial',
+                quantity: 'Cantidad',
+                save: 'Guardar Conteo Inicial',
+                saving: 'Guardando...'
+            },
+            stock: {
+                title: 'Inventario Físico',
+                item: 'Artículo',
+                size: 'Talla',
+                qty_on_hand: 'En Existencia',
+                min_stock: 'Stock Mínimo',
+                status: 'Estado',
+                ok: 'OK',
+                low: 'Bajo',
+                out: 'Agotado',
+                audit_mode: 'Modo Auditoría',
+                save_audit: 'Guardar Auditoría',
+                reason: 'Motivo del Ajuste',
+                red_team: 'Equipo Rojo (Team Members)',
+                black_team: 'Liderazgo Negro (Shift Leaders/Managers)',
+                edit_pricing: 'Editar Precios',
+                reset_initial: 'Reiniciar Conteo Inicial',
+                reset_confirm: '¿Estás seguro de reiniciar el conteo inicial de esta tienda? Esto borrará el inventario actual para permitir ingresar un nuevo conteo físico.'
+            },
+            sales: {
+                title: 'Nueva Venta / Entrega',
+                employee_name: 'Nombre del Empleado',
+                employee_guid: 'Toast GUID (opcional)',
+                transaction_type: 'Tipo de Transacción',
+                type_sale: 'Venta',
+                type_new_hire: 'Paquete Nuevo Ingreso',
+                type_damage: 'Cambio por Daño',
+                category: 'Categoría',
+                size: 'Talla',
+                quantity: 'Cantidad',
+                unit_price: 'Precio Unitario',
+                total: 'Total',
+                available_stock: 'Stock Disponible',
+                submit: 'Registrar Transacción',
+                submitting: 'Registrando...',
+                reason: 'Motivo del Cambio',
+                new_hire_auto: 'Paquete automático: 6 camisas + 1 gorra + 1 chamarra',
+                select_sizes: 'Selecciona las tallas',
+                shirt_size: 'Talla Camisa',
+                cap_size: 'Talla Gorra',
+                jacket_size: 'Talla Chamarra'
+            },
+            reception: {
+                title: 'Recepción de Envío / Orden',
+                add_item: 'Agregar Artículo',
+                remove_item: 'Quitar',
+                confirm: 'Confirmar Recepción',
+                confirming: 'Confirmando...',
+                qty_received: 'Cantidad Recibida',
+                notes: 'Notas de Recepción',
+                mode_manual: 'Entrada Manual',
+                mode_qb_estimate: 'Confirmar Orden / Estimate QB',
+                search_estimate_placeholder: 'Ingresa # de Estimate de QB o ID de Orden',
+                fetch_order: 'Buscar Orden',
+                ordered_qty: 'Cant. Pedida',
+                mark_incomplete: 'Faltante / Incompleto',
+                discrepancy_notes: 'Observaciones de Faltantes / Daños',
+                discrepancy_placeholder: 'Ej: Faltaron 2 camisas L de las 6 pedidas',
+                summary_received: 'Total Artículos Recibidos',
+                summary_incomplete: 'Artículos con Faltantes'
+            },
+            history: {
+                title: 'Historial de Movimientos',
+                date: 'Fecha',
+                type: 'Tipo',
+                item: 'Artículo',
+                size: 'Talla',
+                qty: 'Cant.',
+                employee: 'Empleado',
+                amount: 'Monto',
+                created_by: 'Registrado por',
+                filter_start: 'Fecha Inicio',
+                filter_end: 'Fecha Fin',
+                filter: 'Filtrar',
+                kardex_title: 'Kardex por Empleado',
+                kardex_search: 'Buscar por Toast GUID',
+                kardex_btn: 'Buscar Kardex',
+                no_results: 'Sin resultados'
+            },
+            pricing: {
+                title: 'Configuración de Precios',
+                category: 'Categoría',
+                name_es: 'Nombre (ES)',
+                name_en: 'Nombre (EN)',
+                sale_price: 'Precio Venta',
+                provider: 'Proveedor',
+                provider_cost: 'Costo Proveedor',
+                free_roles: 'Gratis para',
+                save: 'Guardar Cambios',
+                close: 'Cerrar'
+            },
+            toast: {
+                initial_saved: 'Conteo inicial guardado exitosamente',
+                audit_saved: 'Auditoría guardada exitosamente',
+                sale_success: 'Transacción registrada exitosamente',
+                reception_success: 'Recepción confirmada exitosamente',
+                pricing_saved: 'Precios actualizados exitosamente',
+                reset_success: 'Conteo inicial reiniciado exitosamente',
+                error: 'Error al procesar la operación',
+                partial_delivery: 'Entrega parcial: stock insuficiente',
+                no_stock: 'Sin stock disponible'
+            },
+            reconciliation: {
+                title: 'Uniformes (Auto-fill)',
+                total_sales: 'Ventas Registradas',
+                apply: 'Aplicar del Módulo',
+                manual: 'Ingreso Manual'
+            }
+        },
     },
     en: {
+        common: {
+            cancel: 'Cancel',
+            save: 'Save',
+            search: 'Search',
+            clear: 'Clear',
+        },
         // TOP NAV
         nav: {
             title: 'Monitoring System',
@@ -2169,6 +2335,7 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // ITEMS
         items: {
+            uniforms_control: 'Uniforms Control',
             supervisor: 'Supervisor',
             manager: 'Manager',
             assistants: 'Assistants',
@@ -4275,6 +4442,159 @@ const dictionaries: Record<Language, Dictionary> = {
             uniforms: 'Uniforms',
             store: 'Store',
         },
+
+        // UNIFORMS
+        uniforms: {
+            title: 'Uniforms Control',
+            subtitle: 'Uniform inventory and distribution management',
+            executive_dashboard: 'Executive Dashboard',
+            store_dashboard: 'Store Dashboard',
+            select_store: 'Select Store',
+            all_stores: 'All Stores (Global)',
+            loading: 'Loading...',
+            kpi: {
+                total_stock: 'Total Stock',
+                total_sales: 'Total Sales',
+                damage_exchanges: 'Damage Exchanges',
+                active_stores: 'Active Stores',
+                pending_stores: 'Pending Stores',
+                inventory_value: 'Inventory Value',
+                monthly_sales: 'Monthly Sales'
+            },
+            matrix: {
+                title: 'Global Store Matrix',
+                store_name: 'Store',
+                status: 'Status',
+                stock_count: 'Items in Stock',
+                stock_value: 'Value',
+                last_audit: 'Last Audit',
+                active: 'Active',
+                pending: 'Pending',
+                no_audit: 'No audit'
+            },
+            tabs: {
+                stock: 'Stock & Audit',
+                sales: 'Sales & Issues',
+                reception: 'Order Reception',
+                history: 'History & Kardex'
+            },
+            wizard: {
+                title: 'Welcome to Uniforms Control',
+                description: 'This is the first time using this module for this store. Enter the initial physical uniform count.',
+                start: 'Start Initial Count',
+                quantity: 'Quantity',
+                save: 'Save Initial Count',
+                saving: 'Saving...'
+            },
+            stock: {
+                title: 'Physical Inventory',
+                item: 'Item',
+                size: 'Size',
+                qty_on_hand: 'On Hand',
+                min_stock: 'Min Stock',
+                status: 'Status',
+                ok: 'OK',
+                low: 'Low',
+                out: 'Out of Stock',
+                audit_mode: 'Audit Mode',
+                save_audit: 'Save Audit',
+                reason: 'Adjustment Reason',
+                red_team: 'Red Team (Team Members)',
+                black_team: 'Black Leadership (Shift Leaders/Managers)',
+                edit_pricing: 'Edit Pricing',
+                reset_initial: 'Reset Initial Count',
+                reset_confirm: 'Are you sure you want to reset the initial count for this store? This will delete current inventory to allow entering a new count.'
+            },
+            sales: {
+                title: 'New Sale / Issue',
+                employee_name: 'Employee Name',
+                employee_guid: 'Toast GUID (optional)',
+                transaction_type: 'Transaction Type',
+                type_sale: 'Sale',
+                type_new_hire: 'New Hire Package',
+                type_damage: 'Damage Exchange',
+                category: 'Category',
+                size: 'Size',
+                quantity: 'Quantity',
+                unit_price: 'Unit Price',
+                total: 'Total',
+                available_stock: 'Available Stock',
+                submit: 'Submit Transaction',
+                submitting: 'Submitting...',
+                reason: 'Exchange Reason',
+                new_hire_auto: 'Auto package: 6 shirts + 1 cap + 1 jacket',
+                select_sizes: 'Select sizes',
+                shirt_size: 'Shirt Size',
+                cap_size: 'Cap Size',
+                jacket_size: 'Jacket Size'
+            },
+            reception: {
+                title: 'Shipment / Order Reception',
+                add_item: 'Add Item',
+                remove_item: 'Remove',
+                confirm: 'Confirm Reception',
+                confirming: 'Confirming...',
+                qty_received: 'Quantity Received',
+                notes: 'Reception Notes',
+                mode_manual: 'Manual Entry',
+                mode_qb_estimate: 'Confirm QB Estimate / Order',
+                search_estimate_placeholder: 'Enter QB Estimate # or Order ID',
+                fetch_order: 'Search Order',
+                ordered_qty: 'Ordered Qty',
+                mark_incomplete: 'Missing / Incomplete',
+                discrepancy_notes: 'Missing / Damage Notes',
+                discrepancy_placeholder: 'E.g. Missing 2 L shirts out of 6 ordered',
+                summary_received: 'Total Items Received',
+                summary_incomplete: 'Items with Discrepancies'
+            },
+            history: {
+                title: 'Transaction History',
+                date: 'Date',
+                type: 'Type',
+                item: 'Item',
+                size: 'Size',
+                qty: 'Qty',
+                employee: 'Employee',
+                amount: 'Amount',
+                created_by: 'Created By',
+                filter_start: 'Start Date',
+                filter_end: 'End Date',
+                filter: 'Filter',
+                kardex_title: 'Employee Kardex',
+                kardex_search: 'Search by Toast GUID',
+                kardex_btn: 'Search Kardex',
+                no_results: 'No results'
+            },
+            pricing: {
+                title: 'Pricing Configuration',
+                category: 'Category',
+                name_es: 'Name (ES)',
+                name_en: 'Name (EN)',
+                sale_price: 'Sale Price',
+                provider: 'Provider',
+                provider_cost: 'Provider Cost',
+                free_roles: 'Free for',
+                save: 'Save Changes',
+                close: 'Close'
+            },
+            toast: {
+                initial_saved: 'Initial count saved successfully',
+                audit_saved: 'Audit saved successfully',
+                sale_success: 'Transaction recorded successfully',
+                reception_success: 'Reception confirmed successfully',
+                pricing_saved: 'Pricing updated successfully',
+                reset_success: 'Initial count reset successfully',
+                error: 'Error processing operation',
+                partial_delivery: 'Partial delivery: insufficient stock',
+                no_stock: 'No stock available'
+            },
+            reconciliation: {
+                title: 'Uniforms (Auto-fill)',
+                total_sales: 'Registered Sales',
+                apply: 'Apply from Module',
+                manual: 'Manual Entry'
+            }
+        }
     }
 };
 

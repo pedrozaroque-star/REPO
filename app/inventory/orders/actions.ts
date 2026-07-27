@@ -412,6 +412,32 @@ export async function calculateDailyOrder(
     // Usar override si está definido, si no usar el día siguiente por defecto
     const targetField = overrideDayField && overrideDayField !== 'auto' ? overrideDayField : nextDayBaseField
 
+    // 1. Cargar consumo teórico del día desde inventory_usage_log
+    const { data: usageLogData } = await supabase
+        .from('inventory_usage_log')
+        .select('inventory_item_id, theoretical_usage')
+        .eq('store_id', storeId.toString())
+        .eq('business_date', dateStr)
+
+    const usageMap = new Map<string, number>()
+    usageLogData?.forEach((u: any) => usageMap.set(u.inventory_item_id, Number(u.theoretical_usage) || 0))
+
+    // 2. Obtener la fecha de ayer para leer Sobrante de Ayer + Pedido Llegó Hoy
+    const yesterdayStr = addDays(dateStr, -1)
+
+    // Leer orden entregada ayer/hoy para saber lo que llegó de Bodega
+    const { data: recentOrderLines } = await supabase
+        .from('inventory_order_lines')
+        .select('inventory_item_id, final_qty, adjusted_qty, calculated_qty, order_id, inventory_orders!inner(order_date, store_id)')
+        .eq('inventory_orders.store_id', storeId)
+        .eq('inventory_orders.order_date', yesterdayStr)
+
+    const arrivedMap = new Map<string, number>()
+    recentOrderLines?.forEach((l: any) => {
+        const qty = l.final_qty ?? (l.adjusted_qty ?? (l.calculated_qty ?? 0))
+        arrivedMap.set(l.inventory_item_id, qty)
+    })
+
     const lines: CalculatedOrderLine[] = []
 
     for (const item of items) {
@@ -437,6 +463,33 @@ export async function calculateDailyOrder(
         const itemCounts = counts[item.id] || {}
         const leftoverValue = itemCounts[dateStr] ?? null
 
+        // Sobrante de ayer
+        const yesterdayLeftover = itemCounts[yesterdayStr] ?? null
+        const arrivedToday = arrivedMap.get(item.id) || 0
+        const theoreticalUsage = usageMap.get(item.id) ?? null
+
+        let suggestedLeftover: number | null = null
+        let isBurnRate = false
+
+        if (theoreticalUsage !== null && yesterdayLeftover !== null) {
+            // Ecuación Fundamental: Sobrante Teórico = Sobrante Ayer + Llegó Hoy - Consumo Teórico
+            const calc = yesterdayLeftover + arrivedToday - theoreticalUsage
+            suggestedLeftover = Math.max(0, applyRounding(calc, item.order_rounding_rule))
+        } else if (theoreticalUsage === null && yesterdayLeftover !== null) {
+            // Fallback Burn Rate para items de limpieza/suministros
+            // Si el item no tiene receta, estimar un consumo diario moderado basado en el PAR
+            isBurnRate = true
+            const estimatedDailyUsage = parValue > 0 ? Math.max(1, parValue * 0.2) : 0
+            const calc = yesterdayLeftover + arrivedToday - estimatedDailyUsage
+            suggestedLeftover = Math.max(0, applyRounding(calc, item.order_rounding_rule))
+        }
+
+        // Calcular varianza: Sobrante Teórico Sugerido - Sobrante Real Capturado
+        let variance: number | null = null
+        if (suggestedLeftover !== null && leftoverValue !== null) {
+            variance = Number((leftoverValue - suggestedLeftover).toFixed(2))
+        }
+
         // Calcular orden: si no hay sobrante capturado, asumir 0 (pedir PAR completo)
         const effectiveLeftover = leftoverValue ?? 0
         let calculatedQty = parValue - effectiveLeftover
@@ -454,6 +507,9 @@ export async function calculateDailyOrder(
             par_value: parValue,
             par_ideal_value: itemParIdeal,
             leftover_value: leftoverValue,
+            suggested_leftover: suggestedLeftover,
+            is_burn_rate: isBurnRate,
+            variance: variance,
             calculated_qty: calculatedQty,
             rounding_rule: item.order_rounding_rule,
             qb_item_id: item.qb_item_id,

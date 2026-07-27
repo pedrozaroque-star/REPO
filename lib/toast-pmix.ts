@@ -13,6 +13,7 @@
  * @notes
  * - Implementa un mecanismo de caché autosanable (`pmix_daily_cache`) para evitar llamadas duplicadas y costosas al API.
  * - Dado el límite estricto de Toast API, las fechas se procesan de forma estrictamente secuencial para evitar errores 429.
+ * - [2026-07-26] BUGFIX: Evita usar caché de PMIX incompleta (creada por pedidos a futuro o catering antes del día operativo real) comprobando que `updated_at` (en Los Angeles time) no sea anterior a `business_date`.
  */
 import { getAuthToken, getDiningOptions } from './toast-api'
 import { getSupabaseAdminClient } from '@/lib/supabase'
@@ -125,34 +126,50 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
         if (!options.skipCache && !isDirty) {
             const { data: cachedData, error: cacheErr } = await supabase
                 .from('pmix_daily_cache')
-                .select('items')
+                .select('items, updated_at')
                 .eq('store_id', storeId)
                 .eq('business_date', dateStr)
                 .single();
 
             if (!cacheErr && cachedData && cachedData.items && Array.isArray(cachedData.items) && cachedData.items.length > 0) {
-                console.log(`[PMIX Cache HIT] ${dateStr} (${storeId})`)
-                cachedData.items.forEach((item: ProductMixItem) => {
-                    // Convert potential group_name override if mergeDiningOptions is on.
-                    // Doing this locally when loading from cache ensures food-cost queries bypass group grouping.
-                    const finalGroupName = options.mergeDiningOptions ? 'All Channels' : (item.group_name || 'Uncategorized')
-                    addFn(
-                        itemMap,
-                        item.guid,
-                        item.name,
-                        finalGroupName,
-                        Number(item.quantity || 0),
-                        Number(item.net_sales || 0),
-                        Number(item.gross_sales || 0),
-                        Number(item.discounts || 0),
-                        Number(item.voided_quantity || 0),
-                        Number(item.unit_price || 0),
-                        item.modifier_guids,
-                        Number(item.modifier_gross_sales || 0),
-                        Number(item.half_meat_adjustments || 0)
-                    )
-                })
-                continue;
+                // Validación defensiva: verificar si la caché se generó ANTES de la fecha operativa
+                // Esto pasa si hay un pedido a futuro en Toast (como catering) y se procesa antes de la fecha operativa real.
+                // Si updated_at::date es menor que business_date, la caché está incompleta.
+                const updatedAt = new Date(cachedData.updated_at)
+                // Convertir updated_at (que está en UTC) a la fecha de Los Ángeles
+                const updatedAtLA = new Date(updatedAt.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+                
+                const y = updatedAtLA.getFullYear()
+                const m = String(updatedAtLA.getMonth() + 1).padStart(2, '0')
+                const d = String(updatedAtLA.getDate()).padStart(2, '0')
+                const updatedAtDateStr = `${y}-${m}-${d}`
+
+                if (updatedAtDateStr < dateStr) {
+                    console.log(`[PMIX Cache BYPASS] Caché de pedido futuro detectada para ${dateStr} (${storeId}). Creado el: ${updatedAtDateStr}. Forzando descarga en vivo.`)
+                } else {
+                    console.log(`[PMIX Cache HIT] ${dateStr} (${storeId})`)
+                    cachedData.items.forEach((item: ProductMixItem) => {
+                        // Convert potential group_name override if mergeDiningOptions is on.
+                        // Doing this locally when loading from cache ensures food-cost queries bypass group grouping.
+                        const finalGroupName = options.mergeDiningOptions ? 'All Channels' : (item.group_name || 'Uncategorized')
+                        addFn(
+                            itemMap,
+                            item.guid,
+                            item.name,
+                            finalGroupName,
+                            Number(item.quantity || 0),
+                            Number(item.net_sales || 0),
+                            Number(item.gross_sales || 0),
+                            Number(item.discounts || 0),
+                            Number(item.voided_quantity || 0),
+                            Number(item.unit_price || 0),
+                            item.modifier_guids,
+                            Number(item.modifier_gross_sales || 0),
+                            Number(item.half_meat_adjustments || 0)
+                        )
+                    })
+                    continue;
+                }
             }
         }
 
@@ -394,7 +411,8 @@ export async function getProductMix(options: ProductMixOptions): Promise<Product
             supabase.from('pmix_daily_cache').upsert({
                 store_id: storeId,
                 business_date: dateStr,
-                items: dayItems
+                items: dayItems,
+                updated_at: new Date().toISOString()
             }, { onConflict: 'store_id,business_date' })
                 .then(({ error }) => {
                     if (error) console.error(`[PMIX Cache WRITE] Error for ${dateStr}:`, error)

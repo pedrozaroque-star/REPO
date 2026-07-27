@@ -97,6 +97,7 @@ export default function ToastSyncModal({ isOpen, onClose, onSuccess }: ToastSync
             const promotionsToApply = promotions
                 .filter(p => selectedPromotions[p.email])
                 .map(p => ({
+                    toast_guid: p.toast_guid,
                     email: p.email,
                     full_name: p.full_name,
                     phone: p.phone,

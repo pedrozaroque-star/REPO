@@ -1,3 +1,29 @@
+/**
+ * @module api/inventory/recipes
+ *
+ * @description
+ * API para leer y guardar recetas de platillos del menú de Toast.
+ * Cada receta vincula un platillo (por su Toast GUID) con ingredientes del inventario,
+ * especificando cantidades, unidades y tipo (food, raw, cooked, cogs_dine_in, etc.).
+ *
+ * @businessRules
+ * - GET: Retorna los ingredientes de la receta para un GUID de Toast específico,
+ *   incluyendo los datos del ingrediente (precio, qty_per_unit, yield, etc.).
+ * - POST: Borra la receta anterior y reinserta los ingredientes nuevos.
+ *   Si `recipe_na` es true, se marca el platillo como "sin receta" y se borran ingredientes.
+ * - Al guardar una receta, se invalida la caché de food cost del día actual
+ *   (`food_cost_daily_cache`) para que el dashboard muestre costos actualizados de inmediato.
+ *
+ * @dataFlow
+ * - Lee de: `recipes`, `toast_menu_items`, `inventory_items`
+ * - Escribe en: `recipes`, `toast_menu_items` (flag recipe_na)
+ * - Invalida: `food_cost_daily_cache` (al hacer POST)
+ *
+ * @notes
+ * - [2026-07-26] Agregada invalidación automática de food_cost_daily_cache al guardar receta.
+ *   Antes de este cambio, editar una receta no se reflejaba en el dashboard hasta que el
+ *   cron sync-food-cost recalculara (podía tomar hasta 12 horas).
+ */
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
@@ -113,6 +139,16 @@ export async function POST(request: Request) {
         if (insertError) {
             return NextResponse.json({ error: insertError.message }, { status: 500 })
         }
+    }
+
+    // Invalidar caché de food cost del día actual para que el dashboard
+    // muestre los costos actualizados inmediatamente después de editar una receta
+    try {
+        const today = new Date().toISOString().split('T')[0]
+        await supabase.from('food_cost_daily_cache').delete().eq('business_date', today)
+        console.log(`[Recipes] 🗑️ Caché de food cost invalidada para ${today} por edición de receta (guid: ${toast_guid})`)
+    } catch (cacheErr: any) {
+        console.error('[Recipes] ⚠️ Error invalidando caché de food cost:', cacheErr.message)
     }
 
     return NextResponse.json({ success: true })

@@ -138,16 +138,22 @@ DATABASE SCHEMA CATALOG (CORE TABLES):
     *   Columns: \`id\` (UUID PRIMARY KEY), \`order_id\` (UUID), \`inventory_item_id\` (UUID), \`calculated_qty\` (NUMERIC), \`adjusted_qty\` (NUMERIC), \`final_qty\` (NUMERIC), \`par_value\` (NUMERIC), \`leftover_value\` (NUMERIC)
 18. **inventory_usage_log**: Daily theoretical ingredient usage pre-calculated from Toast PMIX + Recipes.
     *   Columns: \`id\` (UUID PRIMARY KEY), \`store_id\` (TEXT), \`business_date\` (DATE), \`inventory_item_id\` (UUID), \`theoretical_usage\` (NUMERIC), \`waste_usage\` (NUMERIC), \`total_usage\` (NUMERIC), \`created_at\` (TIMESTAMPTZ)
+19. **uniforms_pricing**: Catalog of available uniforms and prices.
+    *   Columns: \`id\` (UUID), \`item_type\` (TEXT), \`size\` (TEXT), \`color\` (TEXT), \`price\` (NUMERIC)
+20. **uniforms_inventory_stock**: Real-time stock counts of uniforms by store.
+    *   Columns: \`id\` (UUID), \`store_id\` (BIGINT), \`uniform_id\` (UUID), \`quantity\` (INT), \`last_updated\` (TIMESTAMPTZ)
+21. **uniforms_transactions**: Ledger of uniform sales, deliveries, and stock adjustments.
+    *   Columns: \`id\` (UUID), \`store_id\` (BIGINT), \`uniform_id\` (UUID), \`transaction_type\` (TEXT - 'sale', 'free', 'adjustment'), \`quantity\` (INT), \`total_price\` (NUMERIC), \`employee_name\` (TEXT), \`payment_method\` (TEXT - 'cash', 'payroll', 'free'), \`business_date\` (DATE)
 
 MODULES OVERVIEW & BUSINESS RULES:
 1.  **SALES**: Net Sales, orders, Uber Eats, DoorDash, EBT. "6 AM Rule" (business day 6AM-5:59AM next day).
-2.  **FOOD COST**: Ingredient cost vs sales percentage. Target <32%.
+2.  **FOOD COST**: Ingredient cost vs sales percentage. Target <32%. Utiliza caché de PMIX (\`pmix_daily_cache\`) con validación de auto-sanación (invalida cachés creadas con anterioridad a la fecha operativa real).
 3.  **LABOR**: Punches, hours worked, overtime, labor cost %. Target <21.5%.
 4.  **INSPECTIONS**: Quality audits by supervisors. Score, status, by store.
 5.  **DISCOUNTS**: Discount audit, anomalies (First Responder, Employee, Senior).
 6.  **SCHEDULES**: Weekly schedules, shifts, days off, planner. Publish notification API sends the entire weekly schedule to impacted employees if a shift is edited post-publication.
 7.  **EMPLOYEES**: Roster, roles (Admin, Supervisor, Manager, Assistant, Employee).
-8.  **INVENTORY**: Items, recipes, menu catalog, costs per unit.
+8.  **INVENTORY**: Items, recipes, menu catalog, costs per unit. Sincronización con QuickBooks protege precios mediante Smart Price Protection (bloquea caídas >= max_drop_percent, default 50%). NUEVO: Auto-sync de empaques lee el campo Description de QB Recurring Transactions (ej: "(Bag of 5 lbs)") para actualizar automáticamente quantity_per_unit, ajustar PAR de pedidos, e invalidar caché de food cost.
 9.  **FEEDBACK**: Google reviews, internal employee feedback.
 10. **STORES**: All Tacos Gavilan locations.
 11. **FORECASTING**: Predictive sales and hourly staff curves (cooks/cashiers).
@@ -157,6 +163,7 @@ MODULES OVERVIEW & BUSINESS RULES:
 15. **PREPARADOR / COOKING PACE**: Projections of raw pounds of meat for the grill in 30-min intervals. Parrilla meats (ASADA, PASTOR, POLLO, CABEZA, LENGUA) require pace planning. Cooked on-demand meats (Buche, Chorizo, Carnitas) do not require pace projections. Carnitas is tracked in bodega logs but must be filtered out of the tablet display. Intraday accelerator matches sales against historical curves.
 16. **PARTY TRAYS (Virtual Recipes)**: Dynamic recipes generated on-the-fly at \`/api/inventory/food-cost\`. Scale with group sizes: 15-20, 20-25, 25-30, 30-40 people. Parsed from menu item name modifiers.
 17. **CAJA FUERTE (Safe Management)**: Roster cash count logs showing vault grand totals, loose change, bills breakdown, rolls, and drawers totals.
+18. **UNIFORMS CONTROL**: Module to track uniform inventory and sales to employees. Standard prices: Shirts $7, Caps $1, Jackets $20. Black Shirts are free for managers. Standard new hire package: 6 red shirts + 1 red cap + 1 red jacket. Cash sales flow directly into the Safe Management (Caja Fuerte) daily reconciliation via API \`GET /api/inventory/uniforms/safe-reconciliation\`.
 
 SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY):
 1.  **ANÁLISIS (Analysis Group)**:
@@ -178,8 +185,8 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY):
 3.  **GESTIÓN (Management Group)**:
     *   **Tiendas (Stores)**: \`/tiendas\`. Access: Admin. Purpose: Edit and configure active restaurant store lists and metadata.
     *   **TV Menús**: \`/admin/tv-menus\`. Access: Admin, Supervisor. Purpose: Manage immersive BOH/FOH menu display boards and screens.
-    *   **Usuarios (Users)**: \`/usuarios\`. Access: Admin, Supervisor. Purpose: Register new employees, manage roles, emails, active credentials, and Toast Promotions Sync. Features direct mapping of Toast 'Manager' and 'Asst. Manager' jobs to system users, store-level conflict detection to deactivate previous managers/assistants, and auto-completion from Toast employees.
-18. **COMMAND LADDER & TOAST SYNC**: 6-level hierarchy: 1. Cook/Cashier (preparador/cajera), 2. Shift Leader, 3. Asst. Manager, 4. Manager, 5. Supervisor, 6. Admin. Only levels 3-6 hold system user credentials in \`users\`. Levels 1 & 2 feed directly from Toast POS (\`toast_employees\`) into the Planner/Labor module.
+    *   **Usuarios (Users)**: \`/usuarios\`. Access: Admin, Supervisor. Purpose: Register new employees, manage roles, emails, active credentials, and Toast Promotions Sync. Features: (1) Direct mapping of Toast 'Manager' and 'Asst. Manager' jobs to system users via **triple matching** (toast_guid > email > name+store). (2) Store-level Manager conflict detection (deactivates previous Manager since stores have 1 Manager). Stores support **multiple active Assistants** (e.g., AM Shift & PM Shift), so promoting a new Assistant does NOT deactivate existing Assistants. Demoted employees are caught automatically via \`pendingDemotions\`. (3) Auto-completion from Toast employees. (4) Normalized job title matching (case-insensitive, punctuation-stripped). The \`users.toast_guid\` column provides a permanent link to \`toast_employees.toast_guid\`.
+18. **COMMAND LADDER & TOAST SYNC**: 6-level hierarchy: 1. Cook/Cashier (preparador/cajera), 2. Shift Leader, 3. Asst. Manager, 4. Manager, 5. Supervisor, 6. Admin. Only levels 3-6 hold system user credentials in \`users\`. Levels 1 & 2 feed directly from Toast POS (\`toast_employees\`) into the Planner/Labor module. Users are linked to Toast via \`toast_guid\` (unique) for reliable sync even when emails or names change.
     *   **Plantillas (Templates)**: \`/admin/plantillas\`. Access: Admin. Purpose: Edit template checklist questions, scoring metrics, and sections.
 4.  **INVENTARIO (Inventory Group)**:
     *   **Insumos de Bodega (Ingredients)**: \`/inventory/items\`. Access: Admin, Manager, Supervisor. Purpose: Central bodega and restaurant inventory raw items catalog, yield%, unit mappings.
@@ -277,8 +284,9 @@ Food Cost % = (Total Ingredient Cost ÷ Net Sales) × 100
 ## INVENTORY & MENU
 - **Catálogo (Menu Catalog)**: All Toast menu items synced with prices, groups, and modifier options.
 - **Insumos (Inventory Items)**: Raw ingredients with purchase costs, unit measures, yield percentages.
-- **Recipes**: Link menu items to ingredients. Each recipe defines quantity and unit of each ingredient needed per menu item sold. This drives the food cost calculation.
-- **Costos (Food Cost)**: Admin → Costos shows food cost % by store and by date, with drill-down into item-level costs.`;
+- **Recipes**: Link menu items to ingredients. Each recipe defines quantity and unit of each ingredient needed per menu item sold. This drives the food cost calculation. Editing a recipe automatically invalidates food cost cache for the current day.
+- **Costos (Food Cost)**: Admin → Costos shows food cost % by store and by date, with drill-down into item-level costs.
+- **Packaging Auto-Sync**: The QB sync reads the Description field from Recurring Transactions (e.g., "(Bag of 5 lbs)") to automatically detect when the warehouse changes bag sizes. When detected, it cascades: updates quantity_per_unit and order_unit_description in inventory_items, scales PAR values across all stores (e.g., if bag goes from 10 lbs to 5 lbs, PAR doubles), and invalidates food_cost_daily_cache for the last 3 days. Smart Price Protection compares cost-per-pound (not per-bag) when a packaging change is detected, so legitimate packaging changes pass through while actual price drops are still blocked.`;
 
 export async function POST(req: NextRequest) {
   try {

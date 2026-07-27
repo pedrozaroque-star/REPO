@@ -59,11 +59,40 @@
  * - El matching de nombres es exact-match case-insensitive con trim.
  * - [2026-06-19] Added smart price protection: multiplier from DB, max_drop_percent blocking.
  * - [2026-07-08] Fixed liquids template matching to search specifically for 'orden liquidos' to prevent 'Bodega Liquidos' from overwriting it.
+ * - [2026-07-26] Added packaging auto-sync: reads Description field from QB RecurringTransactions
+ *   (e.g. "(Bag of 5 lbs)") to auto-update quantity_per_unit, order_unit_description, and
+ *   unit_measure. When packaging changes, auto-adjusts PAR across all stores and invalidates
+ *   food_cost_daily_cache. Smart Price Protection now compares cost-per-unit-measure
+ *   (e.g. $/lb) instead of cost-per-bag when a packaging change is detected.
  */
 import { NextResponse } from 'next/server';
 import { getSupabaseAdminClient } from '@/lib/supabase';
 import { authClient } from '@/lib/quickbooks';
 import QuickBooks from 'node-quickbooks';
+
+// ── Packaging Parser ──────────────────────────────────────────────────
+// Extrae cantidad y unidad de medida del campo Description de QB
+// Ej: "(Bag of 5 lbs)" → { qty: 5, unit: 'lb', description: '(Bag of 5 lbs)' }
+// Ej: "(Crate of 400 ct)" → { qty: 400, unit: 'pza', description: '(Crate of 400 ct)' }
+// Ej: "(Bag of 1 Gallon)" → { qty: 1, unit: 'gal', description: '(Bag of 1 Gallon)' }
+function parsePackaging(description: string | undefined | null): { qty: number; unit: string; description: string } | null {
+    if (!description) return null;
+    const match = description.match(
+        /\((?:bag|box|crate|case|container|bucket|cubeta|bolsa)\s+of\s+([\d.]+)\s*(lbs?|oz|gal(?:lon)?s?|ct|pza?|kg|g|l|ml|fl\s*oz)\s*\)/i
+    );
+    if (!match) return null;
+    const qty = parseFloat(match[1]);
+    if (isNaN(qty) || qty <= 0) return null;
+    const rawUnit = match[2].toLowerCase().trim();
+    const unitMap: Record<string, string> = {
+        'lb': 'lb', 'lbs': 'lb',
+        'oz': 'oz', 'fl oz': 'fl oz',
+        'gal': 'gal', 'gallon': 'gal', 'gallons': 'gal',
+        'ct': 'pza', 'pz': 'pza', 'pza': 'pza',
+        'kg': 'kg', 'g': 'g', 'l': 'l', 'ml': 'ml'
+    };
+    return { qty, unit: unitMap[rawUnit] || rawUnit, description: description.trim() };
+}
 
 export async function GET() {
     return POST();
@@ -149,12 +178,16 @@ export async function POST() {
         let createdCount = 0;
         let priceChanges = 0;
         let blockedCount = 0;
+        let packagingChanges = 0;
         const blockedItems: string[] = [];
+        const packagingUpdates: string[] = [];
 
         // Build a lookup of current prices for change detection
         const currentPriceMap = new Map<string, number>();
+        const currentQtyPerUnitMap = new Map<string, number>();
         internalItems.forEach(item => {
             currentPriceMap.set(item.id, Number(item.purchase_unit_cost) || 0);
+            currentQtyPerUnitMap.set(item.id, Number(item.quantity_per_unit) || 1);
         });
 
         const DEFAULT_CATEGORY_ID = '5678dc7e-4514-4757-a5d0-9330e904140e'; // QuickBooks Import
@@ -166,6 +199,39 @@ export async function POST() {
             '540': 60, // Papelito Para Torta (QB has price per piece, DB has Case of 60)
         };
         const DEFAULT_MAX_DROP_PERCENT = 50; // Block drops > 50% by default
+
+        // ====================================================================
+        // PASO 0: PRE-SCAN — Leer RecurringTransactions para extraer empaques
+        // Construye un mapa qbItemId → {newQty, newUnit, newDescription}
+        // Se ejecuta ANTES del sync de precios para informar al Smart Price Protection
+        // ====================================================================
+        const packagingMap = new Map<string, { qty: number; unit: string; description: string }>();
+        try {
+            console.log('[QB-Sync] 📦 PASO 0: Pre-scanning RecurringTransactions para datos de empaque...');
+            const qbQueryPreScan = async (sql: string) => {
+                const res = await fetch(`https://quickbooks.api.intuit.com/v3/company/${integration.realm_id}/query?query=${encodeURIComponent(sql)}&minorversion=75`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' }
+                });
+                if (!res.ok) throw new Error(`QB Query Failed: ${res.statusText}`);
+                const data = await res.json();
+                return data?.QueryResponse?.RecurringTransaction || [];
+            };
+            const preScanRecurring = await qbQueryPreScan('SELECT * FROM RecurringTransaction');
+            for (const t of preScanRecurring) {
+                if (!t.Estimate) continue;
+                const lines = t.Estimate.Line || [];
+                for (const line of lines) {
+                    if (line.DetailType !== 'SalesItemLineDetail' || !line.SalesItemLineDetail?.ItemRef?.value) continue;
+                    const qbItemId = line.SalesItemLineDetail.ItemRef.value;
+                    if (packagingMap.has(qbItemId)) continue; // Ya parseado desde otro template
+                    const pkg = parsePackaging(line.Description);
+                    if (pkg) packagingMap.set(qbItemId, pkg);
+                }
+            }
+            console.log(`[QB-Sync] 📦 Pre-scan completado: ${packagingMap.size} items con datos de empaque.`);
+        } catch (preScanErr: any) {
+            console.error('[QB-Sync] ⚠️ Pre-scan de empaques falló (continuando sin datos de empaque):', preScanErr.message);
+        }
 
         for (const qbItem of qbItems) {
             if (qbItem.Type !== 'Inventory' && qbItem.Type !== 'NonInventory') continue;
@@ -201,14 +267,34 @@ export async function POST() {
                     const dropPercent = ((oldPrice - rate) / oldPrice) * 100;
                     const maxDrop = Number((existingMapping as any).max_drop_percent) || DEFAULT_MAX_DROP_PERCENT;
 
-                    if (dropPercent > maxDrop) {
-                        // 🛡️ BLOCKED: Suspicious price drop
-                        console.log(`[QB-Sync] 🛡️ BLOCKED: "${qbItem.Name}" price drop ${dropPercent.toFixed(1)}% exceeds max ${maxDrop}% ($${oldPrice.toFixed(2)} → $${rate.toFixed(2)})`);
-                        blockedCount++;
-                        blockedItems.push(`${qbItem.Name}: $${oldPrice.toFixed(2)} → $${rate.toFixed(2)} (-${dropPercent.toFixed(1)}%)`);
-                        // Still update the mapping's last_fetch_cost so we know what QB tried to send
-                        await supabase.from('quickbooks_mappings').update({ last_fetch_cost: rate, updated_at: now }).eq('qb_item_id', qbItem.Id);
-                        continue; // Skip the actual price update
+                    if (dropPercent >= maxDrop) {
+                        // Check if this is a legitimate packaging change
+                        // If the Description shows a different bag size, compare cost-per-unit-measure
+                        const pkgInfo = packagingMap.get(qbItem.Id);
+                        const oldQtyPerUnit = currentQtyPerUnitMap.get(existingMapping.inventory_item_id) || 1;
+                        let isLegitPackagingChange = false;
+
+                        if (pkgInfo && Math.abs(pkgInfo.qty - oldQtyPerUnit) > 0.01) {
+                            // Packaging changed! Compare cost per unit of measure (e.g. $/lb)
+                            const oldCostPerMeasure = oldPrice / oldQtyPerUnit;
+                            const newCostPerMeasure = rate / pkgInfo.qty;
+                            const costPerMeasureDiff = Math.abs(oldCostPerMeasure - newCostPerMeasure) / oldCostPerMeasure * 100;
+                            // If cost per unit of measure changed less than 10%, it's a packaging change
+                            if (costPerMeasureDiff < 10) {
+                                isLegitPackagingChange = true;
+                                console.log(`[QB-Sync] 📦 PACKAGING CHANGE DETECTED: "${qbItem.Name}" bag ${oldQtyPerUnit} → ${pkgInfo.qty} ${pkgInfo.unit}. Cost/unit: $${oldCostPerMeasure.toFixed(2)} → $${newCostPerMeasure.toFixed(2)} (diff ${costPerMeasureDiff.toFixed(1)}%). ALLOWING price update.`);
+                            }
+                        }
+
+                        if (!isLegitPackagingChange) {
+                            // 🛡️ BLOCKED: Suspicious price drop (not explained by packaging)
+                            console.log(`[QB-Sync] 🛡️ BLOCKED: "${qbItem.Name}" price drop ${dropPercent.toFixed(1)}% exceeds max ${maxDrop}% ($${oldPrice.toFixed(2)} → $${rate.toFixed(2)})`);
+                            blockedCount++;
+                            blockedItems.push(`${qbItem.Name}: $${oldPrice.toFixed(2)} → $${rate.toFixed(2)} (-${dropPercent.toFixed(1)}%)`);
+                            // Still update the mapping's last_fetch_cost so we know what QB tried to send
+                            await supabase.from('quickbooks_mappings').update({ last_fetch_cost: rate, updated_at: now }).eq('qb_item_id', qbItem.Id);
+                            continue; // Skip the actual price update
+                        }
                     }
                 }
 
@@ -276,7 +362,106 @@ export async function POST() {
             });
 
             usedInternalIds.add(internal.id);
-            updatedCount++;
+            createdCount++;
+        }
+
+        // ====================================================================
+        // PASO 2: CASCADA — Aplicar cambios de empaque detectados en PASO 0
+        // Actualiza quantity_per_unit, order_unit_description, ajusta PAR, invalida caché
+        // ====================================================================
+        try {
+            for (const [qbItemId, pkgInfo] of packagingMap.entries()) {
+                const mapping = existingMappings?.find(m => m.qb_item_id === qbItemId);
+                if (!mapping) continue;
+                const invItemId = mapping.inventory_item_id;
+                const oldQtyPerUnit = currentQtyPerUnitMap.get(invItemId) || 0;
+
+                // Only act if quantity_per_unit actually changed
+                if (oldQtyPerUnit > 0 && Math.abs(oldQtyPerUnit - pkgInfo.qty) > 0.01) {
+                    const itemName = internalItems.find(i => i.id === invItemId)?.name || qbItemId;
+                    const parFactor = oldQtyPerUnit / pkgInfo.qty; // e.g. 10/5 = 2.0
+
+                    // 2a. Update inventory_items
+                    const currentItem = internalItems.find(i => i.id === invItemId);
+                    await supabase.from('inventory_items').update({
+                        quantity_per_unit: pkgInfo.qty,
+                        order_unit_description: pkgInfo.description,
+                        unit_measure: pkgInfo.unit,
+                        updated_at: now.toISOString()
+                    }).eq('id', invItemId);
+
+                    // 2a-bis. Record packaging change in audit history
+                    await supabase.from('inventory_packaging_history').insert({
+                        inventory_item_id: invItemId,
+                        old_quantity_per_unit: oldQtyPerUnit,
+                        new_quantity_per_unit: pkgInfo.qty,
+                        old_description: currentItem?.order_unit_description || null,
+                        new_description: pkgInfo.description,
+                        old_unit_measure: currentItem?.unit_measure || null,
+                        new_unit_measure: pkgInfo.unit,
+                        par_factor: parFactor,
+                        source: 'qb_sync'
+                    });
+
+                    // 2b. Adjust PAR in inventory_weekly_bases (all stores, current & future weeks)
+                    const { data: allBases } = await supabase
+                        .from('inventory_weekly_bases')
+                        .select('id, mon_par, tue_par, wed_par, thu_par, fri_par, sat_par, sun_par')
+                        .eq('inventory_item_id', invItemId);
+                    if (allBases && allBases.length > 0) {
+                        const roundUp = (v: number) => Math.ceil((Number(v) || 0) * parFactor);
+                        for (const base of allBases) {
+                            await supabase.from('inventory_weekly_bases').update({
+                                mon_par: roundUp(base.mon_par), tue_par: roundUp(base.tue_par),
+                                wed_par: roundUp(base.wed_par), thu_par: roundUp(base.thu_par),
+                                fri_par: roundUp(base.fri_par), sat_par: roundUp(base.sat_par),
+                                sun_par: roundUp(base.sun_par)
+                            }).eq('id', base.id);
+                        }
+                    }
+
+                    // 2c. Adjust PAR Ideal (baseline) too
+                    const { data: idealBases } = await supabase
+                        .from('inventory_par_ideal')
+                        .select('id, mon_par, tue_par, wed_par, thu_par, fri_par, sat_par, sun_par')
+                        .eq('inventory_item_id', invItemId);
+                    if (idealBases && idealBases.length > 0) {
+                        const roundUp = (v: number) => Math.ceil((Number(v) || 0) * parFactor);
+                        for (const base of idealBases) {
+                            await supabase.from('inventory_par_ideal').update({
+                                mon_par: roundUp(base.mon_par), tue_par: roundUp(base.tue_par),
+                                wed_par: roundUp(base.wed_par), thu_par: roundUp(base.thu_par),
+                                fri_par: roundUp(base.fri_par), sat_par: roundUp(base.sat_par),
+                                sun_par: roundUp(base.sun_par)
+                            }).eq('id', base.id);
+                        }
+                    }
+
+                    packagingChanges++;
+                    packagingUpdates.push(`${itemName}: ${oldQtyPerUnit} → ${pkgInfo.qty} ${pkgInfo.unit} (PAR ×${parFactor.toFixed(1)})`);
+                    console.log(`[QB-Sync] 📦 CASCADA: ${itemName} qty_per_unit ${oldQtyPerUnit} → ${pkgInfo.qty} ${pkgInfo.unit}, PAR ×${parFactor.toFixed(1)} en ${(allBases?.length || 0) + (idealBases?.length || 0)} registros`);
+                } else if (oldQtyPerUnit === 0 || !oldQtyPerUnit) {
+                    // First time setting quantity_per_unit (was null/0)
+                    await supabase.from('inventory_items').update({
+                        quantity_per_unit: pkgInfo.qty,
+                        order_unit_description: pkgInfo.description,
+                        unit_measure: pkgInfo.unit,
+                        updated_at: now.toISOString()
+                    }).eq('id', invItemId);
+                    console.log(`[QB-Sync] 📦 INIT: ${internalItems.find(i => i.id === invItemId)?.name} qty_per_unit set to ${pkgInfo.qty} ${pkgInfo.unit}`);
+                }
+            }
+
+            // 2d. Invalidate food cost cache if any packaging or price changes occurred
+            if (packagingChanges > 0 || priceChanges > 0) {
+                const cutoff = new Date();
+                cutoff.setDate(cutoff.getDate() - 3);
+                const cutoffStr = cutoff.toISOString().split('T')[0];
+                await supabase.from('food_cost_daily_cache').delete().gte('business_date', cutoffStr);
+                console.log(`[QB-Sync] 🗑️ Caché de food cost invalidada (últimos 3 días desde ${cutoffStr}) por ${packagingChanges} cambios de empaque + ${priceChanges} cambios de precio.`);
+            }
+        } catch (cascadeErr: any) {
+            console.error('[QB-Sync] ❌ Error en cascada de empaques:', cascadeErr.message);
         }
 
         // ====================================================================
@@ -594,10 +779,14 @@ export async function POST() {
         }
 
         // Log summary with protection details
-        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked, ${storesLinked} stores linked, ${itemsAdded} items added, ${itemsRemoved} items removed, ${templatesUpdated} templates updated (${templateItemsSynced} items)`);
+        console.log(`[QB-Sync] ✅ Done: ${updatedCount} updated, ${createdCount} created, ${priceChanges} price changes, ${blockedCount} blocked, ${packagingChanges} packaging cascades, ${storesLinked} stores linked, ${itemsAdded} items added, ${itemsRemoved} items removed, ${templatesUpdated} templates updated (${templateItemsSynced} items)`);
         if (blockedItems.length > 0) {
             console.log(`[QB-Sync] 🛡️ Blocked items:`);
             blockedItems.forEach(b => console.log(`  - ${b}`));
+        }
+        if (packagingUpdates.length > 0) {
+            console.log(`[QB-Sync] 📦 Packaging changes applied:`);
+            packagingUpdates.forEach(p => console.log(`  - ${p}`));
         }
 
         return NextResponse.json({
@@ -607,6 +796,10 @@ export async function POST() {
             priceChanges,
             blockedCount,
             blockedItems: blockedItems.length > 0 ? blockedItems : undefined,
+            packagingSync: {
+                packagingChanges,
+                packagingUpdates: packagingUpdates.length > 0 ? packagingUpdates : undefined
+            },
             storesLinked,
             templateSync: { itemsAdded, itemsRemoved, templatesUpdated, templateItemsSynced }
         });

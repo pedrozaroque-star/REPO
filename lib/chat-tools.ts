@@ -112,7 +112,7 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'query_inventory',
-    description: 'Query inventory items, recipes, menu items, costs.',
+    description: 'Query inventory items, recipes, menu items, costs. Items include purchase_unit_cost, quantity_per_unit (bag/box size auto-synced from QB Description), order_unit_description, unit_measure, and yield_percent.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -278,6 +278,28 @@ export const TOOL_DECLARATIONS = [
       },
       required: ['query_text']
     }
+  },
+  {
+    name: 'query_uniforms_stock',
+    description: 'Query uniform inventory stock levels across all stores or a specific store.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        store_name: { type: 'STRING', description: 'Optional store name filter' }
+      }
+    }
+  },
+  {
+    name: 'query_executive_uniforms_dashboard',
+    description: 'Generate an executive summary of uniform operations: total inventory value, recent sales revenue, and missing cash from safe reconciliations.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        start_date: { type: 'STRING', description: 'Start date YYYY-MM-DD' },
+        end_date: { type: 'STRING', description: 'End date YYYY-MM-DD' }
+      },
+      required: ['start_date', 'end_date']
+    }
   }
 ]
 
@@ -306,6 +328,8 @@ export async function executeTool(name: string, args: any): Promise<string> {
       case 'query_prep_pace': return await queryPrepPace(args)
       case 'query_inventory_orders': return await queryInventoryOrders(args)
       case 'execute_custom_sql': return await executeCustomSql(args)
+      case 'query_uniforms_stock': return await queryUniformsStock(args)
+      case 'query_executive_uniforms_dashboard': return await queryExecutiveUniformsDashboard(args)
       default: return `Tool "${name}" not found.`
     }
   } catch (e: any) {
@@ -1359,12 +1383,107 @@ async function querySafeCounts(args: any): Promise<string> {
   if (error) return `Error: ${error.message}`
   if (!data?.length) return `No safe counts found from ${args.start_date} to ${args.end_date}.`
 
+  let grand = 0
   const lines = data.map(r => {
+    grand += Number(r.grand_total) || 0
     const storeName = idToName[r.store_id] || `Store #${r.store_id}`
     return `${r.business_date} | ${storeName} | Total: ${fmt$(Number(r.grand_total) || 0)} (Bills: ${fmt$(Number(r.bills_total) || 0)}, Coins: ${fmt$(Number(r.coins_total) || 0)}, Drawers: ${fmt$(Number(r.drawers_total) || 0)}, Uniforms: ${fmt$(Number(r.uniforms_amount) || 0)}) | Notes: ${r.notes || 'None'}`
   })
 
-  return `Safe Counts (${data.length} records):\n${lines.join('\n')}`
+  return `--- Safe Counts ---\nTotal records: ${data.length}\nGrand total sum: ${fmt$(grand)}\n\n${lines.join('\n')}`
+}
+
+// ── 23. Uniforms ──
+async function queryUniformsStock(args: any): Promise<string> {
+  const { idToName } = await getStoreMaps()
+  
+  // 1. Fetch pricing
+  const { data: pricingData, error: pricingErr } = await supabaseAdmin
+    .from('uniforms_pricing')
+    .select('*')
+    
+  if (pricingErr) return `Error fetching pricing: ${pricingErr.message}`
+  
+  const pricingMap: Record<string, any> = {}
+  pricingData?.forEach(p => {
+    pricingMap[p.item_category] = p
+  })
+  
+  let query = supabaseAdmin
+    .from('uniforms_inventory_stock')
+    .select('*')
+    
+  if (args.store_name) {
+    const storeIds = await getStoreIdsByName(args.store_name)
+    if (storeIds.length) query = query.in('store_id', storeIds)
+  }
+
+  const { data, error } = await query
+  if (error) return `Error: ${error.message}`
+  if (!data?.length) return 'No uniform stock data found.'
+
+  const byStore: Record<string, any[]> = {}
+  data.forEach((r: any) => {
+    const storeName = idToName[r.store_id] || `Store ${r.store_id}`
+    if (!byStore[storeName]) byStore[storeName] = []
+    byStore[storeName].push({
+      ...r,
+      pricing: pricingMap[r.item_category]
+    })
+  })
+
+  let output = `Uniforms Stock:\n`
+  for (const [store, stock] of Object.entries(byStore)) {
+    let totalItems = 0
+    let totalValue = 0
+    output += `\n🏪 **${store}**\n`
+    stock.sort((a, b) => (a.item_category || '').localeCompare(b.item_category || ''))
+      .forEach(s => {
+        const p = s.pricing
+        const qty = s.quantity_on_hand || 0
+        totalItems += qty
+        
+        const price = p ? Number(p.sale_price) || 0 : 0
+        totalValue += qty * price
+        
+        const itemName = p ? (p.display_name_en || p.item_category) : s.item_category
+        output += `- ${qty}x ${itemName} (Size: ${s.size}) @ ${fmt$(price)}\n`
+      })
+    output += `> Total: ${totalItems} items, Value: ${fmt$(totalValue)}\n`
+  }
+  
+  return output
+}
+
+async function queryExecutiveUniformsDashboard(args: any): Promise<string> {
+  // Get all transactions
+  const { data: tx, error: txError } = await supabaseAdmin
+    .from('uniforms_transactions')
+    .select('*')
+    .gte('business_date', args.start_date)
+    .lte('business_date', args.end_date)
+    
+  if (txError) return `Error fetching transactions: ${txError.message}`
+  
+  let totalSales = 0
+  let totalFree = 0
+  let itemsSold = 0
+  let itemsFree = 0
+  
+  ;(tx || []).forEach(t => {
+    if (t.transaction_type === 'sale') {
+      totalSales += Number(t.total_price) || 0
+      itemsSold += Number(t.quantity) || 0
+    } else if (t.transaction_type === 'free') {
+      totalFree += Number(t.total_price) || 0
+      itemsFree += Number(t.quantity) || 0
+    }
+  })
+  
+  return `Uniforms Executive Dashboard (${args.start_date} to ${args.end_date}):\n\n` +
+         `💰 **Sales Revenue**: ${fmt$(totalSales)} (${itemsSold} items sold)\n` +
+         `👕 **Free Uniforms Value**: ${fmt$(totalFree)} (${itemsFree} items given)\n` +
+         `\nTo investigate cash discrepancies, recommend comparing this with the Safe Counts report for the same period.`
 }
 
 // ── 20. Prep Pace (Preparador) ──

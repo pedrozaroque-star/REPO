@@ -275,6 +275,10 @@ function CajaFuerteContent() {
   const [submitting, setSubmitting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  
+  const [reconciliationData, setReconciliationData] = useState<{ totalCollected: number; transactionCount: number; breakdown?: string; } | null>(null)
+  const [reconciliationLoading, setReconciliationLoading] = useState(false)
+  const [manualOverride, setManualOverride] = useState(false)
 
   // History state
   const [historyStoreId, setHistoryStoreId] = useState<string>('all')
@@ -323,6 +327,32 @@ function CajaFuerteContent() {
     }
     fetchStores()
   }, [])
+
+  // Fetch uniforms reconciliation
+  useEffect(() => {
+    if (!form.store_id || !form.business_date) return;
+    const fetchReconciliation = async () => {
+      setReconciliationLoading(true)
+      try {
+        const token = localStorage.getItem('teg_token')
+        const res = await fetch(`/api/inventory/uniforms/safe-reconciliation?storeId=${form.store_id}&businessDate=${form.business_date}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setReconciliationData(data)
+          if (data.totalCollected !== undefined && !manualOverride) {
+            setForm(prev => ({ ...prev, uniforms_amount: data.totalCollected }))
+          }
+        }
+      } catch (err) {
+        console.error('[CajaFuerte] Reconciliation fetch error:', err)
+      } finally {
+        setReconciliationLoading(false)
+      }
+    }
+    fetchReconciliation()
+  }, [form.store_id, form.business_date, manualOverride])
 
   // Auto-select store for manager
   useEffect(() => {
@@ -744,23 +774,59 @@ function CajaFuerteContent() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-semibold text-lg">$</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={form.uniforms_amount || ''}
-                      onChange={(e) => updateField('uniforms_amount', Math.max(0, parseFloat(e.target.value) || 0))}
-                      className="w-40 h-12 pl-8 pr-3 text-lg font-semibold rounded-xl border-2 
-                        border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 
-                        text-gray-900 dark:text-white focus:outline-none focus:ring-2 
-                        focus:ring-purple-500 focus:border-purple-500 transition-all
-                        [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      inputMode="decimal"
-                    />
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-semibold text-lg">$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={form.uniforms_amount || ''}
+                        onChange={(e) => {
+                          setManualOverride(true)
+                          updateField('uniforms_amount', Math.max(0, parseFloat(e.target.value) || 0))
+                        }}
+                        className="w-40 h-12 pl-8 pr-3 text-lg font-semibold rounded-xl border-2 
+                          border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 
+                          text-gray-900 dark:text-white focus:outline-none focus:ring-2 
+                          focus:ring-purple-500 focus:border-purple-500 transition-all
+                          [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        inputMode="decimal"
+                      />
+                    </div>
                   </div>
+
+                  {reconciliationLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                      <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                      Consultando módulo...
+                    </div>
+                  ) : (reconciliationData && reconciliationData.totalCollected !== undefined) ? (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-gray-600 dark:text-gray-300 bg-purple-100 dark:bg-purple-900/40 px-2 py-1 rounded-md border border-purple-200 dark:border-purple-700/50">
+                          Ventas Módulo: <strong>{formatCurrency(reconciliationData.totalCollected)}</strong>
+                        </span>
+                        {manualOverride && (
+                          <button
+                            onClick={() => {
+                              setManualOverride(false)
+                              setForm(prev => ({ ...prev, uniforms_amount: reconciliationData.totalCollected }))
+                            }}
+                            className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded-md transition-colors"
+                          >
+                            Aplicar del Módulo
+                          </button>
+                        )}
+                      </div>
+                      {reconciliationData.breakdown && (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {reconciliationData.breakdown}
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </motion.div>
 

@@ -13,7 +13,7 @@ import {
     DollarSign, TrendingUp, Calendar, MessageSquare, CalendarCheck, UserCog,
     Monitor, ChefHat, Zap, X, PanelLeftClose, PanelLeft, RefreshCw,
     Settings, Keyboard, HelpCircle, ExternalLink, Moon, Sun, Globe, Shield,
-    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer
+    CalendarDays, Sparkles, Info, UserCircle, Menu, Folder, Truck, Timer, Shirt
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useLanguage } from '@/lib/i18n'
@@ -177,6 +177,7 @@ export default function AppSidebar({ isCollapsed, setIsCollapsed, mobileDrawerOp
                 { name: t('items.food_costs'), plainName: 'Costos', path: '/inventory/costs', icon: <TrendingUp size={20} />, roles: ['admin', 'manager'] },
                 { name: t('items.prep'), plainName: 'Preparador', path: '/inventory/preparador', icon: <ChefHat size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
                 { name: t('items.bodega_orders'), plainName: 'Orden diaria', path: '/inventory/orders', icon: <Truck size={20} />, roles: ['admin', 'manager', 'supervisor'] },
+                { name: t('items.uniforms_control'), plainName: 'Control de Uniformes', path: '/inventory/uniforms', icon: <Shirt size={20} />, roles: ['admin', 'manager', 'supervisor', 'asistente'] },
             ]
         },
         {
