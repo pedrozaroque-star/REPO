@@ -382,27 +382,19 @@ export async function POST() {
         }
 
         // ====================================================================
-        // PASO 2: CASCADA — Aplicar cambios de empaque detectados en PASO 0
-        // Actualiza quantity_per_unit, order_unit_description, ajusta PAR, invalida caché
+        // PASO 2: EMPAQUE — Actualizar descripciones y quantity_per_unit de QB
+        // NOTA CRÍTICA: NUNCA se tocan los PARs automáticamente.
+        // Los PARs son valores de negocio configurados manualmente por los gerentes.
+        // Solo se actualizan: order_unit_description, unit_measure, quantity_per_unit.
         // ====================================================================
         try {
             for (const [qbItemId, pkgInfo] of packagingMap.entries()) {
                 const mapping = existingMappings?.find(m => m.qb_item_id === qbItemId);
                 if (!mapping) continue;
                 const invItemId = mapping.inventory_item_id;
-
-                // Ignorar Milaneza, Salchicha, Pastor y Pollo del cambio automático de empaque para evitar alterar sus PARs o unidades manuales/por tienda
-                // Pero SÍ les podemos actualizar la descripción visual si es diferente!
-                const isSkippedFromParCascade = [
-                    '5c59d80c-7d7b-45f9-997c-57540127d3a8', // Milaneza (por pieza)
-                    'cac598b2-9c18-4055-8f2e-16de22d78535', // Salchicha Bag (por bolsa)
-                    'ad7e3703-2701-4a05-aa97-77866c8c717e', // Pastor (empaque diferente por tienda: Slauson 3 lb vs Lynwood 5 lb)
-                    '4ea7ef9c-986e-4fc1-a363-7200ca558aab'  // Pollo (empaque diferente por tienda: Slauson 3 lb vs Lynwood 5 lb)
-                ].includes(invItemId);
-
                 const currentItem = internalItems.find(i => i.id === invItemId);
-                
-                // 1. Siempre actualizar descripción y unidad de medida si difieren de lo que tenemos
+
+                // 1. Siempre actualizar descripción y unidad de medida si difieren
                 if (currentItem && (
                     currentItem.order_unit_description !== pkgInfo.description ||
                     currentItem.unit_measure !== pkgInfo.unit
@@ -415,94 +407,18 @@ export async function POST() {
                     }).eq('id', invItemId);
                 }
 
-                if (isSkippedFromParCascade) {
-                    console.log(`[QB-Sync] 📦 Saltando cascada de PAR para item protegido: ${invItemId}`);
-                    continue;
-                }
-
+                // 2. Actualizar quantity_per_unit si cambió (para cálculos de food cost)
+                // IMPORTANTE: Solo actualiza el campo numérico, NO toca PARs ni weekly_bases
                 const oldQtyPerUnit = currentQtyPerUnitMap.get(invItemId) || 0;
-
-                // 2. Si es la primera vez que se define la cantidad por unidad (era 0 o null)
-                if (oldQtyPerUnit === 0 && pkgInfo.qty > 0) {
-                    console.log(`[QB-Sync] ⚖️ Definiendo cantidad inicial por unidad para ${currentItem?.name || invItemId}: ${pkgInfo.qty}`);
-                    await supabase.from('inventory_items').update({
-                        quantity_per_unit: pkgInfo.qty,
-                        updated_at: now.toISOString()
-                    }).eq('id', invItemId);
-                    continue;
-                }
-
-                // 3. Solo si quantity_per_unit cambió, hacer el ajuste en cascada de PARs
-                if (oldQtyPerUnit > 0 && Math.abs(oldQtyPerUnit - pkgInfo.qty) > 0.01) {
+                if (pkgInfo.qty > 0 && Math.abs(oldQtyPerUnit - pkgInfo.qty) > 0.01) {
                     const itemName = currentItem?.name || qbItemId;
-                    const parFactor = oldQtyPerUnit / pkgInfo.qty; // e.g. 10/5 = 2.0
-                    console.log(`[QB-Sync] ⚖️ Cambio de empaque detectado para ${itemName}: ${oldQtyPerUnit} → ${pkgInfo.qty}. Escalando PARs (factor ${parFactor})...`);
-
-                    // 2a. Update quantity_per_unit
+                    console.log(`[QB-Sync] ⚖️ quantity_per_unit actualizado para ${itemName}: ${oldQtyPerUnit} → ${pkgInfo.qty} (sin tocar PARs)`);
                     await supabase.from('inventory_items').update({
                         quantity_per_unit: pkgInfo.qty,
                         updated_at: now.toISOString()
                     }).eq('id', invItemId);
-
-                    // 2a-bis. Record packaging change in audit history
-                    await supabase.from('inventory_packaging_history').insert({
-                        inventory_item_id: invItemId,
-                        old_quantity_per_unit: oldQtyPerUnit,
-                        new_quantity_per_unit: pkgInfo.qty,
-                        old_description: currentItem?.order_unit_description || null,
-                        new_description: pkgInfo.description,
-                        old_unit_measure: currentItem?.unit_measure || null,
-                        new_unit_measure: pkgInfo.unit,
-                        par_factor: parFactor,
-                        source: 'qb_sync'
-                    });
-
-                    // 2b. Adjust PAR in inventory_weekly_bases (all stores, current & future weeks)
-                    const { data: allBases } = await supabase
-                        .from('inventory_weekly_bases')
-                        .select('id, mon_par, tue_par, wed_par, thu_par, fri_par, sat_par, sun_par')
-                        .eq('inventory_item_id', invItemId);
-                    if (allBases && allBases.length > 0) {
-                        const roundUp = (v: number) => Math.ceil((Number(v) || 0) * parFactor);
-                        for (const base of allBases) {
-                            await supabase.from('inventory_weekly_bases').update({
-                                mon_par: roundUp(base.mon_par), tue_par: roundUp(base.tue_par),
-                                wed_par: roundUp(base.wed_par), thu_par: roundUp(base.thu_par),
-                                fri_par: roundUp(base.fri_par), sat_par: roundUp(base.sat_par),
-                                sun_par: roundUp(base.sun_par)
-                            }).eq('id', base.id);
-                        }
-                    }
-
-                    // 2c. Adjust PAR Ideal (baseline) too
-                    const { data: idealBases } = await supabase
-                        .from('inventory_par_ideal')
-                        .select('id, mon_par, tue_par, wed_par, thu_par, fri_par, sat_par, sun_par')
-                        .eq('inventory_item_id', invItemId);
-                    if (idealBases && idealBases.length > 0) {
-                        const roundUp = (v: number) => Math.ceil((Number(v) || 0) * parFactor);
-                        for (const base of idealBases) {
-                            await supabase.from('inventory_par_ideal').update({
-                                mon_par: roundUp(base.mon_par), tue_par: roundUp(base.tue_par),
-                                wed_par: roundUp(base.wed_par), thu_par: roundUp(base.thu_par),
-                                fri_par: roundUp(base.fri_par), sat_par: roundUp(base.sat_par),
-                                sun_par: roundUp(base.sun_par)
-                            }).eq('id', base.id);
-                        }
-                    }
-
                     packagingChanges++;
-                    packagingUpdates.push(`${itemName}: ${oldQtyPerUnit} → ${pkgInfo.qty} ${pkgInfo.unit} (PAR ×${parFactor.toFixed(1)})`);
-                    console.log(`[QB-Sync] 📦 CASCADA: ${itemName} qty_per_unit ${oldQtyPerUnit} → ${pkgInfo.qty} ${pkgInfo.unit}, PAR ×${parFactor.toFixed(1)} en ${(allBases?.length || 0) + (idealBases?.length || 0)} registros`);
-                } else if (oldQtyPerUnit === 0 || !oldQtyPerUnit) {
-                    // First time setting quantity_per_unit (was null/0)
-                    await supabase.from('inventory_items').update({
-                        quantity_per_unit: pkgInfo.qty,
-                        order_unit_description: pkgInfo.description,
-                        unit_measure: pkgInfo.unit,
-                        updated_at: now.toISOString()
-                    }).eq('id', invItemId);
-                    console.log(`[QB-Sync] 📦 INIT: ${internalItems.find(i => i.id === invItemId)?.name} qty_per_unit set to ${pkgInfo.qty} ${pkgInfo.unit}`);
+                    packagingUpdates.push(`${itemName}: qty_per_unit ${oldQtyPerUnit} → ${pkgInfo.qty} ${pkgInfo.unit}`);
                 }
             }
 
