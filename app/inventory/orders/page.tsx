@@ -94,6 +94,19 @@ const WEEK_DAYS = [
     { key: 'sun', baseField: 'sun_par', offset: 6 },
 ]
 
+function getTrafficLight(pct: number, isSaturday: boolean) {
+    if (isSaturday) {
+        // Sábado: ≥40% = rojo, 15-40% = verde, <15% = amarillo
+        if (pct >= 40) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
+        if (pct >= 15) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
+        return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
+    }
+    // L-V: ≥60% = rojo, 20-60% = verde, <20% = amarillo
+    if (pct >= 60) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
+    if (pct >= 20) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
+    return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -113,6 +126,7 @@ export default function InventoryOrdersPage() {
     const [saving, setSaving] = useState(false)
     const [hasBaseChanges, setHasBaseChanges] = useState(false)
     const [savingPar, setSavingPar] = useState(false)
+    const [weeklyRightView, setWeeklyRightView] = useState<'leftovers' | 'par_ideal'>('leftovers')
 
     // Data
     const [items, setItems] = useState<OrderableItem[]>([])
@@ -546,8 +560,12 @@ export default function InventoryOrdersPage() {
                 sun_par: b.sun_par || 0
             }))
             
-            await saveWeeklyBases(storeId, activeMonday, basesList)
-            alert(t('bodegaOrders.parSaved'))
+            const nextWeekMonday = addDays(activeMonday, 7)
+            await saveWeeklyBases(storeId, nextWeekMonday, basesList)
+            const successMsg = language === 'es'
+                ? `PAR Guardado exitosamente para la próxima semana (inicia el ${nextWeekMonday}).`
+                : `PAR saved successfully for next week (starts on ${nextWeekMonday}).`
+            alert(successMsg)
             setOriginalBases(JSON.parse(JSON.stringify(bases)))
             setHasBaseChanges(false)
             
@@ -2123,6 +2141,33 @@ export default function InventoryOrdersPage() {
                                          </div>
                                     )}
 
+                                    {orderType === 'daily' && (
+                                         <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-1 shadow-sm text-xs select-none ml-auto sm:ml-2">
+                                             <button
+                                                 type="button"
+                                                 onClick={() => setWeeklyRightView('leftovers')}
+                                                 className={`px-3 py-1 font-bold rounded-lg transition-all ${
+                                                     weeklyRightView === 'leftovers'
+                                                         ? 'bg-orange-600 text-white shadow-2xs'
+                                                         : 'hover:bg-slate-200 text-slate-700'
+                                                 }`}
+                                             >
+                                                 📦 {t('bodegaOrders.showLeftovers')}
+                                             </button>
+                                             <button
+                                                 type="button"
+                                                 onClick={() => setWeeklyRightView('par_ideal')}
+                                                 className={`px-3 py-1 font-bold rounded-lg transition-all ${
+                                                     weeklyRightView === 'par_ideal'
+                                                         ? 'bg-indigo-600 text-white shadow-2xs'
+                                                         : 'hover:bg-slate-200 text-slate-700'
+                                                 }`}
+                                             >
+                                                 ✨ {t('bodegaOrders.showParIdeal')}
+                                             </button>
+                                         </div>
+                                    )}
+
                                     <div className="flex-1" />
 
                                     {/* Close Week button */}
@@ -2149,8 +2194,12 @@ export default function InventoryOrdersPage() {
                                                             {t('bodegaOrders.parActualHeader')}
                                                         </th>
                                                         <th rowSpan={2} className="bg-slate-300 border-b-2 border-slate-300 p-0 w-[2px] sticky top-0 z-20"></th>
-                                                        <th colSpan={7} className="bg-violet-100/80 text-violet-800 text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 border-violet-300 sticky top-0 z-20">
-                                                            {t('bodegaOrders.parIdealHeader')}
+                                                        <th colSpan={7} className={`text-center font-black text-xs uppercase tracking-wider py-1.5 border-b-2 sticky top-0 z-20 ${
+                                                            weeklyRightView === 'leftovers'
+                                                                ? 'bg-orange-100/80 text-orange-800 border-orange-300'
+                                                                : 'bg-violet-100/80 text-violet-800 border-violet-300'
+                                                        }`}>
+                                                            {weeklyRightView === 'leftovers' ? t('bodegaOrders.showLeftovers') : t('bodegaOrders.parIdealHeader')}
                                                         </th>
                                                     </>
                                                 ) : (
@@ -2176,9 +2225,13 @@ export default function InventoryOrdersPage() {
                                                             </th>
                                                         ))}
                                                         {weekDays.map(d => (
-                                                            <th key={`pih_${d.key}`} className="bg-violet-50/60 border-b border-violet-200 p-2 text-center w-16 text-[10px] text-violet-600 font-bold sticky top-[36px] z-20">
+                                                            <th key={`pih_${d.key}`} className={`border-b p-2 text-center w-16 text-[10px] font-bold sticky top-[36px] z-20 ${
+                                                                weeklyRightView === 'leftovers'
+                                                                    ? 'bg-orange-50 border-orange-200 text-orange-700'
+                                                                    : 'bg-violet-50/60 border-violet-200 text-violet-600'
+                                                            }`}>
                                                                 {d.label}<br/>
-                                                                <span className="font-normal text-violet-400">Ideal</span>
+                                                                <span className="font-normal">{weeklyRightView === 'leftovers' ? d.dateStr.slice(5) : 'Ideal'}</span>
                                                             </th>
                                                         ))}
                                                     </>
@@ -2238,12 +2291,59 @@ export default function InventoryOrdersPage() {
                                                             {/* PAR Ideal values (violet, readonly) */}
                                                             <td className="bg-slate-200 p-0 w-[2px] border-b border-slate-200"></td>
                                                             {weekDays.map(d => {
-                                                                const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : null
-                                                                return (
-                                                                    <td key={`pi_${item.id}_${d.key}`} className="border-b border-violet-100/50 p-1.5 text-center text-violet-500 font-medium text-xs bg-violet-50/20">
-                                                                        {piVal || '-'}
-                                                                    </td>
-                                                                )
+                                                                if (weeklyRightView === 'leftovers') {
+                                                                    const itemCounts = counts[item.id] || {}
+                                                                    const leftover = itemCounts[d.dateStr]
+                                                                    const hasVal = leftover !== undefined && leftover !== null
+                                                                    const parVal = b ? Number((b as any)[d.baseField]) || 0 : 0
+                                                                    const isSaturday = d.key === 'sat'
+
+                                                                    let pct: number | null = null
+                                                                    let traffic = { bg: '', text: 'text-slate-300', border: '', label: '' }
+
+                                                                    if (hasVal && parVal >= 8) {
+                                                                        pct = Math.round((leftover / parVal) * 100)
+                                                                        traffic = getTrafficLight(pct, isSaturday)
+                                                                    } else if (hasVal && leftover === 0) {
+                                                                        pct = 0
+                                                                        traffic = { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '🔴' }
+                                                                    }
+
+                                                                    if (!hasVal) {
+                                                                        return (
+                                                                            <td key={`cnt_${item.id}_${d.key}`} className="border-b border-slate-100 text-slate-200 p-1.5 text-center bg-slate-50/10">
+                                                                                -
+                                                                            </td>
+                                                                        )
+                                                                    }
+
+                                                                    return (
+                                                                        <td key={`cnt_${item.id}_${d.key}`} className={`border-b border-slate-100 p-1 text-center font-bold ${traffic.bg} transition-all`}>
+                                                                            <div className="flex items-center justify-center gap-1.5 min-h-[32px]">
+                                                                                <span className={`text-sm font-black ${leftover === 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                                                                                    {leftover}
+                                                                                </span>
+                                                                                {pct !== null ? (
+                                                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${traffic.text} ${
+                                                                                        traffic.bg === 'bg-red-50' ? 'bg-red-100' 
+                                                                                        : traffic.bg === 'bg-emerald-50' ? 'bg-emerald-100' 
+                                                                                        : traffic.bg === 'bg-amber-50' ? 'bg-amber-100' 
+                                                                                        : 'bg-slate-100'
+                                                                                    }`}>
+                                                                                        {pct}%
+                                                                                    </span>
+                                                                                ) : null}
+                                                                            </div>
+                                                                        </td>
+                                                                    )
+                                                                } else {
+                                                                    const piVal = parIdeal[item.id] ? (parIdeal[item.id] as any)[d.baseField] : null
+                                                                    return (
+                                                                        <td key={`pi_${item.id}_${d.key}`} className="border-b border-violet-100/50 p-1.5 text-center text-violet-500 font-medium text-xs bg-violet-50/20">
+                                                                            {piVal || '-'}
+                                                                        </td>
+                                                                    )
+                                                                }
                                                             })}
                                                             </>
                                                         ) : (
@@ -2446,20 +2546,6 @@ export default function InventoryOrdersPage() {
                                 return itemCounts && Object.keys(itemCounts).length > 0
                             })
                             const allOrderableItems = items
-
-                            // Helper: get traffic light color class based on leftover %
-                            const getTrafficLight = (pct: number, isSaturday: boolean) => {
-                                if (isSaturday) {
-                                    // Sábado: ≥40% = rojo, 15-40% = verde, <15% = amarillo
-                                    if (pct >= 40) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
-                                    if (pct >= 15) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
-                                    return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
-                                }
-                                // L-V: ≥60% = rojo, 20-60% = verde, <20% = amarillo
-                                if (pct >= 60) return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', label: '⬇️' }
-                                if (pct >= 20) return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: '✅' }
-                                return { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', label: '⬆️' }
-                            }
 
                             return (
                                 <div className="p-6">

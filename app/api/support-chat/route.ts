@@ -193,7 +193,7 @@ SM TEG SIDEBAR NAVIGATION MAP & PATHS (MASTER DIRECTORY):
     *   **Recetas (Menu Catalog)**: \`/inventory/menu\`. Access: Admin, Manager, Supervisor. Purpose: Connect Toast menu GUIDs to ingredients in recipes, calculate margins.
     *   **Costos (Food Costs)**: \`/inventory/costs\`. Access: Admin, Manager. Purpose: View daily consolidated food cost percentage summaries.
     *   **Preparador (Prep Tool)**: \`/inventory/preparador\`. Access: Admin, Manager, Supervisor, Assistant (asistente). Purpose: Production projections, grill cooking pace, and raw meat historical consumption curves.
-    *   **Orden diaria (Bodega Orders)**: \`/inventory/orders\`. Access: Admin, Manager, Supervisor. Purpose: Roster store-level daily orders to La Bodega and synchronize as QuickBooks estimates.
+    *   **Orden diaria (Bodega Orders)**: \`/inventory/orders\`. Access: Admin, Manager, Supervisor. Purpose: Roster store-level daily orders to La Bodega and synchronize as QuickBooks estimates. Features: (1) Daily orders, weekly configuration (BASE/PAR settings), history logs, and daily leftovers matrices. (2) The weekly config view has a right-side toggle switch (defaulting to Leftovers) to dynamically compare daily PAR values on the left against either weekly leftovers (orange) or suggested Ideal PAR (violet) side-by-side. (3) Adjustments made to the PAR bases are saved to the following week (week_start_date + 7 days) to preserve this week's locked orders.
 5.  **KIOSKOS (Kiosks Group)**:
     *   **Kiosk Feedback**: \`/clientes\`. Access: Admin, Manager, Supervisor. Purpose: Customer QR-code feedback surveys.
     *   **Eval. Staff**: \`/evaluacion\`. Access: Admin, Manager, Supervisor. Purpose: Staff evaluations and performance reports.
