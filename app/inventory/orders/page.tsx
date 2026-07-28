@@ -213,23 +213,7 @@ export default function InventoryOrdersPage() {
         if (!storeId) return
         setLoading(true)
         try {
-            // Sincronización automática en vivo con QuickBooks Online al cargar o cambiar de pestaña
-            const syncKey = `${storeId}_${orderType}_${activeMonday}`
-            if (syncKey !== lastSyncedKeyRef.current) {
-                try {
-                    const res = await fetch('/api/inventory/sync-quickbooks', { method: 'POST' })
-                    const data = await res.json()
-                    if (res.status === 401 || data.reauth_url) {
-                        setQbAuthRequired(true)
-                    } else {
-                        setQbAuthRequired(false)
-                        lastSyncedKeyRef.current = syncKey
-                    }
-                } catch (e) {
-                    console.error('[QB-Sync] Error en la sincronización en vivo:', e)
-                }
-            }
-
+            // 1. Cargar inmediatamente los datos locales desde la base de datos (Supabase)
             const [orderableItems, allInvItems, mappedInvItems, weekData] = await Promise.all([
                 fetchOrderableItems(storeId, orderType),
                 fetchAllInventoryItems(),
@@ -295,9 +279,42 @@ export default function InventoryOrdersPage() {
                 )
                 setOrderLines([...lines, ...extraordinarySavedLines])
             }
+
+            // 2. Apagar el spinner de carga de inmediato para visualización instantánea
+            setLoading(false)
+
+            // 3. Lanzar la sincronización en segundo plano con QuickBooks Online sin bloquear al usuario
+            const syncKey = `${storeId}_${orderType}_${activeMonday}`
+            if (syncKey !== lastSyncedKeyRef.current) {
+                fetch('/api/inventory/sync-quickbooks', { method: 'POST' })
+                    .then(async (res) => {
+                        const data = await res.json()
+                        if (res.status === 401 || data.reauth_url) {
+                            setQbAuthRequired(true)
+                        } else {
+                            setQbAuthRequired(false)
+                            lastSyncedKeyRef.current = syncKey
+                            
+                            // Si el sync actualizó templates o empaques, recargar silenciosamente los estados
+                            if (data.templates_updated > 0 || data.items_updated > 0) {
+                                console.log('[QB-Sync] Cambios en QB detectados en segundo plano. Recargando items...');
+                                const [freshItems, freshAllItems, freshMapped] = await Promise.all([
+                                    fetchOrderableItems(storeId, orderType),
+                                    fetchAllInventoryItems(),
+                                    fetchMappedItems()
+                                ])
+                                setItems(freshItems)
+                                setAllItems(freshAllItems)
+                                setMappedItems(freshMapped)
+                            }
+                        }
+                    })
+                    .catch((e) => {
+                        console.error('[QB-Sync] Error en la sincronización en segundo plano:', e)
+                    })
+            }
         } catch (error) {
             console.error('Error loading data:', error)
-        } finally {
             setLoading(false)
         }
     }, [storeId, activeMonday, overrideDayField, selectedOrderDate, orderType, parBoostPercent])
