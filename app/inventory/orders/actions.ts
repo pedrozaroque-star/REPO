@@ -74,7 +74,7 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
             qb_item_id,
             qb_item_name,
             sort_position,
-            inventory_items:inventory_item_id (id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule)
+            inventory_items:inventory_item_id (id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, purchase_unit_cost, unit_measure)
         `)
         .eq('store_id', storeId)
         .eq('order_type', orderType)
@@ -94,14 +94,60 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
                 order_unit_description: item.order_unit_description,
                 order_rounding_rule: item.order_rounding_rule || 'none',
                 order_sort_position: t.sort_position || 999,
-                qb_item_id: t.qb_item_id
+                qb_item_id: t.qb_item_id,
+                purchase_unit_cost: item.purchase_unit_cost,
+                unit_measure: item.unit_measure
             }
         }) as OrderableItem[]
-    } else {
+    } else if (orderType === 'liquids' || orderType === 'uniforms') {
+        // Fallback unificado para líquidos y uniformes: buscar el template de cualquier otra tienda ya que es compartido
+        const { data: fallbackTemplate } = await supabase
+            .from('store_order_template')
+            .select(`
+                inventory_item_id,
+                qb_item_id,
+                qb_item_name,
+                sort_position,
+                inventory_items:inventory_item_id (id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, purchase_unit_cost, unit_measure)
+            `)
+            .eq('order_type', orderType)
+            .limit(400)
+
+        if (fallbackTemplate && fallbackTemplate.length > 0) {
+            const seenIds = new Set()
+            const uniqueLines = []
+            for (const t of fallbackTemplate) {
+                if (t.inventory_item_id && !seenIds.has(t.inventory_item_id)) {
+                    seenIds.add(t.inventory_item_id)
+                    uniqueLines.push(t)
+                }
+            }
+            uniqueLines.sort((a, b) => (a.sort_position || 0) - (b.sort_position || 0))
+
+            result = uniqueLines.map(t => {
+                const item = t.inventory_items as any
+                const qbCleanName = t.qb_item_name ? t.qb_item_name.split(':').pop()?.trim() || '' : '';
+                return {
+                    id: item.id,
+                    name: item.name,
+                    unit_type: item.unit_type,
+                    excel_reference: item.excel_reference || qbCleanName || item.name,
+                    order_unit_description: item.order_unit_description,
+                    order_rounding_rule: item.order_rounding_rule || 'none',
+                    order_sort_position: t.sort_position || 999,
+                    qb_item_id: t.qb_item_id,
+                    purchase_unit_cost: item.purchase_unit_cost,
+                    unit_measure: item.unit_measure
+                }
+            }) as OrderableItem[]
+        }
+    }
+
+    if (result.length === 0) {
         // Fallback: Si no hay template, usar la lista global anterior
         const { data: items, error: itemsError } = await supabase
             .from('inventory_items')
-            .select('id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, order_sort_position')
+            .select('id, name, unit_type, excel_reference, order_unit_description, order_rounding_rule, order_sort_position, purchase_unit_cost, unit_measure')
             .not('excel_reference', 'is', null)
             .order('order_sort_position', { ascending: true })
 
@@ -119,15 +165,17 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
             ...item,
             order_rounding_rule: item.order_rounding_rule || 'none',
             order_sort_position: item.order_sort_position || 999,
-            qb_item_id: qbMap.get(item.id)
+            qb_item_id: qbMap.get(item.id),
+            purchase_unit_cost: item.purchase_unit_cost,
+            unit_measure: item.unit_measure
         })) as OrderableItem[]
     }
 
     // Asegurar que Flan y Cheesecake estén presentes en el pedido diario como TRACK_ONLY
     if (orderType === 'daily') {
         const requiredDesserts = [
-            { id: 'f8f776c5-3b8c-453e-8161-b49840823933', name: 'Flan', unit_type: 'Per Unit', order_unit_description: '' },
-            { id: '8ba55664-5ca9-4886-8ac8-acf1fd070713', name: 'Cheesecake', unit_type: 'Per Unit', order_unit_description: 'Cheesecake' }
+            { id: 'f8f776c5-3b8c-453e-8161-b49840823933', name: 'Flan', unit_type: 'Per Unit', order_unit_description: '', purchase_unit_cost: 1.85, unit_measure: 'pza' },
+            { id: '8ba55664-5ca9-4886-8ac8-acf1fd070713', name: 'Cheesecake', unit_type: 'Per Unit', order_unit_description: 'Cheesecake', purchase_unit_cost: 2.15, unit_measure: 'pza' }
         ]
 
         for (const dessert of requiredDesserts) {
@@ -140,7 +188,9 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
                     order_unit_description: dessert.order_unit_description,
                     order_rounding_rule: 'none',
                     order_sort_position: 9999,
-                    qb_item_id: 'TRACK_ONLY'
+                    qb_item_id: 'TRACK_ONLY',
+                    purchase_unit_cost: dessert.purchase_unit_cost,
+                    unit_measure: dessert.unit_measure
                 })
             }
         }
@@ -155,7 +205,7 @@ export async function fetchOrderableItems(storeId: string | number, orderType: O
 export async function fetchAllInventoryItems() {
     const { data } = await supabase
         .from('inventory_items')
-        .select('id, name, unit_type, excel_reference')
+        .select('id, name, unit_type, excel_reference, purchase_unit_cost, unit_measure, order_unit_description')
         .order('name', { ascending: true })
     return data || []
 }
@@ -172,7 +222,7 @@ export async function fetchMappedItems() {
 
     const { data: items, error: itemsError } = await supabase
         .from('inventory_items')
-        .select('id, name, unit_type, order_unit_description')
+        .select('id, name, unit_type, order_unit_description, purchase_unit_cost, unit_measure')
 
     if (itemsError) throw new Error(itemsError.message)
 
@@ -186,7 +236,9 @@ export async function fetchMappedItems() {
             name: item?.name || m.qb_item_name,
             unit_type: item?.unit_type || 'Unit',
             order_unit_description: item?.order_unit_description || '',
-            qb_item_id: m.qb_item_id
+            qb_item_id: m.qb_item_id,
+            purchase_unit_cost: item?.purchase_unit_cost,
+            unit_measure: item?.unit_measure
         }
     })
 }
@@ -513,6 +565,8 @@ export async function calculateDailyOrder(
             calculated_qty: calculatedQty,
             rounding_rule: item.order_rounding_rule,
             qb_item_id: item.qb_item_id,
+            purchase_unit_cost: item.purchase_unit_cost,
+            unit_measure: item.unit_measure
         })
     }
 

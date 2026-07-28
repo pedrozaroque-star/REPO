@@ -56,6 +56,8 @@ export type OrderableItem = {
     order_rounding_rule: string
     order_sort_position: number
     qb_item_id?: string
+    purchase_unit_cost?: number
+    unit_measure?: string
 }
 
 export type WeeklyBaseRecord = {
@@ -85,6 +87,8 @@ export type CalculatedOrderLine = {
     suggested_leftover?: number | null
     is_burn_rate?: boolean
     variance?: number | null
+    purchase_unit_cost?: number
+    unit_measure?: string
 }
 
 export type OrderRecord = {

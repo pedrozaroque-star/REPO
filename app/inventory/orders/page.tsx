@@ -36,7 +36,7 @@
  */
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
     Package, ClipboardList, ShoppingCart, BarChart3,
     ArrowLeft, ArrowRight, Copy, Save, Send, RefreshCcw,
@@ -127,6 +127,8 @@ export default function InventoryOrdersPage() {
     const [hasBaseChanges, setHasBaseChanges] = useState(false)
     const [savingPar, setSavingPar] = useState(false)
     const [weeklyRightView, setWeeklyRightView] = useState<'leftovers' | 'par_ideal'>('leftovers')
+    const lastSyncedKeyRef = useRef('')
+    const [qbAuthRequired, setQbAuthRequired] = useState(false)
 
     // Data
     const [items, setItems] = useState<OrderableItem[]>([])
@@ -211,6 +213,23 @@ export default function InventoryOrdersPage() {
         if (!storeId) return
         setLoading(true)
         try {
+            // Sincronización automática en vivo con QuickBooks Online al cargar o cambiar de pestaña
+            const syncKey = `${storeId}_${orderType}_${activeMonday}`
+            if (syncKey !== lastSyncedKeyRef.current) {
+                try {
+                    const res = await fetch('/api/inventory/sync-quickbooks', { method: 'POST' })
+                    const data = await res.json()
+                    if (res.status === 401 || data.reauth_url) {
+                        setQbAuthRequired(true)
+                    } else {
+                        setQbAuthRequired(false)
+                        lastSyncedKeyRef.current = syncKey
+                    }
+                } catch (e) {
+                    console.error('[QB-Sync] Error en la sincronización en vivo:', e)
+                }
+            }
+
             const [orderableItems, allInvItems, mappedInvItems, weekData] = await Promise.all([
                 fetchOrderableItems(storeId, orderType),
                 fetchAllInventoryItems(),
@@ -340,7 +359,9 @@ export default function InventoryOrdersPage() {
                 ...line,
                 item_name: item?.name || 'Insumo Desconocido',
                 unit_description: item?.order_unit_description || '',
-                qb_item_id: item?.qb_item_id || null
+                qb_item_id: item?.qb_item_id || null,
+                purchase_unit_cost: item?.purchase_unit_cost,
+                unit_measure: item?.unit_measure
             }
         })
         setModalLines(lines)
@@ -1189,7 +1210,9 @@ export default function InventoryOrdersPage() {
                                     <table className="w-full text-xs sm:text-sm text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-[11px] sm:text-xs">
-                                                <th className="p-2 sm:p-3">Producto</th>
+                                                <th className="p-2 sm:p-3">{t('bodegaOrders.item')}</th>
+                                                <th className="p-2 sm:p-3 text-center">{t('bodegaOrders.packagingCol')}</th>
+                                                <th className="p-2 sm:p-3 text-center">{t('bodegaOrders.costCol')}</th>
                                                 <th className="p-2 sm:p-3 text-center w-14 sm:w-16">PAR</th>
                                                 <th className="p-2 sm:p-3 text-center w-20 sm:w-24">Sobrante</th>
                                                 <th className="p-2 sm:p-3 text-center w-16 sm:w-20">Pedir</th>
@@ -1211,12 +1234,24 @@ export default function InventoryOrdersPage() {
                                                     <tr key={line.id || index} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                                                         {/* Producto */}
                                                         <td className="p-2 sm:p-3">
-                                                            <div className="flex flex-col">
-                                                                {line.unit_description && (
-                                                                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-medium leading-none mb-0.5">{line.unit_description}</span>
-                                                                )}
-                                                                <span className="font-semibold text-slate-800 leading-tight text-[11px] sm:text-[13px]">{line.item_name}</span>
-                                                            </div>
+                                                            <span className="font-semibold text-slate-800 leading-tight text-[11px] sm:text-[13px]">{line.item_name}</span>
+                                                        </td>
+                                                        {/* Empaque (QB) */}
+                                                        <td className="p-2 text-center text-slate-600 font-medium text-xs">
+                                                            {line.unit_description || '-'}
+                                                        </td>
+                                                        {/* Costo (QB) */}
+                                                        <td className="p-2 text-center text-slate-700 font-bold text-xs">
+                                                            {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null ? (
+                                                                `$${Number(line.purchase_unit_cost).toFixed(2)}`
+                                                            ) : (
+                                                                '-'
+                                                            )}
+                                                            {line.unit_measure && (
+                                                                <span className="text-[9px] text-slate-400 font-normal block">
+                                                                    / {line.unit_measure}
+                                                                </span>
+                                                            )}
                                                         </td>
                                                         {/* PAR */}
                                                         <td className="p-2 sm:p-3 text-center font-medium bg-emerald-50/30 text-emerald-800">
@@ -1368,13 +1403,32 @@ export default function InventoryOrdersPage() {
                         </div>
                     )}
 
-                    {/* QB Sync button */}
-                    <button onClick={handleForceQbSync} disabled={syncingQb || loading}
-                        className="flex items-center gap-1.5 bg-white border border-amber-200 hover:bg-amber-50 text-amber-700 px-3 py-2.5 rounded-xl font-semibold text-xs shadow-sm transition-colors disabled:opacity-50">
-                        <RefreshCcw size={14} className={syncingQb ? 'animate-spin' : ''} /> {syncingQb ? 'Sincronizando...' : t('bodegaOrders.forceSync')}
-                    </button>
                 </div>
             </div>
+
+            {/* QB Re-auth Alert Banner */}
+            {qbAuthRequired && (
+                <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-amber-800 text-sm shadow-2xs animate-fade-in max-w-5xl">
+                    <div className="flex items-center gap-2 font-semibold">
+                        <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                        <span>
+                            {language === 'es' 
+                                ? 'La sesión de QuickBooks ha expirado. Sincronización en vivo pausada.' 
+                                : 'QuickBooks session expired. Live synchronization paused.'}
+                        </span>
+                    </div>
+                    <button
+                        onClick={handleForceQbSync}
+                        disabled={syncingQb}
+                        className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl text-xs transition-colors shadow-2xs flex items-center gap-1.5"
+                    >
+                        <RefreshCcw size={12} className={syncingQb ? 'animate-spin' : ''} />
+                        {syncingQb 
+                            ? (language === 'es' ? 'Autorizando...' : 'Authorizing...') 
+                            : (language === 'es' ? 'Iniciar Sesión en QB' : 'Log In to QB')}
+                    </button>
+                </div>
+            )}
 
             {/* ============ TAB BAR ============ */}
             <div className="flex gap-2 mb-0">
@@ -1662,6 +1716,12 @@ export default function InventoryOrdersPage() {
                                                     <th className="sticky left-0 bg-slate-50 border-b-2 border-slate-300 p-3 text-left min-w-[200px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                                                         {t('bodegaOrders.item')}
                                                     </th>
+                                                    <th className="p-3 text-center w-36 bg-slate-50 text-slate-600 border-b-2 border-slate-300">
+                                                        {t('bodegaOrders.packagingCol')}
+                                                    </th>
+                                                    <th className="p-3 text-center w-28 bg-slate-50 text-slate-600 border-b-2 border-slate-300">
+                                                        {t('bodegaOrders.costCol')}
+                                                    </th>
                                                     <th className="p-3 text-center w-24 bg-violet-50 text-violet-700 border-b-2 border-violet-200">
                                                         <div className="flex items-center justify-center gap-1">
                                                             <span>{t('bodegaOrders.parIdeal')}</span>
@@ -1711,12 +1771,24 @@ export default function InventoryOrdersPage() {
                                                             className={`transition-colors border-b border-slate-100 ${isNegative ? 'bg-red-50/30' : finalQty > 0 ? 'hover:bg-blue-50/20' : 'hover:bg-slate-50/50'}`}>
                                                             {/* Producto */}
                                                             <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
-                                                                <div className="flex flex-col">
-                                                                    {line.unit_description && (
-                                                                        <span className="text-[10px] text-slate-400 font-medium leading-tight">{line.unit_description}</span>
-                                                                    )}
-                                                                    <span className="font-semibold text-slate-800">{line.item_name}</span>
-                                                                </div>
+                                                                <span className="font-semibold text-slate-800">{line.item_name}</span>
+                                                            </td>
+                                                            {/* Empaque (QB) */}
+                                                            <td className="p-2 text-center text-slate-600 border-b border-slate-100 font-medium text-xs">
+                                                                {line.unit_description || '-'}
+                                                            </td>
+                                                            {/* Costo (QB) */}
+                                                            <td className="p-2 text-center text-slate-700 border-b border-slate-100 font-bold text-xs">
+                                                                {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null ? (
+                                                                    `$${Number(line.purchase_unit_cost).toFixed(2)}`
+                                                                ) : (
+                                                                    '-'
+                                                                )}
+                                                                {line.unit_measure && (
+                                                                    <span className="text-[9px] text-slate-400 font-normal block">
+                                                                        / {line.unit_measure}
+                                                                    </span>
+                                                                )}
                                                             </td>
                                                             {/* PAR Ideal (readonly) */}
                                                             <td className="p-2 text-center font-medium text-violet-600 bg-violet-50/40 border-b border-violet-100">

@@ -77,12 +77,21 @@ import QuickBooks from 'node-quickbooks';
 // Ej: "(Bag of 1 Gallon)" → { qty: 1, unit: 'gal', description: '(Bag of 1 Gallon)' }
 function parsePackaging(description: string | undefined | null): { qty: number; unit: string; description: string } | null {
     if (!description) return null;
-    const match = description.match(
-        /\((?:bag|box|crate|case|container|bucket|cubeta|bolsa)\s+of\s+([\d.]+)\s*(lbs?|oz|gal(?:lon)?s?|ct|pza?|kg|g|l|ml|fl\s*oz)\s*\)/i
-    );
+    
+    // 1. Encontrar lo que esté entre paréntesis
+    const parenMatch = description.match(/\(([^)]+)\)/);
+    if (!parenMatch) return null;
+    
+    const innerText = parenMatch[1];
+    
+    // 2. Buscar un patrón de número seguido por unidad admitida
+    const unitRegex = /([\d.]+)\s*(lbs?|oz|gal(?:lon)?s?|ct|pza?|kg|g|l|ml|fl\s*oz)\b/i;
+    const match = innerText.match(unitRegex);
     if (!match) return null;
+    
     const qty = parseFloat(match[1]);
     if (isNaN(qty) || qty <= 0) return null;
+    
     const rawUnit = match[2].toLowerCase().trim();
     const unitMap: Record<string, string> = {
         'lb': 'lb', 'lbs': 'lb',
@@ -91,7 +100,12 @@ function parsePackaging(description: string | undefined | null): { qty: number; 
         'ct': 'pza', 'pz': 'pza', 'pza': 'pza',
         'kg': 'kg', 'g': 'g', 'l': 'l', 'ml': 'ml'
     };
-    return { qty, unit: unitMap[rawUnit] || rawUnit, description: description.trim() };
+    
+    return { 
+        qty, 
+        unit: unitMap[rawUnit] || rawUnit, 
+        description: parenMatch[0].trim() 
+    };
 }
 
 export async function GET() {
@@ -376,19 +390,57 @@ export async function POST() {
                 const mapping = existingMappings?.find(m => m.qb_item_id === qbItemId);
                 if (!mapping) continue;
                 const invItemId = mapping.inventory_item_id;
-                const oldQtyPerUnit = currentQtyPerUnitMap.get(invItemId) || 0;
 
-                // Only act if quantity_per_unit actually changed
-                if (oldQtyPerUnit > 0 && Math.abs(oldQtyPerUnit - pkgInfo.qty) > 0.01) {
-                    const itemName = internalItems.find(i => i.id === invItemId)?.name || qbItemId;
-                    const parFactor = oldQtyPerUnit / pkgInfo.qty; // e.g. 10/5 = 2.0
+                // Ignorar Milaneza, Salchicha, Pastor y Pollo del cambio automático de empaque para evitar alterar sus PARs o unidades manuales/por tienda
+                // Pero SÍ les podemos actualizar la descripción visual si es diferente!
+                const isSkippedFromParCascade = [
+                    '5c59d80c-7d7b-45f9-997c-57540127d3a8', // Milaneza (por pieza)
+                    'cac598b2-9c18-4055-8f2e-16de22d78535', // Salchicha Bag (por bolsa)
+                    'ad7e3703-2701-4a05-aa97-77866c8c717e', // Pastor (empaque diferente por tienda: Slauson 3 lb vs Lynwood 5 lb)
+                    '4ea7ef9c-986e-4fc1-a363-7200ca558aab'  // Pollo (empaque diferente por tienda: Slauson 3 lb vs Lynwood 5 lb)
+                ].includes(invItemId);
 
-                    // 2a. Update inventory_items
-                    const currentItem = internalItems.find(i => i.id === invItemId);
+                const currentItem = internalItems.find(i => i.id === invItemId);
+                
+                // 1. Siempre actualizar descripción y unidad de medida si difieren de lo que tenemos
+                if (currentItem && (
+                    currentItem.order_unit_description !== pkgInfo.description ||
+                    currentItem.unit_measure !== pkgInfo.unit
+                )) {
+                    console.log(`[QB-Sync] 📝 Actualizando empaque de ${currentItem.name}: "${currentItem.order_unit_description || ''}" → "${pkgInfo.description}"`);
                     await supabase.from('inventory_items').update({
-                        quantity_per_unit: pkgInfo.qty,
                         order_unit_description: pkgInfo.description,
                         unit_measure: pkgInfo.unit,
+                        updated_at: now.toISOString()
+                    }).eq('id', invItemId);
+                }
+
+                if (isSkippedFromParCascade) {
+                    console.log(`[QB-Sync] 📦 Saltando cascada de PAR para item protegido: ${invItemId}`);
+                    continue;
+                }
+
+                const oldQtyPerUnit = currentQtyPerUnitMap.get(invItemId) || 0;
+
+                // 2. Si es la primera vez que se define la cantidad por unidad (era 0 o null)
+                if (oldQtyPerUnit === 0 && pkgInfo.qty > 0) {
+                    console.log(`[QB-Sync] ⚖️ Definiendo cantidad inicial por unidad para ${currentItem?.name || invItemId}: ${pkgInfo.qty}`);
+                    await supabase.from('inventory_items').update({
+                        quantity_per_unit: pkgInfo.qty,
+                        updated_at: now.toISOString()
+                    }).eq('id', invItemId);
+                    continue;
+                }
+
+                // 3. Solo si quantity_per_unit cambió, hacer el ajuste en cascada de PARs
+                if (oldQtyPerUnit > 0 && Math.abs(oldQtyPerUnit - pkgInfo.qty) > 0.01) {
+                    const itemName = currentItem?.name || qbItemId;
+                    const parFactor = oldQtyPerUnit / pkgInfo.qty; // e.g. 10/5 = 2.0
+                    console.log(`[QB-Sync] ⚖️ Cambio de empaque detectado para ${itemName}: ${oldQtyPerUnit} → ${pkgInfo.qty}. Escalando PARs (factor ${parFactor})...`);
+
+                    // 2a. Update quantity_per_unit
+                    await supabase.from('inventory_items').update({
+                        quantity_per_unit: pkgInfo.qty,
                         updated_at: now.toISOString()
                     }).eq('id', invItemId);
 
@@ -594,11 +646,18 @@ export async function POST() {
                 const templateName = (est.RecurringInfo?.Name || '').toLowerCase();
                 const customerId = est.CustomerRef?.value;
 
-                if (templateName.includes('orden diaria')) {
+                if (templateName.includes('orden diaria') || templateName.includes('daily') || templateName.includes('diaria')) {
                     dailyTemplatesByCustomerId.set(String(customerId), est);
-                } else if (templateName.includes('orden liquidos') || templateName.includes('orden de liquidos')) {
+                } else if (
+                    templateName.includes('liquids') || 
+                    templateName.includes('liquidos') || 
+                    templateName.includes('líquidos')
+                ) {
                     liquidsTemplate = est;
-                } else if (templateName.includes('orden uniformes') || templateName.includes('orden de uniformes')) {
+                } else if (
+                    templateName.includes('uniforms') || 
+                    templateName.includes('uniformes')
+                ) {
                     uniformsTemplate = est;
                 }
             });
