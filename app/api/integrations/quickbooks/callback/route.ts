@@ -9,7 +9,14 @@ const supabase = createClient(
 
 export async function GET(req: NextRequest) {
     const url = new URL(req.url);
-    const parseRedirect = url.href;
+    
+    // Sanitizar la URL para eliminar barras diagonales finales en el pathname
+    // Esto evita discrepancias si Next.js/Vercel redirige automáticamente agregando una barra final.
+    const cleanUrl = new URL(url.href);
+    if (cleanUrl.pathname.endsWith('/')) {
+        cleanUrl.pathname = cleanUrl.pathname.slice(0, -1);
+    }
+    const parseRedirect = cleanUrl.href;
 
     try {
         // 1. Exchange auth code for tokens
