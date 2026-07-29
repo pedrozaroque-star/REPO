@@ -613,6 +613,11 @@ export default function InventoryOrdersPage() {
         setHasBaseChanges(false)
     }
 
+    // Mapping de días a desplazamientos
+    const fieldIndexMap: Record<string, number> = {
+        mon_par: 0, tue_par: 1, wed_par: 2, thu_par: 3, fri_par: 4, sat_par: 5, sun_par: 6
+    }
+
     // --- Handlers ---
     async function handleBaseChange(itemId: string, field: string, value: string) {
         if (!storeId) return
@@ -623,19 +628,48 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_30') numVal = Math.ceil(numVal / 30) * 30
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
-        const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
-        const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
-        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
-        setHasBaseChanges(true)
 
-        // Live Auto-Save to Supabase!
+        const dayOffset = fieldIndexMap[field] ?? 0
+        const fieldDateStr = addDays(activeMonday, dayOffset)
+
+        // Verificar si el día ya pasó o ya tiene sobrante capturado
+        const hasLeftover = counts[itemId]?.[fieldDateStr] !== undefined && counts[itemId]?.[fieldDateStr] !== null
+        const isPastDay = fieldDateStr < todayStr
+        const isLockedForCurrentWeek = hasLeftover || isPastDay
+
+        const nextWeekMonday = addDays(activeMonday, 7)
+        const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
+
         setIsLiveSaving(true)
-        saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any)
-            .then(() => setIsLiveSaving(false))
-            .catch(err => {
-                console.error('Error auto-saving PAR base:', err)
-                setIsLiveSaving(false)
-            })
+
+        if (isLockedForCurrentWeek) {
+            // Regla de negocio: Si el día YA tiene sobrante capturado o ya pasó,
+            // NO alteramos la semana actual (preserva el histórico y el % de sobrante).
+            // Guardamos el nuevo PAR exclusivamente para la PRÓXIMA semana.
+            const nextWeekItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
+            saveSingleItemWeeklyBase(storeId, nextWeekMonday, nextWeekItemBase as any)
+                .then(() => setIsLiveSaving(false))
+                .catch(err => {
+                    console.error('Error auto-saving PAR base for next week:', err)
+                    setIsLiveSaving(false)
+                })
+        } else {
+            // Si AÚN NO tiene sobrante capturado y es hoy/futuro:
+            // Actualizamos en la semana actual (activeMonday) Y en la próxima semana (nextWeekMonday).
+            const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
+            setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
+            setHasBaseChanges(true)
+
+            Promise.all([
+                saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any),
+                saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
+            ])
+                .then(() => setIsLiveSaving(false))
+                .catch(err => {
+                    console.error('Error auto-saving PAR base:', err)
+                    setIsLiveSaving(false)
+                })
+        }
     }
 
     async function handleLiquidsParChange(itemId: string, value: string) {
@@ -647,6 +681,11 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_30') numVal = Math.ceil(numVal / 30) * 30
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
+
+        const itemCounts = counts[itemId] || {}
+        const hasAnyLeftover = Object.keys(itemCounts).length > 0
+        const nextWeekMonday = addDays(activeMonday, 7)
+
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
         const updatedItemBase = {
             ...b,
@@ -659,42 +698,73 @@ export default function InventoryOrdersPage() {
             sat_par: numVal,
             sun_par: numVal
         }
-        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
-        setHasBaseChanges(true)
 
-        // Live Auto-Save to Supabase!
         setIsLiveSaving(true)
-        saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any)
-            .then(() => setIsLiveSaving(false))
-            .catch(err => {
-                console.error('Error auto-saving liquids PAR base:', err)
-                setIsLiveSaving(false)
-            })
+
+        if (hasAnyLeftover) {
+            saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
+                .then(() => setIsLiveSaving(false))
+                .catch(err => {
+                    console.error('Error auto-saving liquids PAR base for next week:', err)
+                    setIsLiveSaving(false)
+                })
+        } else {
+            setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
+            setHasBaseChanges(true)
+
+            Promise.all([
+                saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any),
+                saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
+            ])
+                .then(() => setIsLiveSaving(false))
+                .catch(err => {
+                    console.error('Error auto-saving liquids PAR base:', err)
+                    setIsLiveSaving(false)
+                })
+        }
     }
 
     async function handleSavePar() {
         if (!storeId) return
         setSavingPar(true)
         try {
-            const basesList = Object.values(bases).map((b: any) => ({
-                inventory_item_id: b.inventory_item_id,
-                mon_par: b.mon_par || 0,
-                tue_par: b.tue_par || 0,
-                wed_par: b.wed_par || 0,
-                thu_par: b.thu_par || 0,
-                fri_par: b.fri_par || 0,
-                sat_par: b.sat_par || 0,
-                sun_par: b.sun_par || 0
-            }))
-            
-            // CRITICAL FIX: Guardar TANTO en la semana actual (activeMonday) COMO en la próxima (+7 días)
-            await saveWeeklyBases(storeId, activeMonday, basesList)
             const nextWeekMonday = addDays(activeMonday, 7)
-            await saveWeeklyBases(storeId, nextWeekMonday, basesList)
+            const currentWeekBasesList: any[] = []
+            const nextWeekBasesList: any[] = []
+
+            Object.entries(bases).forEach(([itemId, b]: [string, any]) => {
+                const itemCounts = counts[itemId] || {}
+                const currentBaseObj = originalBases[itemId] || b
+                
+                const currentBasePayload: any = { inventory_item_id: itemId }
+                const nextBasePayload: any = { inventory_item_id: itemId }
+
+                const fields = ['mon_par', 'tue_par', 'wed_par', 'thu_par', 'fri_par', 'sat_par', 'sun_par']
+                fields.forEach((f, idx) => {
+                    const fieldDateStr = addDays(activeMonday, idx)
+                    const hasLeftover = itemCounts[fieldDateStr] !== undefined && itemCounts[fieldDateStr] !== null
+                    const isPastDay = fieldDateStr < todayStr
+                    const isLocked = hasLeftover || isPastDay
+
+                    nextBasePayload[f] = (b as any)[f] || 0
+
+                    if (isLocked) {
+                        currentBasePayload[f] = (currentBaseObj as any)[f] || 0
+                    } else {
+                        currentBasePayload[f] = (b as any)[f] || 0
+                    }
+                })
+
+                currentWeekBasesList.push(currentBasePayload)
+                nextWeekBasesList.push(nextBasePayload)
+            })
+
+            await saveWeeklyBases(storeId, activeMonday, currentWeekBasesList)
+            await saveWeeklyBases(storeId, nextWeekMonday, nextWeekBasesList)
 
             const successMsg = language === 'es'
-                ? `⚡ PAR Guardado exitosamente para la semana actual (${activeMonday}) y la próxima semana (${nextWeekMonday}).`
-                : `⚡ PAR saved successfully for current week (${activeMonday}) and next week (${nextWeekMonday}).`
+                ? `⚡ PAR Guardado exitosamente. Los días con sobrante mantuvieron su histórico e impactaron a la próxima semana (${nextWeekMonday}). Los días sin sobrante se actualizaron de inmediato.`
+                : `⚡ PAR saved successfully. Days with leftovers preserved historical counts for next week (${nextWeekMonday}). Days without leftovers updated immediately.`
             alert(successMsg)
             setOriginalBases(JSON.parse(JSON.stringify(bases)))
             setHasBaseChanges(false)

@@ -153,7 +153,7 @@ MODULES OVERVIEW & BUSINESS RULES:
 5.  **DISCOUNTS**: Discount audit, anomalies (First Responder, Employee, Senior).
 6.  **SCHEDULES**: Weekly schedules, shifts, days off, planner. Publish notification API sends the entire weekly schedule to impacted employees if a shift is edited post-publication.
 7.  **EMPLOYEES**: Roster, roles (Admin, Supervisor, Manager, Assistant, Employee).
-8.  **INVENTORY**: Items, recipes, menu catalog, costs per unit. Sincronización con QuickBooks protege precios mediante Smart Price Protection (bloquea caídas >= max_drop_percent, default 50%). NUEVO: Auto-sync de empaques lee el campo Description de QB Recurring Transactions (ej: "(Bag of 5 lbs)") para actualizar automáticamente quantity_per_unit, ajustar PAR de pedidos, e invalidar caché de food cost.
+8.  **INVENTORY**: Items, recipes, menu catalog, costs per unit. Sincronización con QuickBooks protege precios mediante Smart Price Protection (bloquea caídas >= max_drop_percent, default 50%). Auto-sync de empaques lee el campo Description de QB. NUEVO: Edición Inteligente de PAR por Día en Configuración Semanal — si un día ya tiene sobrante capturado o ya pasó, editar su PAR se guarda exclusivamente para la Próxima Semana para no alterar el histórico ni los porcentajes de sobrante de esta semana; si el día no tiene sobrante aún, se actualiza de inmediato tanto la semana actual como la próxima. Para líquidos y uniformes, calculateDailyOrder evalúa siempre de forma inmutable el PAR de mon_par en cualquier día de la semana.
 9.  **FEEDBACK**: Google reviews, internal employee feedback.
 10. **STORES**: All Tacos Gavilan locations.
 11. **FORECASTING**: Predictive sales and hourly staff curves (cooks/cashiers).
