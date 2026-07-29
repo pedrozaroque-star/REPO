@@ -640,14 +640,18 @@ export default function InventoryOrdersPage() {
         const nextWeekMonday = addDays(activeMonday, 7)
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
 
+        // Siempre actualizar en el estado local `bases` para que el campo de texto muestre lo que el usuario escribió
+        const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
+        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
+        setHasBaseChanges(true)
+
         setIsLiveSaving(true)
 
         if (isLockedForCurrentWeek) {
             // Regla de negocio: Si el día YA tiene sobrante capturado o ya pasó,
-            // NO alteramos la semana actual (preserva el histórico y el % de sobrante).
-            // Guardamos el nuevo PAR exclusivamente para la PRÓXIMA semana.
-            const nextWeekItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
-            saveSingleItemWeeklyBase(storeId, nextWeekMonday, nextWeekItemBase as any)
+            // Guardamos el nuevo PAR exclusivamente para la PRÓXIMA semana en Supabase.
+            // El histórico de esta semana y el cálculo del % de sobrante usan originalBases.
+            saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
                 .then(() => setIsLiveSaving(false))
                 .catch(err => {
                     console.error('Error auto-saving PAR base for next week:', err)
@@ -656,10 +660,6 @@ export default function InventoryOrdersPage() {
         } else {
             // Si AÚN NO tiene sobrante capturado y es hoy/futuro:
             // Actualizamos en la semana actual (activeMonday) Y en la próxima semana (nextWeekMonday).
-            const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
-            setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
-            setHasBaseChanges(true)
-
             Promise.all([
                 saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any),
                 saveSingleItemWeeklyBase(storeId, nextWeekMonday, updatedItemBase as any)
@@ -2717,7 +2717,8 @@ export default function InventoryOrdersPage() {
                                                                     const itemCounts = counts[item.id] || {}
                                                                     const leftover = itemCounts[d.dateStr]
                                                                     const hasVal = leftover !== undefined && leftover !== null
-                                                                    const parVal = b ? Number((b as any)[d.baseField]) || 0 : 0
+                                                                    const origB = originalBases[item.id] || b
+                                                                    const parVal = origB ? Number((origB as any)[d.baseField]) || 0 : (b ? Number((b as any)[d.baseField]) || 0 : 0)
                                                                     const isSaturday = d.key === 'sat'
 
                                                                     let pct: number | null = null
