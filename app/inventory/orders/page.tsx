@@ -316,7 +316,8 @@ export default function InventoryOrdersPage() {
                 const lines = await calculateDailyOrder(
                     storeId, selectedOrderDate, orderableItems,
                     weekData.bases, weekData.counts, activeMonday,
-                    weekData.parIdeal, overrideDayField, parBoostPercent
+                    weekData.parIdeal, overrideDayField, parBoostPercent,
+                    orderType
                 )
                 setOrderLines([...lines, ...extraordinarySavedLines])
             }
@@ -368,7 +369,8 @@ export default function InventoryOrdersPage() {
             calculateDailyOrder(
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
-                parIdeal, overrideDayField, parBoostPercent
+                parIdeal, overrideDayField, parBoostPercent,
+                orderType
             ).then(newLines => {
                 setOrderLines(prev => {
                     const prevExtraordinary = prev.filter(l => l.is_extraordinary)
@@ -376,7 +378,7 @@ export default function InventoryOrdersPage() {
                 })
             })
         }
-    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal, parBoostPercent])
+    }, [loading, overrideDayField, storeId, selectedOrderDate, items, bases, counts, activeMonday, parIdeal, parBoostPercent, orderType])
 
     // Load analysis data when tab switches
     useEffect(() => {
@@ -701,7 +703,8 @@ export default function InventoryOrdersPage() {
             const lines = await calculateDailyOrder(
                 storeId, selectedOrderDate, items,
                 bases, counts, activeMonday,
-                parIdeal, overrideDayField, parBoostPercent
+                parIdeal, overrideDayField, parBoostPercent,
+                orderType
             )
             setOrderLines(prev => {
                 const prevExtraordinary = prev.filter(l => l.is_extraordinary)
