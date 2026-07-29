@@ -2018,17 +2018,17 @@ export default function InventoryOrdersPage() {
                                     </div>
 
                                     {/* ---- Unified order table ---- */}
-                                    <div className="overflow-x-auto">
+                                    <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-sm bg-white">
                                         <table className="w-full text-sm border-collapse whitespace-nowrap">
                                             <thead>
                                                 <tr className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-300 text-xs">
-                                                    <th className="sticky left-0 bg-slate-50 border-b-2 border-slate-300 p-3 text-left min-w-[200px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                                                    <th className="sticky left-0 bg-slate-50 border-b-2 border-slate-300 p-3 text-left w-72 min-w-[220px] max-w-[300px] z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                                                         {t('bodegaOrders.item')}
                                                     </th>
-                                                    <th className="p-3 text-center w-36 bg-slate-50 text-slate-600 border-b-2 border-slate-300">
+                                                    <th className="p-3 text-left w-52 min-w-[160px] bg-slate-50 text-slate-600 border-b-2 border-slate-300">
                                                         {t('bodegaOrders.packagingCol')}
                                                     </th>
-                                                    <th className="p-3 text-center w-28 bg-slate-50 text-slate-600 border-b-2 border-slate-300">
+                                                    <th className="p-3 text-center w-28 min-w-[90px] bg-slate-50 text-slate-600 border-b-2 border-slate-300">
                                                         {t('bodegaOrders.costCol')}
                                                     </th>
                                                     {showParIdealCol && (
@@ -2083,15 +2083,15 @@ export default function InventoryOrdersPage() {
                                                         <tr key={line.inventory_item_id}
                                                             className={`transition-colors border-b border-slate-100 ${isNegative ? 'bg-red-50/30' : finalQty > 0 ? 'hover:bg-blue-50/20' : 'hover:bg-slate-50/50'}`}>
                                                             {/* Producto */}
-                                                            <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)]">
+                                                            <td className="sticky left-0 bg-white border-b border-slate-100 p-2.5 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.03)] w-72 min-w-[220px] max-w-[300px]">
                                                                 <span className="font-semibold text-slate-800">{line.item_name}</span>
                                                             </td>
                                                             {/* Empaque (QB) */}
-                                                            <td className="p-2 text-center text-slate-600 border-b border-slate-100 font-medium text-xs">
+                                                            <td className="p-2.5 text-left text-slate-600 border-b border-slate-100 font-medium text-xs w-52 min-w-[160px]">
                                                                 {line.unit_description || '-'}
                                                             </td>
                                                             {/* Costo (QB) */}
-                                                            <td className="p-2 text-center text-slate-700 border-b border-slate-100 font-bold text-xs">
+                                                            <td className="p-2.5 text-center text-slate-700 border-b border-slate-100 font-bold text-xs w-28 min-w-[90px]">
                                                                 {line.purchase_unit_cost !== undefined && line.purchase_unit_cost !== null ? (
                                                                     `$${Number(line.purchase_unit_cost).toFixed(2)}`
                                                                 ) : (
