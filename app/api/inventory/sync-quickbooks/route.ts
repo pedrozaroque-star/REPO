@@ -394,23 +394,28 @@ export async function POST() {
                 const invItemId = mapping.inventory_item_id;
                 const currentItem = internalItems.find(i => i.id === invItemId);
 
+                // PROTECCIÓN DE PIEZAS: Si el item se vende por pieza (pza/unit/dz), NO permitir que el sync cambie unit_measure a peso/volumen (lb, oz, gal)
+                const isPieceItem = currentItem?.unit_measure === 'pza' || currentItem?.unit_measure === 'unit' || currentItem?.unit_measure === 'dz';
+                const isWeightOrVolume = ['lb', 'oz', 'gal', 'kg', 'g', 'l', 'ml'].includes((pkgInfo.unit || '').toLowerCase());
+                const newUnit = (isPieceItem && isWeightOrVolume) ? currentItem.unit_measure : pkgInfo.unit;
+
                 // 1. Siempre actualizar descripción y unidad de medida si difieren
                 if (currentItem && (
                     currentItem.order_unit_description !== pkgInfo.description ||
-                    currentItem.unit_measure !== pkgInfo.unit
+                    currentItem.unit_measure !== newUnit
                 )) {
-                    console.log(`[QB-Sync] 📝 Actualizando empaque de ${currentItem.name}: "${currentItem.order_unit_description || ''}" → "${pkgInfo.description}"`);
+                    console.log(`[QB-Sync] 📝 Actualizando empaque de ${currentItem.name}: "${currentItem.order_unit_description || ''}" → "${pkgInfo.description}" (unit_measure: ${newUnit})`);
                     await supabase.from('inventory_items').update({
                         order_unit_description: pkgInfo.description,
-                        unit_measure: pkgInfo.unit,
+                        unit_measure: newUnit,
                         updated_at: now.toISOString()
                     }).eq('id', invItemId);
                 }
 
                 // 2. Actualizar quantity_per_unit si cambió (para cálculos de food cost)
-                // IMPORTANTE: Solo actualiza el campo numérico, NO toca PARs ni weekly_bases
+                // IMPORTANTE: Si el item es por pieza y la descripción trae peso (lb/oz), NO cambiar quantity_per_unit
                 const oldQtyPerUnit = currentQtyPerUnitMap.get(invItemId) || 0;
-                if (pkgInfo.qty > 0 && Math.abs(oldQtyPerUnit - pkgInfo.qty) > 0.01) {
+                if (!(isPieceItem && isWeightOrVolume) && pkgInfo.qty > 0 && Math.abs(oldQtyPerUnit - pkgInfo.qty) > 0.01) {
                     const itemName = currentItem?.name || qbItemId;
                     console.log(`[QB-Sync] ⚖️ quantity_per_unit actualizado para ${itemName}: ${oldQtyPerUnit} → ${pkgInfo.qty} (sin tocar PARs)`);
                     await supabase.from('inventory_items').update({
@@ -418,7 +423,7 @@ export async function POST() {
                         updated_at: now.toISOString()
                     }).eq('id', invItemId);
                     packagingChanges++;
-                    packagingUpdates.push(`${itemName}: qty_per_unit ${oldQtyPerUnit} → ${pkgInfo.qty} ${pkgInfo.unit}`);
+                    packagingUpdates.push(`${itemName}: qty_per_unit ${oldQtyPerUnit} → ${pkgInfo.qty} ${newUnit}`);
                 }
             }
 
@@ -534,6 +539,70 @@ export async function POST() {
             const qbToInternal = new Map<string, any>();
             allMappings?.forEach(m => qbToInternal.set(m.qb_item_id, m));
 
+            // Helper: auto-resolver un item de QB que no tiene mapping
+            // Busca en inventory_items por nombre, si no existe lo crea, y luego crea el mapping
+            const autoResolveQbItem = async (qbItemId: string, qbItemName: string): Promise<any | null> => {
+                try {
+                    // Limpiar prefijo de categoría QB (e.g. "CLEANING SUPPLIES:Hand Sanitizer" → "Hand Sanitizer")
+                    const cleanName = qbItemName.includes(':') ? qbItemName.split(':').pop()!.trim() : qbItemName;
+                    
+                    // Buscar en inventory_items por nombre (exacto o parcial)
+                    const { data: existingItems } = await supabase
+                        .from('inventory_items')
+                        .select('id, name')
+                        .or(`name.ilike.%${cleanName}%,name.ilike.%${qbItemName}%`)
+                        .limit(1);
+                    
+                    let inventoryItemId: string;
+                    
+                    if (existingItems && existingItems.length > 0) {
+                        inventoryItemId = existingItems[0].id;
+                        console.log(`[QB-Sync] 🔗 Auto-linked: "${qbItemName}" (QB:${qbItemId}) → existing item "${existingItems[0].name}"`);
+                    } else {
+                        // Crear nuevo inventory_item
+                        const { data: newItem, error: createErr } = await supabase
+                            .from('inventory_items')
+                            .insert({
+                                name: cleanName,
+                                unit_type: 'Case',
+                                purchase_unit_cost: 0,
+                                is_bodega: true
+                            })
+                            .select('id, name')
+                            .single();
+                        
+                        if (createErr || !newItem) {
+                            console.error(`[QB-Sync] ❌ No se pudo crear item "${cleanName}":`, createErr?.message);
+                            return null;
+                        }
+                        inventoryItemId = newItem.id;
+                        console.log(`[QB-Sync] ✨ Auto-created: "${newItem.name}" (QB:${qbItemId}) → new item ${newItem.id}`);
+                    }
+                    
+                    // Crear mapping en quickbooks_mappings
+                    const { error: mapErr } = await supabase
+                        .from('quickbooks_mappings')
+                        .upsert({
+                            qb_item_id: qbItemId,
+                            qb_item_name: qbItemName,
+                            inventory_item_id: inventoryItemId
+                        }, { onConflict: 'qb_item_id' });
+                    
+                    if (mapErr) {
+                        console.error(`[QB-Sync] ❌ No se pudo crear mapping para "${qbItemName}":`, mapErr.message);
+                        return null;
+                    }
+                    
+                    // Agregar al mapa en memoria para este ciclo
+                    const newMapping = { qb_item_id: qbItemId, inventory_item_id: inventoryItemId, qb_item_name: qbItemName };
+                    qbToInternal.set(qbItemId, newMapping);
+                    return newMapping;
+                } catch (err: any) {
+                    console.error(`[QB-Sync] ❌ Error auto-resolviendo "${qbItemName}":`, err.message);
+                    return null;
+                }
+            };
+
             // Helper para hacer queries a QB (usando fetch nativo)
             const qbQuery = async (sql: string) => {
                 const res = await fetch(`https://quickbooks.api.intuit.com/v3/company/${integration.realm_id}/query?query=${encodeURIComponent(sql)}&minorversion=75`, {
@@ -547,11 +616,11 @@ export async function POST() {
                 return data?.QueryResponse?.RecurringTransaction || [];
             };
 
-            console.log('[QB-Sync] 🔄 Consultando todos los RecurringTransactions de QBO...');
-            const allRecurring = await qbQuery("SELECT * FROM RecurringTransaction");
+            console.log('[QB-Sync] 🔄 Consultando todos los RecurringTransactions de QBO (MAXRESULTS 1000)...');
+            const allRecurring = await qbQuery("SELECT * FROM RecurringTransaction MAXRESULTS 1000");
             console.log(`[QB-Sync] 📊 Encontrados ${allRecurring.length} recurring transactions en QB.`);
 
-            // Agrupar los templates de tipo Estimate por Customer ID
+            // Agrupar los templates de tipo Estimate por Customer ID o categoría
             const dailyTemplatesByCustomerId = new Map<string, any>();
             let liquidsTemplate: any = null;
             let uniformsTemplate: any = null;
@@ -559,22 +628,35 @@ export async function POST() {
             allRecurring.forEach((t: any) => {
                 if (!t.Estimate) return;
                 const est = t.Estimate;
-                const templateName = (est.RecurringInfo?.Name || '').toLowerCase();
+                const templateName = (est.RecurringInfo?.Name || t.RecurringInfo?.Name || '').toLowerCase();
                 const customerId = est.CustomerRef?.value;
+                const lineCount = (est.Line || []).filter((l: any) => l.DetailType === 'SalesItemLineDetail').length;
 
                 if (templateName.includes('orden diaria') || templateName.includes('daily') || templateName.includes('diaria')) {
-                    dailyTemplatesByCustomerId.set(String(customerId), est);
+                    const existing = dailyTemplatesByCustomerId.get(String(customerId));
+                    const existingCount = existing ? (existing.Line || []).filter((l: any) => l.DetailType === 'SalesItemLineDetail').length : 0;
+                    if (!existing || lineCount > existingCount) {
+                        dailyTemplatesByCustomerId.set(String(customerId), est);
+                    }
                 } else if (
                     templateName.includes('liquids') || 
                     templateName.includes('liquidos') || 
                     templateName.includes('líquidos')
                 ) {
-                    liquidsTemplate = est;
+                    const currentCount = liquidsTemplate ? (liquidsTemplate.Line || []).filter((l: any) => l.DetailType === 'SalesItemLineDetail').length : 0;
+                    if (!liquidsTemplate || lineCount > currentCount) {
+                        liquidsTemplate = est;
+                        console.log(`[QB-Sync] 🧴 Plantilla de Líquidos seleccionada: "${est.RecurringInfo?.Name}" (${lineCount} ítems)`);
+                    }
                 } else if (
                     templateName.includes('uniforms') || 
                     templateName.includes('uniformes')
                 ) {
-                    uniformsTemplate = est;
+                    const currentCount = uniformsTemplate ? (uniformsTemplate.Line || []).filter((l: any) => l.DetailType === 'SalesItemLineDetail').length : 0;
+                    if (!uniformsTemplate || lineCount > currentCount) {
+                        uniformsTemplate = est;
+                        console.log(`[QB-Sync] 🎽 Plantilla de Uniformes seleccionada: "${est.RecurringInfo?.Name}" (${lineCount} ítems)`);
+                    }
                 }
             });
 
@@ -596,8 +678,14 @@ export async function POST() {
                                 const qbItemId = line.SalesItemLineDetail.ItemRef.value;
                                 const qbItemName = line.SalesItemLineDetail.ItemRef.name || 'Unknown';
                                 
-                                const mapping = qbToInternal.get(qbItemId);
-                                if (!mapping) continue;
+                                let mapping = qbToInternal.get(qbItemId);
+                                if (!mapping) {
+                                    mapping = await autoResolveQbItem(qbItemId, qbItemName);
+                                    if (!mapping) {
+                                        console.warn(`[QB-Sync] ⚠️ Template ${store.name}: Item "${qbItemName}" (QB:${qbItemId}) no se pudo resolver. Saltando.`);
+                                        continue;
+                                    }
+                                }
 
                                 toInsert.push({
                                     store_id: store.id,
@@ -634,6 +722,13 @@ export async function POST() {
                     if (liquidsTemplate) {
                         console.log(`[QB-Sync] 🧴 Sincronizando template único de Líquidos: "${liquidsTemplate.RecurringInfo?.Name || 'Líquidos'}"`);
                         const lines = liquidsTemplate.Line || [];
+                        const salesLines = lines.filter((l: any) => l.DetailType === 'SalesItemLineDetail');
+                        console.log(`[QB-Sync] 🧴 Líquidos: ${lines.length} líneas totales, ${salesLines.length} SalesItemLineDetail`);
+                        salesLines.forEach((l: any, i: number) => {
+                            const ref = l.SalesItemLineDetail?.ItemRef;
+                            const hasMappingInMemory = qbToInternal.has(ref?.value);
+                            console.log(`[QB-Sync]   ${i+1}. ${ref?.name} (QB:${ref?.value}) → ${hasMappingInMemory ? '✅ mapeado' : '❌ SIN MAPEO'}`);
+                        });
                         const liquidsItems: any[] = [];
                         let pos = 1;
                         
@@ -642,8 +737,14 @@ export async function POST() {
                                 const qbItemId = line.SalesItemLineDetail.ItemRef.value;
                                 const qbItemName = line.SalesItemLineDetail.ItemRef.name || 'Unknown';
                                 
-                                const mapping = qbToInternal.get(qbItemId);
-                                if (!mapping) continue;
+                                let mapping = qbToInternal.get(qbItemId);
+                                if (!mapping) {
+                                    mapping = await autoResolveQbItem(qbItemId, qbItemName);
+                                    if (!mapping) {
+                                        console.warn(`[QB-Sync] ⚠️ Template Líquidos: Item "${qbItemName}" (QB:${qbItemId}) no se pudo resolver. Saltando.`);
+                                        continue;
+                                    }
+                                }
 
                                 liquidsItems.push({
                                     inventory_item_id: mapping.inventory_item_id,
@@ -703,8 +804,14 @@ export async function POST() {
                                 const qbItemId = line.SalesItemLineDetail.ItemRef.value;
                                 const qbItemName = line.SalesItemLineDetail.ItemRef.name || 'Unknown';
                                 
-                                const mapping = qbToInternal.get(qbItemId);
-                                if (!mapping) continue;
+                                let mapping = qbToInternal.get(qbItemId);
+                                if (!mapping) {
+                                    mapping = await autoResolveQbItem(qbItemId, qbItemName);
+                                    if (!mapping) {
+                                        console.warn(`[QB-Sync] ⚠️ Template Uniformes: Item "${qbItemName}" (QB:${qbItemId}) no se pudo resolver. Saltando.`);
+                                        continue;
+                                    }
+                                }
 
                                 uniformsItems.push({
                                     inventory_item_id: mapping.inventory_item_id,

@@ -380,6 +380,38 @@ export async function saveWeeklyBases(
 }
 
 /**
+ * Guardado en vivo (real-time live auto-save) de un solo ítem de PAR base.
+ */
+export async function saveSingleItemWeeklyBase(
+    storeId: string | number,
+    weekStartDate: string,
+    b: { inventory_item_id: string; mon_par: number; tue_par: number; wed_par: number; thu_par: number; fri_par: number; sat_par: number; sun_par: number }
+) {
+    const payload = {
+        store_id: storeId,
+        inventory_item_id: b.inventory_item_id,
+        week_start_date: weekStartDate,
+        mon_par: b.mon_par || 0,
+        tue_par: b.tue_par || 0,
+        wed_par: b.wed_par || 0,
+        thu_par: b.thu_par || 0,
+        fri_par: b.fri_par || 0,
+        sat_par: b.sat_par || 0,
+        sun_par: b.sun_par || 0,
+        updated_at: new Date().toISOString()
+    }
+
+    const { error } = await supabase
+        .from('inventory_weekly_bases')
+        .upsert(payload, { onConflict: 'store_id, inventory_item_id, week_start_date' })
+
+    if (error) {
+        console.error('Error en guardado en vivo de PAR base:', error.message)
+        throw new Error(error.message)
+    }
+}
+
+/**
  * Carga datos del historial para las pestañas Historial y Sobrantes.
  * Usa el service role key (sin RLS) igual que fetchWeeklyData.
  */

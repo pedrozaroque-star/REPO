@@ -9,15 +9,21 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-const rawRedirect = process.env.QUICKBOOKS_REDIRECT_URI || '';
-const sanitizedRedirect = rawRedirect.endsWith('/') ? rawRedirect.slice(0, -1) : rawRedirect;
+export function getSanitizedRedirectUri(): string {
+    const raw = process.env.QUICKBOOKS_REDIRECT_URI || '';
+    return raw.trim().replace(/\/+$/, '');
+}
 
-export const authClient = new OAuthClient({
-    clientId: process.env.QUICKBOOKS_CLIENT_ID!,
-    clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET!,
-    environment: process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox', // 'sandbox' or 'production'
-    redirectUri: sanitizedRedirect,
-});
+export function getAuthClient(): OAuthClient {
+    return new OAuthClient({
+        clientId: process.env.QUICKBOOKS_CLIENT_ID!,
+        clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET!,
+        environment: process.env.QUICKBOOKS_ENVIRONMENT || 'sandbox',
+        redirectUri: getSanitizedRedirectUri(),
+    });
+}
+
+export const authClient = getAuthClient();
 
 const SANDBOX_TOKEN_FILE = path.join(process.cwd(), '.sandbox_tokens.json');
 

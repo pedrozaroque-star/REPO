@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authClient, saveLocalSandboxIntegration } from '@/lib/quickbooks';
+import { getAuthClient, getSanitizedRedirectUri, saveLocalSandboxIntegration } from '@/lib/quickbooks';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -9,18 +9,16 @@ const supabase = createClient(
 
 export async function GET(req: NextRequest) {
     const url = new URL(req.url);
+    const sanitizedRedirect = getSanitizedRedirectUri();
     
-    // Sanitizar la URL para eliminar barras diagonales finales en el pathname
-    // Esto evita discrepancias si Next.js/Vercel redirige automáticamente agregando una barra final.
-    const cleanUrl = new URL(url.href);
-    if (cleanUrl.pathname.endsWith('/')) {
-        cleanUrl.pathname = cleanUrl.pathname.slice(0, -1);
-    }
-    const parseRedirect = cleanUrl.href;
+    // Reconstruir la URL de callback exactamente usando el redirectUri sanitizado y la query string recibida.
+    // Esto garantiza 100% de coincidencia entre authorizeUri, redirectUri de OAuthClient y la respuesta de Intuit.
+    const parseRedirect = `${sanitizedRedirect}${url.search}`;
 
     try {
+        const client = getAuthClient();
         // 1. Exchange auth code for tokens
-        const authResponse = await authClient.createToken(parseRedirect);
+        const authResponse = await client.createToken(parseRedirect);
         const tokens = authResponse.getJson();
 
         const realmId = url.searchParams.get('realmId');

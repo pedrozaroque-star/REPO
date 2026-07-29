@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { authClient } from '@/lib/quickbooks';
+import { getAuthClient } from '@/lib/quickbooks';
 import OAuthClient from 'intuit-oauth';
 
 export async function GET() {
     try {
-        const authUri = authClient.authorizeUri({
+        const client = getAuthClient();
+        const authUri = client.authorizeUri({
             scope: [OAuthClient.scopes.Accounting, OAuthClient.scopes.OpenId],
             state: 'init',
         });

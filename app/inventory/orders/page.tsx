@@ -40,14 +40,14 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
     Package, ClipboardList, ShoppingCart, BarChart3,
     ArrowLeft, ArrowRight, Copy, Save, Send, RefreshCcw,
-    Check, X, Link, AlertTriangle, ChevronDown, Download, Info, Trash2, Printer
+    Check, X, Link, AlertTriangle, ChevronDown, Download, Info, Trash2, Printer, Eye, EyeOff
 } from 'lucide-react'
 import {
     fetchOrderableItems, fetchAllInventoryItems, fetchWeeklyData,
     calculateDailyOrder, updateWeeklyBase, updateDailyLeftover,
     clonePreviousWeekBases, copyFromParIdeal, linkExcelItem,
     saveOrderDraft, executeWeekRollover, fetchAnalysisData,
-    saveWeeklyBases, fetchMappedItems, fetchHistoryData,
+    saveWeeklyBases, saveSingleItemWeeklyBase, fetchMappedItems, fetchHistoryData,
     type OrderType
 } from './actions'
 import {
@@ -174,6 +174,47 @@ export default function InventoryOrdersPage() {
     const [modalLines, setModalLines] = useState<any[]>([])
     const [modalNotes, setModalNotes] = useState('')
     const [savingModal, setSavingModal] = useState(false)
+    const [modalReadOnly, setModalReadOnly] = useState(false)
+    const [modalExtraSearch, setModalExtraSearch] = useState('')
+    const [showModalExtraDropdown, setShowModalExtraDropdown] = useState(false)
+    const [isLiveSaving, setIsLiveSaving] = useState(false)
+
+    // Column visibility toggles (with localStorage persistence)
+    const [showParIdealCol, setShowParIdealCol] = useState<boolean>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('teg_show_par_ideal_col')
+            return saved !== null ? JSON.parse(saved) : true
+        }
+        return true
+    })
+
+    const [showSuggestedCol, setShowSuggestedCol] = useState<boolean>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('teg_show_suggested_col')
+            return saved !== null ? JSON.parse(saved) : true
+        }
+        return true
+    })
+
+    const toggleParIdealCol = () => {
+        setShowParIdealCol(prev => {
+            const next = !prev
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('teg_show_par_ideal_col', JSON.stringify(next))
+            }
+            return next
+        })
+    }
+
+    const toggleSuggestedCol = () => {
+        setShowSuggestedCol(prev => {
+            const next = !prev
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('teg_show_suggested_col', JSON.stringify(next))
+            }
+            return next
+        })
+    }
 
     // History tab state
     const [historyMonday, setHistoryMonday] = useState<string>(getBusinessMonday(new Date()))
@@ -366,8 +407,13 @@ export default function InventoryOrdersPage() {
 
     // --- Edit Modal Handlers ---
     function handleOpenEditModal(order: any) {
+        // Determinar si el pedido es de hoy (editable) o de otro día (solo consulta)
+        const isEditable = order.order_date === todayStr
+        setModalReadOnly(!isEditable)
         setEditModal({ open: true, order })
         setModalNotes(order.notes || '')
+        setModalExtraSearch('')
+        setShowModalExtraDropdown(false)
         
         // Mapear las líneas guardadas de la orden con sus metadatos de insumos
         const lines = order.inventory_order_lines.map((line: any) => {
@@ -491,7 +537,7 @@ export default function InventoryOrdersPage() {
         }
     }
 
-    function handleCopyDayPar(src: string, tgt: string) {
+    async function handleCopyDayPar(src: string, tgt: string) {
         if (src === tgt) {
             alert(t('bodegaOrders.sameDayError'))
             return
@@ -504,28 +550,51 @@ export default function InventoryOrdersPage() {
 
         if (!confirm(msg)) return
 
-        setBases(prev => {
-            const nextBases = { ...prev }
-            Object.keys(nextBases).forEach(itemId => {
-                const itemBase = { ...nextBases[itemId] } as any
-                if (!itemBase.inventory_item_id) return
-                const sourceVal = itemBase[src] || 0
-                if (tgt === 'all') {
-                    itemBase.mon_par = sourceVal
-                    itemBase.tue_par = sourceVal
-                    itemBase.wed_par = sourceVal
-                    itemBase.thu_par = sourceVal
-                    itemBase.fri_par = sourceVal
-                    itemBase.sat_par = sourceVal
-                    itemBase.sun_par = sourceVal
-                } else {
-                    itemBase[tgt] = sourceVal
-                }
-                nextBases[itemId] = itemBase
+        const nextBases = { ...bases }
+        const updatedList: any[] = []
+
+        Object.keys(nextBases).forEach(itemId => {
+            const itemBase = { ...nextBases[itemId] } as any
+            if (!itemBase.inventory_item_id) itemBase.inventory_item_id = itemId
+            const sourceVal = itemBase[src] || 0
+            if (tgt === 'all') {
+                itemBase.mon_par = sourceVal
+                itemBase.tue_par = sourceVal
+                itemBase.wed_par = sourceVal
+                itemBase.thu_par = sourceVal
+                itemBase.fri_par = sourceVal
+                itemBase.sat_par = sourceVal
+                itemBase.sun_par = sourceVal
+            } else {
+                itemBase[tgt] = sourceVal
+            }
+            nextBases[itemId] = itemBase
+            updatedList.push({
+                inventory_item_id: itemBase.inventory_item_id,
+                mon_par: itemBase.mon_par || 0,
+                tue_par: itemBase.tue_par || 0,
+                wed_par: itemBase.wed_par || 0,
+                thu_par: itemBase.thu_par || 0,
+                fri_par: itemBase.fri_par || 0,
+                sat_par: itemBase.sat_par || 0,
+                sun_par: itemBase.sun_par || 0
             })
-            return nextBases
         })
+        
+        setBases(nextBases)
         setHasBaseChanges(true)
+
+        // Live Auto-Save to Supabase
+        if (storeId && updatedList.length > 0) {
+            setIsLiveSaving(true)
+            try {
+                await saveWeeklyBases(storeId, activeMonday, updatedList)
+            } catch (err) {
+                console.error('Error auto-saving copied day PAR:', err)
+            } finally {
+                setIsLiveSaving(false)
+            }
+        }
     }
 
     function handleOrderDateChange(dateStr: string) {
@@ -545,7 +614,7 @@ export default function InventoryOrdersPage() {
     // --- Handlers ---
     async function handleBaseChange(itemId: string, field: string, value: string) {
         if (!storeId) return
-        let numVal = parseFloat(value) || 0
+        let numVal = value === '' ? 0 : (parseFloat(value) || 0)
         const item = items.find(i => i.id === itemId)
         if (item && numVal > 0) {
             if (item.order_rounding_rule === 'ceiling_60') numVal = Math.ceil(numVal / 60) * 60
@@ -553,8 +622,18 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
-        setBases({ ...bases, [itemId]: { ...b, [field]: numVal } as any })
+        const updatedItemBase = { ...b, inventory_item_id: itemId, [field]: numVal }
+        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
         setHasBaseChanges(true)
+
+        // Live Auto-Save to Supabase!
+        setIsLiveSaving(true)
+        saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any)
+            .then(() => setIsLiveSaving(false))
+            .catch(err => {
+                console.error('Error auto-saving PAR base:', err)
+                setIsLiveSaving(false)
+            })
     }
 
     async function handleLiquidsParChange(itemId: string, value: string) {
@@ -567,20 +646,28 @@ export default function InventoryOrdersPage() {
             else if (item.order_rounding_rule === 'ceiling_4') numVal = Math.ceil(numVal / 4) * 4
         }
         const b = bases[itemId] || { inventory_item_id: itemId, mon_par: 0, tue_par: 0, wed_par: 0, thu_par: 0, fri_par: 0, sat_par: 0, sun_par: 0 }
-        setBases({
-            ...bases,
-            [itemId]: {
-                ...b,
-                mon_par: numVal,
-                tue_par: numVal,
-                wed_par: numVal,
-                thu_par: numVal,
-                fri_par: numVal,
-                sat_par: numVal,
-                sun_par: numVal
-            } as any
-        })
+        const updatedItemBase = {
+            ...b,
+            inventory_item_id: itemId,
+            mon_par: numVal,
+            tue_par: numVal,
+            wed_par: numVal,
+            thu_par: numVal,
+            fri_par: numVal,
+            sat_par: numVal,
+            sun_par: numVal
+        }
+        setBases(prev => ({ ...prev, [itemId]: updatedItemBase as any }))
         setHasBaseChanges(true)
+
+        // Live Auto-Save to Supabase!
+        setIsLiveSaving(true)
+        saveSingleItemWeeklyBase(storeId, activeMonday, updatedItemBase as any)
+            .then(() => setIsLiveSaving(false))
+            .catch(err => {
+                console.error('Error auto-saving liquids PAR base:', err)
+                setIsLiveSaving(false)
+            })
     }
 
     async function handleSavePar() {
@@ -598,11 +685,14 @@ export default function InventoryOrdersPage() {
                 sun_par: b.sun_par || 0
             }))
             
+            // CRITICAL FIX: Guardar TANTO en la semana actual (activeMonday) COMO en la próxima (+7 días)
+            await saveWeeklyBases(storeId, activeMonday, basesList)
             const nextWeekMonday = addDays(activeMonday, 7)
             await saveWeeklyBases(storeId, nextWeekMonday, basesList)
+
             const successMsg = language === 'es'
-                ? `PAR Guardado exitosamente para la próxima semana (inicia el ${nextWeekMonday}).`
-                : `PAR saved successfully for next week (starts on ${nextWeekMonday}).`
+                ? `⚡ PAR Guardado exitosamente para la semana actual (${activeMonday}) y la próxima semana (${nextWeekMonday}).`
+                : `⚡ PAR saved successfully for current week (${activeMonday}) and next week (${nextWeekMonday}).`
             alert(successMsg)
             setOriginalBases(JSON.parse(JSON.stringify(bases)))
             setHasBaseChanges(false)
@@ -1191,7 +1281,12 @@ export default function InventoryOrdersPage() {
                         <div className="px-5 py-4 bg-slate-50 border-b border-slate-200/60 flex items-center justify-between">
                             <div>
                                 <h2 className="text-base sm:text-lg font-black text-slate-800 flex items-center gap-1.5">
-                                    ✏️ Editar Pedido
+                                    {modalReadOnly ? '📋 Consultar Pedido' : '✏️ Editar Pedido'}
+                                    {modalReadOnly && (
+                                        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full ml-1">
+                                            {language === 'es' ? 'Solo lectura' : 'Read-only'}
+                                        </span>
+                                    )}
                                 </h2>
                                 <p className="text-xs text-slate-500 mt-0.5">
                                     Pedido del {editModal.order.order_date} (Store ID: {storeId}) {editModal.order.qb_estimate_number && `| Estimate QB #${editModal.order.qb_estimate_number}`}
@@ -1217,7 +1312,8 @@ export default function InventoryOrdersPage() {
                                     onChange={e => setModalNotes(e.target.value)}
                                     placeholder="Notas opcionales para este pedido..."
                                     rows={2}
-                                    className="w-full px-4 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none bg-white placeholder:text-slate-400"
+                                    disabled={modalReadOnly}
+                                    className={`w-full px-4 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none placeholder:text-slate-400 ${modalReadOnly ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
                                 />
                             </div>
 
@@ -1276,14 +1372,18 @@ export default function InventoryOrdersPage() {
                                                         </td>
                                                         {/* Sobrante */}
                                                         <td className="p-1 sm:p-1.5 text-center bg-orange-50/20">
-                                                            <input
-                                                                type="number"
-                                                                value={leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : ''}
-                                                                onChange={e => handleModalLeftoverChange(line.inventory_item_id, e.target.value)}
-                                                                onFocus={e => e.target.select()}
-                                                                placeholder="Sobrante"
-                                                                className="w-full p-1.5 text-center bg-white border border-orange-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-[11px] sm:text-xs"
-                                                            />
+                                                            {modalReadOnly ? (
+                                                                <span className="font-bold text-orange-800 text-[11px] sm:text-xs">{leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : '-'}</span>
+                                                            ) : (
+                                                                <input
+                                                                    type="number"
+                                                                    value={leftoverVal !== null && leftoverVal !== undefined ? leftoverVal : ''}
+                                                                    onChange={e => handleModalLeftoverChange(line.inventory_item_id, e.target.value)}
+                                                                    onFocus={e => e.target.select()}
+                                                                    placeholder="Sobrante"
+                                                                    className="w-full p-1.5 text-center bg-white border border-orange-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 font-bold text-orange-800 text-[11px] sm:text-xs"
+                                                                />
+                                                            )}
                                                         </td>
                                                         {/* Pedir */}
                                                         <td className={`p-2 sm:p-3 text-center font-bold ${isNegative ? 'text-red-500 bg-red-50/20' : 'text-blue-700 bg-blue-50/10'}`}>
@@ -1291,14 +1391,18 @@ export default function InventoryOrdersPage() {
                                                         </td>
                                                         {/* Ajuste */}
                                                         <td className="p-1 sm:p-1.5 text-center bg-indigo-50/10">
-                                                            <input
-                                                                type="number"
-                                                                value={adj !== null && adj !== undefined ? adj : ''}
-                                                                onChange={e => handleModalAdjustmentChange(line.inventory_item_id, e.target.value)}
-                                                                onFocus={e => e.target.select()}
-                                                                placeholder="-"
-                                                                className="w-full p-1.5 text-center bg-white border border-indigo-100 rounded-lg outline-none focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-[11px] sm:text-xs"
-                                                            />
+                                                            {modalReadOnly ? (
+                                                                <span className="font-bold text-indigo-700 text-[11px] sm:text-xs">{adj !== null && adj !== undefined ? adj : '-'}</span>
+                                                            ) : (
+                                                                <input
+                                                                    type="number"
+                                                                    value={adj !== null && adj !== undefined ? adj : ''}
+                                                                    onChange={e => handleModalAdjustmentChange(line.inventory_item_id, e.target.value)}
+                                                                    onFocus={e => e.target.select()}
+                                                                    placeholder="-"
+                                                                    className="w-full p-1.5 text-center bg-white border border-indigo-100 rounded-lg outline-none focus:ring-2 focus:ring-indigo-400 font-bold text-indigo-700 text-[11px] sm:text-xs"
+                                                                />
+                                                            )}
                                                         </td>
                                                         {/* Final */}
                                                         <td className={`p-2 sm:p-3 text-center font-black text-[12px] sm:text-sm ${finalQty > 0 ? 'text-slate-800 bg-slate-50/50' : 'text-slate-300'}`}>
@@ -1311,6 +1415,85 @@ export default function InventoryOrdersPage() {
                                     </table>
                                 </div>
                             </div>
+
+                            {/* ---- Combo de insumos extraordinarios (solo en modo edición) ---- */}
+                            {!modalReadOnly && (
+                                <div className="p-4 border-t border-slate-200 bg-indigo-50/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                                    <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider whitespace-nowrap flex items-center gap-1.5">
+                                        🚨 {language === 'es' ? 'Agregar insumo extra:' : 'Add extra item:'}
+                                    </span>
+                                    <div className="relative flex-1 z-25">
+                                        <input
+                                            type="text"
+                                            placeholder={language === 'es' ? 'Escribe el nombre del insumo para buscar...' : 'Type item name to search...'}
+                                            value={modalExtraSearch}
+                                            onChange={e => {
+                                                setModalExtraSearch(e.target.value)
+                                                setShowModalExtraDropdown(true)
+                                            }}
+                                            onFocus={() => setShowModalExtraDropdown(true)}
+                                            className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 font-medium"
+                                        />
+                                        
+                                        {showModalExtraDropdown && modalExtraSearch.trim().length > 0 && (
+                                            <div className="absolute left-0 right-0 bottom-full mb-1 z-30 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                                                {mappedItems
+                                                    .filter(item => {
+                                                        const isAlreadyAdded = modalLines.some((l: any) => l.inventory_item_id === item.id)
+                                                        const matchesSearch = item.name.toLowerCase().includes(modalExtraSearch.toLowerCase())
+                                                        return !isAlreadyAdded && matchesSearch
+                                                    })
+                                                    .map(item => (
+                                                        <button
+                                                            key={item.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const newModalLine = {
+                                                                    id: `temp-${Date.now()}`,
+                                                                    order_id: editModal.order?.id,
+                                                                    inventory_item_id: item.id,
+                                                                    item_name: item.name,
+                                                                    unit_description: item.order_unit_description || item.unit_type,
+                                                                    purchase_unit_cost: item.purchase_unit_cost,
+                                                                    unit_measure: item.unit_measure,
+                                                                    qb_item_id: item.qb_item_id,
+                                                                    par_value: 0,
+                                                                    leftover_value: 0,
+                                                                    calculated_qty: 0,
+                                                                    adjusted_qty: 1,
+                                                                    is_extraordinary: true
+                                                                }
+                                                                setModalLines((prev: any[]) => [...prev, newModalLine])
+                                                                setModalExtraSearch('')
+                                                                setShowModalExtraDropdown(false)
+                                                            }}
+                                                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 transition-colors flex items-center justify-between border-b border-slate-100 last:border-0"
+                                                        >
+                                                            <span className="font-semibold text-slate-800">{item.name}</span>
+                                                            <span className="text-xs text-slate-400 font-medium">({item.unit_type})</span>
+                                                        </button>
+                                                    ))
+                                                }
+                                                {mappedItems.filter(item => {
+                                                    const isAlreadyAdded = modalLines.some((l: any) => l.inventory_item_id === item.id)
+                                                    const matchesSearch = item.name.toLowerCase().includes(modalExtraSearch.toLowerCase())
+                                                    return !isAlreadyAdded && matchesSearch
+                                                }).length === 0 && (
+                                                    <div className="p-4 text-center text-xs text-slate-400">
+                                                        {language === 'es' ? 'No se encontraron insumos' : 'No items found'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {showModalExtraDropdown && (
+                                        <div 
+                                            className="fixed inset-0 z-10 bg-transparent"
+                                            onClick={() => setShowModalExtraDropdown(false)}
+                                        />
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         {/* Footer */}
@@ -1320,22 +1503,26 @@ export default function InventoryOrdersPage() {
                                 disabled={savingModal || sendingModal}
                                 className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl font-bold text-xs sm:text-sm hover:bg-slate-100 transition-colors disabled:opacity-50"
                             >
-                                Cancelar
+                                {modalReadOnly ? (language === 'es' ? 'Cerrar' : 'Close') : 'Cancelar'}
                             </button>
-                            <button
-                                onClick={handleSaveModalChanges}
-                                disabled={savingModal || sendingModal}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                            >
-                                <Save size={14} /> {savingModal ? 'Guardando...' : 'Guardar Local'}
-                            </button>
-                            <button
-                                onClick={handleSendModalToQb}
-                                disabled={savingModal || sendingModal}
-                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                            >
-                                <Send size={14} /> {sendingModal ? 'Enviando...' : 'Enviar a QB'}
-                            </button>
+                            {!modalReadOnly && (
+                                <>
+                                    <button
+                                        onClick={handleSaveModalChanges}
+                                        disabled={savingModal || sendingModal}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                                    >
+                                        <Save size={14} /> {savingModal ? 'Guardando...' : 'Guardar Local'}
+                                    </button>
+                                    <button
+                                        onClick={handleSendModalToQb}
+                                        disabled={savingModal || sendingModal}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                                    >
+                                        <Send size={14} /> {sendingModal ? 'Enviando...' : 'Enviar a QB'}
+                                    </button>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1706,6 +1893,38 @@ export default function InventoryOrdersPage() {
                                         <span className="text-xs font-black text-slate-500 uppercase tracking-wider mr-auto">
                                             ⚡ Acciones Rápidas
                                         </span>
+
+                                        {/* Column Visibility Toggles */}
+                                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs text-xs font-semibold select-none">
+                                            <span className="text-slate-400 font-bold text-[11px] uppercase px-1.5 flex items-center gap-1">
+                                                <Eye size={12} /> {t('bodegaOrders.toggleColumns')}:
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={toggleParIdealCol}
+                                                className={`px-2.5 py-1 rounded-lg transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${
+                                                    showParIdealCol
+                                                        ? 'bg-violet-100 text-violet-800 border border-violet-300 shadow-2xs'
+                                                        : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200 line-through opacity-70'
+                                                }`}
+                                                title="Mostrar u ocultar la columna PAR Ideal"
+                                            >
+                                                {showParIdealCol ? <Eye size={12} /> : <EyeOff size={12} />} {t('bodegaOrders.toggleParIdeal')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={toggleSuggestedCol}
+                                                className={`px-2.5 py-1 rounded-lg transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${
+                                                    showSuggestedCol
+                                                        ? 'bg-cyan-100 text-cyan-800 border border-cyan-300 shadow-2xs'
+                                                        : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200 line-through opacity-70'
+                                                }`}
+                                                title="Mostrar u ocultar la columna Sugerido"
+                                            >
+                                                {showSuggestedCol ? <Eye size={12} /> : <EyeOff size={12} />} {t('bodegaOrders.toggleSuggested')}
+                                            </button>
+                                        </div>
+
                                         <button
                                             onClick={() => {
                                                 const url = `/inventory/orders/print-sheet?storeId=${storeId}&orderType=${orderType}&week=${activeMonday}`
@@ -1739,27 +1958,31 @@ export default function InventoryOrdersPage() {
                                                     <th className="p-3 text-center w-28 bg-slate-50 text-slate-600 border-b-2 border-slate-300">
                                                         {t('bodegaOrders.costCol')}
                                                     </th>
-                                                    <th className="p-3 text-center w-24 bg-violet-50 text-violet-700 border-b-2 border-violet-200">
-                                                        <div className="flex items-center justify-center gap-1">
-                                                            <span>{t('bodegaOrders.parIdeal')}</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setShowIdealInfo(true)}
-                                                                className="text-violet-400 hover:text-violet-600 transition-colors"
-                                                                title="¿Cómo se calcula?"
-                                                            >
-                                                                <Info size={13} />
-                                                            </button>
-                                                        </div>
-                                                    </th>
-                                                    <th className="p-3 text-center w-20 bg-emerald-50 text-emerald-700 border-b-2 border-emerald-200">
-                                                        {orderType === 'daily' ? t('bodegaOrders.parTomorrow') : 'PAR'}
-                                                    </th>
-                                                    <th className="p-3 text-center w-24 bg-cyan-50 text-cyan-800 border-b-2 border-cyan-200">
-                                                        <div className="flex items-center justify-center gap-1" title="Sobrante Teórico sugerido automáticamente por el sistema">
-                                                            <span>🤖 {t('bodegaOrders.suggested')}</span>
-                                                        </div>
-                                                    </th>
+                                                    {showParIdealCol && (
+                                                         <th className="p-3 text-center w-24 bg-violet-50 text-violet-700 border-b-2 border-violet-200">
+                                                             <div className="flex items-center justify-center gap-1">
+                                                                 <span>{t('bodegaOrders.parIdeal')}</span>
+                                                                 <button
+                                                                     type="button"
+                                                                     onClick={() => setShowIdealInfo(true)}
+                                                                     className="text-violet-400 hover:text-violet-600 transition-colors"
+                                                                     title="¿Cómo se calcula?"
+                                                                 >
+                                                                     <Info size={13} />
+                                                                 </button>
+                                                             </div>
+                                                         </th>
+                                                     )}
+                                                     <th className="p-3 text-center w-20 bg-emerald-50 text-emerald-700 border-b-2 border-emerald-200">
+                                                         {orderType === 'daily' ? t('bodegaOrders.parTomorrow') : 'PAR'}
+                                                     </th>
+                                                     {showSuggestedCol && (
+                                                         <th className="p-3 text-center w-24 bg-cyan-50 text-cyan-800 border-b-2 border-cyan-200">
+                                                             <div className="flex items-center justify-center gap-1" title="Sobrante Teórico sugerido automáticamente por el sistema">
+                                                                 <span>🤖 {t('bodegaOrders.suggested')}</span>
+                                                             </div>
+                                                         </th>
+                                                     )}
                                                     <th className="p-3 text-center w-24 bg-orange-50 text-orange-700 border-b-2 border-orange-200">
                                                         {t('bodegaOrders.leftover')}
                                                     </th>
@@ -1808,9 +2031,11 @@ export default function InventoryOrdersPage() {
                                                                 )}
                                                             </td>
                                                             {/* PAR Ideal (readonly) */}
-                                                            <td className="p-2 text-center font-medium text-violet-600 bg-violet-50/40 border-b border-violet-100">
-                                                                {line.par_ideal_value || '-'}
-                                                            </td>
+                                                            {showParIdealCol && (
+                                                                <td className="p-2 text-center font-medium text-violet-600 bg-violet-50/40 border-b border-violet-100">
+                                                                    {line.par_ideal_value || '-'}
+                                                                </td>
+                                                            )}
                                                             {/* PAR (readonly) */}
                                                             <td className="p-2 text-center font-bold text-emerald-700 bg-emerald-50/40 border-b border-emerald-100">
                                                                 {line.par_value || '-'}
@@ -1819,16 +2044,18 @@ export default function InventoryOrdersPage() {
                                                                 )}
                                                             </td>
                                                             {/* Sugerido (Teórico) */}
-                                                            <td className="p-2 text-center font-bold text-cyan-800 bg-cyan-50/40 border-b border-cyan-100">
-                                                                {line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
-                                                                    <span className="flex items-center justify-center gap-1" title={line.is_burn_rate ? "Promedio histórico diario (Burn Rate)" : "Ventas Toast × Recetas"}>
-                                                                        <span>{line.suggested_leftover}</span>
-                                                                        <span className="text-[10px]">{line.is_burn_rate ? '📊' : '🤖'}</span>
-                                                                    </span>
-                                                                ) : (
-                                                                    '—'
-                                                                )}
-                                                            </td>
+                                                            {showSuggestedCol && (
+                                                                <td className="p-2 text-center font-bold text-cyan-800 bg-cyan-50/40 border-b border-cyan-100">
+                                                                    {line.suggested_leftover !== null && line.suggested_leftover !== undefined ? (
+                                                                        <span className="flex items-center justify-center gap-1" title={line.is_burn_rate ? "Promedio histórico diario (Burn Rate)" : "Ventas Toast × Recetas"}>
+                                                                            <span>{line.suggested_leftover}</span>
+                                                                            <span className="text-[10px]">{line.is_burn_rate ? '📊' : '🤖'}</span>
+                                                                        </span>
+                                                                    ) : (
+                                                                        '—'
+                                                                    )}
+                                                                </td>
+                                                            )}
                                                             {/* Sobrante (EDITABLE) */}
                                                             <td className="p-0 border-b border-orange-200 bg-orange-50/30">
                                                                 <div className="relative flex items-center">
@@ -1896,7 +2123,7 @@ export default function InventoryOrdersPage() {
                                                 {/* ---- Extraordinary items ---- */}
                                                 {extraordinaryLines.length > 0 && (
                                                     <tr>
-                                                        <td colSpan={7} className="p-3 text-center bg-indigo-50/50 border-y-2 border-indigo-200">
+                                                        <td colSpan={8 + (showParIdealCol ? 1 : 0) + (showSuggestedCol ? 1 : 0)} className="p-3 text-center bg-indigo-50/50 border-y-2 border-indigo-200">
                                                             <span className="text-xs font-black text-indigo-700 uppercase tracking-widest">
                                                                 ── Insumos Extraordinarios / Emergency Items ──
                                                             </span>
@@ -1937,10 +2164,22 @@ export default function InventoryOrdersPage() {
                                                                     </div>
                                                                 </div>
                                                             </td>
+                                                            {/* Empaque (QB) */}
+                                                            <td className="p-2 text-center text-slate-600 border-b border-indigo-100 font-medium text-xs font-mono">{line.unit_description || '-'}</td>
+                                                            {/* Costo (QB) */}
+                                                            <td className="p-2 text-center text-slate-700 border-b border-indigo-100 font-bold text-xs">
+                                                                {line.purchase_unit_cost ? `$${Number(line.purchase_unit_cost).toFixed(2)}` : '-'}
+                                                            </td>
                                                             {/* PAR Ideal — dash */}
-                                                            <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            {showParIdealCol && (
+                                                                <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            )}
                                                             {/* PAR — dash */}
                                                             <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            {/* Sugerido — dash */}
+                                                            {showSuggestedCol && (
+                                                                <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
+                                                            )}
                                                             {/* Sobrante — dash */}
                                                             <td className="p-2 text-center text-slate-300 border-b border-indigo-100 bg-indigo-50/5">—</td>
                                                             {/* Pedir — dash */}
@@ -1978,7 +2217,7 @@ export default function InventoryOrdersPage() {
                                                 {/* ---- Tracking Only separator ---- */}
                                                 {trackingLines.length > 0 && (
                                                     <tr>
-                                                        <td colSpan={7} className="p-3 text-center bg-slate-100 border-y-2 border-slate-300">
+                                                        <td colSpan={8 + (showParIdealCol ? 1 : 0) + (showSuggestedCol ? 1 : 0)} className="p-3 text-center bg-slate-100 border-y-2 border-slate-300">
                                                             <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
                                                                 ── {t('bodegaOrders.trackingOnly')} / Tracking Only ──
                                                             </span>
@@ -2002,14 +2241,26 @@ export default function InventoryOrdersPage() {
                                                                     <span className="font-semibold text-slate-500">{line.item_name}</span>
                                                                 </div>
                                                             </td>
-                                                            {/* PAR Ideal */}
-                                                            <td className="p-2 text-center font-medium text-violet-500 bg-violet-50/20 border-b border-violet-100">
-                                                                {line.par_ideal_value || '-'}
+                                                            {/* Empaque (QB) */}
+                                                            <td className="p-2 text-center text-slate-600 border-b border-slate-100 font-medium text-xs">{line.unit_description || '-'}</td>
+                                                            {/* Costo (QB) */}
+                                                            <td className="p-2 text-center text-slate-700 border-b border-slate-100 font-bold text-xs">
+                                                                {line.purchase_unit_cost ? `$${Number(line.purchase_unit_cost).toFixed(2)}` : '-'}
                                                             </td>
+                                                            {/* PAR Ideal */}
+                                                            {showParIdealCol && (
+                                                                <td className="p-2 text-center font-medium text-violet-500 bg-violet-50/20 border-b border-violet-100">
+                                                                    {line.par_ideal_value || '-'}
+                                                                </td>
+                                                            )}
                                                             {/* PAR */}
                                                             <td className="p-2 text-center font-bold text-emerald-600 bg-emerald-50/30 border-b border-emerald-100">
                                                                 {line.par_value || '-'}
                                                             </td>
+                                                            {/* Sugerido — dash */}
+                                                            {showSuggestedCol && (
+                                                                <td className="p-2 text-center text-slate-300 border-b border-slate-100">—</td>
+                                                            )}
                                                             {/* Sobrante (EDITABLE for tracking too) */}
                                                             <td className="p-0 border-b border-orange-200 bg-orange-50/20">
                                                                 <input
@@ -2174,6 +2425,15 @@ export default function InventoryOrdersPage() {
                                         }`}>
                                         <Save size={14} /> {savingPar ? t('bodegaOrders.savingPar') : t('bodegaOrders.savePar')}
                                     </button>
+
+                                    {/* Live Auto-Save Badge */}
+                                    <span className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 px-2.5 py-1.5 rounded-xl font-bold text-[11px] shadow-2xs">
+                                        <span className={`w-2 h-2 rounded-full ${isLiveSaving ? 'bg-amber-500 animate-ping' : 'bg-emerald-500'}`} />
+                                        {isLiveSaving 
+                                            ? (language === 'es' ? 'Guardando en vivo...' : 'Saving live...') 
+                                            : (language === 'es' ? '⚡ Guardado en vivo activo' : '⚡ Live Auto-Save Active')
+                                        }
+                                    </span>
                                     {hasBaseChanges && (
                                         <button onClick={handleUndoBases}
                                             className="flex items-center gap-1.5 bg-red-50 border border-red-200 hover:bg-red-100 text-red-700 px-3 py-2 rounded-xl font-semibold text-xs shadow-sm transition-colors cursor-pointer"
@@ -2586,9 +2846,12 @@ export default function InventoryOrdersPage() {
 
                                                             <button
                                                                 onClick={() => handleOpenEditModal(order)}
-                                                                className="text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-0.5"
+                                                                className={`text-xs px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-0.5 ${order.order_date === todayStr ? 'text-amber-600 hover:text-amber-800 hover:bg-amber-50' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
                                                             >
-                                                                ✏️ {language === 'es' ? 'Editar' : 'Edit'}
+                                                                {order.order_date === todayStr
+                                                                    ? `✏️ ${language === 'es' ? 'Editar' : 'Edit'}`
+                                                                    : `👁️ ${language === 'es' ? 'Ver' : 'View'}`
+                                                                }
                                                             </button>
                                                         </div>
 
