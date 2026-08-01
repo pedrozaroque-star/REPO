@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tabla de Máximos por Carne - Tacos El Gavilan (Slauson)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+            color: #0f172a;
+            padding-bottom: 40px;
+            -webkit-text-size-adjust: 100%;
+        }
+        header {
+            background-color: #ffffff;
+            border-bottom: 2px solid #e2e8f0;
+            padding: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+        .header-container {
+            max-w: 900px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .logo-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .logo-title h1 {
+            font-size: 20px;
+            font-weight: 900;
+            color: #dc2626;
+            letter-spacing: 0.5px;
+        }
+        .subtitle {
+            font-size: 12px;
+            font-weight: 700;
+            color: #64748b;
+            margin-top: 2px;
+        }
+        .badge-tag {
+            background-color: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            color: #334155;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 800;
+        }
+        main {
+            max-width: 900px;
+            margin: 16px auto;
+            padding: 0 12px;
+        }
+        .guide-box {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 20px;
+            padding: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .guide-title {
+            font-size: 15px;
+            font-weight: 900;
+            color: #1e293b;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .guide-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+        }
+        .guide-card {
+            padding: 12px;
+            border-radius: 14px;
+            border: 1px solid #e2e8f0;
+            font-size: 12px;
+        }
+        .guide-card.c1 { background-color: #eff6ff; border-color: #bfdbfe; }
+        .guide-card.c2 { background-color: #fffbebf5; border-color: #fde68a; }
+        .guide-card.c3 { background-color: #ecfdf5; border-color: #a7f3d0; }
+        .guide-card-title {
+            font-weight: 900;
+            margin-bottom: 4px;
+            font-size: 12px;
+        }
+        .c1 .guide-card-title { color: #1d4ed8; }
+        .c2 .guide-card-title { color: #b45309; }
+        .c3 .guide-card-title { color: #047857; }
+        
+        .day-label {
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 8px;
+            display: block;
+        }
+        .tabs-container {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .tab-btn {
+            padding: 10px 18px;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 900;
+            white-space: nowrap;
+            border: 1px solid #cbd5e1;
+            background-color: #ffffff;
+            color: #334155;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .tab-btn.active {
+            background-color: #dc2626;
+            color: #ffffff;
+            border-color: #b91c1c;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+            transform: scale(1.04);
+        }
+        
+        .table-card {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            margin-top: 16px;
+        }
+        .table-header-bar {
+            padding: 14px 16px;
+            background-color: #f1f5f9;
+            border-bottom: 1px solid #cbd5e1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .table-header-bar h3 {
+            font-size: 14px;
+            font-weight: 900;
+            color: #0f172a;
+        }
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 12px;
+        }
+        th {
+            background-color: #f8fafc;
+            color: #475569;
+            font-weight: 900;
+            text-transform: uppercase;
+            padding: 10px 12px;
+            border-bottom: 2px solid #cbd5e1;
+            white-space: nowrap;
+        }
+        th.asada { color: #991b1b; }
+        th.pastor { color: #c2410c; }
+        th.pollo { color: #b45309; }
+        th.cabeza { color: #065f46; }
+        th.lengua { color: #1e40af; }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: top;
+        }
+        tr:nth-child(even) { background-color: #f8fafc; }
+        tr.peak-row { background-color: #fef2f2; }
+        
+        .sticky-time {
+            position: sticky;
+            left: 0;
+            background-color: #ffffff;
+            font-weight: 900;
+            color: #0f172a;
+            border-right: 2px solid #e2e8f0;
+            z-index: 10;
+        }
+        tr:nth-child(even) .sticky-time { background-color: #f8fafc; }
+        
+        .val-num {
+            font-size: 14px;
+            font-weight: 900;
+        }
+        .val-num.asada { color: #991b1b; }
+        .val-num.pastor { color: #c2410c; }
+        .val-num.pollo { color: #b45309; }
+        .val-num.cabeza { color: #065f46; }
+        .val-num.lengua { color: #1e40af; }
+        
+        .unit-label {
+            font-size: 10px;
+            color: #64748b;
+            font-weight: 600;
+        }
+        .max-badge {
+            display: inline-block;
+            background-color: #fef3c7;
+            border: 1px solid #fde68a;
+            color: #78350f;
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 900;
+            margin-top: 3px;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div>
+                <div class="logo-title">
+                    <span>🔥</span>
+                    <h1>TACOS EL GAVILAN</h1>
+                </div>
+                <div class="subtitle">Control de Ritmo & Máximos en Charola • Tienda Slauson</div>
+            </div>
+            <div class="badge-tag">📱 100% Compatible iPhone</div>
+        </div>
+    </header>
+
+    <main>
+        <section class="guide-box">
+            <div class="guide-title">
+                <span>💡</span> Guía Operativa de Ritmo y Charola
+            </div>
+            <div class="guide-grid">
+                <div class="guide-card c1">
+                    <div class="guide-card-title">1. PROYECCIÓN (Proy)</div>
+                    <div>Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial de 3 meses.</div>
+                </div>
+                <div class="guide-card c2">
+                    <div class="guide-card-title">2. MÁX. CHAROLA (Límite)</div>
+                    <div>Cantidad máxima recomendada de carne cocinada que debe haber en la charola a la vez.</div>
+                </div>
+                <div class="guide-card c3">
+                    <div class="guide-card-title">3. BENEFICIO CALIDAD</div>
+                    <div>Garantiza carne siempre jugosa, caliente y recién hecha sin acumular carne seca ni mermas.</div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <span class="day-label">Selecciona el Día de la Semana:</span>
+            <div class="tabs-container">
+                
+                    <button onclick="selectDay('Lunes')" id="tab-Lunes" class="tab-btn active">
+                        Lunes
+                    </button>
+                
+                    <button onclick="selectDay('Martes')" id="tab-Martes" class="tab-btn ">
+                        Martes
+                    </button>
+                
+                    <button onclick="selectDay('Miércoles')" id="tab-Miércoles" class="tab-btn ">
+                        Miércoles
+                    </button>
+                
+                    <button onclick="selectDay('Jueves')" id="tab-Jueves" class="tab-btn ">
+                        Jueves
+                    </button>
+                
+                    <button onclick="selectDay('Viernes')" id="tab-Viernes" class="tab-btn ">
+                        Viernes
+                    </button>
+                
+                    <button onclick="selectDay('Sábado')" id="tab-Sábado" class="tab-btn ">
+                        Sábado
+                    </button>
+                
+                    <button onclick="selectDay('Domingo')" id="tab-Domingo" class="tab-btn ">
+                        Domingo
+                    </button>
+                
+            </div>
+        </section>
+
+        <section class="table-card">
+            <div class="table-header-bar">
+                <h3 id="current-day-title">📅 Tabla de 30 Minutos (8:00 AM – Cierre) — Lunes</h3>
+            </div>
+
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="sticky-time">Hora</th>
+                            <th class="asada">🥩 Asada</th>
+                            <th class="pastor">🌮 Pastor</th>
+                            <th class="pollo">🍗 Pollo</th>
+                            <th class="cabeza">🐮 Cabeza</th>
+                            <th class="lengua">👅 Lengua</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        var dataByDay = {"Lunes":[{"time":"08:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"08:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:00","ASADA":{"avg":0.1,"maxTray":1},"PASTOR":{"avg":0.3,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0.2,"maxTray":1},"LENGUA":{"avg":0.2,"maxTray":1}},{"time":"09:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"10:00","ASADA":{"avg":4.3,"maxTray":5},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":1.7,"maxTray":2},"CABEZA":{"avg":0.4,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"10:30","ASADA":{"avg":5.7,"maxTray":6},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":1.3,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"11:00","ASADA":{"avg":7.2,"maxTray":8},"PASTOR":{"avg":1.2,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"11:30","ASADA":{"avg":10.1,"maxTray":11},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":1.8,"maxTray":2},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"12:00","ASADA":{"avg":14,"maxTray":15},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"12:30","ASADA":{"avg":12,"maxTray":13},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"13:00","ASADA":{"avg":11.5,"maxTray":12},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"13:30","ASADA":{"avg":11.8,"maxTray":12},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"14:00","ASADA":{"avg":12.3,"maxTray":13},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"14:30","ASADA":{"avg":9.4,"maxTray":10},"PASTOR":{"avg":2,"maxTray":2},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":1,"maxTray":2},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"15:00","ASADA":{"avg":10.4,"maxTray":11},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":3,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"15:30","ASADA":{"avg":10.4,"maxTray":11},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":1.4,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"16:00","ASADA":{"avg":10.4,"maxTray":11},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":1.8,"maxTray":2},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"16:30","ASADA":{"avg":12.6,"maxTray":13},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"17:00","ASADA":{"avg":13.2,"maxTray":14},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"17:30","ASADA":{"avg":12,"maxTray":13},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"18:00","ASADA":{"avg":14.3,"maxTray":15},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"18:30","ASADA":{"avg":13.2,"maxTray":14},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"19:00","ASADA":{"avg":12.1,"maxTray":13},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"19:30","ASADA":{"avg":13.4,"maxTray":14},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"20:00","ASADA":{"avg":13.9,"maxTray":14},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"20:30","ASADA":{"avg":13,"maxTray":14},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":3.5,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"21:00","ASADA":{"avg":12.7,"maxTray":13},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"21:30","ASADA":{"avg":15.4,"maxTray":16},"PASTOR":{"avg":2.8,"maxTray":3},"POLLO":{"avg":3.5,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"22:00","ASADA":{"avg":12.4,"maxTray":13},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"22:30","ASADA":{"avg":14.6,"maxTray":15},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":0.4,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"23:00","ASADA":{"avg":10.6,"maxTray":11},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"23:30","ASADA":{"avg":9,"maxTray":10},"PASTOR":{"avg":1.3,"maxTray":2},"POLLO":{"avg":1.8,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"00:00","ASADA":{"avg":8.8,"maxTray":9},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":1.8,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"00:30","ASADA":{"avg":4.4,"maxTray":5},"PASTOR":{"avg":0.7,"maxTray":1},"POLLO":{"avg":0.7,"maxTray":1},"CABEZA":{"avg":0.4,"maxTray":1},"LENGUA":{"avg":0.1,"maxTray":1}},{"time":"01:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"01:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}}],"Martes":[{"time":"08:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"08:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:30","ASADA":{"avg":0.3,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"10:00","ASADA":{"avg":7.4,"maxTray":8},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":1.9,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"10:30","ASADA":{"avg":7.5,"maxTray":8},"PASTOR":{"avg":0.9,"maxTray":1},"POLLO":{"avg":2,"maxTray":3},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"11:00","ASADA":{"avg":10.2,"maxTray":11},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":2.2,"maxTray":3},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"11:30","ASADA":{"avg":12.7,"maxTray":13},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":3.4,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"12:00","ASADA":{"avg":14.9,"maxTray":15},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":1.8,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"12:30","ASADA":{"avg":13.8,"maxTray":14},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"13:00","ASADA":{"avg":13.6,"maxTray":14},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":3,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"13:30","ASADA":{"avg":11.8,"maxTray":12},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.3,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"14:00","ASADA":{"avg":11.9,"maxTray":12},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"14:30","ASADA":{"avg":9.8,"maxTray":10},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.3,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"15:00","ASADA":{"avg":12.3,"maxTray":13},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":1,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"15:30","ASADA":{"avg":11.1,"maxTray":12},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":2.2,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"16:00","ASADA":{"avg":11.1,"maxTray":12},"PASTOR":{"avg":1.3,"maxTray":2},"POLLO":{"avg":2,"maxTray":2},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"16:30","ASADA":{"avg":10.5,"maxTray":11},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"17:00","ASADA":{"avg":13.2,"maxTray":14},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"17:30","ASADA":{"avg":14.9,"maxTray":15},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"18:00","ASADA":{"avg":16.4,"maxTray":17},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":3.5,"maxTray":4},"CABEZA":{"avg":1,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"18:30","ASADA":{"avg":15.6,"maxTray":16},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"19:00","ASADA":{"avg":16.4,"maxTray":17},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3.6,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":1,"maxTray":2}},{"time":"19:30","ASADA":{"avg":15.6,"maxTray":16},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":2.3,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"20:00","ASADA":{"avg":14.4,"maxTray":15},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"20:30","ASADA":{"avg":15,"maxTray":16},"PASTOR":{"avg":2,"maxTray":2},"POLLO":{"avg":3.9,"maxTray":4},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"21:00","ASADA":{"avg":20.5,"maxTray":21},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":4.6,"maxTray":5},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"21:30","ASADA":{"avg":19.6,"maxTray":20},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":4.4,"maxTray":5},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"22:00","ASADA":{"avg":14.7,"maxTray":15},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":2.2,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"22:30","ASADA":{"avg":13.7,"maxTray":14},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"23:00","ASADA":{"avg":11.3,"maxTray":12},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"23:30","ASADA":{"avg":11.1,"maxTray":12},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":1.8,"maxTray":2},"CABEZA":{"avg":0.4,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"00:00","ASADA":{"avg":8.5,"maxTray":9},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":1.5,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.2,"maxTray":1}},{"time":"00:30","ASADA":{"avg":5.6,"maxTray":6},"PASTOR":{"avg":0.9,"maxTray":1},"POLLO":{"avg":1,"maxTray":1},"CABEZA":{"avg":0.4,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"01:00","ASADA":{"avg":0.5,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0.2,"maxTray":1},"LENGUA":{"avg":0.1,"maxTray":1}},{"time":"01:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}}],"Miércoles":[{"time":"08:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"08:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"10:00","ASADA":{"avg":4.6,"maxTray":5},"PASTOR":{"avg":0.6,"maxTray":1},"POLLO":{"avg":1.8,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"10:30","ASADA":{"avg":6.4,"maxTray":7},"PASTOR":{"avg":0.9,"maxTray":1},"POLLO":{"avg":1.7,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"11:00","ASADA":{"avg":8.8,"maxTray":9},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":2,"maxTray":2},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"11:30","ASADA":{"avg":10.6,"maxTray":11},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":1.9,"maxTray":2},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"12:00","ASADA":{"avg":16.6,"maxTray":17},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"12:30","ASADA":{"avg":13.6,"maxTray":14},"PASTOR":{"avg":2,"maxTray":2},"POLLO":{"avg":3.7,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"13:00","ASADA":{"avg":11.7,"maxTray":12},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"13:30","ASADA":{"avg":11.9,"maxTray":12},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"14:00","ASADA":{"avg":10.1,"maxTray":11},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":1.9,"maxTray":2},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"14:30","ASADA":{"avg":11.1,"maxTray":12},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":2.3,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"15:00","ASADA":{"avg":9.3,"maxTray":10},"PASTOR":{"avg":1.2,"maxTray":2},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"15:30","ASADA":{"avg":11.8,"maxTray":12},"PASTOR":{"avg":1.2,"maxTray":2},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"16:00","ASADA":{"avg":10.3,"maxTray":11},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"16:30","ASADA":{"avg":11.9,"maxTray":12},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.2,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"17:00","ASADA":{"avg":13.2,"maxTray":14},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":2.4,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"17:30","ASADA":{"avg":12.2,"maxTray":13},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"18:00","ASADA":{"avg":14.3,"maxTray":15},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"18:30","ASADA":{"avg":13.6,"maxTray":14},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"19:00","ASADA":{"avg":13.5,"maxTray":14},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":1,"maxTray":1}},{"time":"19:30","ASADA":{"avg":14.6,"maxTray":15},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"20:00","ASADA":{"avg":14.6,"maxTray":15},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":3,"maxTray":3},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"20:30","ASADA":{"avg":14.9,"maxTray":15},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"21:00","ASADA":{"avg":16.7,"maxTray":17},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":2.8,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"21:30","ASADA":{"avg":16.9,"maxTray":17},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"22:00","ASADA":{"avg":13.4,"maxTray":14},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":2.8,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"22:30","ASADA":{"avg":13,"maxTray":14},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"23:00","ASADA":{"avg":12,"maxTray":12},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"23:30","ASADA":{"avg":10.3,"maxTray":11},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":1.7,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"00:00","ASADA":{"avg":8.2,"maxTray":9},"PASTOR":{"avg":0.8,"maxTray":1},"POLLO":{"avg":1.6,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"00:30","ASADA":{"avg":5.5,"maxTray":6},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":1,"maxTray":2},"CABEZA":{"avg":0.3,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"01:00","ASADA":{"avg":0.1,"maxTray":1},"PASTOR":{"avg":0.1,"maxTray":1},"POLLO":{"avg":0.1,"maxTray":1},"CABEZA":{"avg":0.1,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"01:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}}],"Jueves":[{"time":"08:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"08:30","ASADA":{"avg":0.3,"maxTray":1},"PASTOR":{"avg":0.3,"maxTray":1},"POLLO":{"avg":0.1,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:00","ASADA":{"avg":0.1,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:30","ASADA":{"avg":1.1,"maxTray":2},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"10:00","ASADA":{"avg":7.1,"maxTray":8},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"10:30","ASADA":{"avg":5.8,"maxTray":6},"PASTOR":{"avg":1.3,"maxTray":2},"POLLO":{"avg":1.2,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"11:00","ASADA":{"avg":7.8,"maxTray":8},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":1.6,"maxTray":2},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"11:30","ASADA":{"avg":10.3,"maxTray":11},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"12:00","ASADA":{"avg":15.2,"maxTray":16},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"12:30","ASADA":{"avg":13.7,"maxTray":14},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"13:00","ASADA":{"avg":13.1,"maxTray":14},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":2.3,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"13:30","ASADA":{"avg":11.8,"maxTray":12},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":2.2,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"14:00","ASADA":{"avg":10.6,"maxTray":11},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":1.9,"maxTray":2},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"14:30","ASADA":{"avg":12.5,"maxTray":13},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":2.8,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"15:00","ASADA":{"avg":9.6,"maxTray":10},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":3,"maxTray":4},"CABEZA":{"avg":1,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"15:30","ASADA":{"avg":10,"maxTray":11},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":1.9,"maxTray":2},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"16:00","ASADA":{"avg":14.3,"maxTray":15},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"16:30","ASADA":{"avg":11.9,"maxTray":12},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.4,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"17:00","ASADA":{"avg":14.5,"maxTray":15},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"17:30","ASADA":{"avg":13.7,"maxTray":14},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"18:00","ASADA":{"avg":15.5,"maxTray":16},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"18:30","ASADA":{"avg":16.6,"maxTray":17},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"19:00","ASADA":{"avg":17,"maxTray":17},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"19:30","ASADA":{"avg":14.3,"maxTray":15},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"20:00","ASADA":{"avg":17.3,"maxTray":18},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"20:30","ASADA":{"avg":17.2,"maxTray":18},"PASTOR":{"avg":3.3,"maxTray":4},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":1.9,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"21:00","ASADA":{"avg":19.5,"maxTray":20},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":4.5,"maxTray":5},"CABEZA":{"avg":1,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"21:30","ASADA":{"avg":20.2,"maxTray":21},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":3.4,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"22:00","ASADA":{"avg":17.3,"maxTray":18},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"22:30","ASADA":{"avg":13.8,"maxTray":14},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"23:00","ASADA":{"avg":14.3,"maxTray":15},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":1,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"23:30","ASADA":{"avg":12.1,"maxTray":13},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"00:00","ASADA":{"avg":9.5,"maxTray":10},"PASTOR":{"avg":1.2,"maxTray":2},"POLLO":{"avg":1.7,"maxTray":2},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"00:30","ASADA":{"avg":6.2,"maxTray":7},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"01:00","ASADA":{"avg":0.8,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"01:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}}],"Viernes":[{"time":"08:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"08:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"09:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:30","ASADA":{"avg":0.5,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0.2,"maxTray":1}},{"time":"10:00","ASADA":{"avg":5.7,"maxTray":6},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":1.5,"maxTray":2},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"10:30","ASADA":{"avg":7,"maxTray":7},"PASTOR":{"avg":1.4,"maxTray":2},"POLLO":{"avg":1,"maxTray":1},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"11:00","ASADA":{"avg":10,"maxTray":10},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":1.9,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"11:30","ASADA":{"avg":13.2,"maxTray":14},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"12:00","ASADA":{"avg":14.2,"maxTray":15},"PASTOR":{"avg":3,"maxTray":4},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"12:30","ASADA":{"avg":15.5,"maxTray":16},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"13:00","ASADA":{"avg":15.6,"maxTray":16},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":3,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"13:30","ASADA":{"avg":12.4,"maxTray":13},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":2.2,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"14:00","ASADA":{"avg":12.8,"maxTray":13},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":2,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"14:30","ASADA":{"avg":12.7,"maxTray":13},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":1,"maxTray":1}},{"time":"15:00","ASADA":{"avg":14.1,"maxTray":15},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":2.3,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"15:30","ASADA":{"avg":12.5,"maxTray":13},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":1,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"16:00","ASADA":{"avg":15.1,"maxTray":16},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":2.1,"maxTray":3},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"16:30","ASADA":{"avg":16,"maxTray":17},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":2.4,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"17:00","ASADA":{"avg":17.2,"maxTray":18},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":1.5,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"17:30","ASADA":{"avg":14.7,"maxTray":15},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":1,"maxTray":1}},{"time":"18:00","ASADA":{"avg":19.5,"maxTray":20},"PASTOR":{"avg":2.6,"maxTray":3},"POLLO":{"avg":4.5,"maxTray":5},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"18:30","ASADA":{"avg":17.7,"maxTray":18},"PASTOR":{"avg":3.1,"maxTray":4},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"19:00","ASADA":{"avg":20.9,"maxTray":21},"PASTOR":{"avg":3.8,"maxTray":4},"POLLO":{"avg":4.8,"maxTray":5},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"19:30","ASADA":{"avg":22,"maxTray":22},"PASTOR":{"avg":2.9,"maxTray":3},"POLLO":{"avg":3.6,"maxTray":4},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"20:00","ASADA":{"avg":21,"maxTray":21},"PASTOR":{"avg":3.8,"maxTray":4},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"20:30","ASADA":{"avg":25.7,"maxTray":26},"PASTOR":{"avg":3.5,"maxTray":4},"POLLO":{"avg":3.9,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"21:00","ASADA":{"avg":25.7,"maxTray":26},"PASTOR":{"avg":3.7,"maxTray":4},"POLLO":{"avg":4.8,"maxTray":5},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":1.3,"maxTray":2}},{"time":"21:30","ASADA":{"avg":22.9,"maxTray":23},"PASTOR":{"avg":4.3,"maxTray":5},"POLLO":{"avg":4.8,"maxTray":5},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":1.3,"maxTray":2}},{"time":"22:00","ASADA":{"avg":22.8,"maxTray":23},"PASTOR":{"avg":3.5,"maxTray":4},"POLLO":{"avg":4.7,"maxTray":5},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":1,"maxTray":2}},{"time":"22:30","ASADA":{"avg":19.6,"maxTray":20},"PASTOR":{"avg":3,"maxTray":3},"POLLO":{"avg":3.4,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"23:00","ASADA":{"avg":16.7,"maxTray":17},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"23:30","ASADA":{"avg":14.8,"maxTray":15},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"00:00","ASADA":{"avg":12.5,"maxTray":13},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":2.3,"maxTray":3},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"00:30","ASADA":{"avg":13.7,"maxTray":14},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"01:00","ASADA":{"avg":9.3,"maxTray":10},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":1.4,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"01:30","ASADA":{"avg":7.8,"maxTray":8},"PASTOR":{"avg":1.7,"maxTray":2},"POLLO":{"avg":1.1,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.2,"maxTray":1}}],"Sábado":[{"time":"08:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"08:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:30","ASADA":{"avg":1.4,"maxTray":2},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0.7,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"10:00","ASADA":{"avg":4.7,"maxTray":5},"PASTOR":{"avg":1.2,"maxTray":2},"POLLO":{"avg":1,"maxTray":1},"CABEZA":{"avg":0.4,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}},{"time":"10:30","ASADA":{"avg":7.6,"maxTray":8},"PASTOR":{"avg":1.1,"maxTray":2},"POLLO":{"avg":2.1,"maxTray":3},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"11:00","ASADA":{"avg":10.1,"maxTray":11},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":1.6,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"11:30","ASADA":{"avg":10.4,"maxTray":11},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":2.4,"maxTray":3},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"12:00","ASADA":{"avg":12.2,"maxTray":13},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":3.7,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"12:30","ASADA":{"avg":15.1,"maxTray":16},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":3.5,"maxTray":4},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"13:00","ASADA":{"avg":16.4,"maxTray":17},"PASTOR":{"avg":2.6,"maxTray":3},"POLLO":{"avg":3.7,"maxTray":4},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"13:30","ASADA":{"avg":15.7,"maxTray":16},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":3,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"14:00","ASADA":{"avg":16,"maxTray":17},"PASTOR":{"avg":3,"maxTray":3},"POLLO":{"avg":3.9,"maxTray":4},"CABEZA":{"avg":1.5,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"14:30","ASADA":{"avg":14.3,"maxTray":15},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":2,"maxTray":2},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":1,"maxTray":2}},{"time":"15:00","ASADA":{"avg":16,"maxTray":17},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":2.8,"maxTray":3},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"15:30","ASADA":{"avg":15.3,"maxTray":16},"PASTOR":{"avg":2.1,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":1,"maxTray":2},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"16:00","ASADA":{"avg":15.9,"maxTray":16},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3.6,"maxTray":4},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"16:30","ASADA":{"avg":15.8,"maxTray":16},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3.4,"maxTray":4},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"17:00","ASADA":{"avg":14.5,"maxTray":15},"PASTOR":{"avg":2.6,"maxTray":3},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":1.7,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"17:30","ASADA":{"avg":16.4,"maxTray":17},"PASTOR":{"avg":2.9,"maxTray":3},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":1.5,"maxTray":2},"LENGUA":{"avg":1.5,"maxTray":2}},{"time":"18:00","ASADA":{"avg":15.5,"maxTray":16},"PASTOR":{"avg":3.1,"maxTray":4},"POLLO":{"avg":2.8,"maxTray":3},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":1.2,"maxTray":2}},{"time":"18:30","ASADA":{"avg":17,"maxTray":17},"PASTOR":{"avg":2.6,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":1,"maxTray":1}},{"time":"19:00","ASADA":{"avg":16.1,"maxTray":17},"PASTOR":{"avg":3,"maxTray":3},"POLLO":{"avg":3.9,"maxTray":4},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"19:30","ASADA":{"avg":22.1,"maxTray":23},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":3.9,"maxTray":4},"CABEZA":{"avg":1.9,"maxTray":2},"LENGUA":{"avg":1.2,"maxTray":2}},{"time":"20:00","ASADA":{"avg":19,"maxTray":20},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":2.6,"maxTray":3},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":1,"maxTray":2}},{"time":"20:30","ASADA":{"avg":22.5,"maxTray":23},"PASTOR":{"avg":3.1,"maxTray":4},"POLLO":{"avg":5.5,"maxTray":6},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":1.2,"maxTray":2}},{"time":"21:00","ASADA":{"avg":27.3,"maxTray":28},"PASTOR":{"avg":3.8,"maxTray":4},"POLLO":{"avg":5.2,"maxTray":6},"CABEZA":{"avg":1.9,"maxTray":2},"LENGUA":{"avg":1.2,"maxTray":2}},{"time":"21:30","ASADA":{"avg":22.7,"maxTray":23},"PASTOR":{"avg":3.4,"maxTray":4},"POLLO":{"avg":4.4,"maxTray":5},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":1.3,"maxTray":2}},{"time":"22:00","ASADA":{"avg":22.8,"maxTray":23},"PASTOR":{"avg":3.7,"maxTray":4},"POLLO":{"avg":4.7,"maxTray":5},"CABEZA":{"avg":1.5,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"22:30","ASADA":{"avg":18.8,"maxTray":19},"PASTOR":{"avg":3.2,"maxTray":4},"POLLO":{"avg":4.4,"maxTray":5},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"23:00","ASADA":{"avg":19.1,"maxTray":20},"PASTOR":{"avg":2,"maxTray":3},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"23:30","ASADA":{"avg":15.7,"maxTray":16},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":2.5,"maxTray":3},"CABEZA":{"avg":1,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"00:00","ASADA":{"avg":18.2,"maxTray":19},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3.3,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"00:30","ASADA":{"avg":14.3,"maxTray":15},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":1.7,"maxTray":2},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"01:00","ASADA":{"avg":10.1,"maxTray":11},"PASTOR":{"avg":1.9,"maxTray":2},"POLLO":{"avg":1.6,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"01:30","ASADA":{"avg":11.8,"maxTray":12},"PASTOR":{"avg":2.6,"maxTray":3},"POLLO":{"avg":2,"maxTray":2},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.3,"maxTray":1}}],"Domingo":[{"time":"08:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"08:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"09:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"10:00","ASADA":{"avg":3.8,"maxTray":4},"PASTOR":{"avg":0.5,"maxTray":1},"POLLO":{"avg":1.4,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"10:30","ASADA":{"avg":5.8,"maxTray":6},"PASTOR":{"avg":1.3,"maxTray":2},"POLLO":{"avg":1.1,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"11:00","ASADA":{"avg":7.5,"maxTray":8},"PASTOR":{"avg":1.3,"maxTray":2},"POLLO":{"avg":1.4,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"11:30","ASADA":{"avg":8.8,"maxTray":9},"PASTOR":{"avg":1.2,"maxTray":2},"POLLO":{"avg":1.4,"maxTray":2},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"12:00","ASADA":{"avg":11.6,"maxTray":12},"PASTOR":{"avg":1.6,"maxTray":2},"POLLO":{"avg":3.4,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"12:30","ASADA":{"avg":15.6,"maxTray":16},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3.6,"maxTray":4},"CABEZA":{"avg":1,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"13:00","ASADA":{"avg":14.7,"maxTray":15},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3.7,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"13:30","ASADA":{"avg":16.1,"maxTray":17},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":1.4,"maxTray":2}},{"time":"14:00","ASADA":{"avg":15.2,"maxTray":16},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3,"maxTray":4},"CABEZA":{"avg":1.1,"maxTray":2},"LENGUA":{"avg":1,"maxTray":2}},{"time":"14:30","ASADA":{"avg":14,"maxTray":15},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"15:00","ASADA":{"avg":14.8,"maxTray":15},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3.7,"maxTray":4},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"15:30","ASADA":{"avg":16.4,"maxTray":17},"PASTOR":{"avg":2.6,"maxTray":3},"POLLO":{"avg":3.2,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"16:00","ASADA":{"avg":13.6,"maxTray":14},"PASTOR":{"avg":1.8,"maxTray":2},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"16:30","ASADA":{"avg":15.6,"maxTray":16},"PASTOR":{"avg":2.7,"maxTray":3},"POLLO":{"avg":3.1,"maxTray":4},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"17:00","ASADA":{"avg":16,"maxTray":17},"PASTOR":{"avg":2.9,"maxTray":3},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"17:30","ASADA":{"avg":14.6,"maxTray":15},"PASTOR":{"avg":3,"maxTray":4},"POLLO":{"avg":2.9,"maxTray":3},"CABEZA":{"avg":1.2,"maxTray":2},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"18:00","ASADA":{"avg":16.3,"maxTray":17},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":3.6,"maxTray":4},"CABEZA":{"avg":1,"maxTray":2},"LENGUA":{"avg":1,"maxTray":1}},{"time":"18:30","ASADA":{"avg":16.9,"maxTray":17},"PASTOR":{"avg":2.5,"maxTray":3},"POLLO":{"avg":4,"maxTray":5},"CABEZA":{"avg":1,"maxTray":2},"LENGUA":{"avg":1,"maxTray":1}},{"time":"19:00","ASADA":{"avg":21.8,"maxTray":22},"PASTOR":{"avg":3.5,"maxTray":4},"POLLO":{"avg":3.8,"maxTray":4},"CABEZA":{"avg":1.4,"maxTray":2},"LENGUA":{"avg":1,"maxTray":1}},{"time":"19:30","ASADA":{"avg":19.1,"maxTray":20},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":4.4,"maxTray":5},"CABEZA":{"avg":2.2,"maxTray":3},"LENGUA":{"avg":1.3,"maxTray":2}},{"time":"20:00","ASADA":{"avg":19.2,"maxTray":20},"PASTOR":{"avg":2.9,"maxTray":3},"POLLO":{"avg":4.9,"maxTray":5},"CABEZA":{"avg":1.6,"maxTray":2},"LENGUA":{"avg":1.1,"maxTray":2}},{"time":"20:30","ASADA":{"avg":23,"maxTray":24},"PASTOR":{"avg":2.4,"maxTray":3},"POLLO":{"avg":4.1,"maxTray":5},"CABEZA":{"avg":2.2,"maxTray":3},"LENGUA":{"avg":1.3,"maxTray":2}},{"time":"21:00","ASADA":{"avg":21.5,"maxTray":22},"PASTOR":{"avg":3.4,"maxTray":4},"POLLO":{"avg":3.7,"maxTray":4},"CABEZA":{"avg":1.3,"maxTray":2},"LENGUA":{"avg":0.8,"maxTray":1}},{"time":"21:30","ASADA":{"avg":20.6,"maxTray":21},"PASTOR":{"avg":2.9,"maxTray":3},"POLLO":{"avg":4.5,"maxTray":5},"CABEZA":{"avg":0.9,"maxTray":1},"LENGUA":{"avg":0.9,"maxTray":1}},{"time":"22:00","ASADA":{"avg":17.5,"maxTray":18},"PASTOR":{"avg":2.3,"maxTray":3},"POLLO":{"avg":3,"maxTray":4},"CABEZA":{"avg":0.8,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"22:30","ASADA":{"avg":16.4,"maxTray":17},"PASTOR":{"avg":2.6,"maxTray":3},"POLLO":{"avg":2.7,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.7,"maxTray":1}},{"time":"23:00","ASADA":{"avg":12.3,"maxTray":13},"PASTOR":{"avg":2.2,"maxTray":3},"POLLO":{"avg":1.8,"maxTray":2},"CABEZA":{"avg":0.6,"maxTray":1},"LENGUA":{"avg":0.6,"maxTray":1}},{"time":"23:30","ASADA":{"avg":10.8,"maxTray":11},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":2.2,"maxTray":3},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"00:00","ASADA":{"avg":8.8,"maxTray":9},"PASTOR":{"avg":1.5,"maxTray":2},"POLLO":{"avg":1.5,"maxTray":2},"CABEZA":{"avg":0.7,"maxTray":1},"LENGUA":{"avg":0.4,"maxTray":1}},{"time":"00:30","ASADA":{"avg":5.3,"maxTray":6},"PASTOR":{"avg":1.3,"maxTray":2},"POLLO":{"avg":1.2,"maxTray":2},"CABEZA":{"avg":0.5,"maxTray":1},"LENGUA":{"avg":0.5,"maxTray":1}},{"time":"01:00","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0.6,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}},{"time":"01:30","ASADA":{"avg":0,"maxTray":1},"PASTOR":{"avg":0,"maxTray":1},"POLLO":{"avg":0,"maxTray":1},"CABEZA":{"avg":0,"maxTray":1},"LENGUA":{"avg":0,"maxTray":1}}]};
+        var currentDay = 'Lunes';
+
+        function renderTable(day) {
+            var rows = dataByDay[day] || [];
+            var tbody = document.getElementById('table-body');
+            document.getElementById('current-day-title').innerText = '📅 Tabla de 30 Minutos (8:00 AM – Cierre) — ' + day;
+
+            var html = '';
+            for (var i = 0; i < rows.length; i++) {
+                var r = rows[i];
+                var isPeak = r.ASADA.avg >= 12.0 || r.POLLO.avg >= 3.0;
+                
+                html += '<tr class="' + (isPeak ? 'peak-row' : '') + '">';
+                html += '<td class="sticky-time">' + r.time + '</td>';
+                
+                // Asada
+                html += '<td><div class="val-num asada">' + r.ASADA.avg + ' <span class="unit-label">lbs</span></div>';
+                html += '<div class="max-badge">🔥 Máx: ' + r.ASADA.maxTray + ' lbs</div></td>';
+
+                // Pastor
+                html += '<td><div class="val-num pastor">' + r.PASTOR.avg + ' <span class="unit-label">lbs</span></div>';
+                html += '<div class="max-badge">🔥 Máx: ' + r.PASTOR.maxTray + ' lbs</div></td>';
+
+                // Pollo
+                html += '<td><div class="val-num pollo">' + r.POLLO.avg + ' <span class="unit-label">lbs</span></div>';
+                html += '<div class="max-badge">🔥 Máx: ' + r.POLLO.maxTray + ' lbs</div></td>';
+
+                // Cabeza
+                html += '<td><div class="val-num cabeza">' + r.CABEZA.avg + ' <span class="unit-label">lbs</span></div>';
+                html += '<div class="max-badge">🔥 Máx: ' + r.CABEZA.maxTray + ' lbs</div></td>';
+
+                // Lengua
+                html += '<td><div class="val-num lengua">' + r.LENGUA.avg + ' <span class="unit-label">lbs</span></div>';
+                html += '<div class="max-badge">🔥 Máx: ' + r.LENGUA.maxTray + ' lbs</div></td>';
+
+                html += '</tr>';
+            }
+            tbody.innerHTML = html;
+        }
+
+        function selectDay(day) {
+            currentDay = day;
+            var buttons = document.querySelectorAll('.tab-btn');
+            for (var b = 0; b < buttons.length; b++) {
+                buttons[b].className = 'tab-btn';
+            }
+            var activeTab = document.getElementById('tab-' + day);
+            if (activeTab) {
+                activeTab.className = 'tab-btn active';
+            }
+            renderTable(day);
+        }
+
+        renderTable('Lunes');
+    </script>
+</body>
+</html>
