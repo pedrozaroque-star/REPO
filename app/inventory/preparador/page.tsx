@@ -942,7 +942,9 @@ export default function PreparadorPage() {
                                         </span>
                                     )}
                                 </h2>
-                                <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">{t('prep.liveProjection')}</p>
+                                {cardDisplayMode === 'advanced' && (
+                                    <p className="text-sm md:text-base text-slate-500 font-medium hidden sm:block">{t('prep.liveProjection')}</p>
+                                )}
                             </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-2">
