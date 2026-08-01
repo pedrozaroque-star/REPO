@@ -598,57 +598,61 @@ export default function BodegaPWA() {
                         )
                     })()}
 
-                    {/* Card Display Mode Switcher (Básica vs Avanzada) */}
-                    <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700 font-bold text-xs">
-                        <button 
-                            onClick={() => setCardDisplayMode('basic')}
-                            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
-                        >
-                            {t('prep.basicMode')}
-                        </button>
-                        <button 
-                            onClick={() => setCardDisplayMode('advanced')}
-                            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
-                        >
-                            {t('prep.advancedMode')}
-                        </button>
-                    </div>
+                    {!isFullscreen && (
+                        <>
+                            {/* Card Display Mode Switcher (Básica vs Avanzada) */}
+                            <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700 font-bold text-xs">
+                                <button 
+                                    onClick={() => setCardDisplayMode('basic')}
+                                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    {t('prep.basicMode')}
+                                </button>
+                                <button 
+                                    onClick={() => setCardDisplayMode('advanced')}
+                                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    {t('prep.advancedMode')}
+                                </button>
+                            </div>
 
-                    {/* View Mode Switcher (30 Min vs Tramos) */}
-                    <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700 font-bold text-xs">
-                        <button 
-                            onClick={() => setViewMode('30min')}
-                            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
-                        >
-                            30 Min
-                        </button>
-                        <button 
-                            onClick={() => setViewMode('tramos')}
-                            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
-                        >
-                            Tramos
-                        </button>
-                    </div>
+                            {/* View Mode Switcher (30 Min vs Tramos) */}
+                            <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700 font-bold text-xs">
+                                <button 
+                                    onClick={() => setViewMode('30min')}
+                                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    30 Min
+                                </button>
+                                <button 
+                                    onClick={() => setViewMode('tramos')}
+                                    className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    Tramos
+                                </button>
+                            </div>
 
-                    {/* Date Picker Selector */}
-                    <div className="flex items-center gap-2 bg-slate-800/80 p-1.5 rounded-lg border border-slate-700">
-                        <Calendar size={16} className="text-blue-400 shrink-0" />
-                        <input 
-                            type="date" 
-                            value={selectedDate}
-                            max={todayLAStr}
-                            onChange={e => setSelectedDate(e.target.value)}
-                            className="bg-transparent font-bold text-sm text-white outline-none cursor-pointer"
-                        />
-                        {!isToday && (
-                            <button 
-                                onClick={() => setSelectedDate(todayLAStr)}
-                                className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer"
-                            >
-                                {t('prep.today')}
-                            </button>
-                        )}
-                    </div>
+                            {/* Date Picker Selector */}
+                            <div className="flex items-center gap-2 bg-slate-800/80 p-1.5 rounded-lg border border-slate-700">
+                                <Calendar size={16} className="text-blue-400 shrink-0" />
+                                <input 
+                                    type="date" 
+                                    value={selectedDate}
+                                    max={todayLAStr}
+                                    onChange={e => setSelectedDate(e.target.value)}
+                                    className="bg-transparent font-bold text-sm text-white outline-none cursor-pointer"
+                                />
+                                {!isToday && (
+                                    <button 
+                                        onClick={() => setSelectedDate(todayLAStr)}
+                                        className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer"
+                                    >
+                                        {t('prep.today')}
+                                    </button>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-4 md:gap-6 w-full md:w-auto justify-center md:justify-end">

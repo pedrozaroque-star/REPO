@@ -827,7 +827,7 @@ export default function PreparadorPage() {
             </AnimatePresence>
 
             {/* Header / Navbar */}
-            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 flex justify-between items-center shrink-0 shadow-sm">
+            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-3 md:p-4 flex justify-between items-center shrink-0 shadow-sm">
                 <div className="flex items-center gap-3">
                     <button 
                         onClick={toggleFullscreen} 
@@ -839,90 +839,92 @@ export default function PreparadorPage() {
                     </button>
                     <div>
                         <h1 className="font-black text-lg md:text-xl text-slate-800 dark:text-white uppercase tracking-wider">{t('prep.title')}</h1>
-                        <p className="text-xs text-slate-500 font-medium hidden sm:block">{t('prep.subtitle')}</p>
+                        {!isFullscreen && <p className="text-xs text-slate-500 font-medium hidden sm:block">{t('prep.subtitle')}</p>}
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    {/* Card Display Mode Switcher (Básica vs Avanzada) */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
-                        <button 
-                            onClick={() => setCardDisplayMode('basic')}
-                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                        >
-                            {t('prep.basicMode')}
-                        </button>
-                        <button 
-                            onClick={() => setCardDisplayMode('advanced')}
-                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                        >
-                            {t('prep.advancedMode')}
-                        </button>
-                    </div>
-
-                    {/* View Mode Switcher (30 Min vs Tramos) */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
-                        <button 
-                            onClick={() => setViewMode('30min')}
-                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                        >
-                            30 Min
-                        </button>
-                        <button 
-                            onClick={() => setViewMode('tramos')}
-                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-                        >
-                            Tramos
-                        </button>
-                    </div>
-
-                    {/* Date Picker Selector */}
-                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                        <Calendar size={18} className="text-blue-500 shrink-0" />
-                        <input 
-                            type="date" 
-                            value={selectedDate}
-                            max={todayLAStr}
-                            onChange={e => setSelectedDate(e.target.value)}
-                            className="bg-transparent font-bold text-sm text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
-                        />
-                        {!isToday && (
+                {!isFullscreen && (
+                    <div className="flex items-center gap-3">
+                        {/* Card Display Mode Switcher (Básica vs Avanzada) */}
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
                             <button 
-                                onClick={() => setSelectedDate(todayLAStr)}
-                                className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded-md transition-colors shrink-0 cursor-pointer"
+                                onClick={() => setCardDisplayMode('basic')}
+                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
                             >
-                                {t('prep.today')}
+                                {t('prep.basicMode')}
                             </button>
-                        )}
-                    </div>
-
-                    {(() => {
-                        const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
-                        return (
-                            <select 
-                                value={storeId} 
-                                onChange={e => setStoreId(e.target.value)}
-                                disabled={!isSuper}
-                                className={`border-none rounded-lg p-2 font-bold focus:ring-2 focus:ring-red-500 outline-none relative z-50 ${!isSuper ? 'bg-slate-200 dark:bg-slate-900 text-slate-500 dark:text-slate-600 cursor-not-allowed' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer'}`}
+                            <button 
+                                onClick={() => setCardDisplayMode('advanced')}
+                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
                             >
-                                {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
-                        )
-                    })()}
-                    
-                    <button 
-                        onClick={() => setShowWasteModal(true)} 
-                        className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-red-900/20 cursor-pointer"
-                    >
-                        <TrendingDown size={16} />
-                        <span className="hidden sm:inline">{t('prep.wasteReportBtn')}</span>
-                    </button>
+                                {t('prep.advancedMode')}
+                            </button>
+                        </div>
 
-                    <a href="/inventory/preparador/bodega" target="_blank" className="flex items-center gap-2 bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-slate-900/20">
-                        <BellRing size={16} className="animate-pulse" />
-                        <span className="hidden sm:inline">{t('prep.openWarehouse')}</span>
-                    </a>
-                </div>
+                        {/* View Mode Switcher (30 Min vs Tramos) */}
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
+                            <button 
+                                onClick={() => setViewMode('30min')}
+                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === '30min' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                30 Min
+                            </button>
+                            <button 
+                                onClick={() => setViewMode('tramos')}
+                                className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${viewMode === 'tramos' ? 'bg-blue-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                Tramos
+                            </button>
+                        </div>
+
+                        {/* Date Picker Selector */}
+                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                            <Calendar size={18} className="text-blue-500 shrink-0" />
+                            <input 
+                                type="date" 
+                                value={selectedDate}
+                                max={todayLAStr}
+                                onChange={e => setSelectedDate(e.target.value)}
+                                className="bg-transparent font-bold text-sm text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+                            />
+                            {!isToday && (
+                                <button 
+                                    onClick={() => setSelectedDate(todayLAStr)}
+                                    className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded-md transition-colors shrink-0 cursor-pointer"
+                                >
+                                    {t('prep.today')}
+                                </button>
+                            )}
+                        </div>
+
+                        {(() => {
+                            const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
+                            return (
+                                <select 
+                                    value={storeId} 
+                                    onChange={e => setStoreId(e.target.value)}
+                                    disabled={!isSuper}
+                                    className={`border-none rounded-lg p-2 font-bold focus:ring-2 focus:ring-red-500 outline-none relative z-50 ${!isSuper ? 'bg-slate-200 dark:bg-slate-900 text-slate-500 dark:text-slate-600 cursor-not-allowed' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer'}`}
+                                >
+                                    {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            )
+                        })()}
+                        
+                        <button 
+                            onClick={() => setShowWasteModal(true)} 
+                            className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-red-900/20 cursor-pointer"
+                        >
+                            <TrendingDown size={16} />
+                            <span className="hidden sm:inline">{t('prep.wasteReportBtn')}</span>
+                        </button>
+
+                        <a href="/inventory/preparador/bodega" target="_blank" className="flex items-center gap-2 bg-slate-800 hover:bg-black text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-slate-900/20">
+                            <BellRing size={16} className="animate-pulse" />
+                            <span className="hidden sm:inline">{t('prep.openWarehouse')}</span>
+                        </a>
+                    </div>
+                )}
             </div>
 
             {/* Split Screen Container */}
