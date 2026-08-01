@@ -2049,6 +2049,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            selectDate: 'Seleccionar Fecha',
+            today: 'Hoy',
             accessDenied: '🚫 ACCESO DENEGADO',
             prepareNextBlock: '¡PREPARA EL SIGUIENTE BLOQUE!',
             nextSchedule: 'SIGUIENTE HORARIO:',
@@ -4350,6 +4352,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            selectDate: 'Select Date',
+            today: 'Today',
             accessDenied: '🚫 ACCESS DENIED',
             prepareNextBlock: 'PREPARE THE NEXT BLOCK!',
             nextSchedule: 'NEXT SCHEDULE:',

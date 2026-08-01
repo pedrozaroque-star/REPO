@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X } from 'lucide-react'
+import { AlertOctagon, CheckCircle2, Volume2, VolumeX, Store, Loader2, Play, Clock, Maximize, Minimize, HelpCircle, X, Calendar } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase-client'
 import { useAuth } from '@/components/ProtectedRoute'
+import { useLanguage } from '@/lib/i18n'
 
 interface PrepRequest {
     id: string
@@ -24,12 +25,26 @@ interface MeatData {
 
 export default function BodegaPWA() {
     const supabase = createClient()
+    const { t } = useLanguage()
 
     const [mounted, setMounted] = useState(false)
     const [systemStarted, setSystemStarted] = useState(false)
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
-    const [businessDow, setBusinessDow] = useState<number | null>(null)
+    
+    // Calendar Date Selector
+    const todayLAStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    const [selectedDate, setSelectedDate] = useState<string>(todayLAStr)
+
+    const getDowFromDate = (dateStr: string) => {
+        const [y, m, d] = dateStr.split('-').map(Number)
+        const dateObj = new Date(y, m - 1, d)
+        const dayNum = dateObj.getDay()
+        return dayNum === 0 ? 7 : dayNum
+    }
+
+    const businessDow = getDowFromDate(selectedDate)
+    const isToday = selectedDate === todayLAStr
     
     // Alarma
     const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -128,34 +143,9 @@ export default function BodegaPWA() {
         if (user !== undefined) fetchStores()
     }, [supabase, user])
 
-    // Track Business DOW dynamically (rolls over at 6:00 AM LA time)
-    useEffect(() => {
-        const updateBusinessDow = () => {
-            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-            const laDate = new Date(laTimeStr)
-            
-            // Regla de Tacos Gavilan: El día cambia a las 6:00 AM, no a la medianoche.
-            if (laDate.getHours() < 6) {
-                laDate.setDate(laDate.getDate() - 1)
-            }
-            
-            const dayNum = laDate.getDay() // 0 = Sunday
-            const currentDow = dayNum === 0 ? 7 : dayNum // 1-7 format mapping
-            
-            setBusinessDow(prev => {
-                if (prev !== currentDow) return currentDow
-                return prev
-            })
-        }
-        
-        updateBusinessDow()
-        const interval = setInterval(updateBusinessDow, 60000)
-        return () => clearInterval(interval)
-    }, [])
-
     // Load Meat Historial (Solo Cabeza y Lengua para la Bodega)
     useEffect(() => {
-        if (!storeId || businessDow === null) return
+        if (!storeId) return
         const fetchHistory = async () => {
             setFetchingMeat(true)
             try {
@@ -564,6 +554,26 @@ export default function BodegaPWA() {
                             </select>
                         )
                     })()}
+
+                    {/* Date Picker Selector */}
+                    <div className="flex items-center gap-2 bg-slate-800/80 p-1.5 rounded-lg border border-slate-700">
+                        <Calendar size={16} className="text-blue-400 shrink-0" />
+                        <input 
+                            type="date" 
+                            value={selectedDate}
+                            max={todayLAStr}
+                            onChange={e => setSelectedDate(e.target.value)}
+                            className="bg-transparent font-bold text-sm text-white outline-none cursor-pointer"
+                        />
+                        {!isToday && (
+                            <button 
+                                onClick={() => setSelectedDate(todayLAStr)}
+                                className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2 py-0.5 rounded transition-colors shrink-0 cursor-pointer"
+                            >
+                                {t('prep.today')}
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-4 md:gap-6 w-full md:w-auto justify-center md:justify-end">

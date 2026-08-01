@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/lib/i18n'
-import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown } from 'lucide-react'
+import { BellRing, ChefHat, Clock, AlertTriangle, Send, UtensilsCrossed, PackageOpen, X, Loader2, Play, Maximize, Minimize, HelpCircle, CheckCircle2, TrendingDown, Calendar } from 'lucide-react'
 import { useAuth } from '@/components/ProtectedRoute'
 import { createClient } from '@/lib/supabase-client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -35,7 +35,7 @@ const DESECHABLES = [
     'Platos sopes', 'Charolas rojas', 'Vasos 4oz', 'Vasos 8oz'
 ].map(n => ({ name: n, color: 'bg-slate-700 hover:bg-slate-800 text-white dark:bg-slate-800 dark:hover:bg-slate-700' }))
 
-export default function PreparadorLineaPage() {
+export default function PreparadorPage() {
     const { user, loading: authLoading } = useAuth()
     const { t } = useLanguage()
     const supabase = createClient()
@@ -43,7 +43,20 @@ export default function PreparadorLineaPage() {
     const [mounted, setMounted] = useState(false)
     const [stores, setStores] = useState<any[]>([])
     const [storeId, setStoreId] = useState('')
-    const [businessDow, setBusinessDow] = useState<number | null>(null)
+    
+    // Calendar Date Selector
+    const todayLAStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })
+    const [selectedDate, setSelectedDate] = useState<string>(todayLAStr)
+
+    const getDowFromDate = (dateStr: string) => {
+        const [y, m, d] = dateStr.split('-').map(Number)
+        const dateObj = new Date(y, m - 1, d)
+        const dayNum = dateObj.getDay()
+        return dayNum === 0 ? 7 : dayNum
+    }
+
+    const businessDow = getDowFromDate(selectedDate)
+    const isToday = selectedDate === todayLAStr
     
     // Meat Historial Data
     const [meatData, setMeatData] = useState<MeatData[]>([])
@@ -362,34 +375,9 @@ export default function PreparadorLineaPage() {
         if (user !== undefined) fetchStores()
     }, [supabase, user])
 
-    // Track Business DOW dynamically (rolls over at 6:00 AM LA time)
-    useEffect(() => {
-        const updateBusinessDow = () => {
-            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-            const laDate = new Date(laTimeStr)
-            
-            // Regla de Tacos Gavilan: El día cambia a las 6:00 AM, no a la medianoche.
-            if (laDate.getHours() < 6) {
-                laDate.setDate(laDate.getDate() - 1)
-            }
-            
-            const dayNum = laDate.getDay() // 0 = Sunday
-            const currentDow = dayNum === 0 ? 7 : dayNum // 1-7 format mapping
-            
-            setBusinessDow(prev => {
-                if (prev !== currentDow) return currentDow
-                return prev
-            })
-        }
-        
-        updateBusinessDow()
-        const interval = setInterval(updateBusinessDow, 60000)
-        return () => clearInterval(interval)
-    }, [])
-
     // Load Meat Historial
     useEffect(() => {
-        if (!storeId || businessDow === null) return
+        if (!storeId) return
         const fetchHistory = async () => {
             setFetchingMeat(true)
             try {
@@ -418,20 +406,15 @@ export default function PreparadorLineaPage() {
         fetchHistory()
     }, [storeId, businessDow])
 
-    // Load Real Meat Consumptions for TODAY
+    // Load Real Meat Consumptions (For TODAY or Selected Date)
     useEffect(() => {
         if (!storeId) return
         const fetchRealD = async () => {
-            const laTimeStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
-            const laDate = new Date(laTimeStr)
-            if (laDate.getHours() < 6) laDate.setDate(laDate.getDate() - 1)
-            const dStr = laDate.getFullYear() + '-' + String(laDate.getMonth() + 1).padStart(2, '0') + '-' + String(laDate.getDate()).padStart(2, '0')
-
             try {
                 const { data } = await supabase.from('meat_consumption_history')
                     .select('interval_start, meat_type, raw_lbs')
                     .eq('store_id', storeId)
-                    .eq('business_date', dStr)
+                    .eq('business_date', selectedDate)
                     
                 if (data) {
                     setRealMeatData(data.map(d => ({
@@ -439,31 +422,40 @@ export default function PreparadorLineaPage() {
                         meat_type: d.meat_type,
                         real_lbs: d.raw_lbs
                     })))
-                    localStorage.setItem(`prep_real_meat_${storeId}`, JSON.stringify(data))
+                    if (isToday) localStorage.setItem(`prep_real_meat_${storeId}`, JSON.stringify(data))
                 }
             } catch (err) {
                 console.error("Real meat fetch error:", err)
-                const cached = localStorage.getItem(`prep_real_meat_${storeId}`)
-                if (cached) {
-                    try {
-                        const data = JSON.parse(cached)
-                        setRealMeatData(data.map((d: any) => ({
-                            interval_start: d.interval_start,
-                            meat_type: d.meat_type,
-                            real_lbs: d.raw_lbs
-                        })))
-                    } catch (e) {}
+                if (isToday) {
+                    const cached = localStorage.getItem(`prep_real_meat_${storeId}`)
+                    if (cached) {
+                        try {
+                            const data = JSON.parse(cached)
+                            setRealMeatData(data.map((d: any) => ({
+                                interval_start: d.interval_start,
+                                meat_type: d.meat_type,
+                                real_lbs: d.raw_lbs
+                            })))
+                        } catch (e) {}
+                    }
                 }
             }
         }
         fetchRealD()
-        const int = setInterval(fetchRealD, 3 * 60 * 1000) // update every 3m
-        return () => clearInterval(int)
-    }, [storeId, supabase])
+        if (isToday) {
+            const int = setInterval(fetchRealD, 3 * 60 * 1000)
+            return () => clearInterval(int)
+        }
+    }, [storeId, selectedDate, isToday, supabase])
 
-    // Intelligence Fetcher (Opción 2 - Proyección Dinámica viva)
+    // Intelligence Fetcher (Only active for TODAY)
     useEffect(() => {
         if (!storeId) return
+        if (!isToday) {
+            setIntelligenceAcelerador(1.0)
+            setWeatherAlert(false)
+            return
+        }
         const fetchIntelligence = async () => {
             try {
                 const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}&_t=${Date.now()}`, { cache: 'no-store' })
@@ -755,6 +747,26 @@ export default function PreparadorLineaPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* Date Picker Selector */}
+                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                        <Calendar size={18} className="text-blue-500 shrink-0" />
+                        <input 
+                            type="date" 
+                            value={selectedDate}
+                            max={todayLAStr}
+                            onChange={e => setSelectedDate(e.target.value)}
+                            className="bg-transparent font-bold text-sm text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+                        />
+                        {!isToday && (
+                            <button 
+                                onClick={() => setSelectedDate(todayLAStr)}
+                                className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1 rounded-md transition-colors shrink-0 cursor-pointer"
+                            >
+                                {t('prep.today')}
+                            </button>
+                        )}
+                    </div>
+
                     {(() => {
                         const isSuper = ['admin', 'supervisor'].includes(user?.role?.toLowerCase() || '')
                         return (
