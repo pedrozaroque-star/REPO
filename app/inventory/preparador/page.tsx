@@ -1315,42 +1315,42 @@ export default function PreparadorPage() {
                             animate={{ scale: 1, opacity: 1 }} 
                             exit={{ scale: 0.95, opacity: 0 }} 
                             onClick={e => e.stopPropagation()}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
+                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl w-full max-w-6xl max-h-[94vh] h-[92vh] flex flex-col shadow-2xl overflow-hidden"
                         >
                             {/* Modal Header */}
-                            <div className="p-4 md:p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950/50 shrink-0">
+                            <div className="p-4 md:p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950/50 shrink-0">
                                 <div>
-                                    <h3 className="font-black text-slate-800 dark:text-white text-base md:text-xl flex items-center gap-2">
+                                    <h3 className="font-black text-slate-800 dark:text-white text-lg md:text-2xl flex items-center gap-2">
                                         <span>📖</span>
                                         <span>{t('prep.guideModalTitle')}</span>
                                     </h3>
-                                    <p className="text-xs text-slate-500 font-bold mt-0.5">Control de Ritmo & Máximos Sugeridos en Charola (8:00 AM – Cierre)</p>
+                                    <p className="text-xs md:text-sm text-slate-500 font-bold mt-1">Control de Ritmo & Máximos Sugeridos en Charola (8:00 AM – Cierre)</p>
                                 </div>
                                 <button 
                                     onClick={() => setShowGuideModal(false)} 
-                                    className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 transition-colors cursor-pointer"
+                                    className="p-2.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full text-slate-500 transition-colors cursor-pointer"
                                 >
-                                    <X size={20} />
+                                    <X size={24} />
                                 </button>
                             </div>
 
                             {/* Modal Body Scrollable */}
                             <div className="p-4 md:p-6 overflow-y-auto space-y-6 flex-1">
                                 {/* Operational Guide Summary */}
-                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3 shadow-xs">
-                                    <h4 className="font-black text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 md:p-5 space-y-3 shadow-xs">
+                                    <h4 className="font-black text-slate-900 dark:text-white text-sm md:text-base flex items-center gap-2">
                                         <span>💡</span> Guía Operativa para Taqueros y Cocineros
                                     </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 text-xs md:text-sm">
+                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                                             <span className="font-black text-slate-900 dark:text-white block mb-1">1. PROYECCIÓN (Proy)</span>
                                             <p className="text-slate-600 dark:text-slate-400 font-medium">Consumo estimado de carne cruda para ese bloque de 30 minutos según el historial de 3 meses.</p>
                                         </div>
-                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                                             <span className="font-black text-slate-900 dark:text-white block mb-1">2. MÁX. CHAROLA (Límite)</span>
                                             <p className="text-slate-600 dark:text-slate-400 font-medium">Cantidad máxima recomendada de carne cocinada que debe haber en la charola a la vez.</p>
                                         </div>
-                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 md:p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                                             <span className="font-black text-slate-900 dark:text-white block mb-1">3. BENEFICIO CALIDAD</span>
                                             <p className="text-slate-600 dark:text-slate-400 font-medium">Garantiza carne siempre jugosa, caliente y recién hecha sin acumular carne seca ni mermas.</p>
                                         </div>
@@ -1373,7 +1373,7 @@ export default function PreparadorPage() {
                                             <button 
                                                 key={item.dow}
                                                 onClick={() => setGuideModalDow(item.dow)}
-                                                className={`px-4 py-2 rounded-xl font-black text-xs md:text-sm whitespace-nowrap transition-all duration-200 cursor-pointer ${guideModalDow === item.dow ? 'bg-red-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200'}`}
+                                                className={`px-4 md:px-6 py-2.5 rounded-xl font-black text-xs md:text-sm whitespace-nowrap transition-all duration-200 cursor-pointer ${guideModalDow === item.dow ? 'bg-red-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200'}`}
                                             >
                                                 {item.name}
                                             </button>
@@ -1383,16 +1383,16 @@ export default function PreparadorPage() {
 
                                 {/* Table */}
                                 <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
-                                    <div className="overflow-x-auto max-h-[45vh]">
-                                        <table className="w-full text-left text-xs">
+                                    <div className="overflow-x-auto max-h-[55vh] md:max-h-[60vh]">
+                                        <table className="w-full text-left text-xs md:text-sm">
                                             <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-extrabold uppercase sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800">
                                                 <tr>
-                                                    <th className="p-3 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">Hora</th>
-                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🥩 Asada</th>
-                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🌮 Pastor</th>
-                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🍗 Pollo</th>
-                                                    <th className="p-3 text-slate-800 dark:text-slate-200">🐮 Cabeza</th>
-                                                    <th className="p-3 text-slate-800 dark:text-slate-200">👅 Lengua</th>
+                                                    <th className="p-3.5 md:p-4 sticky left-0 bg-slate-100 dark:bg-slate-950 z-40 border-r border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">Hora</th>
+                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🥩 Asada</th>
+                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🌮 Pastor</th>
+                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🍗 Pollo</th>
+                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">🐮 Cabeza</th>
+                                                    <th className="p-3.5 md:p-4 text-slate-800 dark:text-slate-200">👅 Lengua</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-semibold">
