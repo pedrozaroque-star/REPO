@@ -888,11 +888,13 @@ export default function PreparadorLineaPage() {
                                                             
                                                             <div className="flex w-full items-center justify-center gap-4">
                                                                 {/* Projected Column (lbs/hr) */}
-                                                                <div className={`flex flex-col items-center justify-center leading-none transition-all duration-300 ${realValPerHour !== undefined ? 'opacity-40 scale-90' : 'opacity-100'}`}>
-                                                                    <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-800 dark:text-white'}`}>
+                                                                <div className="flex flex-col items-center justify-center leading-none">
+                                                                    <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
                                                                         {valPerHour.toFixed(1)}
                                                                     </span>
-                                                                    <span className="text-[10px] md:text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider mt-2 bg-white/50 dark:bg-slate-800/50 px-2 py-0.5 rounded-md">lbs/hr (total: {totalVal.toFixed(1)} lbs)</span>
+                                                                    <span className="text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-2 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
+                                                                        lbs/hr (total: {totalVal.toFixed(1)} lbs)
+                                                                    </span>
                                                                 </div>
                                                                 
                                                                 {/* Real Consumed Column */}
@@ -900,17 +902,17 @@ export default function PreparadorLineaPage() {
                                                                     <>
                                                                         <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
                                                                         <div className="flex flex-col items-center justify-center leading-none">
-                                                                            <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl animate-pulse' : 'text-3xl xl:text-4xl animate-pulse'}`}>
+                                                                            <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl' : 'text-3xl xl:text-4xl'}`}>
                                                                                 {realValPerHour.toFixed(1)}
                                                                             </span>
-                                                                            <span className="text-[10px] md:text-xs font-bold text-emerald-700 dark:text-emerald-500 tracking-wider mt-2 bg-emerald-500/10 px-2 py-0.5 rounded-md">{t('prep.real')}/hr</span>
+                                                                            <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">{t('prep.real')}/hr</span>
                                                                         </div>
                                                                     </>
                                                                 ) : (activeIndex < currentBucketIndex) && (
                                                                     <>
                                                                         <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
                                                                         <div className="flex flex-col items-center justify-center leading-none">
-                                                                            <span className="text-[10px] md:text-xs font-bold text-amber-600 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
+                                                                            <span className="text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
                                                                                 {t('prep.syncing')}
                                                                             </span>
                                                                         </div>
