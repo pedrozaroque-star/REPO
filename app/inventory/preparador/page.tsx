@@ -393,7 +393,7 @@ export default function PreparadorLineaPage() {
         const fetchHistory = async () => {
             setFetchingMeat(true)
             try {
-                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}`)
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
                 const json = await res.json()
                 if (Array.isArray(json)) {
                     // @businessRule: Solo se proyectan carnes de PARRILLA que necesitan anticipación.
@@ -466,7 +466,7 @@ export default function PreparadorLineaPage() {
         if (!storeId) return
         const fetchIntelligence = async () => {
             try {
-                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}`)
+                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}&_t=${Date.now()}`, { cache: 'no-store' })
                 if (res.ok) {
                     const data = await res.json()
                     setIntelligenceAcelerador(data.growth_factor || 1.0)
@@ -486,7 +486,7 @@ export default function PreparadorLineaPage() {
             }
         }
         fetchIntelligence()
-        const int = setInterval(fetchIntelligence, 30 * 60 * 1000)
+        const int = setInterval(fetchIntelligence, 3 * 60 * 1000) // Refrescar acelerador vivo cada 3 minutos
         return () => clearInterval(int)
     }, [storeId])
 

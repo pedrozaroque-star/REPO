@@ -1152,6 +1152,10 @@ const dictionaries: Record<Language, Dictionary> = {
             no_discounts: 'No hay descuentos en este período',
             loading: 'Cargando descuentos...',
             search_placeholder: 'Buscar empleado o descuento...',
+            double_discounts: 'Detector de Doble Descuento',
+            double_discounts_subtitle: 'Órdenes con 2 o más TIPOS DIFERENTES de descuento combinados en el mismo ticket (ej. Employee + Cash Reward)',
+            stacked_warning: 'Doble Descuento Detectado',
+            mixed_stacking: 'Descuentos Combinados (Tipos Distintos)',
         },
         // TV MENUS
         tv_menus_page: {
@@ -3449,6 +3453,10 @@ const dictionaries: Record<Language, Dictionary> = {
             no_discounts: 'No discounts in this period',
             loading: 'Loading discounts...',
             search_placeholder: 'Search employee or discount...',
+            double_discounts: 'Double Discount Detector',
+            double_discounts_subtitle: 'Orders with 2 or more DIFFERENT discount types combined on the same ticket (e.g. Employee + Cash Reward)',
+            stacked_warning: 'Double Discount Detected',
+            mixed_stacking: 'Combined Discounts (Multiple Types)',
         },
         // TV MENUS
         tv_menus_page: {

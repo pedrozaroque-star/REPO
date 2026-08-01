@@ -255,16 +255,33 @@ async function syncDiscountsForDate(dateStr: string) {
                         // Si matemáticamente no hubo diferencia entre el cobro y el precio real, no hay descuentos reales.
                         if (totalRealDiscount < 0.01) return;
                         
-                        // Nivel Check
+                        // Nivel Check: Deduplicar y desestimar descuentos sobrescritos/reemplazados en Toast POS
                         if (check.appliedDiscounts) {
-                            check.appliedDiscounts.forEach((disc: any) => {
-                                if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return;
-                                if (Number(disc.discountAmount||0) > 0 && Number(disc.discountAmount||0) <= totalRealDiscount + 0.05) {
-                                    allDiscountsToInsert.push({
-                                        store_id: storeId, store_name: storeName, business_date: dateStr, discount_name: disc.name || 'Unknown', discount_amount: Number(disc.discountAmount), approver_name: buildName(disc.approver, serverNameOrder), server_name: serverNameOrder, order_id: String(order.guid || order.id || 'N/A'), check_id: String(check.displayNumber || order.displayNumber || check.guid || check.id || 'N/A'), opened_date: openedDate
-                                    })
+                            const validCheckDiscounts = check.appliedDiscounts
+                                .filter((disc: any) => {
+                                    if (disc.voided || disc.deleted || disc.state === 'VOIDED' || disc.state === 'REMOVED' || disc.applied === false) return false;
+                                    return Number(disc.discountAmount || 0) > 0;
+                                })
+                                .sort((a: any, b: any) => Number(b.discountAmount || 0) - Number(a.discountAmount || 0));
+
+                            let checkDiscountSum = 0;
+                            const seenAmounts = new Set<number>();
+
+                            validCheckDiscounts.forEach((disc: any) => {
+                                const amt = Number(disc.discountAmount || 0);
+                                // Si el monto individual equivale al total real del ticket y ya registramos una regla con ese mismo monto exacto, es un duplicado fantasma en la API de Toast
+                                if (Math.abs(amt - totalRealDiscount) < 0.05 && seenAmounts.has(amt)) {
+                                    return;
                                 }
-                            })
+                                // Filtro Matemático Estricto: La suma acumulada NO puede superar el descuento real en dinero cobrado
+                                if (checkDiscountSum + amt <= totalRealDiscount + 0.05) {
+                                    checkDiscountSum += amt;
+                                    seenAmounts.add(amt);
+                                    allDiscountsToInsert.push({
+                                        store_id: storeId, store_name: storeName, business_date: dateStr, discount_name: disc.name || 'Unknown', discount_amount: amt, approver_name: buildName(disc.approver, serverNameOrder), server_name: serverNameOrder, order_id: String(order.guid || order.id || 'N/A'), check_id: String(check.displayNumber || order.displayNumber || check.guid || check.id || 'N/A'), opened_date: openedDate
+                                    });
+                                }
+                            });
                         }
                         // Nivel Platillo (ITEM) - LOS SENIORS
                         if (check.selections) {

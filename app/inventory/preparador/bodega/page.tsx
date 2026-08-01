@@ -159,7 +159,7 @@ export default function BodegaPWA() {
         const fetchHistory = async () => {
             setFetchingMeat(true)
             try {
-                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}`)
+                const res = await fetch(`/api/inventory/preparador-history?storeId=${storeId}&dow=${businessDow}&_t=${Date.now()}`, { cache: 'no-store' })
                 const json = await res.json()
                 if (Array.isArray(json)) {
                     // Pre-filtro: La bodega proyecta Lentos y Bebidas (se requirió remover CAFE)
@@ -184,7 +184,7 @@ export default function BodegaPWA() {
         if (!storeId) return;
         const fetchIntelligence = async () => {
             try {
-                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}`)
+                const res = await fetch(`/api/preparador/intelligence?store_id=${storeId}&_t=${Date.now()}`, { cache: 'no-store' })
                 const data = await res.json()
                 if (data && data.growth_factor) {
                     setIntelligenceAcelerador(data.growth_factor)
@@ -198,8 +198,8 @@ export default function BodegaPWA() {
         }
         
         fetchIntelligence()
-        // Refrescar factores cada 30 minutos
-        const int = setInterval(fetchIntelligence, 1800000)
+        // Refrescar factores cada 3 minutos en tiempo real
+        const int = setInterval(fetchIntelligence, 3 * 60 * 1000)
         return () => clearInterval(int)
     }, [storeId])
 

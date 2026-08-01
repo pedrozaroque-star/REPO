@@ -255,31 +255,43 @@ export async function GET(request: NextRequest) {
 
             let skipModCostCalculation = false;
 
-            // --- HEURISTIC RECIPE GENERATOR FOR PARTY TRAYS ---
+            // --- HEURISTIC RECIPE GENERATOR FOR PARTY TRAYS & FIESTA PLATTERS ---
             const parentNameLower = item.name.toLowerCase();
-            const isPartyTray15 = parentNameLower.includes('15') && parentNameLower.includes('20') && parentNameLower.includes('people');
-            const isPartyTray20 = parentNameLower.includes('20') && parentNameLower.includes('25') && parentNameLower.includes('people');
-            const isPartyTray25 = parentNameLower.includes('25') && parentNameLower.includes('30') && parentNameLower.includes('people');
-            const isPartyTray30 = parentNameLower.includes('30') && parentNameLower.includes('40') && parentNameLower.includes('people');
-            const isPartyTray = isPartyTray15 || isPartyTray20 || isPartyTray25 || isPartyTray30;
+            const hasPartyTrayKeywords = parentNameLower.includes('party tray') || 
+                                         parentNameLower.includes('fiesta platter') || 
+                                         parentNameLower.includes('people');
+            
+            const isPartyTray15Name = (parentNameLower.includes('15') && parentNameLower.includes('20')) || parentNameLower.includes('15-20') || parentNameLower.includes('15 - 20');
+            const isPartyTray20Name = (parentNameLower.includes('20') && parentNameLower.includes('25')) || parentNameLower.includes('20-25') || parentNameLower.includes('20 - 25');
+            const isPartyTray25Name = (parentNameLower.includes('25') && parentNameLower.includes('30')) || parentNameLower.includes('25-30') || parentNameLower.includes('25 - 30');
+            const isPartyTray30Name = (parentNameLower.includes('30') && parentNameLower.includes('40')) || parentNameLower.includes('30-40') || parentNameLower.includes('30 - 40');
+            
+            const isPartyTray = hasPartyTrayKeywords || isPartyTray15Name || isPartyTray20Name || isPartyTray25Name || isPartyTray30Name;
 
             if (isPartyTray) {
                     let meatLbs = 6; let riceLbs = 3; let beanLbs = 3; let salsaR = 12; let salsaV = 12;
                     let onionLimonPts = 16; let jalapenoOz = 8; let plates = 30; let forks = 15; let spoons = 15;
                     let cups = 20; let napkins = 1; let cornPk = 2; let flourPk = 5; let aguaGals = 3;
 
-                    if (isPartyTray20) {
-                        meatLbs = 7.5; riceLbs = 4; beanLbs = 4; salsaR = 16; salsaV = 16;
-                        onionLimonPts = 20; jalapenoOz = 12; plates = 35; forks = 15; spoons = 15;
-                        cups = 25; napkins = 1; cornPk = 3; flourPk = 7; aguaGals = 4;
+                    // Calculate unit price to handle Grubhub/Delivery items like "Fiesta Platters ($240.99)" missing "20-25 People" in name
+                    const unitPrice = (item.price && item.price > 0) ? item.price : ((item.quantity && item.quantity > 0) ? (item.net_sales / item.quantity) : 0);
+
+                    const isPartyTray30 = isPartyTray30Name || unitPrice >= 310;
+                    const isPartyTray25 = !isPartyTray30 && (isPartyTray25Name || unitPrice >= 265);
+                    const isPartyTray20 = !isPartyTray30 && !isPartyTray25 && (isPartyTray20Name || unitPrice >= 220);
+
+                    if (isPartyTray30) {
+                        meatLbs = 12; riceLbs = 10; beanLbs = 10; salsaR = 24; salsaV = 24;
+                        onionLimonPts = 30; jalapenoOz = 20; plates = 50; forks = 25; spoons = 25;
+                        cups = 40; napkins = 3; cornPk = 5; flourPk = 12; aguaGals = 6;
                     } else if (isPartyTray25) {
                         meatLbs = 10; riceLbs = 6; beanLbs = 6; salsaR = 20; salsaV = 20;
                         onionLimonPts = 20; jalapenoOz = 16; plates = 40; forks = 20; spoons = 20;
                         cups = 30; napkins = 2; cornPk = 4; flourPk = 9; aguaGals = 5;
-                    } else if (isPartyTray30) {
-                        meatLbs = 12; riceLbs = 10; beanLbs = 10; salsaR = 24; salsaV = 24;
-                        onionLimonPts = 30; jalapenoOz = 20; plates = 50; forks = 25; spoons = 25;
-                        cups = 40; napkins = 3; cornPk = 5; flourPk = 12; aguaGals = 6;
+                    } else if (isPartyTray20) {
+                        meatLbs = 7.5; riceLbs = 4; beanLbs = 4; salsaR = 16; salsaV = 16;
+                        onionLimonPts = 20; jalapenoOz = 12; plates = 35; forks = 15; spoons = 15;
+                        cups = 25; napkins = 1; cornPk = 3; flourPk = 7; aguaGals = 4;
                     }
 
                     const virtualIngredients: any[] = [];

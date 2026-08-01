@@ -53,20 +53,20 @@ export async function GET(request: NextRequest) {
             curDateObj.setDate(curDateObj.getDate() + 1)
         }
 
-        // Loop over the dates
-        for (const dateStr of datesToFetch) {
+        // Fetch all dates concurrently in parallel for maximum speed
+        await Promise.all(datesToFetch.map(async (dateStr) => {
             let page = 1
             const pageSize = 100
             let hasMore = true
             const formattedDate = dateStr.split('-').join('')
 
-            while (hasMore) {
+            while (hasMore && tickets.length < 250) {
                 const url = new URL(`${TOAST_API_HOST}/orders/v2/ordersBulk`)
                 url.searchParams.append('businessDate', formattedDate)
                 url.searchParams.append('pageSize', String(pageSize))
                 url.searchParams.append('page', String(page))
-                // Request enough fields to reconstruct the full name including modifiers
-                url.searchParams.append('fields', 'id,openedDate,checks.selections.price,checks.selections.item,checks.selections.quantity,checks.selections.voided,checks.selections.displayName,checks.selections.modifiers,diningOption')
+                // Request guid, openedDate, checks with guid & displayNumber, selections with item & modifiers
+                url.searchParams.append('fields', 'guid,openedDate,checks.guid,checks.displayNumber,checks.selections.price,checks.selections.item,checks.selections.quantity,checks.selections.voided,checks.selections.displayName,checks.selections.modifiers,diningOption')
 
                 const res = await fetch(url.toString(), {
                     headers: {
@@ -91,7 +91,8 @@ export async function GET(request: NextRequest) {
                 }
 
                 entries.forEach((order: any) => {
-                    if (order.voided) return
+                    const orderGuid = order.guid || order.id
+                    if (order.voided || !orderGuid) return
 
                     order.checks?.forEach((check: any) => {
                         if (check.voided) return
@@ -112,9 +113,35 @@ export async function GET(request: NextRequest) {
                                     }
                                 }
 
-                                // Skip if the reconstructed name doesn't match the exact product variation the user clicked on
-                                if (targetName && reconstructedName !== targetName) {
-                                    return
+                                // Tag employee/discount variations if present on order or check
+                                const allDiscs = [
+                                    ...(order.appliedDiscounts || []),
+                                    ...(check.appliedDiscounts || []),
+                                    ...(sel.appliedDiscounts || [])
+                                ]
+                                const hasEmpDisc = allDiscs.some((d: any) => /emp|emplead|discount|descuento|100%|50%/i.test(d.name || d.discountName || ''))
+
+                                if (hasEmpDisc && !reconstructedName.toLowerCase().includes('emplea')) {
+                                    if (reconstructedName.includes('(')) {
+                                        reconstructedName = reconstructedName.replace(')', ', Empleada)')
+                                    } else {
+                                        reconstructedName += ' (Empleada)'
+                                    }
+                                }
+
+                                // Target name variation filter: if user clicked a specific variant like "Burrito Asada (Empleada)" or "Burrito Asada (Con cebolla)"
+                                if (targetName) {
+                                    const normTarget = targetName.trim().toLowerCase()
+                                    const normRecon = reconstructedName.trim().toLowerCase()
+                                    const isEmpTarget = normTarget.includes('emplea') || normTarget.includes('emp')
+
+                                    if (isEmpTarget && !hasEmpDisc && !normRecon.includes('emplea')) {
+                                        return
+                                    }
+
+                                    if (!isEmpTarget && normTarget.includes('(') && normRecon !== normTarget) {
+                                        return
+                                    }
                                 }
 
                                 // Group validation
@@ -126,7 +153,7 @@ export async function GET(request: NextRequest) {
                                     curGroupName = order.diningOption.name
                                 }
 
-                                if (!targetGroupName || targetGroupName === 'All Channels' || curGroupName?.toLowerCase().includes(targetGroupName.toLowerCase()) || targetGroupName.toLowerCase().includes(curGroupName?.toLowerCase())) {
+                                if (!targetGroupName || targetGroupName === 'All Channels' || curGroupName === 'Uncategorized' || curGroupName?.toLowerCase().includes(targetGroupName.toLowerCase()) || targetGroupName.toLowerCase().includes(curGroupName?.toLowerCase())) {
                                     
                                     // Parse LA time
                                     let timeStr = order.openedDate
@@ -144,10 +171,15 @@ export async function GET(request: NextRequest) {
                                         } catch (e) { }
                                     }
 
+                                    const rawTicketId = check?.displayNumber || check?.guid?.slice(0, 8) || orderGuid.slice(0, 8);
+
                                     tickets.push({
                                         date: timeStr,
-                                        orderNumber: order.id,
+                                        orderId: orderGuid, // Strictly set to order.guid UUID for Toast Order Detail lookup
+                                        checkId: String(rawTicketId),
+                                        orderNumber: `#${rawTicketId}`,
                                         quantity: sel.quantity || 1,
+                                        diningOption: curGroupName
                                     })
                                 }
                             }
@@ -157,14 +189,25 @@ export async function GET(request: NextRequest) {
 
                 if (entries.length < pageSize) hasMore = false
                 else page++
-
-                // Hard cap at 500 records to prevent browser crash, we just want to prove it exists
-                if (tickets.length >= 250) {
-                    hasMore = false
-                    break
-                }
             }
-            if (tickets.length >= 250) break
+        }))
+
+        const targetQuantityParam = searchParams.get('quantity')
+        const targetQuantity = targetQuantityParam ? parseInt(targetQuantityParam, 10) : null
+
+        // If a targetQuantity parameter was passed (e.g. quantity = 5 or quantity = 1), limit returned tickets so that sum(quantity) matches targetQuantity
+        if (targetQuantity && targetQuantity > 0 && tickets.length > 0) {
+            tickets.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            let currentSum = 0
+            const matchedTickets: any[] = []
+            for (const t of tickets) {
+                if (currentSum >= targetQuantity) break
+                matchedTickets.push(t)
+                currentSum += (t.quantity || 1)
+            }
+            return NextResponse.json({
+                tickets: matchedTickets
+            })
         }
 
         // Return up to 250 tickets so we don't crash

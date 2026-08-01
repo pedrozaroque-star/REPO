@@ -1,3 +1,16 @@
+/**
+ * @module AuditoriaDescuentos
+ * @description Módulo de auditoría forense de descuentos P.O.S. (Toast API). Permite analizar micro-descuentos, detectar anomalías de cajeros, patrones de riesgo y visualizar recibos de órdenes.
+ * @businessRules
+ * - El día laboral del restaurante inicia a las 6:00 AM y termina a las 5:59 AM del día siguiente.
+ * - Los descuentos auditados provienen de Toast y se sincronizan en Supabase `sales_discounts_log`.
+ * - Muestra desglose por cajero, sucursal, tipo de descuento e integraciones de entrega.
+ * @dataFlow Supabase `sales_discounts_log` & `stores` → AuditoriaDescuentos UI → Toast Order Detail API (/api/toast-order-detail)
+ * @notes
+ * - Solucionado timeout de Postgres 57014 ordenando consultas por `business_date` y realizando peticiones paralelas por día.
+ * - Carga la lista completa de sucursales desde la tabla `stores` al inicio para mantener consistente el filtro de tiendas.
+ */
+
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -40,18 +53,48 @@ export default function AuditoriaDescuentos() {
     const [startDate, setStartDate] = useState(() => {
         if (urlParams.get('startDate')) return urlParams.get('startDate')!
         const d = new Date()
+        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
         d.setDate(d.getDate() - 1)
-        return d.toISOString().split('T')[0]
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${y}-${m}-${day}`
     })
     const [endDate, setEndDate] = useState(() => {
         if (urlParams.get('endDate')) return urlParams.get('endDate')!
         const d = new Date()
+        if (d.getHours() < 6) d.setDate(d.getDate() - 1)
         d.setDate(d.getDate() - 1)
-        return d.toISOString().split('T')[0]
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        return `${y}-${m}-${day}`
     })
     const [storeFilter, setStoreFilter] = useState('all')
 
     const [uniqueStores, setUniqueStores] = useState<string[]>([])
+
+    // Cargar la lista completa de sucursales al montar el componente
+    useEffect(() => {
+        const fetchStores = async () => {
+            try {
+                const { data } = await supabase.from('stores').select('name').order('name')
+                if (data && data.length > 0) {
+                    const names = data.map(s => s.name).filter(Boolean)
+                    setUniqueStores(names)
+                } else {
+                    setUniqueStores([
+                        'Azusa', 'Bell', 'Downey', 'Hollywood', 'Huntington Park', 
+                        'LA Broadway', 'LA Central', 'La Puente', 'Lynwood', 
+                        'Norwalk', 'Rialto', 'Santa Ana', 'Slauson', 'South Gate', 'West Covina'
+                    ])
+                }
+            } catch (err) {
+                console.error('Error fetching stores:', err)
+            }
+        }
+        fetchStores()
+    }, [])
 
     const shiftDate = (days: number) => {
         const [sYear, sMonth, sDay] = startDate.split('-').map(Number);
@@ -79,99 +122,80 @@ export default function AuditoriaDescuentos() {
 
     useEffect(() => {
         fetchDiscounts()
-    }, [period, startDate, endDate, storeFilter])
+    }, [startDate, endDate, storeFilter])
 
     const fetchDiscounts = async () => {
         setLoading(true)
         try {
-            // 1. Resolve exact dates based on period
-            const now = new Date()
-            if (now.getHours() < 6) now.setDate(now.getDate() - 1)
-            const today = now
+            const computedStart = startDate
+            const computedEnd = endDate
 
-            let start = new Date(today)
-            let end = new Date(today)
+            if (!computedStart || !computedEnd) return
 
-            if (period === 'custom' || period === 'last_week' || period === 'last_7' || period === 'last_month') {
-                const s = new Date(startDate + 'T00:00:00')
-                const e = new Date(endDate + 'T00:00:00')
-                start = s
-                end = e
-            } else if (period === 'today') {
-                start = today
-                end = today
-            } else if (period === 'yesterday') {
-                const y = new Date(today)
-                y.setDate(y.getDate() - 1)
-                start = y
-                end = y
-            } else if (period === 'week') {
-                const day = today.getDay()
-                const diff = today.getDate() - day + (day === 0 ? -6 : 1)
-                start = new Date(today.setDate(diff))
-                end = new Date()
-            } else if (period === 'month') {
-                start = new Date(today.getFullYear(), today.getMonth(), 1)
-            } else if (period === 'quarter') {
-                const quarterAgo = new Date(today)
-                quarterAgo.setDate(quarterAgo.getDate() - 90)
-                start = quarterAgo
-            }
+            let allData: DiscountRow[] = []
 
-            const formatDate = (d: Date) => {
-                const year = d.getFullYear()
-                const month = String(d.getMonth() + 1).padStart(2, '0')
-                const day = String(d.getDate()).padStart(2, '0')
-                return `${year}-${month}-${day}`
-            }
-
-            const computedStart = formatDate(start);
-            const computedEnd = formatDate(end);
-
-            // Sync state so the UI calendar matches the actual fetched data
-            if (computedStart !== startDate) setStartDate(computedStart);
-            if (computedEnd !== endDate) setEndDate(computedEnd);
-
-            // 2. Fetch Data
-            let allData: any[] = [];
-            let from = 0;
-            const pageSize = 1000;
-            let hasMore = true;
-
-            while (hasMore) {
-                let query = supabase.from('sales_discounts_log').select('*')
-                
-                if (computedStart === computedEnd) {
-                    query = query.eq('business_date', computedStart)
-                } else {
-                    query = query.gte('business_date', computedStart).lte('business_date', computedEnd)
+            if (computedStart === computedEnd) {
+                // Consulta para un solo día (súper rápida, sin order('id') para evitar timeouts de Postgres)
+                let from = 0
+                const pageSize = 1000
+                let hasMore = true
+                while (hasMore) {
+                    let query = supabase.from('sales_discounts_log').select('*').eq('business_date', computedStart)
+                    if (storeFilter !== 'all') {
+                        query = query.eq('store_name', storeFilter)
+                    }
+                    const { data, error } = await query.range(from, from + pageSize - 1)
+                    if (error) throw error
+                    if (data) allData = [...allData, ...data]
+                    if (!data || data.length < pageSize) hasMore = false
+                    else from += pageSize
                 }
+            } else {
+                // Consulta por lotes de 3 días en rangos multidía (evita timeouts de Postgres y saturación de PostgREST)
+                const dateList: string[] = []
+                const [sY, sM, sD] = computedStart.split('-').map(Number)
+                const [eY, eM, eD] = computedEnd.split('-').map(Number)
+                const s = new Date(sY, sM - 1, sD)
+                const e = new Date(eY, eM - 1, eD)
                 
-                if (storeFilter !== 'all') {
-                    query = query.eq('store_name', storeFilter)
+                for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+                    const y = d.getFullYear()
+                    const m = String(d.getMonth() + 1).padStart(2, '0')
+                    const day = String(d.getDate()).padStart(2, '0')
+                    dateList.push(`${y}-${m}-${day}`)
                 }
 
-                // Es CRÍTICO ordenar para que la paginación de PostgREST sea predecible y no devuelva duplicados entre chunks.
-                const { data, error } = await query.order('id', { ascending: true }).range(from, from + pageSize - 1)
-                
-                if (error) throw error
-                if (data) {
-                    allData = [...allData, ...data];
-                }
-                
-                if (!data || data.length < pageSize) {
-                    hasMore = false;
-                } else {
-                    from += pageSize;
+                // Máximo 90 días por seguridad
+                const safeDates = dateList.slice(0, 90)
+
+                const batchSize = 3
+                for (let i = 0; i < safeDates.length; i += batchSize) {
+                    const batchDates = safeDates.slice(i, i + batchSize)
+                    const batchPromises = batchDates.map(async (dStr) => {
+                        let dayData: DiscountRow[] = []
+                        let from = 0
+                        const pageSize = 1000
+                        let hasMore = true
+                        while (hasMore) {
+                            let query = supabase.from('sales_discounts_log').select('*').eq('business_date', dStr)
+                            if (storeFilter !== 'all') {
+                                query = query.eq('store_name', storeFilter)
+                            }
+                            const { data, error } = await query.range(from, from + pageSize - 1)
+                            if (error) break
+                            if (data) dayData = [...dayData, ...data]
+                            if (!data || data.length < pageSize) hasMore = false
+                            else from += pageSize
+                        }
+                        return dayData
+                    })
+
+                    const batchResults = await Promise.all(batchPromises)
+                    allData = [...allData, ...batchResults.flat()]
                 }
             }
             
             setDiscounts(allData)
-            
-            if (storeFilter === 'all') {
-                const stores = Array.from(new Set((allData || []).map(d => d.store_name))).sort()
-                setUniqueStores(stores)
-            }
             
         } catch (error: any) {
             console.error("Error fetching discounts:", error?.message || error?.details || error)
@@ -193,104 +217,102 @@ export default function AuditoriaDescuentos() {
     useEffect(() => {
         const fetchRisks = async () => {
             setRiskAlerts(prev => ({...prev, loading: true}));
-            const d = new Date();
-            const eDate = d.toISOString().split('T')[0];
-            d.setDate(d.getDate() - 15);
-            // Fetch day by day in parallel to avoid Postgres statement timeouts
-            // Massive date range queries with order('id') cause full sorts and timeouts.
-            const fetchDay = async (dateStr: string) => {
-                let dayRisks: any[] = [];
-                let from = 0;
-                const pageSize = 1000;
-                let hasMore = true;
-
-                while (hasMore) {
-                    const { data, error } = await supabase.from('sales_discounts_log')
-                        .select('*')
-                        .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
-                        .eq('business_date', dateStr)
-                        .order('id', { ascending: true })
-                        .range(from, from + pageSize - 1);
-                    
-                    if (error) {
-                        console.error(`Error crítico fetching Radar para ${dateStr}:`, error?.message || error?.details || JSON.stringify(error));
-                        break;
-                    }
-                    if (data) dayRisks = [...dayRisks, ...data];
-                    if (!data || data.length < pageSize) {
-                        hasMore = false;
-                    } else {
-                        from += pageSize;
-                    }
-                }
-                return dayRisks;
-            };
-
-            // Generar los últimos 15 días (incluyendo hoy)
+            
             const promises = [];
             for (let i = 0; i <= 15; i++) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
-                const dateStr = d.toISOString().split('T')[0];
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const dateStr = `${y}-${m}-${day}`;
+                
+                const fetchDay = async (date: string) => {
+                    let dayRisks: any[] = [];
+                    let from = 0;
+                    const pageSize = 1000;
+                    let hasMore = true;
+
+                    while (hasMore) {
+                        const { data, error } = await supabase.from('sales_discounts_log')
+                            .select('store_name, discount_name, discount_amount, approver_name, server_name')
+                            .in('discount_name', ['First Responder Discount', 'Employee Discount', 'Senior Discount', 'Senior'])
+                            .eq('business_date', date)
+                            .range(from, from + pageSize - 1);
+                        
+                        if (error) {
+                            console.error(`Error Radar ${date}:`, error?.message);
+                            break;
+                        }
+                        if (data) dayRisks = [...dayRisks, ...data];
+                        if (!data || data.length < pageSize) hasMore = false;
+                        else from += pageSize;
+                    }
+                    return dayRisks;
+                };
+                
                 promises.push(fetchDay(dateStr));
             }
 
-            const results = await Promise.all(promises);
-            const allRisks = results.flat();
+            try {
+                const results = await Promise.all(promises);
+                const allRisks = results.flat();
 
-            // Agrupar por cajero
-            const grouped = allRisks.reduce((acc, curr) => {
-                const emp = curr.approver_name || curr.server_name || 'Autoservicio';
-                if (!acc[emp]) acc[emp] = { firstResponderTotal: 0, employeeTotal: 0, seniorTotal: 0, stores: {} };
-                
-                if (curr.discount_name === 'First Responder Discount') {
-                    acc[emp].firstResponderTotal += Number(curr.discount_amount);
-                } else if (curr.discount_name === 'Employee Discount') {
-                    acc[emp].employeeTotal += Number(curr.discount_amount);
-                } else if (curr.discount_name === 'Senior Discount' || curr.discount_name === 'Senior') {
-                    acc[emp].seniorTotal += Number(curr.discount_amount);
-                }
-
-                if (!acc[emp].stores[curr.store_name]) acc[emp].stores[curr.store_name] = 0;
-                acc[emp].stores[curr.store_name] += Number(curr.discount_amount);
-                
-                return acc;
-            }, {} as Record<string, any>);
-
-            const structured = Object.entries(grouped)
-                .map(([emp, vals]: [string, any]) => {
-                    const topStore = Object.entries(vals.stores).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || 'Desconocida';
+                const grouped = allRisks.reduce((acc, curr) => {
+                    const emp = curr.approver_name || curr.server_name || 'Autoservicio';
+                    if (!acc[emp]) acc[emp] = { firstResponderTotal: 0, employeeTotal: 0, seniorTotal: 0, stores: {} };
                     
-                    let cause = "Investigar patrón";
-                    const fr = vals.firstResponderTotal;
-                    const em = vals.employeeTotal;
-                    const sen = vals.seniorTotal;
+                    if (curr.discount_name === 'First Responder Discount') {
+                        acc[emp].firstResponderTotal += Number(curr.discount_amount);
+                    } else if (curr.discount_name === 'Employee Discount') {
+                        acc[emp].employeeTotal += Number(curr.discount_amount);
+                    } else if (curr.discount_name === 'Senior Discount' || curr.discount_name === 'Senior') {
+                        acc[emp].seniorTotal += Number(curr.discount_amount);
+                    }
 
-                    const maxAmt = Math.max(fr, em, sen);
+                    if (!acc[emp].stores[curr.store_name]) acc[emp].stores[curr.store_name] = 0;
+                    acc[emp].stores[curr.store_name] += Number(curr.discount_amount);
+                    
+                    return acc;
+                }, {} as Record<string, any>);
 
-                    if (maxAmt === fr && fr > 50) cause = "Posible colusión en First Responder";
-                    else if (maxAmt === em && em > 50) cause = "Posible abuso de Privilegio Interno";
-                    else if (maxAmt === sen && sen > 50) cause = "Abuso de Descuento Senior (Falsos Mayores)";
-                    else if ((fr > 0 && em > 0) || (sen > 0 && em > 0)) cause = "Patrón mixto altamente atípico";
-                    else cause = "Volumen sospechoso general";
+                const structured = Object.entries(grouped)
+                    .map(([emp, vals]: [string, any]) => {
+                        const topStore = Object.entries(vals.stores).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || 'Desconocida';
+                        
+                        let cause = "Investigar patrón";
+                        const fr = vals.firstResponderTotal;
+                        const em = vals.employeeTotal;
+                        const sen = vals.seniorTotal;
 
-                    return {
-                        employee: emp,
-                        highestStore: topStore,
-                        firstResponderTotal: vals.firstResponderTotal,
-                        employeeTotal: vals.employeeTotal,
-                        seniorTotal: vals.seniorTotal,
-                        totalRisk: vals.firstResponderTotal + vals.employeeTotal + vals.seniorTotal,
-                        probableCause: cause
-                    };
-                })
-                .filter(r => r.totalRisk > 30) // Escudo de validación: Ignorar riesgos menores a $30
-                .sort((a, b) => b.totalRisk - a.totalRisk)
-                .slice(0, 5); // Solo el Top 5 Empleados de riesgo
+                        const maxAmt = Math.max(fr, em, sen);
 
-            setRiskAlerts({ loading: false, data: structured });
-            // Auto-show wizard on first load once data is ready
-            setShowWizard(true);
+                        if (maxAmt === fr && fr > 50) cause = "Posible colusión en First Responder";
+                        else if (maxAmt === em && em > 50) cause = "Posible abuso de Privilegio Interno";
+                        else if (maxAmt === sen && sen > 50) cause = "Abuso de Descuento Senior (Falsos Mayores)";
+                        else if ((fr > 0 && em > 0) || (sen > 0 && em > 0)) cause = "Patrón mixto altamente atípico";
+                        else cause = "Volumen sospechoso general";
+
+                        return {
+                            employee: emp,
+                            highestStore: topStore,
+                            firstResponderTotal: vals.firstResponderTotal,
+                            employeeTotal: vals.employeeTotal,
+                            seniorTotal: vals.seniorTotal,
+                            totalRisk: vals.firstResponderTotal + vals.employeeTotal + vals.seniorTotal,
+                            probableCause: cause
+                        };
+                    })
+                    .filter(r => r.totalRisk > 30)
+                    .sort((a, b) => b.totalRisk - a.totalRisk)
+                    .slice(0, 5);
+
+                setRiskAlerts({ loading: false, data: structured });
+                setShowWizard(true);
+            } catch (err) {
+                console.error('Error fetching risk radar:', err);
+                setRiskAlerts({ loading: false, data: [] });
+            }
         };
         fetchRisks();
     }, []);
@@ -388,6 +410,58 @@ export default function AuditoriaDescuentos() {
         return acc
     }, {} as Record<string, { totalCount: number, totalAmount: number, stores: Set<string>, breakdowns: Record<string, {count: number, amount: number}> }>)
     const employeeTable = Object.entries(summaryByEmployee).sort((a, b) => b[1].totalAmount - a[1].totalAmount)
+
+    // Detector de Doble Descuento (Órdenes con 2+ descuentos en el mismo ticket)
+    const groupedByCheck = discounts.reduce((acc, curr) => {
+        const checkKey = curr.order_id && curr.order_id !== 'N/A' 
+            ? `${curr.store_name}_${curr.business_date}_${curr.order_id}`
+            : `${curr.store_name}_${curr.business_date}_check_${curr.check_id}`;
+
+        if (!acc[checkKey]) {
+            acc[checkKey] = {
+                order_id: curr.order_id,
+                check_id: curr.check_id,
+                store_name: curr.store_name,
+                store_id: curr.store_id,
+                business_date: curr.business_date,
+                opened_date: curr.opened_date,
+                cashier: curr.approver_name || curr.server_name || 'Autoservicio',
+                discounts: [] as DiscountRow[],
+                totalAmount: 0
+            }
+        }
+        acc[checkKey].discounts.push(curr)
+        acc[checkKey].totalAmount += Number(curr.discount_amount)
+        return acc
+    }, {} as Record<string, {
+        order_id?: string
+        check_id?: string
+        store_name: string
+        store_id: string
+        business_date: string
+        opened_date: string
+        cashier: string
+        discounts: DiscountRow[]
+        totalAmount: number
+    }>)
+
+    const doubleDiscountTickets = Object.values(groupedByCheck)
+        .map(ticket => {
+            const types = Array.from(new Set(ticket.discounts.map(d => d.discount_name)))
+            const amounts = ticket.discounts.map(d => Number(d.discount_amount))
+            
+            // Duplicado Fantasma: 2 o más tipos distintos pero con el mismo monto idéntico (ej: $9.93 y $9.93)
+            const isGhostDuplicate = types.length > 1 && amounts.length > 1 && amounts.every(a => Math.abs(a - amounts[0]) < 0.01)
+
+            return {
+                ...ticket,
+                types,
+                isGhostDuplicate,
+                isMixed: types.length > 1
+            }
+        })
+        .filter(ticket => ticket.types.length > 1 && !ticket.isGhostDuplicate)
+        .sort((a, b) => b.totalAmount - a.totalAmount)
 
     // Gráfico: Impacto por Sucursal
     const storeImpactData = Object.entries(seniors.reduce((acc, curr) => {
@@ -859,6 +933,104 @@ export default function AuditoriaDescuentos() {
                             </div>
                         </div>
 
+                        {/* ----------------- DETECTOR DE DOBLE DESCUENTO ----------------- */}
+                        <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-black/5 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col mt-6">
+                            <div className="p-5 border-b border-black/5 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-red-500/10 to-transparent flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-red-500 text-white rounded-xl shadow-md shadow-red-500/20">
+                                        <ShieldAlert className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                                            {t('descuentos.double_discounts')}
+                                            <span className="text-xs bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 font-bold px-2.5 py-0.5 rounded-full border border-red-200 dark:border-red-500/30">
+                                                {doubleDiscountTickets.length} {doubleDiscountTickets.length === 1 ? 'Orden Detectada' : 'Órdenes Detectadas'}
+                                            </span>
+                                        </h3>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">{t('descuentos.double_discounts_subtitle')}</p>
+                                    </div>
+                                </div>
+                                {doubleDiscountTickets.length > 0 && (
+                                    <div className="text-xs font-bold bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 px-3 py-1.5 rounded-xl border border-red-200 dark:border-red-900/50">
+                                        Acumulado Doble: ${doubleDiscountTickets.reduce((sum, item) => sum + item.totalAmount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="overflow-x-auto max-h-[450px] custom-scrollbar">
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50/80 dark:bg-slate-900/80 border-b border-slate-100 dark:border-slate-800 sticky top-0 backdrop-blur-md z-10">
+                                        <tr>
+                                            <th className="px-5 py-3 font-semibold">Ticket / Orden</th>
+                                            <th className="px-5 py-3 font-semibold">Sucursal & Fecha</th>
+                                            <th className="px-5 py-3 font-semibold">Cajero(a)</th>
+                                            <th className="px-5 py-3 font-semibold">Descuentos Aplicados</th>
+                                            <th className="px-5 py-3 font-semibold">Estado de Riesgo</th>
+                                            <th className="px-5 py-3 font-semibold text-right">Descuento Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                        {doubleDiscountTickets.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={6} className="px-5 py-8 text-center text-slate-400 text-sm">
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        <span className="text-2xl">✅</span>
+                                                        <span className="font-bold text-slate-600 dark:text-slate-300">No se detectaron órdenes con doble descuento (tipos combinados) en este período.</span>
+                                                        <span className="text-xs text-slate-400">Los descuentos individuales por platillo (ej. Taco Tuesday) son legítimos y no combinan reglas distintas.</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            doubleDiscountTickets.map((ticket, idx) => (
+                                                <tr key={idx} className="hover:bg-red-50/50 dark:hover:bg-red-950/20 transition-colors group">
+                                                    <td className="px-5 py-3 font-bold">
+                                                        <button 
+                                                            className="hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-400/10 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-amber-300 transition-all font-mono text-sky-600 dark:text-sky-400 text-xs flex items-center gap-1 cursor-pointer"
+                                                            onClick={() => {
+                                                                if (ticket.order_id === 'N/A' || !ticket.order_id) return alert('No hay ID interno para jalar esta orden.');
+                                                                setOrderDetailData({ loading: true, checkId: ticket.check_id, storeName: ticket.store_name, cajeraName: ticket.cashier });
+                                                                fetch(`/api/toast-order-detail?guid=${ticket.order_id}&storeId=${ticket.store_id}`)
+                                                                    .then(res => res.json())
+                                                                    .then(data => {
+                                                                        if(data.error) setOrderDetailData(prev => prev ? { ...prev, loading: false, error: data.error } : null);
+                                                                        else setOrderDetailData(prev => prev ? { ...prev, loading: false, data: data.order } : null);
+                                                                    })
+                                                                    .catch(err => setOrderDetailData(prev => prev ? { ...prev, loading: false, error: err.message } : null));
+                                                            }}
+                                                        >
+                                                            #{ticket.check_id || 'N/A'}
+                                                        </button>
+                                                    </td>
+                                                    <td className="px-5 py-3">
+                                                        <div className="font-bold text-slate-800 dark:text-slate-200 text-xs">{ticket.store_name}</div>
+                                                        <div className="text-[10px] font-mono text-slate-400">{ticket.business_date}</div>
+                                                    </td>
+                                                    <td className="px-5 py-3 text-slate-700 dark:text-slate-300 text-xs font-semibold">{ticket.cashier}</td>
+                                                    <td className="px-5 py-3">
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {ticket.discounts.map((d, i) => (
+                                                                <span key={i} className="text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                                                                    {d.discount_name}: <span className="text-amber-600 dark:text-amber-400">${Number(d.discount_amount).toFixed(2)}</span>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-5 py-3">
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border border-red-200 dark:border-red-500/30">
+                                                            🚨 {t('descuentos.mixed_stacking')}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-5 py-3 text-right font-mono font-black text-red-600 dark:text-red-400 text-base">
+                                                        ${ticket.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                     </div>
                 )}
 
@@ -999,13 +1171,40 @@ export default function AuditoriaDescuentos() {
                                                         </div>
                                                     )
                                                 })}
-                                                {/* Mostrar descuentos a nivel ticket solo como referencia visual, pero NO sumarlos al total porque Toast ya los prorrateó en los items */}
-                                                {check.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false).map((d:any, j:number) => (
-                                                    <div key={`chk-${j}`} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
-                                                        <span>REFERENCIA TICKET: {d.name}</span>
-                                                        <span>(-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
-                                                    </div>
-                                                ))}
+                                                {/* Mostrar descuentos a nivel ticket filtrando duplicados y reglas reemplazadas en POS */}
+                                                {(() => {
+                                                    const rawDiscounts = check.appliedDiscounts?.filter((d:any)=> !d.deleted && !d.voided && d.state !== 'VOIDED' && d.state !== 'REMOVED' && d.applied !== false) || [];
+                                                    const sorted = [...rawDiscounts].sort((a,b) => Number(b.discountAmount || 0) - Number(a.discountAmount || 0));
+                                                    
+                                                    const subtotalBruto = check.selections?.filter((s:any)=> !s.deleted && !s.voided).reduce((sum: number, sel: any) => {
+                                                        const qty = sel.quantity || 1;
+                                                        const unitPrice = Number(sel.receiptLinePrice || (Number(sel.price) / qty) || 0);
+                                                        return sum + (unitPrice * qty);
+                                                    }, 0) || 0;
+                                                    const subtotalNeto = Number(check.amount || 0);
+                                                    const totalRealDiscount = Math.max(0, subtotalBruto - subtotalNeto);
+
+                                                    let checkDiscountSum = 0;
+                                                    const seenAmts = new Set<number>();
+                                                    const validDisplayDiscounts = sorted.filter((d:any) => {
+                                                        const amt = Number(d.discountAmount || 0);
+                                                        if (amt <= 0) return false;
+                                                        if (Math.abs(amt - totalRealDiscount) < 0.05 && seenAmts.has(amt)) return false;
+                                                        if (checkDiscountSum + amt <= totalRealDiscount + 0.05) {
+                                                            checkDiscountSum += amt;
+                                                            seenAmts.add(amt);
+                                                            return true;
+                                                        }
+                                                        return false;
+                                                    });
+
+                                                    return validDisplayDiscounts.map((d:any, j:number) => (
+                                                        <div key={`chk-${j}`} className="flex justify-between items-start text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-500/10 p-1 -mx-1 rounded">
+                                                            <span>REFERENCIA TICKET: {d.name}</span>
+                                                            <span>(-${Number(d.discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                                                        </div>
+                                                    ));
+                                                })()}
                                             </div>
                                         ))}
                                     </div>
@@ -1119,6 +1318,14 @@ export default function AuditoriaDescuentos() {
                                     <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
                                         <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm mb-1">4. Verificación de Cámara Integral</h4>
                                         <p className="text-xs text-slate-500 dark:text-slate-400">Haz clic en cualquier celda para ver el Check ID. Cruza esa <b>identificación de ticket y la hora exacta</b> con tus grabaciones de seguridad. Comprueba si de verdad había un oficial u anciano elegible.</p>
+                                    </div>
+                                    <div className="bg-red-50 dark:bg-red-950/30 p-4 rounded-xl border border-red-200 dark:border-red-900/50">
+                                        <h4 className="font-bold text-red-700 dark:text-red-400 text-sm mb-1 flex items-center gap-1.5">
+                                            <span>🚨 5. Doble Descuento en la Misma Orden (Stacked Discounts)</span>
+                                        </h4>
+                                        <p className="text-xs text-slate-600 dark:text-slate-300">
+                                            Un cajero aplica múltiples descuentos al mismo ticket (por ejemplo en <b>Lynwood Orden #940</b> con <em>Employee Discount</em> + <em>Cash Reward</em>). Revisa la nueva sección <b>Detector de Doble Descuento</b> para auditar el recibo completo.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
