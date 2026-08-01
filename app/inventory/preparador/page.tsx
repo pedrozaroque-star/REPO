@@ -545,6 +545,19 @@ export default function PreparadorLineaPage() {
                 let endLabel = formatTime12(period.endH, 0)
                 let label = `${startLabel} a ${endLabel}`
                 
+                let isCurrent = isHourInPeriod(h, period.startH, period.endH)
+                if (isCurrent) foundCurrentIndex = idx
+
+                // Calculate elapsed hours for current in-progress period vs completed periods
+                let elapsedHours = period.duration
+                if (isCurrent) {
+                    let startMins = period.startH * 60
+                    let curMins = h * 60 + m
+                    if (curMins < startMins) curMins += 24 * 60
+                    let diffMins = Math.max(15, curMins - startMins)
+                    elapsedHours = Math.min(period.duration, diffMins / 60)
+                }
+                
                 let data: any[] = []
                 if (meatData.length > 0) {
                     const sortOrder: Record<string, number> = { 'ASADA': 1, 'PASTOR': 2, 'POLLO': 3, 'CABEZA': 4, 'LENGUA': 5, 'CARNITAS': 6 }
@@ -581,14 +594,12 @@ export default function PreparadorLineaPage() {
                             meat_type: proto,
                             avg_lbs: totalAvg,
                             duration: period.duration,
+                            elapsed_hours: elapsedHours,
                             samples: totalSamples,
                             real_lbs: hasReal ? totalRealSum : undefined
                         }
                     }).sort((a,b) => (sortOrder[a.meat_type] || 99) - (sortOrder[b.meat_type] || 99))
                 }
-
-                let isCurrent = isHourInPeriod(h, period.startH, period.endH)
-                if (isCurrent) foundCurrentIndex = idx
 
                 arr.push({ id: period.id, name: period.name, isPeak: period.isPeak, duration: period.duration, label, isCurrent, data })
             })
@@ -880,7 +891,7 @@ export default function PreparadorLineaPage() {
                                                 {bucket.data.length > 0 ? bucket.data.map((m: any) => {
                                                     const valPerHour = (m.avg_lbs * intelligenceAcelerador) / (m.duration || 1)
                                                     const totalVal = m.avg_lbs * intelligenceAcelerador
-                                                    const realValPerHour = m.real_lbs !== undefined ? m.real_lbs / (m.duration || 1) : undefined
+                                                    const realValPerHour = m.real_lbs !== undefined ? m.real_lbs / (m.elapsed_hours || m.duration || 1) : undefined
 
                                                     return (
                                                         <div key={m.meat_type} className={`bg-white/60 dark:bg-slate-900/60 p-3 xl:p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm w-full ${m.meat_type === 'ASADA' ? 'col-span-2 shadow-md border border-blue-200/50 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/30 py-4 xl:py-6' : 'border border-slate-100 dark:border-slate-800 py-4 xl:py-5'}`}>
@@ -905,7 +916,7 @@ export default function PreparadorLineaPage() {
                                                                             <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl' : 'text-3xl xl:text-4xl'}`}>
                                                                                 {realValPerHour.toFixed(1)}
                                                                             </span>
-                                                                            <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">{t('prep.real')}/hr</span>
+                                                                            <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">{t('prep.real')}/hr (total: {m.real_lbs.toFixed(1)} lbs)</span>
                                                                         </div>
                                                                     </>
                                                                 ) : (activeIndex < currentBucketIndex) && (
