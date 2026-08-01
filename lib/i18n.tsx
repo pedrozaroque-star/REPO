@@ -2049,6 +2049,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            basicMode: 'Básica',
+            advancedMode: 'Avanzada',
             viewGuide: 'VER GUÍA',
             guideModalTitle: '📖 Guía Operativa y Tabla de Máximos en Charola',
             maxTray: 'Máx. Charola',
@@ -4356,6 +4358,8 @@ const dictionaries: Record<Language, Dictionary> = {
         },
         // PREPARADOR (PREP LINE)
         prep: {
+            basicMode: 'Basic',
+            advancedMode: 'Advanced',
             viewGuide: 'VIEW GUIDE',
             guideModalTitle: '📖 Operational Guide & Max Tray Table',
             maxTray: 'Max Tray',

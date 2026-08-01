@@ -58,6 +58,7 @@ export default function PreparadorPage() {
     const businessDow = getDowFromDate(selectedDate)
     const isToday = selectedDate === todayLAStr
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
+    const [cardDisplayMode, setCardDisplayMode] = useState<'basic' | 'advanced'>('basic')
     
     // Guide Modal State
     const [showGuideModal, setShowGuideModal] = useState(false)
@@ -840,6 +841,22 @@ export default function PreparadorPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* Card Display Mode Switcher (Básica vs Avanzada) */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
+                        <button 
+                            onClick={() => setCardDisplayMode('basic')}
+                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                        >
+                            {t('prep.basicMode')}
+                        </button>
+                        <button 
+                            onClick={() => setCardDisplayMode('advanced')}
+                            className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                        >
+                            {t('prep.advancedMode')}
+                        </button>
+                    </div>
+
                     {/* View Mode Switcher (30 Min vs Tramos) */}
                     <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-xs">
                         <button 
@@ -1027,47 +1044,66 @@ export default function PreparadorPage() {
                                                                 <span className={`uppercase tracking-widest text-slate-600 dark:text-slate-300 ${m.meat_type === 'ASADA' ? 'text-lg md:text-2xl font-black text-blue-800 dark:text-blue-300' : 'text-base md:text-xl font-black'}`}>{m.meat_type}</span>
                                                             </div>
                                                             
-                                                            <div className="flex w-full items-center justify-center gap-4">
-                                                                {/* Projected Column */}
-                                                                <div className="flex flex-col items-center justify-center leading-none">
-                                                                    <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
-                                                                        {displayVal.toFixed(1)}
-                                                                    </span>
-                                                                    <span className="text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-2 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
-                                                                        {viewMode === '30min' ? `lbs (proy: ${m.avg_lbs.toFixed(1)})` : `lbs/hr (total: ${projectedLbs.toFixed(1)} lbs)`}
-                                                                    </span>
+                                                            {cardDisplayMode === 'basic' ? (
+                                                                /* Modo Básico: Ultra-Simple (Solo Nombre + Máximo de Libras para Charola) */
+                                                                <div className="flex flex-col items-center justify-center py-2">
+                                                                    <div className="flex items-baseline gap-1 my-1">
+                                                                        <span className={`font-black tracking-tighter leading-none text-slate-900 dark:text-white ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-7xl text-blue-700 dark:text-blue-400' : 'text-5xl xl:text-6xl'}`}>
+                                                                            {maxTrayLbs}
+                                                                        </span>
+                                                                        <span className="text-xl md:text-2xl font-bold text-slate-500">lbs</span>
+                                                                    </div>
+                                                                    <div className="mt-2 flex items-center gap-1 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-3 py-1 rounded-full text-amber-900 dark:text-amber-200 text-xs font-black shadow-xs">
+                                                                        <span>🔥</span>
+                                                                        <span>{t('prep.maxTray')}</span>
+                                                                    </div>
                                                                 </div>
-                                                                
-                                                                {/* Real Consumed Column */}
-                                                                {realVal !== undefined ? (
-                                                                    <>
-                                                                        <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                            ) : (
+                                                                /* Modo Avanzado: Vista Completa con Proyección, Real y Máximo */
+                                                                <>
+                                                                    <div className="flex w-full items-center justify-center gap-4">
+                                                                        {/* Projected Column */}
                                                                         <div className="flex flex-col items-center justify-center leading-none">
-                                                                            <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl' : 'text-3xl xl:text-4xl'}`}>
-                                                                                {realVal.toFixed(1)}
+                                                                            <span className={`font-black tracking-tighter leading-none ${m.meat_type === 'ASADA' ? 'text-5xl xl:text-6xl text-blue-700 dark:text-blue-400 drop-shadow-sm' : 'text-4xl xl:text-5xl text-slate-900 dark:text-white'}`}>
+                                                                                {displayVal.toFixed(1)}
                                                                             </span>
-                                                                            <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
-                                                                                {viewMode === '30min' ? `${t('prep.real')} lbs` : `${t('prep.real')}/hr (total: ${m.real_lbs.toFixed(1)} lbs)`}
+                                                                            <span className="text-xs md:text-sm font-extrabold text-slate-700 dark:text-slate-200 tracking-wider mt-2 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200/80 dark:border-slate-700 shadow-sm">
+                                                                                {viewMode === '30min' ? `lbs (proy: ${m.avg_lbs.toFixed(1)})` : `lbs/hr (total: ${projectedLbs.toFixed(1)} lbs)`}
                                                                             </span>
                                                                         </div>
-                                                                    </>
-                                                                ) : (activeIndex < currentBucketIndex) && (
-                                                                    <>
-                                                                        <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
-                                                                        <div className="flex flex-col items-center justify-center leading-none">
-                                                                            <span className="text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
-                                                                                {t('prep.syncing')}
-                                                                            </span>
-                                                                        </div>
-                                                                    </>
-                                                                )}
-                                                            </div>
+                                                                        
+                                                                        {/* Real Consumed Column */}
+                                                                        {realVal !== undefined ? (
+                                                                            <>
+                                                                                <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                                <div className="flex flex-col items-center justify-center leading-none">
+                                                                                    <span className={`font-black tracking-tighter leading-none text-emerald-600 dark:text-emerald-400 ${m.meat_type === 'ASADA' ? 'text-4xl xl:text-5xl' : 'text-3xl xl:text-4xl'}`}>
+                                                                                        {realVal.toFixed(1)}
+                                                                                    </span>
+                                                                                    <span className="text-xs md:text-sm font-extrabold text-emerald-800 dark:text-emerald-300 tracking-wider mt-2 bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700">
+                                                                                        {viewMode === '30min' ? `${t('prep.real')} lbs` : `${t('prep.real')}/hr (total: ${m.real_lbs.toFixed(1)} lbs)`}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </>
+                                                                        ) : (activeIndex < currentBucketIndex) && (
+                                                                            <>
+                                                                                <div className="h-16 w-px bg-slate-300/50 dark:bg-slate-700/50"></div>
+                                                                                <div className="flex flex-col items-center justify-center leading-none">
+                                                                                    <span className="text-xs font-extrabold text-amber-700 dark:text-amber-400 tracking-wide mt-2 bg-amber-500/10 px-2 py-1 rounded-md animate-pulse">
+                                                                                        {t('prep.syncing')}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
 
-                                                            {/* Max Holding Tray Buffer Badge */}
-                                                            <div className="mt-3 flex items-center gap-1.5 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-3 py-1 rounded-full text-amber-900 dark:text-amber-200 text-xs font-black shadow-xs">
-                                                                <span>🔥</span>
-                                                                <span>{t('prep.maxTray')}: {maxTrayLbs} lbs</span>
-                                                            </div>
+                                                                    {/* Max Holding Tray Buffer Badge */}
+                                                                    <div className="mt-3 flex items-center gap-1.5 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-3 py-1 rounded-full text-amber-900 dark:text-amber-200 text-xs font-black shadow-xs">
+                                                                        <span>🔥</span>
+                                                                        <span>{t('prep.maxTray')}: {maxTrayLbs} lbs</span>
+                                                                    </div>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     )
                                                 }) : <p className="col-span-2 text-center text-sm font-medium text-slate-400 py-6 opacity-70">{t('prep.noProjectionData')}</p>}

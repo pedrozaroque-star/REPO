@@ -46,6 +46,7 @@ export default function BodegaPWA() {
     const businessDow = getDowFromDate(selectedDate)
     const isToday = selectedDate === todayLAStr
     const [viewMode, setViewMode] = useState<'30min' | 'tramos'>('30min')
+    const [cardDisplayMode, setCardDisplayMode] = useState<'basic' | 'advanced'>('basic')
     
     // Alarma
     const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -597,6 +598,22 @@ export default function BodegaPWA() {
                         )
                     })()}
 
+                    {/* Card Display Mode Switcher (Básica vs Avanzada) */}
+                    <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700 font-bold text-xs">
+                        <button 
+                            onClick={() => setCardDisplayMode('basic')}
+                            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'basic' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            {t('prep.basicMode')}
+                        </button>
+                        <button 
+                            onClick={() => setCardDisplayMode('advanced')}
+                            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${cardDisplayMode === 'advanced' ? 'bg-emerald-600 text-white shadow-sm font-black' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            {t('prep.advancedMode')}
+                        </button>
+                    </div>
+
                     {/* View Mode Switcher (30 Min vs Tramos) */}
                     <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-700 font-bold text-xs">
                         <button 
@@ -771,12 +788,23 @@ export default function BodegaPWA() {
                                                                 typeLab = 'ARROZ';
                                                             }
 
+                                                            const maxVal = Math.max(1, Math.ceil(val))
+
                                                             return (
                                                             <div key={m.meat_type} className={`rounded-xl md:rounded-2xl flex flex-col items-center justify-center border shadow-md ${isTop ? 'bg-slate-950/50 p-3 md:p-5 border-slate-700/50' : 'bg-slate-950/30 p-2 md:p-4 border-slate-800'}`}>
                                                                 <span className={`font-black uppercase tracking-widest mb-1 md:mb-2 text-center leading-none ${isTop ? 'text-[10px] xl:text-sm text-slate-400' : 'text-[9px] md:text-xs text-slate-600'}`}>{typeLab}</span>
-                                                                <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
-                                                                    {val.toFixed(1)} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
-                                                                </span>
+                                                                {cardDisplayMode === 'basic' ? (
+                                                                    <div className="flex flex-col items-center justify-center">
+                                                                        <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
+                                                                            {maxVal} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
+                                                                        </span>
+                                                                        <span className="text-[10px] text-amber-400 font-bold mt-1">🔥 {t('prep.maxTray')}</span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
+                                                                        {val.toFixed(1)} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         )};
 
