@@ -798,7 +798,6 @@ export default function BodegaPWA() {
                                                                         <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>
                                                                             {maxVal} <span className={`font-medium opacity-50 ${isTop ? 'text-xs xl:text-base text-slate-500' : 'text-[10px] md:text-xs text-slate-600'}`}>{unitLab}</span>
                                                                         </span>
-                                                                        <span className="text-[10px] text-amber-400 font-bold mt-1">🔥 {t('prep.maxTray')}</span>
                                                                     </div>
                                                                 ) : (
                                                                     <span className={`font-black tracking-tighter flex items-baseline gap-1 ${isTop ? 'text-3xl xl:text-5xl text-white' : 'text-xl md:text-2xl text-slate-400'}`}>

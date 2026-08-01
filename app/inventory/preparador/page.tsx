@@ -1047,17 +1047,13 @@ export default function PreparadorPage() {
                                                             </div>
                                                             
                                                             {cardDisplayMode === 'basic' ? (
-                                                                /* Modo Básico: Ultra-Simple (Solo Nombre + Máximo de Libras para Charola) */
+                                                                /* Modo Básico: Ultra-Simple (Solo Nombre + Máximo de Libras) */
                                                                 <div className="flex flex-col items-center justify-center py-2">
                                                                     <div className="flex items-baseline gap-1 my-1">
                                                                         <span className={`font-black tracking-tighter leading-none text-slate-900 dark:text-white ${m.meat_type === 'ASADA' ? 'text-6xl xl:text-7xl text-blue-700 dark:text-blue-400' : 'text-5xl xl:text-6xl'}`}>
                                                                             {maxTrayLbs}
                                                                         </span>
                                                                         <span className="text-xl md:text-2xl font-bold text-slate-500">lbs</span>
-                                                                    </div>
-                                                                    <div className="mt-2 flex items-center gap-1 bg-amber-500/10 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-700/80 px-3 py-1 rounded-full text-amber-900 dark:text-amber-200 text-xs font-black shadow-xs">
-                                                                        <span>🔥</span>
-                                                                        <span>{t('prep.maxTray')}</span>
                                                                     </div>
                                                                 </div>
                                                             ) : (
